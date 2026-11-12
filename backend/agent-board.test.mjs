@@ -22,6 +22,7 @@ import { evaluateLayer } from "../engine/animation.js";
 import { BEAT_ANALYSIS_VERSION } from "../engine/beatDetection.js";
 import { SONG_SHAPE_VERSION } from "./song-shape.mjs";
 import { referenceHelp } from "./agent/blocks.mjs";
+import { boardBuildOps } from "./agent/board-build.mjs";
 import { estimateTextTokens } from "./meter.mjs";
 import { ffmpeg, run, skipWithoutMediaTools, startTestServer, withoutNext } from "./media.test.support.mjs";
 
@@ -225,6 +226,21 @@ test("the shots cover the music when there is a music layer, else the whole vide
   const byId = await editBoard("board-song", [motion(0, 2.5), motion(2.5, 2.5)], { music: song.id });
   assert.equal(byId.isError, undefined, byId.text);
   assert.equal((await record("board-song")).document.scenes[0].layers.filter((layer) => layer.type === "audio").length, 1, "the same song reuses its layer");
+  // On a briefed video whose board stop waits, the board op with a song by its src is the board,
+  // not a build, even when fit_music places the song and fades it: it saves (run dm2-a answered
+  // board_needed "save the storyboard" four times). The song's measured shape: a drop at 4 s.
+  const tone = path.join(folder, "drop.wav");
+  await run(ffmpeg, ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=262:sample_rate=44100:duration=12", "-ac", "1", tone]);
+  const drop = await upload(server, tone, "audio/wav");
+  const dropFile = path.join(server.dataDirectory, "media", path.basename(drop.src));
+  await writeFile(`${dropFile}.song`, JSON.stringify({ version: SONG_SHAPE_VERSION, seconds: 12, whole: true, sections: [{ at: 0, kind: "intro" }, { at: 4, kind: "drop", weight: 1 }], seams: [], bars: null }));
+  await writeFile(`${dropFile}.beats`, JSON.stringify({ version: BEAT_ANALYSIS_VERSION, duration: 12, bpm: 120, period: 0.5, beats: Array.from({ length: 24 }, (_, index) => index * 0.5), onsets: [] }));
+  await stopProject("board-song-stop");
+  const briefed = await editBoard("board-song-stop", [footage(0, 1.25, 0, 20), footage(1.25, 2.083, 1.25, 38), footage(3.333, 1.084, 3.333, 55), motion(4.417, 4.383)], { music: drop.src });
+  assert.equal(briefed.isError, undefined, briefed.text);
+  assert.ok(briefed.data.notes.some((note) => note.startsWith("board music: placed with fit_music")), briefed.text);
+  const faded = (await record("board-song-stop")).document.scenes[0].layers.filter((layer) => layer.type === "audio");
+  assert.ok(faded.some((layer) => layer.animations.length), "fit_music faded the song");
 
   await project("board-whole");
   assertRefused(await editBoard("board-whole", [motion(0, 2), motion(2, 3)]), "gap", "the shots end at 5 s, before the video ends (6 s): make the last shot 1 s longer.");
@@ -599,6 +615,40 @@ test("words held to the last shot (text.until) are built above the footage they 
   assert.equal(frame.isError, undefined, frame.text);
   const found = await agent("check", { project: id, pixels: false, rules: ["covered_layer"] });
   assert.ok(!JSON.stringify(found.data.findings ?? []).includes("covered_layer"), found.text);
+});
+
+test("a board move named slow-push is a push; compose places a camera push toward the subject and an impact-accent on the shot's cue, and says what it chose", { skip, timeout: 60_000 }, async () => {
+  const id = "board-moves";
+  await project(id, { width: 1920, height: 1080, duration: 4.417, layers: [videoLayer()] });
+  const whole = { crop: [0, 0, 100, 100], subject: { what: "the dragon", box: [60, 30, 20, 40] } };
+  const saved = await editBoard(id, [
+    footage(0, 2, 0, 0, { ...whole, move: { kind: "camera", name: "slow-push", ref: "phone-film@7.27" } }),
+    footage(2, 2.417, 2, 0, { ...whole, move: { kind: "transition", name: "impact-accent", ref: "phone-film@7.27" } }),
+  ]);
+  assert.equal(saved.isError, undefined, saved.text);
+  assert.ok(saved.data.notes.includes('shot 1 move "slow-push" → push'), saved.text);
+  assert.equal((await record(id)).document.board.shots[0].move.name, "push");
+  const built = await agent("edit", { project: id, ops: [{ op: "compose", from: "board" }] });
+  assert.equal(built.isError, undefined, built.text);
+  const placed = built.data.notes.find((note) => note.startsWith("moves placed: "));
+  // The crop is the whole source: 90% of it, centered on the subject (70, 50) as far as the crop allows.
+  assert.match(placed, /push \(shot 1: frame rect \[10, 5, 90, 90\] over 2 s, toward the subject box; \{"op":"frame","layer":"board-S1","rect":\[10,5,90,90\],"at":0,"dur":2\} changes it\)/);
+  assert.match(placed, /impact-accent \(shot 2: hit at 2 s \(no song seam or accent within 3 frames\)/);
+  const layers = (await record(id)).document.scenes[0].layers;
+  const shot = layers.find((layer) => layer.name === "board-S1");
+  assert.ok(layers.find((layer) => layer.id === shot.parentId)?.animations.some((animation) => animation.start === 0 && animation.duration === 2), "the camera group pushes over the whole shot");
+  // Built again: one camera group, one accent, the same layer count.
+  const again = await agent("edit", { project: id, ops: [{ op: "compose", from: "board" }] });
+  assert.equal(again.isError, undefined, again.text);
+  const rebuilt = (await record(id)).document.scenes[0];
+  assert.deepEqual([rebuilt.layers.length, rebuilt.layers.filter((layer) => / camera$/.test(layer.name ?? "")).length, (rebuilt.moves ?? []).filter((move) => move.name === "impact-accent").length], [layers.length, 1, 1]);
+  // 9:16 from a 16:9 file, a crop 2% narrower than the frame at the file's left edge: the end
+  // rect takes the frame's exact shape and stays on the file (no sliver past its edge).
+  const tall = boardBuildOps({ music: "none", shots: [{ cue: 0, dur: 2, media: "/m.mp4", in: 0, crop: [0, 0, 31, 100], text: "none",
+    subject: { what: "a face", box: [0, 40, 10, 20] }, move: { kind: "camera", name: "push" } }] }, { width: 1080, height: 1920, duration: 2 }, () => ({ width: 1920, height: 1080, duration: 5, kind: "video" }));
+  const [left, top, width, height] = tall.moves[0].op.rect;
+  assert.deepEqual([left, top, height], [0, 5, 90]);
+  assert.ok(Math.abs((width * 1920) / (height * 1080) - 1080 / 1920) < 0.001, `the end rect has the frame's shape (${width} x ${height})`);
 });
 
 test("the person's settings can allow the board: kino keeps that board as the approved one", { skip, timeout: 60_000 }, async () => {

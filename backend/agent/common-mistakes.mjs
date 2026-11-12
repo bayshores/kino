@@ -906,6 +906,15 @@ function fixAddAnimation(operation, fixes, { layerRef, resolver }) {
   }
   fixTimes(operation, fixes);
   fixEase(operation, fixes, "");
+  // preset as the object a layer's animation keeps ({id, mode, parameters}): its id is the preset,
+  // and its mode and parameters fill the op's own when it gives none.
+  if (isRecord(operation.preset) && typeof (operation.preset.id ?? operation.preset.preset) === "string") {
+    const { id, preset, mode, parameters } = operation.preset;
+    operation.preset = id ?? preset;
+    if (mode !== undefined && operation.mode === undefined) operation.mode = mode;
+    if (parameters !== undefined && operation.parameters === undefined) operation.parameters = parameters;
+    fixes.push(`preset {id:${quote(operation.preset)}} → preset ${quote(operation.preset)}${mode !== undefined ? `, mode ${quote(mode)}` : ""}`);
+  }
   // The name the op gives ({name:"Push", from, to}) is the animation's name too, not only its ID.
   const givenName = typeof operation.name === "string" && operation.name.trim() ? operation.name : undefined;
   if (typeof operation.effect === "string") operation.effect = fixEffectName(operation.effect, fixes, "effect", layer, operation.parameters);

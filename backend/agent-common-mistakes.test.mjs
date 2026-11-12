@@ -102,6 +102,9 @@ const FIXED = [
   ["kind effect with an effect", { op: "add_animation", layer: "box", effect: "glow", kind: "effect" }, 'kind "effect" dropped (an effect takes no kind)'],
   ["two points as from and to", { op: "add_animation", layer: "box", effect: "lightning", start: 0, duration: 0.3, parameters: { from: [0.1, 0.5], to: [0.9, 0.4] } }, "parameters.to [0.9,0.4] → endX, endY"],
   ["two points at the top", { op: "add_animation", layer: "box", effect: "lightning", start: 0, duration: 0.3, from: [0.1, 0.5], to: [0.9, 0.4] }, "from [0.1,0.5] → startX, startY"],
+  // The shape a layer's animation keeps its preset in (run dm2-a: "unknown animation preset [object Object]").
+  ["a preset as {id, mode}", { op: "add_animation", layer: "box", preset: { id: "preset-fade", mode: "out" }, start: 5, duration: 0.5 }, 'preset {id:"preset-fade"} → preset "preset-fade", mode "out"'],
+  ["a preset as {id} inside add_layer", { op: "add_layer", layerType: "rectangle", name: "r15", animations: [{ preset: { id: "preset-fade" }, start: 0, duration: 0.5 }] }, 'preset {id:"preset-fade"} → preset "preset-fade"'],
   ["kind naming the preset", { op: "add_animation", layer: "box", preset: "preset-fade", kind: "fade" }, 'kind "fade" dropped (a preset takes no kind)'],
   ["kind out beside from and to", { op: "add_animation", layer: "box", kind: "out", start: 5, duration: 0.5, from: { opacity: 1 }, to: { opacity: 0 } }, 'from/to → animation {kind:"out"}'],
   ["a src ending in a full stop", { op: "add_layer", layerType: "image", name: "pic", properties: { src: "/api/media/0123abcd-0000-4000-8000-000000000001.png." } },

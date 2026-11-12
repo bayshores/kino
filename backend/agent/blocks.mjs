@@ -34,7 +34,7 @@ import { placeMove, readMoveInput, removeMove, runMove } from "../../engine/bloc
 import { withCues } from "../../engine/cues.js";
 import { footageCueTime } from "../../engine/footageCues.js";
 import { MAX_TIME } from "../../engine/schema.js";
-import { MOVES, MOVE_NAMES, moveOf } from "../../engine/blocks/moves/index.js";
+import { MOVES, MOVE_NAMES, RENAMED_MOVES, moveOf } from "../../engine/blocks/moves/index.js";
 import { EFFECTS } from "../../engine/effects/catalog.js";
 import { describeRecipes, recipeOf, RECIPE_NAMES, TRANSITIONS, TRANSITION_NAMES } from "../../engine/blocks/recipes/index.js";
 import { applyTransition } from "../../engine/blocks/recipes/transitions.js";
@@ -167,7 +167,7 @@ const OPERATIONS = {
   },
   compose: {
     fields: ["sceneId", "id", "name", "videoType", "from", ...COMPOSE_KEYS.filter((key) => key !== "type"), ...FOOTAGE_FIELDS],
-    rules: 'compose {footage:[media or {media, in?, out?}], music?, voice?, treatment?: calm|story|punchy|loud, pace?: promo|velocity, accents?, cards?, cardGap?, lines?, duration?, format?, seed?, title?, end?}: a whole edit from footage (moments, cuts on the beat, layouts, captions, title, end card, mix, and the deck cards as made graphics on a drop, a face or a new section, one per cardGap 5 s; cards adds more, false none), then check fixes it; without a voice the best spoken lines of the clips stay heard, captioned, music ducked (lines: a number, [texts] or false; default up to one per 6 s); dry_run:true gives the plan in words. pace cuts pictures as runs of whole beats on the beat grid, the rate changing only at a phrase line (promo about 2 beats a shot, velocity 1), calm open, ending twice as fast; accents:true zoom-punches the downbeats (off by default), never under words. compose {format?, duration?, look?, brand?, feel?, type?: promo|ad|clip|explainer|sting|other, seed?, fps?, reduced?, beats:[{recipe, copy or its fields, media?, dur?, slot?, transition?, id?, seed?, hero?, region?}], scene?, id?, name?}: builds a whole scene, beat after beat. A promo or ad needs a logo beat (logo-sting, logo-build, wordmark-type) starting by 3.8 s and a hero: device-slide with a picture, or a feature-callout, whose card then fills its slot. A screenshot pushes into region [x, y, w, h] (% of the picture; its busiest part when left out; false keeps it still); screen-detail lifts that part. Left out, scene is the only scene when it is empty or composed; otherwise a new scene (id names it). On a composed scene it changes only the fields you give and keeps your own layers. duration stretches the beats to fill it. compose {from:"board"}: builds the storyboard as planned in its scene: one layer per shot in board order (file, in-point, crop, length, text; its move when it fits), the board\'s music kept where it is; again replaces only what it made.',
+    rules: 'compose {footage:[media or {media, in?, out?}], music?, voice?, treatment?: calm|story|punchy|loud, pace?: promo|velocity, accents?, cards?, cardGap?, lines?, duration?, format?, seed?, title?, end?}: a whole edit from footage (moments, cuts on the beat, layouts, captions, title, end card, mix, and the deck cards as made graphics on a drop, a face or a new section, one per cardGap 5 s; cards adds more, false none), then check fixes it; without a voice the best spoken lines of the clips stay heard, captioned, music ducked (lines: a number, [texts] or false; default up to one per 6 s); dry_run:true gives the plan in words. pace cuts pictures as runs of whole beats on the beat grid, the rate changing only at a phrase line (promo about 2 beats a shot, velocity 1), calm open, ending twice as fast; accents:true zoom-punches the downbeats (off by default), never under words. compose {format?, duration?, look?, brand?, feel?, type?: promo|ad|clip|explainer|sting|other, seed?, fps?, reduced?, beats:[{recipe, copy or its fields, media?, dur?, slot?, transition?, id?, seed?, hero?, region?}], scene?, id?, name?}: builds a whole scene, beat after beat. A promo or ad needs a logo beat (logo-sting, logo-build, wordmark-type) starting by 3.8 s and a hero: device-slide with a picture, or a feature-callout, whose card then fills its slot. A screenshot pushes into region [x, y, w, h] (% of the picture; its busiest part when left out; false keeps it still); screen-detail lifts that part. Left out, scene is the only scene when it is empty or composed; otherwise a new scene (id names it). On a composed scene it changes only the fields you give and keeps your own layers. duration stretches the beats to fill it. compose {from:"board"}: builds the storyboard as planned in its scene: one layer per shot in board order (file, in-point, crop, length, text; its move when it fits: a camera push is a frame op from the crop to 90% of it toward the subject over the shot, an impact-accent takes the song seam or accent on the shot\'s cue as its reason and kind, else a hit; the receipt prints each op so you can change it), the board\'s music kept where it is; again replaces only what it made.',
   },
   format: {
     fields: ["name", "slots", "aspect", "sceneId", "id", "seed"],
@@ -251,7 +251,7 @@ const OPERATIONS = {
   },
   board: {
     fields: ["music", "shots", "calls", "open", "snap"],
-    rules: 'board {music, shots:[{cue, dur, pacing, media, in, crop, subject, follow, text, sound, move, why, speed?, lift?, alts?, id?}], calls?, open?}: the storyboard (undo and rev as any edit); each call replaces it. Shots in time order, no gaps: over the music layer, or the whole video when music is "none"; music may be an imported sound\'s src or id (kino adds its audio layer). While the board stop waits, a board edit saves and refreshes its ask. Every layer given, "none" when empty: media (an imported video or picture, or a video layer), in (file seconds), speed (the clip\'s playback speed, default 1: a shot uses dur × speed seconds of the file), lift (true or a mean luma 1 to 255: compose from board runs lift_dark on the shot), crop [x, y, w, h] (% of the source, the video\'s shape) or "whole" (shown whole, such as a phone screen beside other things), subject {what, box, eyes?} (% of the source; eyes: the eye line\'s y), follow steady|track|sweep, text {text, family, weight?, size?, y?, fill?} (y: center, % from the top), sound {media, what} (a sound to add) and/or {keep:"all" | [from, to]} (the clip\'s own sound, file seconds: the layer you place for the shot keeps it, keep_line). move: the designed move {kind type|transition|camera|ui, name (a move, transition, recipe or preset; planned:true for a craft-plan move not built yet), ref "<reference key>@<seconds>"}, or {none:"<reason>"}; without one the shot is plain (footage plus words). pacing beat_cut|phrase_flow|free; why: one line; calls: your own calls and your decisions on open items left to you (≤ 6); open: questions for the person (≤ 3). A shot sent without id keeps the id of the shot it continues (same clip and nearest in, or same text). look {mode:"board"} shows it; notes checkpoint {id:"board"} asks the person. board {snap:"beats"} moves the saved board\'s cuts after the song\'s turn onto its measured beats (the times look board lists); sent with shots, it saves them first.',
+    rules: 'board {music, shots:[{cue, dur, pacing, media, in, crop, subject, follow, text, sound, move, why, speed?, lift?, alts?, id?}], calls?, open?}: the storyboard (undo and rev as any edit); each call replaces it. Shots in time order, no gaps: over the music layer, or the whole video when music is "none"; music may be an imported sound\'s src or id (kino adds its audio layer). While the board stop waits, a board edit saves and refreshes its ask. Every layer given, "none" when empty: media (an imported video or picture, or a video layer), in (file seconds), speed (the clip\'s playback speed, default 1: a shot uses dur × speed seconds of the file), lift (true or a mean luma 1 to 255: compose from board runs lift_dark on the shot), crop [x, y, w, h] (% of the source, the video\'s shape) or "whole" (shown whole, such as a phone screen beside other things), subject {what, box, eyes?} (% of the source; eyes: the eye line\'s y), follow steady|track|sweep, text {text, family, weight?, size?, y?, fill?} (y: center, % from the top), sound {media, what} (a sound to add) and/or {keep:"all" | [from, to]} (the clip\'s own sound, file seconds: the layer you place for the shot keeps it, keep_line). move: the designed move {kind type|transition|camera|ui, name (a move, transition, recipe or preset; planned:true for a craft-plan move not built yet), ref "<reference key>@<seconds>"} (slow-push, push-in and zoom-in are read as push), or {none:"<reason>"}; without one the shot is plain (footage plus words). pacing beat_cut|phrase_flow|free; why: one line; calls: your own calls and your decisions on open items left to you (≤ 6); open: questions for the person (≤ 3). A shot sent without id keeps the id of the shot it continues (same clip and nearest in, or same text). look {mode:"board"} shows it; notes checkpoint {id:"board"} asks the person. board {snap:"beats"} moves the saved board\'s cuts after the song\'s turn onto its measured beats (the times look board lists); sent with shots, it saves them first.',
   },
 };
 const FIELD_ALIASES = [["scene", "sceneId"], ["layer", "layerId"], ["layers", "layerIds"]];
@@ -261,6 +261,9 @@ export const BLOCK_OPERATION_TYPES = Object.freeze(Object.keys(OPERATIONS));
 for (const name of PLANNED_MOVES) if (Object.hasOwn(OPERATIONS, name)) BOARD_MOVE_NAMES.add(name);
 // drift is built as a scene setting (scene.drift), not an op, so a camera shot may name it too.
 for (const name of ["drift"]) BOARD_MOVE_NAMES.add(name);
+// Other names a board move is read as: the camera push's technique tag and its usual words, and a
+// move's old name (RENAMED_MOVES). compose {from:"board"} builds a camera push as a frame op.
+export const BOARD_MOVE_ALIASES = Object.freeze({ "slow-push": "push", "slow push": "push", "push-in": "push", "push in": "push", "zoom-in": "push", ...RENAMED_MOVES });
 export const isBlockOperation = (type) => typeof type === "string" && Object.hasOwn(OPERATIONS, type);
 
 /** One op's rules, short enough to send with a refusal. */
@@ -1699,7 +1702,7 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
       if (!item) return null;
       return { width: Number(item.width) || 0, height: Number(item.height) || 0, duration: Number(item.duration) || 0, kind: String(item.mime ?? "").startsWith("image/") ? "image" : "video" };
     };
-    const built = boardBuildOps(board, { width: scene.width, height: scene.height, duration: scene.duration }, fileOf);
+    const built = boardBuildOps(board, { width: scene.width, height: scene.height, duration: scene.duration }, fileOf, document.cues ?? []);
     if (built.missing.length)
       throw Object.assign(problem(`shot ${built.missing.join(", ")} ${built.missing.length === 1 ? "names a file" : "name files"} kino no longer has: import ${built.missing.length === 1 ? "it" : "them"} again (project import), or change ${built.missing.length === 1 ? "that shot's" : "those shots'"} media (edit board), then send compose {from:"board"} again.`), { noExample: true });
     const used = new Set(board.shots.map((shot) => shot.media).filter((src) => src !== NONE));
@@ -1717,9 +1720,10 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     catch (error) { throw Object.assign(problem(`compose {from:"board"} could not build the board: ${error.message} Fix that shot (edit board), then send compose {from:"board"} again.`), { noExample: true }); }
     const placed = [];
     const unplaced = [];
-    for (const { n, name, op } of built.moves) {
+    for (const { n, name, op, said } of built.moves) {
       if (!op) { unplaced.push(`shot ${n} ${name}: library {topic:"op", name:"move"} for its fields`); continue; }
-      try { next = await runOps(next, [{ ...op, ...where }]); placed.push(`${name} (shot ${n})`); }
+      // A move compose filled in itself says what it chose and the op that changes it.
+      try { next = await runOps(next, [{ ...op, ...where }]); placed.push(said ? `${name} (shot ${n}: ${said}; ${JSON.stringify(op)} changes it)` : `${name} (shot ${n})`); }
       catch (error) { unplaced.push(`shot ${n} ${name}: ${String(error.message).slice(0, 120)} edit {ops:[${JSON.stringify(op)}]}`); }
     }
     // A shot's lift: lift_dark on its layer, the shots with lift:true in one call (one median), each target its own.
@@ -2709,6 +2713,12 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     const speed = number(shot.speed) && shot.speed >= 0.05 && shot.speed <= 16 ? shot.speed : 1;
     if (!PACING.includes(shot.pacing)) add("bad_shot", shot.pacing === undefined ? `shot ${n} has no pacing: beat_cut, phrase_flow or free.` : `shot ${n} pacing is beat_cut, phrase_flow or free.`, closest(String(shot.pacing ?? ""), PACING));
     const why = boardWhy(shot.why, `shot ${n}`, add);
+    // A move named by an alias (slow-push, push-in, an old name) is saved under the name it stands for.
+    const alias = isRecord(shot.move) && typeof shot.move.name === "string" ? BOARD_MOVE_ALIASES[shot.move.name.trim().toLowerCase()] : undefined;
+    if (alias && !BOARD_MOVE_NAMES.has(shot.move.name)) {
+      work.notes.push(`shot ${n} move "${shot.move.name}" → ${alias}`);
+      shot = { ...shot, move: { ...shot.move, name: alias } };
+    }
     // move: the designed move (engine/board.js), every bad field named at once.
     const wrong = shot.move === undefined ? [] : moveProblems(shot.move, `shot ${n} move`, (name) => BOARD_MOVE_NAMES.has(name), { refHelp });
     for (const message of wrong) add("bad_shot", message, /name "/.test(message) ? closest(String(shot.move.name), [...BOARD_MOVE_NAMES]) : []);

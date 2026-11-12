@@ -40,10 +40,11 @@ test("library moves lists every move in a line and gives one move's fields and e
     assert.match(one.text, /\nthe example's layers: /);
     assert.ok(one.text.length < 2000, `${name} stays small (${one.text.length} characters)`);
   }
-  // impact-accent refuses a raw time, and a song seam set by hand (fit_music measures seams: its own test below).
-  const refused = await api.agent("lib", "edit", { ops: [{ op: "move", name: "impact-accent", kind: "flash", at: 1.5 }] });
-  assert.equal(refused.isError, true);
-  assert.match(refused.text, /at 1\.5 is a time, not a reason\. An accent needs a cue that motivates it .*leave this moment plain/);
+  // impact-accent at a time with nothing measured near it: a small accent, its receipt says so (a
+  // fact, not a refusal); a song seam set by hand is refused (fit_music measures seams: its own test below).
+  const timed = await api.agent("lib", "edit", { ops: [{ op: "move", name: "impact-accent", kind: "flash", at: 1.5 }], dry_run: true });
+  assert.equal(timed.isError, undefined, timed.text);
+  assert.match(timed.text, /at 1\.5 s: no measured reason within 3 frames, a small flash \(weight 0\.3\); nothing in this edit measures light in the shot or a song seam or a top accent/);
   const hand = await api.agent("lib", "edit", { ops: [{ op: "set_cues", cues: [{ name: "song-drop-1", time: 1 }] }, { op: "move", name: "impact-accent", kind: "flash", at: "cue:song-drop-1" }] });
   assert.equal(hand.isError, true);
   assert.match(hand.text, /set by hand, not measured: song seams and rests come from fit_music/);

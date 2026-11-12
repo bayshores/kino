@@ -8,8 +8,9 @@
 //   impact-frame  an impact in the footage that has no impact frame of its own
 //   dip           a rest in the song (song-break, song-dropout): darker until the next seam
 //   strobe        a drum fill measured just before the cue (4 or more even onsets), resolving on it
-// Raw seconds, after:/with:/auto and beat or onset numbers are refused, with the nearest cue
-// that would motivate the kind. Footage events (backend/footage/events.mjs) reach the move in
+// A time in seconds takes the reason measured within 3 frames of it (and sits on it), else it is a
+// small accent whose receipt gives the distance to the nearest reason. after:/with:/auto and beat
+// or onset numbers are refused, with the nearest cue that would motivate the kind. Footage events (backend/footage/events.mjs) reach the move in
 // scene seconds (ctx.cueFacts.events); the move matches them to the cue's time within 2.5 frames.
 //
 // Size follows the cue's weight (0 to 1) and the shot:
@@ -104,11 +105,55 @@ function refuse(kind, why, facts, time) {
   return new Error(`impact-accent ${kind}: ${why}. An accent needs a cue that motivates it (${needs}).${pin}`);
 }
 
+// A time given in seconds (or a frame) takes the measured reason this close to it.
+export const SNAP_FRAMES = 3;
+
+// The reasons for `kind` measured near `time`, nearest first: the document's cues that motivate it
+// and the footage events (light, an impact) that do, each {cue (null for an event), time, motive}.
+function reasonsNear(kind, facts, time) {
+  const fits = (motives) => motives.filter((entry) => NEEDS[kind].includes(entry.motive)).sort((a, b) => b.weight - a.weight)[0];
+  const found = [];
+  for (const cue of facts?.cues ?? []) {
+    if (cue.kind === "beat" || cue.kind === "onset") continue;
+    const motive = fits(cueMotives(cue, facts));
+    if (motive) found.push({ cue, time: cue.time, motive });
+  }
+  for (const event of facts?.events ?? []) {
+    const motive = fits(cueMotives({ name: "", kind: "event", time: event.at }, { ...facts, cues: [], events: [event] }));
+    if (motive) found.push({ cue: null, time: event.at, motive, event });
+  }
+  return found.sort((a, b) => Math.abs(a.time - time) - Math.abs(b.time - time));
+}
+
+// at in seconds: the reason measured within SNAP_FRAMES of it (the accent moves onto it, and the
+// receipt says from where), else the time itself as a small accent (weight 0.3) whose receipt says
+// how far the nearest measured reason is. A dip or strobe still needs its rest or fill.
+function timeMotive(kind, facts, time, raw) {
+  const said = `at ${round(time, 3)} s`;
+  const reasons = reasonsNear(kind, facts, time);
+  const close = (entry) => Math.abs(entry.time - time) <= SNAP_FRAMES * FRAME + 1e-6;
+  // A cue within reach wins over a bare footage event: effect_fit reads the cue as the accent's reason.
+  const near = reasons.find((entry) => close(entry) && entry.cue) ?? reasons[0];
+  const name = (entry) => (entry.cue ? `cue:${entry.cue.name}` : `${entry.motive.motive === "light" ? "light" : "an impact"} in ${entry.motive.layer ?? "the footage"}`);
+  if (near && close(near)) {
+    const gap = round(Math.abs(near.time - time), 3);
+    const way = near.time < time ? "earlier" : "later";
+    // effect_fit reads a footage moment only as a cue pinned to its clip: the receipt gives that call.
+    const pin = !near.cue && near.event?.media !== undefined ? `; effect_fit reads it as a cue: set_cues {cues:[{name:"hit-1", layer:"${near.event.layer}", media:${near.event.media}}]}, then at "cue:hit-1"` : "";
+    return { cue: near.cue, at: near.time, motive: { ...near.motive, weight: clamp(near.motive.weight ?? 0.5, 0.2, 1) }, snapped: true,
+      note: `${said} → ${name(near)} at ${round(near.time, 3)} s (${gap ? `${gap} s ${way}` : "the same frame"}, ${SAYS[near.motive.motive]})${pin}` };
+  }
+  if (kind === "dip" || kind === "strobe") throw refuse(kind, `at ${JSON.stringify(raw ?? time)} is a time, not a reason`, facts, time);
+  const far = near ? `the nearest ${kind} reason, ${name(near)} (${SAYS[near.motive.motive]}), is ${round(Math.abs(near.time - time), 3)} s ${near.time < time ? "earlier" : "later"}` : `nothing in this edit measures ${NEEDS[kind].map((motive) => SAYS[motive]).join(" or ")}`;
+  return { cue: null, at: time, motive: { motive: "time", weight: WEAK }, snapped: true, note: `${said}: no measured reason within ${SNAP_FRAMES} frames, a small ${kind} (weight ${WEAK}); ${far}` };
+}
+
 /** The cue the move was given and the reason it gives for `kind`, or throws a refusal that names a better cue. */
 export function motiveFor(kind, facts, time) {
   const raw = facts?.at;
   let at;
   try { at = raw === undefined ? null : parseAt(raw); } catch { at = null; }
+  if (at && (at.kind === "seconds" || at.kind === "frame")) return timeMotive(kind, facts, time, raw);
   if (!at || at.kind !== "cue") throw refuse(kind, `at ${JSON.stringify(raw ?? time)} is a time, not a reason`, facts, time);
   const cues = facts.cues ?? [];
   const cue = cues.find((entry) => entry.name === at.whole) ?? cues.find((entry) => entry.name === at.target);
@@ -459,14 +504,15 @@ export const impactAccent = {
     const hit = input.kind === "hit";
     const found = hit ? hitMotive(facts, ctx.start, input) : motiveFor(input.kind, facts, ctx.start);
     // The accent sits on its cue: align and dur would move it off (early or late).
-    if (ctx.dur !== null || Math.abs(ctx.start - found.at) > 1e-3)
+    // A time in seconds sits on the reason found near it (found.snapped): its time, not the one sent.
+    if (ctx.dur !== null || (!found.snapped && Math.abs(ctx.start - found.at) > 1e-3))
       throw new Error(`impact-accent ${input.kind}: it starts on its cue (at most 2 frames early, never late), so it takes no align or dur; send at ${found.cue ? `"cue:${found.cue.name}"` : "the time"} alone.`);
     const shot = shotOf(ctx, input, found.motive);
     if (input.color !== undefined && !/^#[0-9a-f]{6}$/i.test(input.color)) throw new Error("impact-accent color is a hex color such as \"#0A0A0C\".");
-    const made = build[input.kind](ctx, shot, found, ctx.start, facts, input);
+    const made = build[input.kind](ctx, shot, found, found.snapped ? found.at : ctx.start, facts, input);
     const where = found.cue ? `cue:${found.cue.name}` : `${round(found.at)} s`;
     const sized = hit && found.motive.weight !== found.measured ? `weight ${round(found.motive.weight, 2)} given, ${round(found.measured, 2)} measured` : `weight ${round(found.motive.weight, 2)}`;
-    if (!hit) ctx.note(`impact-accent ${input.kind} on ${shot.id}: ${where} (${SAYS[found.motive.motive]}, ${sized})`);
+    if (!hit) ctx.note(`impact-accent ${input.kind} on ${shot.id}: ${where} (${SAYS[found.motive.motive]}, ${sized})${found.note ? `; ${found.note}` : ""}`);
     else {
       ctx.note(`impact-accent hit on ${shot.id}: ${where} (${SAYS[found.motive.motive]}, ${sized}): ${made.count} part${made.count === 1 ? "" : "s"}${made.count > 1 ? ", one frame apart" : ""}: ${made.said.join(", ")}. parts:[...] picks them, weight sets the size; a flat frame is the move flash {frames:1} at the same cue`);
       if (found.note) ctx.note(found.note);

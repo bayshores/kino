@@ -4961,13 +4961,15 @@ export function createAgentService(deps) {
   }
   // An edit builds when it adds a designed layer or an animation: "first" when the video had
   // none before, "more" after, else null. Footage and sound placed as they are (video and audio
-  // layers) are material, not building.
+  // layers) are material, not building; so is a sound's volume (fades and dips, such as the
+  // fades fit_music gives the song a board op adds: run dm2-a's board was refused for them).
   function buildsSomething(before, after) {
     const ids = (document) => {
       const found = new Set();
       const walk = (list) => { for (const animation of list ?? []) { found.add(animation.id); walk(animation.animations); } };
       for (const scene of document.scenes ?? []) for (const layer of scene.layers ?? []) {
-        if (layer.type !== "audio" && layer.type !== "video") found.add(layer.id);
+        if (layer.type === "audio") continue;
+        if (layer.type !== "video") found.add(layer.id);
         walk(layer.animations);
       }
       return found;
