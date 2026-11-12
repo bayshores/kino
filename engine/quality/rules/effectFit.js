@@ -117,7 +117,8 @@ function loudEffects(model, cues, motivated, changes = []) {
     if (move) accents.set(move.id, { kind: move.settings?.kind, uses: [...(accents.get(move.id)?.uses ?? []), use] });
   }
   for (const [id, { kind, uses }] of accents) {
-    const first = Math.min(...uses.map((use) => use.at));    const cut = changes.find((time) => Math.abs(time - first) <= SNAP_FRAMES * FRAME + 1e-6);
+    const first = Math.min(...uses.map((use) => use.at));
+    const cut = changes.find((time) => Math.abs(time - first) <= SNAP_FRAMES * FRAME + 1e-6);
     if (cut !== undefined) for (const use of uses) Object.assign(use, { trigger: { cue: `the cut at ${sec(cut)}s`, weight: CUT_WEIGHT, motive: "cut" }, move: id, hitKind: kind, hitAt: first, cutAt: cut });
   }
   return list.sort((a, b) => a.at - b.at);
