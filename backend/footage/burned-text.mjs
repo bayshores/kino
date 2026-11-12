@@ -12,8 +12,10 @@ import { ffmpegCommand } from "../media-probe.mjs";
 import { helperSession, measureAbilities } from "../measure/measure.mjs";
 import { heavyDecodeSlot } from "../process-slots.mjs";
 import { endWithService } from "../child-exit.mjs";
+import { OVERLAY_WIDTH, overlaySize, staticOverlays } from "./static-overlay.mjs";
 
-export const BURNED_TEXT_VERSION = 1;
+// Version 2 adds overlays: static marks found without reading letters (static-overlay.mjs), on any system.
+export const BURNED_TEXT_VERSION = 2;
 /** The width frames are read at (pixels): see the note above. */
 export const READ_WIDTH = 960;
 /** Seconds between frames read (a guess: a subtitle shown for 0.3 s is still read), ... */
@@ -78,18 +80,52 @@ async function visionFrames(file, { width, height, duration, step, signal }) {
 }
 
 /**
- * The burned-in text of a video file: {version, read, step, marks, subtitles} (burnedTextFacts),
- * or {version, unread} on a computer with no text reader. info: {width, height, duration} from the
- * media record. readFrames(file, {width, height, duration, step, signal}) is injected in tests (the
- * reader stubbed): it answers [{t, lines}] (file seconds), or null when nothing can read text here.
+ * The same frames shrunk to gray at the overlay size (static-overlay.mjs, OVERLAY_WIDTH wide): one
+ * small FFmpeg run in the heavy decode slot, on any system. Answers [Uint8Array] and the size.
  */
-export async function readBurnedText(file, { width, height, duration, signal } = {}, { readFrames = visionFrames } = {}) {
+async function grayFrames(file, { width, height, step, signal }) {
+  const size = overlaySize(width, height);
+  const frameBytes = size.width * size.height;
+  return heavyDecodeSlot(async () => {
+    const decode = spawn(ffmpegCommand(), ["-hide_banner", "-nostdin", "-v", "error", "-threads", "2", "-i", file, "-map", "0:V:0", "-an", "-sn", "-dn",
+      "-vf", `fps=1/${step},scale=${size.width}:${size.height}:flags=area,format=gray`, "-frames:v", String(READ_MOST + 1), "-f", "rawvideo", "pipe:1"], { stdio: ["ignore", "pipe", "ignore"], signal });
+    endWithService(decode);
+    const chunks = [];
+    for await (const chunk of decode.stdout) chunks.push(chunk);
+    const all = Buffer.concat(chunks);
+    const frames = [];
+    for (let at = 0; at + frameBytes <= all.length; at += frameBytes) frames.push(new Uint8Array(all.subarray(at, at + frameBytes)));
+    return { frames, size };
+  });
+}
+
+const overlapsBox = ([ax, ay, aw, ah], [bx, by, bw, bh]) => ax < bx + bw && bx < ax + aw && ay < by + bh && by < ay + ah;
+
+/**
+ * The burned-in text of a video file: {version, read, step, marks, subtitles} (burnedTextFacts),
+ * or {version, unread} on a computer with no text reader; on any system also overlays: static marks
+ * found without reading letters (static-overlay.mjs), [{box, frames, of}], left out where a read mark
+ * already covers them. info: {width, height, duration} from the media record. readFrames(file,
+ * {width, height, duration, step, signal}) and readGray (the same, answering {frames, size}) are
+ * injected in tests: readFrames answers [{t, lines}] (file seconds), or null when nothing reads text here.
+ */
+export async function readBurnedText(file, { width, height, duration, signal } = {}, { readFrames = visionFrames, readGray = grayFrames } = {}) {
   if (!(width > 0 && height > 0)) return { version: BURNED_TEXT_VERSION, unread: "no picture size" };
   const step = readStep(duration);
   const frames = await readFrames(file, { width, height, duration, step, signal });
-  if (!Array.isArray(frames)) return { version: BURNED_TEXT_VERSION, unread: NOT_READ };
+  const gray = await Promise.resolve(readGray(file, { width, height, duration, step, signal })).catch(() => null);
+  const found = gray?.frames?.length ? staticOverlays(gray.frames, gray.size) : null;
+  const overlaysOf = (marks = []) => (found?.overlays ?? [])
+    .filter((overlay) => !marks.some((mark) => overlapsBox(mark.box, overlay.box)))
+    .map((overlay) => ({ box: overlay.box, frames: overlay.frames, of: found.frames }));
+  if (!Array.isArray(frames)) return { version: BURNED_TEXT_VERSION, unread: NOT_READ, overlays: overlaysOf() };
   const facts = burnedTextFacts(frames.map((frame) => ({ t: Math.round(frame.t * 1000) / 1000, lines: frame.lines })));
-  return { version: BURNED_TEXT_VERSION, step: Math.round(step * 1000) / 1000, ...facts };
+  return { version: BURNED_TEXT_VERSION, step: Math.round(step * 1000) / 1000, ...facts, overlays: overlaysOf(facts.marks) };
+}
+
+/** True when a media record's burned-in text was read by this version (older records are read again). */
+export function burnedTextCurrent(record) {
+  return Boolean(record?.burnedText) && record.burnedText.version >= BURNED_TEXT_VERSION;
 }
 
 const percent = (value) => Math.round(value * 100);
@@ -102,10 +138,13 @@ const spanOf = ([x, y, w, h]) => `${percent(x)}-${percent(x + w)}% across, ${per
  */
 export function burnedTextLine(burned) {
   if (!burned) return null;
-  if (burned.unread) return `burned-in text: ${burned.unread}.`;
+  // Static overlays (version 2): edges that hold still while the picture behind changes, letters not read.
+  const overlays = (burned.overlays ?? []).map((overlay) => `a static overlay (${spanOf(overlay.box)}) on ${overlay.frames} of ${overlay.of} frames, text not read`);
+  const still = overlays.length ? ` · ${overlays.join(" · ")} (edges held still at ${OVERLAY_WIDTH} px)` : "";
+  if (burned.unread) return `burned-in text: ${burned.unread}${still}.`;
   const marks = (burned.marks ?? []).map((mark) => `a mark ${mark.where} "${mark.words}" (${spanOf(mark.box)}) on ${mark.frames} of ${burned.read} frames`);
   const subs = (burned.subtitles ?? []).slice(0, 4).map((sub) => `a subtitle ${sub.from === sub.to ? sub.from : `${sub.from}-${sub.to}`} s "${sub.words}" (${spanOf(sub.box)})`);
   const more = (burned.subtitles?.length ?? 0) > 4 ? ` (+${burned.subtitles.length - 4} more subtitles)` : "";
   const found = [...marks, ...subs];
-  return found.length ? `burned-in text (file s, read every ${burned.step} s at ${READ_WIDTH} px): ${found.join(" · ")}${more}.` : `burned-in text: none (${burned.read} frames read).`;
+  return found.length ? `burned-in text (file s, read every ${burned.step} s at ${READ_WIDTH} px): ${found.join(" · ")}${more}${still}.` : `burned-in text: none (${burned.read} frames read)${still}.`;
 }

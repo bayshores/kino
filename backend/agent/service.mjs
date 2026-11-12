@@ -73,7 +73,7 @@ import { projectOutline } from "./outline.mjs";
 import { applyBrief, aspectLabel, asksOf, plainWordsProblem, storedQuoteProblem,BriefError, briefChanges, briefData, briefText, compareNeed, compareStep, hasBrief, isSettled, lengthTarget, lockNeeded, notBuilt, orderSteps, pickOpen, referenceSearches, SUBJECT_SLOT, songTitleOf, REFERENCE_SKIP_UNDER, realEdit, REFERENCES_WANTED, savedText, TREATMENTS_WAIVER, videoFacts } from "./brief.mjs";
 import { createFootageFacts, MAX_FOOTAGE } from "./footage.mjs";
 import { createFootageCache } from "../footage/analyze.mjs";
-import { burnedTextLine } from "../footage/burned-text.mjs";
+import { burnedTextCurrent, burnedTextLine } from "../footage/burned-text.mjs";
 import { createPeopleCache } from "../footage/people.mjs";
 import { createSoundsCache } from "../footage/sounds.mjs";
 import { applySwap, cardCall, dealDue, deckData, deckInputs, deckRequest, deckStatusLine, deckText, loadMoves, mediaKeys, newDeal, RECENT_PROJECTS, swapProblem } from "./deck.mjs";
@@ -6206,7 +6206,9 @@ export function createAgentService(deps) {
     // A screen recording kino made: its lettering is what it shows (check skips it too).
     if (record?.recording) return null;
     const id = mediaIdFromSource(src);
-    const burned = record?.burnedText ?? (id && deps.videoFacts ? (await Promise.resolve(deps.videoFacts(id, record)).catch(() => null))?.burnedText : null);
+    // A record read before static overlays were measured (version 1) is read again once.
+    const kept = burnedTextCurrent(record) ? record.burnedText : null;
+    const burned = kept ?? (id && deps.videoFacts ? (await Promise.resolve(deps.videoFacts(id, record)).catch(() => null))?.burnedText : null) ?? record?.burnedText;
     return burnedTextLine(burned);
   }
   async function clipOverview(input, { fonts, document = null, state = null }, src = null) {

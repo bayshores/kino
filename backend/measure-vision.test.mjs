@@ -14,6 +14,7 @@ import { ffmpeg, skipWithoutMediaTools } from "./media.test.support.mjs";
 import { measureAbilities, measureVideo } from "./measure/measure.mjs";
 import { soundHelper } from "./footage/sounds.mjs";
 import { burnedTextLine, NOT_READ, readBurnedText } from "./footage/burned-text.mjs";
+import { staticOverlays } from "./footage/static-overlay.mjs";
 
 const skipWithoutVision = skipWithoutMediaTools
   || (process.platform !== "darwin" && "Apple Vision measure test skipped: it needs macOS")
@@ -145,13 +146,44 @@ test("burned-in text: the reader's lines become a mark and subtitles on the reco
     asked.push(options);
     return [0, 0.25, 0.5, 0.75, 1.15].map((t) => ({ t, lines: [{ box: [0.009, 0.01, 0.078, 0.032], s: "sitename", c: 0.5 }, ...(t > 1 ? [{ box: [0.404, 0.88, 0.192, 0.054], s: "but I'll stay.", c: 0.5 }] : [])] }));
   };
-  const burned = await readBurnedText("clip.mp4", { width: 1920, height: 1080, duration: 1.19 }, { readFrames });
+  const readGray = async () => null;
+  const burned = await readBurnedText("clip.mp4", { width: 1920, height: 1080, duration: 1.19 }, { readFrames, readGray });
   assert.equal(asked[0].step, 0.25);
   assert.equal(burnedTextLine(burned), 'burned-in text (file s, read every 0.25 s at 960 px): a mark top-left "sitename" (1-9% across, 1-4% down) on 5 of 5 frames · a subtitle 1.15 s "but I\'ll stay." (40-60% across, 88-93% down).');
   // A long clip is read at an even step, at most 48 frames.
-  await readBurnedText("long.mp4", { width: 1920, height: 1080, duration: 120 }, { readFrames });
+  await readBurnedText("long.mp4", { width: 1920, height: 1080, duration: 120 }, { readFrames, readGray });
   assert.equal(asked[1].step, 2.5);
-  const unread = await readBurnedText("clip.mp4", { width: 1920, height: 1080, duration: 1.19 }, { readFrames: async () => null });
+  const unread = await readBurnedText("clip.mp4", { width: 1920, height: 1080, duration: 1.19 }, { readFrames: async () => null, readGray });
   assert.equal(unread.unread, NOT_READ);
   assert.equal(burnedTextLine(unread), "burned-in text: not read on this system.");
+});
+
+test("static overlay: a translucent mark over a changing picture is boxed without reading letters; a still picture gives none", async () => {
+  const size = { width: 160, height: 90 };
+  // A picture of moving bars (it changes every frame) with a 35% white block mark at 10-30% across, 80-95% down.
+  const frame = (shift, mark = true) => {
+    const gray = new Uint8Array(size.width * size.height);
+    for (let y = 0; y < size.height; y += 1) for (let x = 0; x < size.width; x += 1) {
+      const picture = ((x + y + shift * 7) % 20) < 10 ? 70 : 110;
+      const inMark = mark && x >= 16 && x < 48 && y >= 72 && y < 86;
+      gray[y * size.width + x] = inMark ? Math.round(picture * 0.65 + 255 * 0.35) : picture;
+    }
+    return gray;
+  };
+  const found = staticOverlays(Array.from({ length: 8 }, (_, index) => frame(index)), size);
+  assert.equal(found.overlays.length, 1, JSON.stringify(found.overlays));
+  const [x, y, w, h] = found.overlays[0].box;
+  assert.ok(Math.abs(x - 0.1) < 0.02 && Math.abs(y - 0.8) < 0.03 && Math.abs(x + w - 0.3) < 0.02 && Math.abs(y + h - 0.955) < 0.03, `box ${found.overlays[0].box}`);
+  assert.equal(found.overlays[0].frames, 8);
+  // The same picture standing still: nothing changes behind, so nothing is named.
+  assert.deepEqual(staticOverlays(Array.from({ length: 8 }, () => frame(0)), size).overlays, []);
+  // Through the reader (frames stubbed): on a computer with no text reader the overlay is still on the line.
+  const readGray = async () => ({ frames: Array.from({ length: 8 }, (_, index) => frame(index)), size });
+  const unread = await readBurnedText("clip.mp4", { width: 1920, height: 1080, duration: 2 }, { readFrames: async () => null, readGray });
+  assert.match(burnedTextLine(unread), /^burned-in text: not read on this system · a static overlay \((9|10)-(30|31)% across, (79|80)-(95|96|97)% down\) on 8 of 8 frames, text not read \(edges held still at 320 px\)\.$/);
+  // Where a read mark already covers it, the overlay is not named twice.
+  const marked = async () => [0, 0.25, 0.5].map((t) => ({ t, lines: [{ box: [0.1, 0.84, 0.2, 0.08], s: "site", c: 0.9 }] }));
+  const read = await readBurnedText("clip.mp4", { width: 1920, height: 1080, duration: 2 }, { readFrames: marked, readGray });
+  assert.equal(read.marks.length, 1);
+  assert.deepEqual(read.overlays, []);
 });
