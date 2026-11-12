@@ -85,11 +85,10 @@ test("in operations apply their from state before start; custom and out operatio
   assert.equal(evaluateLayer(layer, 3).opacity, 0.1);
 });
 
-test("a Move holds its From before it starts; fill chooses for any operation, and the first on a key wins", () => {
+test("fill both holds From before the start on any operation; without it the layer keeps its own values, and the first on a key wins", () => {
   const move = operation({ id: "move", start: 2, from: { x: 2000 }, to: { x: 700 } });
-  const slide = createLayer("rectangle", { id: "slide", x: 0, animations: [move] });
-  assert.equal(evaluateLayer(slide, 1).x, 2000, "the panel waits off screen instead of covering the frame");
-  assert.equal(evaluateLayer(createLayer("rectangle", { x: 0, animations: [{ ...move, fill: "forwards" }] }), 1).x, 0);
+  assert.equal(evaluateLayer(createLayer("rectangle", { id: "slide", x: 0, animations: [{ ...move, fill: "both" }] }), 1).x, 2000, "the panel waits off screen instead of covering the frame");
+  assert.equal(evaluateLayer(createLayer("rectangle", { x: 0, animations: [move] }), 1).x, 0, "a saved document draws as before");
   // Other operations keep the layer's own value unless fill asks.
   const pulse = operation({ id: "pulse", start: 2, from: { opacity: 0.2 }, to: { opacity: 1 } });
   assert.equal(evaluateLayer(createLayer("rectangle", { animations: [pulse] }), 1).opacity, 1);
@@ -185,8 +184,7 @@ test("presets create endpoint-based operations and scene evaluation preserves in
   assert.equal(move.kind, "custom");
   assert.deepEqual(move.from, { x: 130, y: 100 });
   assert.deepEqual(move.to, { x: 30, y: 40 });
-  // A Move waits at its From before it starts (holdsFromBeforeStart), so it does not jump there.
-  assert.equal(evaluateLayer({ ...layer, animations: [move] }, 0).x, 130);
+  assert.equal(evaluateLayer({ ...layer, animations: [move] }, 0).x, 30);
   assert.equal(evaluateLayer({ ...layer, animations: [move] }, 1).x, 130);
   assert.equal(JSON.stringify(layer), before);
 

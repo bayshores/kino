@@ -76,6 +76,8 @@ export { SEEN_AS };
 // Common words that mean a look only on their own: "green" alone is a tint, but "green screen" is
 // a cut-out and "repeat text" is not a footage stutter. Inside a longer query they lead nowhere.
 // "edges" and "corners" alone are a vignette, but "rounded corners" or "jagged edges" are not.
+// Words every kino answer uses: they never pick a name just by being a part of it (layer-style).
+const GENERIC = new Set(["layer", "text", "style", "ranges", "scene"]);
 const LOOSE = new Set(["green", "repeat", "ramp", "reverse", "hit", "grade", "tint", "flash", "fire", "ash", "rays", "beams", "echo", "blur", "flare", "matte", "grain", "burn", "negative", "inverted", "edges", "corners", "tunnel"]);
 
 // The last line of look {mode:"reference"}: what the agent sees there, as a lookup.
@@ -138,7 +140,7 @@ export function seenNames(query, { ops = [], limit = 5 } = {}) {
   for (const word of words.filter((entry) => !LOOSE.has(entry))) for (const name of SEEN_AS[word] ?? []) add(name);
   // Else a word that is a whole part of a name ("leaks" in light-leaks).
   // Ops are left out here: the search's ops line already lists the ops that hold a word.
-  if (!found.length && !noMakerLine(text)) for (const word of words.filter((entry) => entry.length > 3 && !LOOSE.has(entry))) for (const name of all.filter((entry) => !ops.includes(entry))) if (name.split("-").includes(word)) add(name);
+  if (!found.length && !noMakerLine(text)) for (const word of words.filter((entry) => entry.length > 3 && !LOOSE.has(entry) && !GENERIC.has(entry))) for (const name of all.filter((entry) => !ops.includes(entry))) if (name.split("-").includes(word)) add(name);
   return found.slice(0, limit).map((name) => {
     const call = readCallFor(name, { ops });
     return `${name} (${call.kind}: ${call.use}; ${call.read})`;

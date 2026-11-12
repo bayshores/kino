@@ -965,14 +965,12 @@ function overshootMove(animation, duration, options) {
 }
 
 /**
- * Whether an operation shows its From values before it starts. `fill: "both"` asks for it and
- * `fill: "forwards"` refuses it; with neither, a Move (x and y only) holds and other operations
- * keep the layer's own values until they start. Only the first operation on a key holds it.
+ * Whether an operation shows its From values before it starts. Only `fill: "both"` asks for it:
+ * without it the layer keeps its own values until the start, as saved documents always drew (the
+ * check that names a jump at the start stays the guide). Only the first operation on a key holds.
  */
 export function holdsFromBeforeStart(animation) {
-  if (animation.fill === "both") return true;
-  if (animation.fill === "forwards" || animation.fromCurrent) return false;
-  return isMoveAnimation(animation);
+  return animation.fill === "both" && !animation.fromCurrent;
 }
 
 // Runs the timed operations `ordered` (sorted by start) on `target` at `time`: each operation
@@ -1055,7 +1053,7 @@ function applyOperations(target, layer, ordered, time, options, {
         onResize?.(animation, start, before);
         reportTransform();
       } else if (holdsFromBeforeStart(animation)) {
-        // fill "both" (the default for a Move): the layer waits at From instead of jumping there
+        // fill "both": the layer waits at From instead of jumping there
         // at the start (a panel sliding in from off screen sat over the frame until its move).
         for (const key of keys)
           if (Object.hasOwn(from, key) && !claimed.has(key)) target[key] = cloneData(from[key], `animation.from.${key}`);

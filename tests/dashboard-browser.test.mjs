@@ -3990,6 +3990,9 @@ async function boardVideo(id, { ask = true, shots = boardShots } = {}) {
   assert.equal(made.isError, undefined, made.text);
   assert.equal((await agent("edit", { project: id, ops: [{ op: "add_layer", layerType: "video", name: "footage", properties: { src } }] })).isError, undefined);
   assert.equal((await agent("notes", { project: id, action: "brief", no_playback: "just start" })).isError, undefined);
+  // The person named the shape, so kino does not follow the 16:9 clip before the board.
+  const tall = "a vertical video of the dragon";
+  assert.equal((await agent("notes", { project: id, action: "brief", fields: { ask: tall, plays_on: { text: "vertical", by: "you", quote: tall } } })).isError, undefined);
   const board = await agent("edit", { project: id, ops: [{ op: "board", music: "none", calls: ["the dragon first: it is the news"], open: [], shots: shots(src) }] });
   assert.equal(board.isError, undefined, board.text);
   if (!ask) return { src, asked: null };

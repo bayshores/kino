@@ -547,8 +547,8 @@ How to read it:
 - **Motion paths**: Verified. `motionPath` on a Move, up to 64 points with `alignToPath`. Evidence:
   `engine/motionPath.test.js`, `engine/motionPathTransforms.test.js`, `backend/motion-path-export.test.mjs`,
   golden `motion-paths`. Gap: inserting a point does not keep the exact curve.
-- **Move holds its from (fill)**: Verified. A Move waits at `from` before its start; `fill` both or
-  forwards on any custom animation. Evidence: `engine/animation.test.js`. Gap: Lottie not checked.
+- **Hold before the start (fill)**: Verified. `fill:"both"` on any custom animation holds `from`
+  before its start; without it nothing changes. Evidence: `engine/animation.test.js`. Gap: Lottie not checked.
 - **Effect pulse (peak, return)**: Verified. One effect (value or ranged, such as glow) rises to `to`
   and returns. Evidence: `engine/effects/animation.test.js`, `backend/agent-answers.test.mjs`.
 - **Layer frameRate ("on twos")**: Verified. A layer or group holds every picture inside it for
