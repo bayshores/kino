@@ -1590,7 +1590,8 @@ How to read it:
 - **Text around a moving subject** (`place {around, follow?}`): Verified on rendered frames of a generated clip. The subject is
   measured over the whole hold; `follow:true` writes a path that keeps the text beside it. Evidence: `engine/subjectRoom.test.js`,
   `backend/subject-room-render.test.mjs`. check's type_covered and place read one cut-out subject box (same box at every sampled
-  second for a punched-in, cropped, turned cut-out); the hold follows parent groups; a cut-out copy retimed alone moves its path.
+  second for a punched-in, cropped, turned cut-out); the hold and the subject's moments follow parent groups; a cut-out copy retimed
+  alone moves its path.
   Evidence: `engine/subjectRoom.test.js`, `backend/agent-blocks.test.mjs`, `backend/agent-cutout.test.mjs`. Gap: a cut-out in a
   box of another shape than its file is measured over the box, not the contained picture.
 - **Lift without block edges** (`lift_dark`): Verified on a rendered generated clip (block step 2.73 after the old lift, 0.98 after

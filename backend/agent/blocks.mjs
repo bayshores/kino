@@ -2341,8 +2341,7 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     const isCover = (layer) => Boolean(layer.cutoutOf) && Array.isArray(layer.subjectBox) && layer.subjectBox.length === 4;
     const marksOf = (layer) => (layer.type === "video" && layer.subjectBoxes?.src === layer.src ? layer.subjectBoxes.boxes : []);
     const shows = (layer, at = time) => {
-      const state = evaluateLayer(layer, at);
-      if (state.visible === false || !(state.opacity > 0.01)) return false;
+      if (!shownWithGroups(scene, layer, at)) return false;
       const range = layer.type === "video" ? mediaPlaybackRange(layer, scene.duration) : null;
       return !range || (at >= range.start - 1e-6 && at <= range.end + 1e-6);
     };
@@ -2405,24 +2404,26 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     return { ...over(boxAt), name, behind, line: `the subject of ${name} at ${t} s (${first.how})` };
   }
 
+  // A layer shows at `at` when it and every group around it are visible, with their opacities
+  // multiplied over 0.01 (text a group fades in is not on screen before the group is; a cut-out
+  // its group hides covers nothing).
+  function shownWithGroups(scene, layer, at) {
+    const byId = new Map(scene.layers.map((item) => [item.id, item]));
+    let opacity = 1;
+    for (let item = layer, depth = 0; item && depth < 64; item = byId.get(item.parentId), depth += 1) {
+      const state = evaluateLayer(item, at);
+      if (item.visible === false || state.visible === false) return false;
+      opacity *= Math.max(0, Math.min(1, Number.isFinite(state.opacity) ? state.opacity : 1));
+    }
+    return opacity > 0.01;
+  }
+
   // The run of seconds the placed text is on screen around `time` (sampled every 0.1 s over the
   // scene; the run holding `time`, else the first after it, else the last before it), as range
-  // [start, end] and up to 24 times spread over it. A layer shows when it and every group around
-  // it are visible, with their opacities multiplied over 0.01 (text a group fades in is not on
-  // screen before the group is).
+  // [start, end] and up to 24 times spread over it (shownWithGroups).
   function holdOf(scene, layers, time) {
     const step = 0.1;
-    const byId = new Map(scene.layers.map((layer) => [layer.id, layer]));
-    const seen = (layer, at) => {
-      let opacity = 1;
-      for (let item = layer, depth = 0; item && depth < 64; item = byId.get(item.parentId), depth += 1) {
-        const state = evaluateLayer(item, at);
-        if (item.visible === false || state.visible === false) return false;
-        opacity *= Math.max(0, Math.min(1, Number.isFinite(state.opacity) ? state.opacity : 1));
-      }
-      return opacity > 0.01;
-    };
-    const shown = (at) => layers.some((layer) => seen(layer, at));
+    const shown = (at) => layers.some((layer) => shownWithGroups(scene, layer, at));
     const runs = [];
     for (let index = 0; index * step <= scene.duration + 1e-9; index += 1) {
       const at = Math.min(scene.duration, index * step);

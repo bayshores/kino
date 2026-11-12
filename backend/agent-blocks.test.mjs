@@ -319,6 +319,14 @@ test("place {around} sets a word beside the marked subject of the shot under it 
     { op: "place", layers: ["tag"], around: "clip-subject" },
   ] });
   assert.match(grouped.text, /over the hold 1\.1-1\.9 s/, grouped.text);
+  // A cut-out its own group hides from 1.5 s: only the moments it shows count.
+  const hidden = await agent("around-moving", "edit", { ops: [
+    { op: "group_layers", layerIds: ["clip-subject"], name: "cutband" },
+    { op: "add_animation", layer: "cutband", preset: "preset-fade", mode: "out", start: 1.4, duration: 0.1 },
+    { op: "place", layers: ["word"], around: "clip-subject" },
+  ] });
+  assert.match(hidden.text, /over the hold 1\.1-1\.9 s \(4 moments; /, hidden.text);
+  assert.doesNotMatch(hidden.text, /worst moment \d+% at 1\.[5-9] s/, hidden.text);
 });
 
 test("frame steps a camera group onto a region of a layer, then eases on, and check takes the cut as a cut", async () => {
