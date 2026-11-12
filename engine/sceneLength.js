@@ -11,10 +11,18 @@
 //    more than a second of picture or music nobody saw, so the board stays as saved and the
 //    board stop's refusal gives the one call (board {end}).
 //
-// Both change the document passed in and return what moved, for the receipt.
+// 3. A full-frame picture or plate whose Hide is at the old end (within a frame) ends at the new one,
+//    so a longer scene does not end on bare background (and a shorter one does not keep a Hide past
+//    its end). A scene made more than BOARD_FOLLOW_SECONDS longer leaves it, like a board's last
+//    shot; a clip that stops playing before the new end holds its last frame, and the receipt says
+//    for how long. Other layers that hide at the old end stay, and the receipt names them.
+//
+// All change the document passed in and return what moved, for the receipt.
 import { boardCoverage, boardSpan, mainScene, ONE_FRAME } from "./board.js";
 import { isComposedAnimation } from "./animationTree.js";
-import { isVisibilityOperation } from "./visibilityOps.js";
+import { fullFrameLayers } from "./quality/bareGaps.js";
+import { isVisibilityOperation, orderedVisibilityOperations } from "./visibilityOps.js";
+import { mediaPlaybackRange } from "./playback.js";
 
 // The most a board's last shot follows a length change. One second is 30 frames at the board's
 // 30 frames a second: five times the 6 frames at which an approved board already counts a moved
@@ -96,4 +104,44 @@ export function followBoardLength(document, before) {
   if (boardCoverage(next, now)) return null;
   document.board = { ...next, rev: board.rev + 1 };
   return { shot: board.shots.length, from: round(last.cue + last.dur), to: round(last.cue + dur) };
+}
+
+// The most layers a follow names, moved or left.
+const NAMED = 12;
+
+/**
+ * After an edit that gave `scene` another length than `was`: the full-frame pictures and plates drawn
+ * whole on the old last frame whose Hide is at the old end (within a frame) now hide at the new end.
+ * Returns { moved: [{ layerId, animationId, from, to }], left: [{ layerId, why }], more } (left: a
+ * layer that hides at the old end and did not move: not a full-frame picture, or a Show in the way),
+ * or null when the length is the same or nothing hides at the old end.
+ */
+export function followLastLayers(scene, was, { fps = 30 } = {}) {
+  const now = Number(scene?.duration);
+  const frame = 1 / (Number(fps) > 0 ? Number(fps) : 30);
+  if (!(was > 0) || !(now > 0) || Math.abs(now - was) < 1e-6) return null;
+  const whole = new Set(fullFrameLayers(scene, Math.max(0, was - frame)).map((layer) => layer.id));
+  // Like a board's last shot (BOARD_FOLLOW_SECONDS): a scene made more than a second longer is a
+  // different cut, so the picture would hold a stretch nobody chose; it stays and is named.
+  const tooLong = now - was > BOARD_FOLLOW_SECONDS + 1e-6;
+  const moved = [];
+  const left = [];
+  for (const layer of scene.layers ?? []) {
+    if (layer.type === "audio" || !Array.isArray(layer.animations)) continue;
+    const hide = layer.animations.find((animation) => animation?.kind === "hide" && typeof animation.start === "number" && Math.abs(animation.start - was) <= 1.5 * frame);
+    if (!hide) continue;
+    const others = orderedVisibilityOperations(layer.animations).filter((operation) => operation.start >= now - 1e-6 && operation.start !== hide.start);
+    if (!whole.has(layer.id)) left.push({ layerId: layer.id, why: "not a full-frame picture" });
+    else if (others.length) left.push({ layerId: layer.id, why: `another Hide or Show at ${others[0].start} s` });
+    else if (tooLong) left.push({ layerId: layer.id, why: `the scene grew ${round(now - was)} s, past the ${BOARD_FOLLOW_SECONDS} s a last shot follows` });
+    else {
+      // A clip whose Play ends before the new end holds its last frame there: measured, and named.
+      const plays = layer.type === "video" ? mediaPlaybackRange(layer, Infinity)?.end : null;
+      const holds = Number.isFinite(plays) && now - plays > frame / 2 ? { from: round(plays), seconds: round(now - plays) } : null;
+      moved.push({ layerId: layer.id, animationId: hide.id, from: round(hide.start), to: round(now), ...(holds ? { holds } : {}) });
+      hide.start = round(now);
+    }
+  }
+  if (!moved.length && !left.length) return null;
+  return { moved: moved.slice(0, NAMED), left: left.slice(0, NAMED), more: Math.max(0, moved.length - NAMED) + Math.max(0, left.length - NAMED) };
 }

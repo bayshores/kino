@@ -47,7 +47,7 @@ import { RESIZE_ANCHORS } from "./resizeAnchor.js";
 import { refreshBehaviorLinks } from "./behaviorLinks.js";
 import { frameShot } from "./footage/layout.js";
 import { normalizeLetterbox, normalizeSceneFinish } from "./sceneFinishFields.js";
-import { BOARD_FOLLOW, boardSpanBefore, followBoardLength, followSceneLength } from "./sceneLength.js";
+import { BOARD_FOLLOW, boardSpanBefore, followBoardLength, followLastLayers, followSceneLength } from "./sceneLength.js";
 
 // A Color animation (`fill` in from or to) only draws on a layer that has a Fill (paints.js).
 // Every operation that adds one or changes its fill values refuses it on a layer without a Fill:
@@ -68,6 +68,7 @@ export function applyOperations(source, operations, {fonts, mediaBySrc, mediaByI
   // A board that tiles the video or its music now follows a small change to that length made by
   // any of these operations (sceneLength.js); measured once before and once after them.
   const boardBefore = boardSpanBefore(document);
+  const lengthsBefore = new Map(document.scenes.map((scene) => [scene.id, scene.duration]));
   for (const operation of operations) {
     if (!operation || typeof operation !== "object")
       throw new Error("Each operation must be an object.");
@@ -500,6 +501,12 @@ export function applyOperations(source, operations, {fonts, mediaBySrc, mediaByI
   }
   const boardFollow = followBoardLength(document, boardBefore);
   if (boardFollow && reports) reports.set(BOARD_FOLLOW, { boardFollow });
+  // A scene given another length by any operation (update_scene, fit_music): the full-frame pictures
+  // that hid at its old end hide at the new one, so the end is not bare background.
+  for (const scene of document.scenes) {
+    const layers = followLastLayers(scene, lengthsBefore.get(scene.id), { fps: document.fps });
+    if (layers && reports) reports.set({ type: "layer_follow", sceneId: scene.id }, { layerFollow: { was: lengthsBefore.get(scene.id), now: scene.duration, ...layers } });
+  }
   assertAxesInRange(source, document, fonts);
   // A waiver on a layer lapses when the layer is deleted or its file changes (projectSettings.js).
   if (document.checkWaivers?.length) document.checkWaivers = keptWaivers(source, document);

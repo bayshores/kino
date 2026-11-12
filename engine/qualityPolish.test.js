@@ -1225,3 +1225,52 @@ test("bareGaps: a shot that hides before the next one fades in leaves the backgr
   assert.deepEqual(bareGaps(tall(upright("a", [show(0), hide(3)]), card, upright("b", [show(4.5)]))), []);
   assert.deepEqual(bareGaps(tall(upright("a", [show(0), hide(3)]), upright("b", [show(4.5)]))).map((item) => [item.start, item.frames]), [[3, 45]]);
 });
+
+test("bareGaps edges: the scene's last and first stretch show the background, with the call that closes each; a fade to the background, a title and a card do not", async () => {
+  const { bareGaps, closeGap } = await import("./quality/bareGaps.js");
+  const shot = (id, animations, props = {}) => ({ type: "image", id, name: id, src: "/api/media/frame.png", x: 0, y: 0, width: 1920, height: 1080, animations, ...props });
+  const stretch = (...layers) => scene({ duration: 14, background: "#101010", layers }).scenes[0];
+  // The last shot hides at 13.85 and the scene ends at 14: 0.15 s of background, 4 frames.
+  const last = stretch(shot("a", [{ kind: "hide", start: 13.85 }]));
+  assert.deepEqual(bareGaps(last), [], "between shots only, unless edges are asked for");
+  const [end] = bareGaps(last, { edges: true });
+  assert.deepEqual([end.edge, end.start, end.end, end.frames, end.before.layer.id, end.after], ["end", 13.867, 14, 4, "a", null]);
+  const close = closeGap(end, 30);
+  assert.deepEqual([close.extend.animation, close.extend.start, close.shorten], ["a.1", 14, 13.85]);
+  assert.deepEqual(bareGaps(stretch(shot("a", [{ kind: "hide", start: 14 }])), { edges: true }), []);
+  // A shot that fades out into the background, and words that come on after the picture, are designed endings.
+  const fadeOut = { id: "out", kind: "out", start: 13, duration: 1, easing: "linear", from: { opacity: 1 }, to: { opacity: 0 } };
+  assert.deepEqual(bareGaps(stretch(shot("a", [fadeOut])), { edges: true }), []);
+  const words = { type: "text", id: "end", name: "end", text: "THE END", fontFamily: "Inter", x: 100, y: 400, width: 800, height: 200, animations: [{ kind: "show", start: 12.1 }] };
+  assert.deepEqual(bareGaps(stretch(shot("a", [{ kind: "hide", start: 12 }]), words), { edges: true }), []);
+  // The first stretch: the first shot shows at 0.5 s. A shot fading in from the first frame is a fade, a title on the opening a title.
+  const [start] = bareGaps(stretch(shot("a", [{ kind: "show", start: 0.5 }])), { edges: true });
+  assert.deepEqual([start.edge, start.start, start.end, start.frames, start.before, closeGap(start, 30).earlier.start], ["start", 0, 0.5, 15, null, 0]);
+  const fadeIn = { id: "in", kind: "in", start: 0, duration: 0.5, easing: "linear", from: { opacity: 0 }, to: { opacity: 1 } };
+  assert.deepEqual(bareGaps(stretch(shot("a", [fadeIn])), { edges: true }), []);
+  const title = { ...words, id: "title", animations: [] };
+  assert.deepEqual(bareGaps(stretch(shot("a", [{ kind: "show", start: 0.5 }]), title), { edges: true }), []);
+});
+
+test("bareStrips: a full-frame picture moved or scaled off the frame names the edge, the px and the scale that covers it; an inset, a plate under it and a slide do not", async () => {
+  const { bareStrips } = await import("./quality/bareGaps.js");
+  const shot = (id, props = {}, animations = []) => ({ type: "image", id, name: id, src: "/api/media/frame.png", x: 0, y: 0, width: 1920, height: 1080, animations, ...props });
+  const stretch = (...layers) => scene({ duration: 6, background: "#101010", layers }).scenes[0];
+  // 2112 wide moved to x -342 ends at 1770: 150 px of the frame at the right are bare for the whole shot.
+  assert.deepEqual(bareStrips(stretch(shot("a", { width: 2112, height: 1188, x: -192, y: -54 }))), [], "the same picture where it still covers the frame has no strip");
+  const [strip] = bareStrips(stretch(shot("a", { width: 2112, height: 1188, x: -342, y: -54 })));
+  assert.deepEqual([strip.layer.id, strip.strips, strip.start, strip.end], ["a", { right: 150 }, 0, 6]);
+  // Scaling about its pivot (the center, x 714) by 1.14 covers it; moving it back to x -192 covers it by position alone.
+  assert.deepEqual([strip.scale.factor, strip.scale.scaleX, strip.shift], [1.14, 1.142, { x: -192 }]);
+  // Mirrored (scaleX -1) it leaves the same strip, and the scale keeps the mirror.
+  const [mirrored] = bareStrips(stretch(shot("a", { width: 2112, height: 1188, x: -342, y: -54, scaleX: -1 })));
+  assert.deepEqual([mirrored.strips, mirrored.scale.scaleX, mirrored.shift], [{ right: 150 }, -1.142, { x: -192 }]);
+  // Strips on two opposite sides are an inset frame; a plate under the picture covers the strip; a slide-in covers it by its end.
+  assert.deepEqual(bareStrips(stretch(shot("a", { width: 1700, x: 110 }))), []);
+  const plate = { type: "rectangle", id: "plate", name: "plate", fill: "#222222", x: 0, y: 0, width: 1920, height: 1080, animations: [] };
+  assert.deepEqual(bareStrips(stretch(plate, shot("a", { width: 1700 }))), []);
+  const slide = { id: "slide", kind: "custom", start: 0, duration: 1, easing: "linear", from: { x: -300 }, to: { x: 0 } };
+  assert.deepEqual(bareStrips(stretch(shot("a", { width: 1920 }, [slide]))), []);
+  // A picture much smaller than the frame is an inset or a card, not meant to fill it.
+  assert.deepEqual(bareStrips(stretch(shot("a", { width: 900, height: 500 }))), []);
+});
