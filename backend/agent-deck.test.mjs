@@ -353,6 +353,17 @@ test("treatments: 5 saved on the brief, the most typical dropped, the 3 least ty
   assert.deepEqual(shownTypes, ["serif", "serif", "mono"]);
   // Your own pick says why.
   assert.match(treatmentsProblem({ pick: "B" }, cleaned).message, /^why is 1 to 80 characters, required on your own pick/);
+  // The drop stays, but when the origin search found the ask is known for the dropped idea, it is
+  // listed as a labeled D line and can still be picked; an origin it does not name changes nothing.
+  const known = { words: [{ word: "dawn", count: 8, of: 20 }] };
+  const listed = treatmentsText({ treatments: cleaned, noPlayback: { reason: "just start" } }, known).split("\n");
+  assert.match(listed[4], /^D\. a slow city-at-dawn montage with a voice · .* · dropped as the most typical; it is what this ask is known for \("dawn"\)$/);
+  assert.equal(pickLines({ treatments: cleaned }, known).at(-1), listed[4]);
+  assert.equal(treatmentsProblem({ pick: "D", why: "it is what they search for" }, cleaned, known), null);
+  assert.equal(cleanTreatments({ pick: "D", why: "it is what they search for" }, cleaned).picked.index, cleaned.dropped);
+  const other = { words: [{ word: "camera", count: 8, of: 20 }] };
+  assert.doesNotMatch(treatmentsText({ treatments: cleaned }, other), /^D\./m);
+  assert.match(treatmentsProblem({ pick: "D", why: "x" }, cleaned, other).message, /^pick is A, B, C:/);
 
   await newVideo("treat");
   await agent("notes", { project: "treat", action: "brief", log: [{ q: "What's wrong or missing?", a: "looks right", kind: "playback", rev: 1, confirmed: true }] });

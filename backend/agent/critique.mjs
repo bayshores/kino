@@ -31,10 +31,23 @@ export const OWN_FORM = "OWN t=<seconds> · <the moment only this product could 
 export const GENERIC_FORM = "GENERIC · <why it could be any product> → <the moment only this product could have, from its real material>";
 export const GENERIC_PROBLEM = "generic: no moment only this product could have";
 
+// The same top-level question for an edit of a subject in footage (subject-edit.mjs), where there
+// is no product: the moment only this subject and its footage could have. The line forms parse the same.
+const SUBJECT_OWN_FORM = "OWN t=<seconds> · <the moment only this subject and its footage could have>";
+const SUBJECT_GENERIC_FORM = "GENERIC · <why it could be an edit of anything> → <the moment only this subject could have, from its footage>";
+const ownQuestion = (subject) => (subject
+  ? `First line, always: is there a moment only this subject and its footage could have (what it is known for, a line it says, a shot no other footage has)? Name it (${SUBJECT_OWN_FORM}) or say there is none (${SUBJECT_GENERIC_FORM}).`
+  : `First line, always: is there a moment only this product could have? Name it (${OWN_FORM}) or say there is none (${GENERIC_FORM}).`);
+
+/** The critic's instructions; `subject` (isSubjectEdit) asks the top question about the subject and its footage instead of a product. */
+export const critiqueProtocol = ({ subject = false } = {}) => (subject
+  ? CRITIQUE_PROTOCOL.replace(ownQuestion(false), ownQuestion(true)).replace("designed for this product", "designed for this subject")
+  : CRITIQUE_PROTOCOL);
+
 // The critic's instructions: what it reads, what it may not do, how it answers.
 export const CRITIQUE_PROTOCOL = [
   "You are a fresh-eyes critic of a motion video. Read packet.txt, then each page in order. Never edit anything; you have only this packet.",
-  `First line, always: is there a moment only this product could have? Name it (${OWN_FORM}) or say there is none (${GENERIC_FORM}).`,
+  ownQuestion(false),
   `Then answer ONLY with lines in this form, one problem a line, worst first, nothing else (no scores, no praise, no summary):`,
   `  ${CRITIQUE_FORM}`,
   "  P0 = breaks the video: the story is unclear, a motion is jarring, text is unreadable, or it goes against the direction or a rejected line.",
