@@ -27,6 +27,8 @@ const PAD_X = 0.3;
 const PAD_Y = 0.18;
 const TURN = [3, 9];
 const COVERED = 0.6;
+// The eye band of a face or head box: 25% to 50% down it (a proportion guess, not measured).
+const EYES = [0.25, 0.5];
 const STEP = 1 / 30;
 
 /**
@@ -80,9 +82,22 @@ function drawnBox(word, fonts) {
 }
 
 /**
+ * The widest single word of a text layer as drawn on one line ({text, width} in px), so a text box
+ * narrower than one of its words (which then breaks inside the word) can be widened to keep it whole.
+ */
+export function widestWord(word, fonts) {
+  const words = String(word.text ?? "").split(/\s+/).filter(Boolean);
+  return words.reduce((best, text) => {
+    const width = layoutText({ ...word, text, textStyleRanges: undefined, textResize: "width-height" }, fonts).naturalWidth;
+    return width > best.width ? { text, width } : best;
+  }, { text: "", width: 0 });
+}
+
+/**
  * The largest share of a face or head box on `clip` (mark_subject part face/head, else the scan's
  * faces and pose heads, silhouette.js headsNear) that the panel `box` turned `turn` degrees about
- * its center covers, every 1/6 s over [from, to]: {share, at, from} or null when none is known.
+ * its center covers, every 1/6 s over [from, to], with the share of its eye band: the worst for
+ * each source of boxes, your mark first ([{share, at, from, eyes: {share, at}}]; [] when none is known).
  */
 export function faceCover(ctx, clip, box, turn, from, to) {
   const samples = ctx.samples(clip.id);
@@ -92,18 +107,26 @@ export function faceCover(ctx, clip, box, turn, from, to) {
     const dx = x - cx, dy = y - cy;
     return Math.abs(dx * cos - dy * sin) <= box.width / 2 && Math.abs(dx * sin + dy * cos) <= box.height / 2;
   };
-  let worst = null;
+  // A mark covers 0.5 s each side of its time and the scan the rest, so each source keeps its own worst.
+  const bySource = new Map();
   for (let time = from; time <= to + 1e-6; time += 1 / 6) {
     const heads = headsNear(clip, samples, fileSecond(clip, time));
     for (const [hx, hy, hw, hh] of heads?.boxes ?? []) {
       const x0 = clip.x + hx * clip.width, y0 = clip.y + hy * clip.height, w = hw * clip.width, h = hh * clip.height;
-      let hits = 0;
-      for (let i = 0; i < 12; i += 1) for (let j = 0; j < 12; j += 1) if (inside(x0 + ((i + 0.5) / 12) * w, y0 + ((j + 0.5) / 12) * h)) hits += 1;
-      const share = hits / 144;
-      if (!worst || share > worst.share) worst = { share, at: round(time, 2), from: heads.from };
+      let hits = 0, eyeHits = 0;
+      for (let i = 0; i < 12; i += 1) for (let j = 0; j < 12; j += 1) {
+        if (!inside(x0 + ((i + 0.5) / 12) * w, y0 + ((j + 0.5) / 12) * h)) continue;
+        hits += 1;
+        if (j >= EYES[0] * 12 && j < EYES[1] * 12) eyeHits += 1;
+      }
+      const share = hits / 144, eyeShare = eyeHits / (12 * 12 * (EYES[1] - EYES[0]));
+      const worst = bySource.get(heads.from) ?? { share: -1, from: heads.from, eyes: { share: -1 } };
+      if (share > worst.share) Object.assign(worst, { share, at: round(time, 2) });
+      if (eyeShare > worst.eyes.share) worst.eyes = { share: eyeShare, at: round(time, 2) };
+      bySource.set(heads.from, worst);
     }
   }
-  return worst;
+  return [...bySource.values()].sort((a, b) => (b.from === "your mark") - (a.from === "your mark"));
 }
 
 /** The first time after `start` a layer stops showing (checked a frame at a time), or the scene's end. */
@@ -144,7 +167,15 @@ export const wordPanel = {
     if (shot && ctx.dur === null) ctx.note(`leaves at ${end} s, where ${shot.id} stops showing (send dur to choose)`);
 
     // The word as laid out: its drawn box (the lines' own width, not the text box) is what the panel is sized from.
-    const { id: _id, name: _name, animations: _own, move: _move, parentId: _parent, pin: _pin, ...look } = resizeTextLayer(yours, ctx.fonts);
+    const { id: _id, name: _name, animations: _own, move: _move, parentId: _parent, pin: _pin, ...laid } = resizeTextLayer(yours, ctx.fonts);
+    // A text box narrower than one of its words breaks inside that word ("DEFINITEL" over "Y."):
+    // the panel's copy is widened to the widest word as drawn, keeping its alignment's anchor.
+    const widest = widestWord(laid, ctx.fonts);
+    const wide = Math.ceil(widest.width) + 2;
+    const look = wide > laid.width
+      ? resizeTextLayer({ ...laid, width: wide, x: round(laid.x - (wide - laid.width) * (laid.textAlign === "right" ? 1 : laid.textAlign === "center" ? 0.5 : 0), 1) }, ctx.fonts)
+      : laid;
+    if (look !== laid) ctx.note(`your text box ${Math.round(laid.width)} px is narrower than its word "${widest.text}" (${Math.round(widest.width)} px drawn), which broke inside it: the panel's word box is ${wide} px wide, so the word stays whole`);
     const fontSize = look.fontSize ?? 40;
     const others = ctx.sceneMoves().filter((entry) => entry.name === "word-panel");
     // Each placement in a scene gets its own seed pick (the seed alone gave every placement the same turn).
@@ -179,8 +210,8 @@ export const wordPanel = {
     const ink = input.ink ?? inks.reduce((best, color) => (contrast(color, panelColor) > contrast(best, panelColor) ? color : best), inks[0]);
     const padSaid = `pad ${padShare} of the ${fontSize} px font${input.pad === undefined ? ", a starting guess" : ""}`;
     ctx.note(shape === "strip"
-      ? `panel strip ${panelBox.width}x${panelBox.height} px across the frame; word centered up and down on it where you placed it, its drawn box ${Math.round(wordBox.width)}x${Math.round(wordBox.height)} px (your text box ${Math.round(look.width)}x${Math.round(look.height)}), ${padY} px above and below (${padSaid})`
-      : `panel ${shape} ${panelBox.width}x${panelBox.height} px; word centered in it, its drawn box ${Math.round(wordBox.width)}x${Math.round(wordBox.height)} px (your text box ${Math.round(look.width)}x${Math.round(look.height)}), inset ${padX} px left and right, ${padY} px top and bottom (${padSaid})`);
+      ? `panel strip ${panelBox.width}x${panelBox.height} px across the frame; word centered up and down on it where you placed it, its drawn box ${Math.round(wordBox.width)}x${Math.round(wordBox.height)} px (your text box ${Math.round(laid.width)}x${Math.round(laid.height)}), ${padY} px above and below (${padSaid})`
+      : `panel ${shape} ${panelBox.width}x${panelBox.height} px; word centered in it, its drawn box ${Math.round(wordBox.width)}x${Math.round(wordBox.height)} px (your text box ${Math.round(laid.width)}x${Math.round(laid.height)}), inset ${padX} px left and right, ${padY} px top and bottom (${padSaid})`);
     ctx.note(`panel color ${panelColor}: ${colorFrom}; word ${ink} at ${round(contrast(ink, panelColor), 2)}:1 on it`);
     ctx.note(`turned ${turn}°${input.turn === undefined ? ` (seed pick for placement ${placement + 1} in this scene, a starting guess: nothing in the shot measured for it)` : ""}`);
     const side = (box) => { const middle = (box.x + box.width / 2) / ctx.frame.width; return middle < 0.4 ? "left" : middle > 0.6 ? "right" : "center"; };
@@ -228,7 +259,7 @@ export const wordPanel = {
     const clip = shot ? (shot.type === "video" ? shot : ctx.clipsOf(shot.id)[0]) : subject?.cutoutOf ? ctx.sceneLayers().find((layer) => layer.id === subject.cutoutOf) : null;
     if (clip?.type === "video") {
       const face = faceCover(ctx, clip, groupBox, turn, t, end);
-      if (face) ctx.note(`covers ${Math.round(face.share * 100)}% of the face or head box (${face.from}) at ${face.at} s${subject ? ` (behind ${subject.id})` : ""}`);
+      if (face.length) ctx.note(`covers ${face.map((worst) => `${Math.round(worst.share * 100)}% of the face or head box (${worst.from}) at ${worst.at} s and ${Math.round(worst.eyes.share * 100)}% of its eye band at ${worst.eyes.at} s`).join("; ")} (eye band: ${EYES[0] * 100} to ${EYES[1] * 100}% down the box, a proportion guess)${subject ? ` (behind ${subject.id})` : ""}`);
       else ctx.note(`no face or head box marked or scanned on ${clip.id} from ${t} to ${end} s (mark_subject part "face" adds one)`);
     }
 

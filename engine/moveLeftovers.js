@@ -34,7 +34,7 @@ export function settleDeletedMoves(scene, gone) {
 /**
  * A saved scene's word-panel records as the current move leaves them (in place): a record whose
  * group is gone loses its steps and record; a source text with no steps of its own besides the
- * move's hide at its start and show at its end is hidden from 0 s instead.
+ * move's hide at its start (and show at its end, when it has one) is hidden from 0 s instead.
  */
 export function settleWordPanels(scene) {
   for (const record of [...(scene.moves ?? [])]) {
@@ -48,7 +48,10 @@ export function settleWordPanels(scene) {
     }
     const source = scene.layers.find((layer) => layer.id === record.settings?.textLayer);
     const showId = `${record.id}.textLayer-show`, hideId = `${record.id}.textLayer-hide`;
-    if (!source || !(source.animations ?? []).some((animation) => animation?.id === showId)) continue;
+    // An old save hid it at the move's start and showed it at its end, or only hid it at its start
+    // (no show when the move ended with the scene): either way it showed before the panel.
+    const hidden = (source?.animations ?? []).find((animation) => animation?.id === hideId);
+    if (!hidden || (hidden.start === 0 && !source.animations.some((animation) => animation?.id === showId))) continue;
     const others = source.animations.filter((animation) => isStep(animation) && animation.id !== showId && animation.id !== hideId);
     if (others.length) continue;
     source.animations = source.animations
