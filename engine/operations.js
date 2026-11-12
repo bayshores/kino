@@ -423,7 +423,12 @@ export function applyOperations(source, operations, {fonts, mediaBySrc, mediaByI
       if (operation.duration !== undefined) added.duration = operation.duration;
       if (operation.keepStill !== undefined) added.keepStill = operation.keepStill;
       // fill holds From before the start; peak and return make a value effect rise and fall back.
+      // hold:false sends a value effect back to rest when its window ends.
       for (const field of ["fill", "peak", "return"]) if (operation[field] !== undefined) added[field] = operation[field];
+      if (operation.hold !== undefined) {
+        if (added.kind !== "effect") throw new Error("add_animation hold is for an effect (hold:true keeps its end value, false goes back to rest); leave it out here.");
+        added.hold = operation.hold;
+      }
       // On a Resize (width or height) anchor is its own: the point that stays put.
       if (operation.anchor !== undefined && sizeKeys(added).length) {
         if (operation.anchor !== null && !RESIZE_ANCHORS.some((entry) => entry.id === operation.anchor))

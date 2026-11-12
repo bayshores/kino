@@ -17,7 +17,8 @@ export const MEDIA_FREEZE_MODES = Object.freeze([
   ["both", "First & last"],
 ]);
 
-// Play ranges include their end time; anything later is outside Play.
+// How far past a range's end a time still counts as inside it (ranges other than a clip's
+// picture, which ends on its end time: mediaFrameState).
 export const PLAY_END_TOLERANCE = 1e-9;
 // The held last frame is sampled just before the end, so a looping GIF never wraps back to frame 0.
 const HOLD_BEFORE_END = 2e-3;
@@ -88,17 +89,21 @@ export function mediaFrameState(layer, time) {
   const offset = Math.max(0, layer.mediaOffset ?? 0);
   const duration = effectiveMediaDuration(layer);
   const freeze = mediaFreezeMode(layer);
+  // Play ends on its end time: a clip from 0.30 s lasting 0.10 s draws its last frame at 0.36 s
+  // (25 fps) and is gone at 0.40 s, where the next shot starts (GAPS 6). Frame times drift up to
+  // MEDIA_SAMPLE_TOLERANCE below n / fps, so that much before the end counts as the end.
+  const ended = time >= start + duration - MEDIA_SAMPLE_TOLERANCE && duration > MEDIA_SAMPLE_TOLERANCE;
   if (!isRemapped(layer)) {
     const lastLocalTime = Math.max(0, duration - HOLD_BEFORE_END);
     if (time < start)
       return { visible: freeze === "first" || freeze === "both", playing: false, sourceTime: offset };
-    if (time > start + duration + PLAY_END_TOLERANCE)
+    if (ended)
       return { visible: freeze === "last" || freeze === "both", playing: false, sourceTime: offset + lastLocalTime };
     return { visible: true, playing: true, sourceTime: offset + Math.min(time - start, lastLocalTime) };
   }
   if (time < start)
     return { visible: freeze === "first" || freeze === "both", playing: false, sourceTime: offset + mediaSourceOffset(layer, 0, duration) };
-  if (time > start + duration + PLAY_END_TOLERANCE)
+  if (ended)
     return { visible: freeze === "last" || freeze === "both", playing: false, sourceTime: offset + mediaSourceOffset(layer, duration, duration) };
   return { visible: true, playing: true, sourceTime: offset + mediaSourceOffset(layer, time - start, duration) };
 }

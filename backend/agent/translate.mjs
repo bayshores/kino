@@ -19,6 +19,8 @@ import { BLOCK_OPERATION_TYPES, blockCreatedIds, blockReferencedIds, isBlockOper
 import { durationFromToken, easingFromToken } from "../../engine/blocks/tokens.js";
 import { MOVES } from "../../engine/blocks/moves/index.js";
 import { createLayer } from "../../engine/model.js";
+import { effectDefinition } from "../../engine/effects/catalog.js";
+import { defaultHold, restsAtZero, SHORT_EFFECT } from "../../engine/effects/animation.js";
 import { copyName, MAX_COPIES } from "../../engine/duplicate.js";
 import { BACKDROP_STYLE_KEYS } from "../../engine/backdropStyles.js";
 import { REACH_OPERATIONS } from "./reach-operations.mjs";
@@ -661,6 +663,7 @@ function translateOne(raw, resolver, document) {
     operation = normalizeValues(operation, resolver.fixes);
     resolveReferences(operation, type, resolver, document);
     checkStepsCount(operation, type, document);
+    if (type === "add_animation") effectEndDefault(operation, resolver);
     if (type === "isolate_voice") checkIsolateVoice(operation, resolver);
     if (type === "cut_out") checkCutOut(operation, resolver);
     if (type === "cut_speech") checkCutSpeech(operation);
@@ -710,6 +713,26 @@ function translateOne(raw, resolver, document) {
       failure.standIn = standInLayer(operation, resolver, document);
     }
   }
+}
+
+// add_animation {effect} of a value effect that rests at zero (a blur, a bulge): a window under
+// SHORT_EFFECT goes back to rest at its end unless hold:true (GAPS 5: 1-2 frame smears stayed on
+// for five whole shots). The receipt says which it does, so the frames after it hold no surprise.
+function effectEndDefault(operation, resolver) {
+  if (typeof operation.effect !== "string" || operation.animation !== undefined) return;
+  let effect;
+  try { effect = effectDefinition(operation.effect); } catch { return; }
+  if (!restsAtZero(effect.key) || operation.peak != null || operation.return != null) return;
+  const duration = typeof operation.duration === "number" ? operation.duration : effect.duration;
+  const start = typeof operation.start === "number" ? operation.start : 0;
+  if (operation.hold === undefined) {
+    const hold = defaultHold(effect.key, duration, { to: operation.parameters });
+    if (hold !== undefined) operation.hold = hold;
+  }
+  // Only a short change of strength is named (a short step that places the effect says nothing).
+  if (operation.hold === undefined && duration < SHORT_EFFECT) return;
+  const end = Math.round((start + duration) * 1000) / 1000;
+  resolver.notes?.push(operation.hold === false ? `${effect.key} returns to 0 at ${end} s (hold:true keeps it)` : `${effect.key} holds its end value after ${end} s (hold:false returns it to 0)`);
 }
 
 // add_animation {name}: the animation's name, and (when no id is given) its ID made from the

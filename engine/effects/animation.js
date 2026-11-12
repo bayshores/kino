@@ -8,12 +8,40 @@ import { behaviorOffset, normalizeBehavior } from "../behavior.js";
 
 export const isEffectAnimation = (animation) => animation?.kind === "effect";
 /** The fields an effect animation has; its settings go inside `to` (and `from`). */
-export const EFFECT_ANIMATION_FIELDS = Object.freeze(new Set(["id", "name", "kind", "effect", "start", "duration", "easing", "intensity", "from", "to", "keepStill", "enabled", "behavior", "peak", "return"]));
+export const EFFECT_ANIMATION_FIELDS = Object.freeze(new Set(["id", "name", "kind", "effect", "start", "duration", "easing", "intensity", "from", "to", "keepStill", "enabled", "behavior", "peak", "return", "hold"]));
 const allowed = EFFECT_ANIMATION_FIELDS;
+// A value effect shorter than this goes back to rest when its window ends, unless hold:true
+// (agent add_animation default, backend/agent/translate.mjs). A guess: the recreate test's fast
+// edits used 1 to 2 frame smears (0.04 to 0.08 s at 25 fps) that the reference drops on the next
+// frame, while held blurs that set a look run a second or more; 0.3 s sits between them.
+export const SHORT_EFFECT = 0.3;
+
+/** Whether a value effect has a resting value that draws nothing (a blur length 0, a bulge 0). */
+export function restsAtZero(key) {
+  const effect = effectDefinition(key);
+  return effect.kind === "value" && Object.values(effect.parameters).some((field) => Object.hasOwn(field, "neutral"));
+}
+
+/**
+ * What an agent's new value effect does after its window when hold is not given: false (back to
+ * rest) when it rests at zero, its settings (`to`) name the strength that rests there (a blur's
+ * length, a spin's angle) and it lasts under SHORT_EFFECT without peak or return; else undefined
+ * (it keeps its end value, as before). A short step that only places the effect (a focus band's
+ * centerY before a rack) still holds. Old documents never pass through here.
+ */
+export function defaultHold(key, duration, { peak, return: back, to } = {}) {
+  if (peak != null || back != null || !restsAtZero(key)) return undefined;
+  const parameters = effectDefinition(key).parameters;
+  const strength = Object.keys(to ?? {}).some((name) => Object.hasOwn(parameters[name] ?? {}, "neutral"));
+  return strength && duration < SHORT_EFFECT ? false : undefined;
+}
 // Where a rise-and-return reaches `to`, as a share of its window, when only return is given. From
 // the transitions study's reference radial smear: the bloom peaks at frame 7 of 21 (0.33), then
 // falls back over the landing shot.
 export const DEFAULT_PEAK = 0.35;
+// Export frame times drift up to 1 ms below n / fps (playback.js MEDIA_SAMPLE_TOLERANCE), so a
+// window ending on a frame counts as ended on that frame.
+const RELEASE_TOLERANCE = 1e-3;
 
 // An effect with peak (0.05 to 0.95) or return: true rises from From to To by the peak and falls
 // back to From by the end of its window, so one animation is a pulse instead of two. A ranged
@@ -87,6 +115,11 @@ export function normalizeEffectAnimation(animation, { maxTime = MAX_TIME } = {})
         keyHint: (key, label) => `${label}.${key}: ${effect.key} has no setting ${key} that can move; use ${movable.join(", ") || "none"}` });
     } catch (error) { throw new TypeError(`behavior ${error.message}`); }
   }
+  // hold:false sends a value effect back to rest when its window ends (effectsAt); true, the
+  // old behavior, keeps its end value and is not stored.
+  if (animation.hold !== undefined && typeof animation.hold !== "boolean") throw new TypeError("hold must be true or false");
+  if (animation.hold === false && effect.kind === "ranged") throw new TypeError(`hold is for value effects; ${effect.key} draws only inside its window unless keepStill holds it`);
+  if (animation.hold !== false) delete result.hold;
   const peak = readPeak(animation, effect);
   delete result.return;
   if (peak == null) delete result.peak;
@@ -174,16 +207,19 @@ export function effectsAt(layer, time) {
     .filter(({ operation }) => isEffectAnimation(operation))
     .sort((a, b) => a.operation.start - b.operation.start || a.index - b.index);
   const previous = new Map(), active = [];
+  // hold:false: from its end (exclusive, on the frame grid) the effect is at rest and draws nothing.
+  const released = (operation, time) => operation.hold === false && time >= operation.start + operation.duration - RELEASE_TOLERANCE;
   for (const { operation } of ordered) {
     const effect = effectDefinition(operation.effect);
     if (effect.kind === "value") {
       if (clock < operation.start) continue;
       const earlier = previous.get(effect.key);
-      const baseline = earlier ? sample(earlier.operation, effect, earlier.from, operation.start).parameters : effectDefaults(effect.key, { neutral: true });
+      const baseline = earlier && !released(earlier.operation, operation.start)
+        ? sample(earlier.operation, effect, earlier.from, operation.start).parameters : effectDefaults(effect.key, { neutral: true });
       const from = { ...baseline, ...operation.from };
       if (earlier) active[earlier.activeIndex] = null;
       previous.set(effect.key, { operation, from, activeIndex: active.length });
-      active.push(sample(operation, effect, from, clock));
+      active.push(released(operation, clock) ? null : sample(operation, effect, from, clock));
     } else {
       const hold = operation.keepStill ?? "both";
       if (clock < operation.start && !["start", "both"].includes(hold)) continue;

@@ -4,6 +4,7 @@
 // and agents read engine source for the fields or reported grain, vignette, focus-band, duotone
 // and tritone as missing.
 import { EFFECTS, MIX_DOCUMENTATION, fieldRange } from "../../engine/effects/catalog.js";
+import { restsAtZero, SHORT_EFFECT } from "../../engine/effects/animation.js";
 import { ruleTopicOf, seenNames } from "./seen-names.mjs";
 
 // What each effect is, in a few words (one line each; the fields come from the catalog itself).
@@ -63,7 +64,8 @@ export function effectDetailText(name) {
   const first = fields.find(([, field]) => field.type === "number" && !field.optional) ?? fields[0];
   const example = first ? `, parameters:{${first[0]}:${JSON.stringify(first[1].default)}}` : "";
   const timing = effect.kind === "value"
-    ? `a timed change: ${effect.duration} s by default (duration), from the start you give; from:{…} sets where it begins`
+    ? `a timed change: ${effect.duration} s by default (duration), from the start you give; from:{…} sets where it begins${restsAtZero(key)
+      ? `\nafter it: peak:0.35 rises and falls back inside the window, return:true the same; under ${SHORT_EFFECT} s it returns to 0 at its end, longer it holds (hold:true or hold:false says which)` : ""}`
     : "runs over the layer's whole time; start and duration limit it to a window (keepStill both holds the first and last frame outside it)";
   const lines = fields.map(([field, definition]) => `  ${field} ${definition.type}${fieldRange(definition)}${definition.required ? " required" : ` default ${JSON.stringify(definition.default)}`}${Object.hasOwn(definition, "initial") ? ` initial ${JSON.stringify(definition.initial)}` : ""}`);
   const text = [
