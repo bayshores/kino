@@ -16,6 +16,7 @@ import { generalReveal } from "./wipe.js";
 import { shadowAlpha, withShadowAlpha } from "./shadowInterpolation.js";
 import { shadowStrength, stackedShadows } from "./stackedShadows.js";
 import { splitLetterStrokes, stackedStrokes, strokeReach } from "./stackedStrokes.js";
+import { drawMaterial, hasMaterial, withPrintBounds } from "./typeMaterial.js";
 import { styledStroke } from "./strokeStyles.js";
 import { expandEffectBounds, mappedBounds, mergeBounds } from "./effectBounds.js";
 import { enabledAnimations } from "./animationEnabled.js";
@@ -743,6 +744,19 @@ function textListStrokes(unit, state, context) {
   return listStrokes((attributes) => `<path d="${escapeXml(d)}" ${attributes}/>`, state, context, bounds, () => d);
 }
 
+// The letters of `unit` as drawn (`paths`) with the layer's material on them (typeMaterial.js):
+// worn edges, a texture inside and a second print, all on the letters' own outlines. `only` and
+// `reach` serve letters drawn in two passes (unitsSvg): the parts of this pass, and the reach of
+// all the unit's strokes, so both passes wear along the same band.
+function withMaterial(paths, unit, state, context, { only = null, reach = strokeReach(state) } = {}) {
+  if (!hasMaterial(state)) return paths;
+  const outlined = unit.glyphs.filter((glyph) => glyph.path && !glyph.color);
+  if (!outlined.length) return paths;
+  const bounds = mergeBounds(outlined.map(glyphPathBounds).filter(Boolean));
+  return drawMaterial(paths, { material: state.material, outline: escapeXml(outlined.map((glyph) => glyphPath(glyph)).join(" ")), bounds,
+    fontSize: finite(state.fontSize, 100), reach, defs: context.defs, id: (kind) => idFor(context, kind), only });
+}
+
 function glyphPaths(unit, state, context) {
   const paints = new Map();
   return unit.glyphs.filter((glyph) => glyph.path || glyph.color).map((glyph) => {
@@ -805,7 +819,7 @@ function layoutUnitPaths(layout, range, unit, state, context) {
 function contentBounds(node, state, context) {
   if (state.type === "text") {
     const layout = layoutText(state, context.fonts);
-    return repeatBounds(layoutUnitBounds(layout, "layer", wholeLayout(layout, context), context), state);
+    return repeatBounds(withPrintBounds(layoutUnitBounds(layout, "layer", wholeLayout(layout, context), context), state), state);
   }
   return repeatBounds(mergeBounds([shapeBox(state),
     ...node.children.map((child) => paintBoundsInParent(child, context))]), state);
@@ -965,7 +979,8 @@ function textSvg(layer, base, context) {
   if (!plan.separate) {
     const layout = layoutText(base, context.fonts);
     const missing = layout.lines.some((line) => line.glyphs.some((glyph) => glyph.missing));
-    return `<g role="img" aria-label="${escapeXml(layout.text)}"${missing ? ' data-missing-glyphs="true"' : ""}>${missing ? "<title>Some characters are unavailable and are shown as boxes.</title>" : ""}${layoutUnitPaths(layout, "layer", wholeLayout(layout, context), base, context)}</g>`;
+    const whole = wholeLayout(layout, context);
+    return `<g role="img" aria-label="${escapeXml(layout.text)}"${missing ? ' data-missing-glyphs="true"' : ""}>${missing ? "<title>Some characters are unavailable and are shown as boxes.</title>" : ""}${withMaterial(layoutUnitPaths(layout, "layer", whole, base, context), whole, base, context)}</g>`;
   }
   return unitsSvg(layer, units.map((unit, index) => ({ unit,
     state: textAnimationUnitState(plan, index, context.time, { design: context.design }) })), context, true);
@@ -990,9 +1005,12 @@ function unitsSvg(layer, items, context, label) {
     const unshadowed = { shadow: null, shadows: null };
     const shown = !split ? state : part === "under" ? { ...state, strokes: [split.under[entry]], ...(split.solid && !entry ? {} : unshadowed) }
       : { ...state, strokes: split.over, ...(split.solid ? unshadowed : {}) };
-    const paths = part === "under" ? textListStrokes(current, shown, context)
-      : backdropContent(layoutUnitPaths(layout, range, current, shown, context), layer, shown, context, { unit: current });
-    const painted = effectContent(paths, layer, shown, context, layoutUnitBounds(layout, range, current, context));
+    // With the outside strokes drawn first, the material's print goes under the first of them,
+    // the wear cuts every pass alike and the texture stays on the letters.
+    const passes = !split ? {} : { reach: strokeReach(state), only: part === "under" ? (entry ? ["wear"] : ["wear", "print"]) : ["wear", "texture"] };
+    const paths = part === "under" ? withMaterial(textListStrokes(current, shown, context), current, shown, context, passes)
+      : backdropContent(withMaterial(layoutUnitPaths(layout, range, current, shown, context), current, shown, context, passes), layer, shown, context, { unit: current });
+    const painted = effectContent(paths, layer, shown, context, withPrintBounds(layoutUnitBounds(layout, range, current, context), shown));
     recordTextUnitBounds(layer, shown, painted, context);
     return clipTextUnit(`<g opacity="${fmt(Math.max(0, Math.min(1, finite(state.opacity, 1))))}" transform="${transformFor(state)}"${filterFor(shown, context, hasFilterEffect(shown) ? painted.bounds : null)}${label ? ` aria-label="${escapeXml(unit.text)}"` : ""}>${painted.content}</g>`, state, context);
   };

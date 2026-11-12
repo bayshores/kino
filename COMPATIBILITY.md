@@ -869,6 +869,10 @@ How to read it:
   one-point spikes, `"brush"` streaks along `roughenAngle` (engine/shapeModifiers.test.js, backend/agent-shape-modifiers.test.mjs).
 - **Splatter paths**: Verified. `add_layer {layerType:"path", properties:{splatter:true}}` draws a seeded splat (body,
   drops shrinking with distance, streaks; splash, drip, spray) as plain path data (engine/shapes.test.js, agent-shape-modifiers).
+- **Type material**: Verified. A text layer's `material {wear, texture, print}` (seeded edge wear, grain/brush/crackle/halftone
+  inside the letters, a misregistered second print) draws on the glyph outlines in the export renderer: wear 0.5 removes 24-26% of
+  Inter 700's pixels, seeds differ, amount 0 is the same SVG, letters animated apart with outside strokes match the whole word
+  within 5% (backend/type-material.test.mjs). Gaps: no image fill, no label-measured start, contrast reads the fill not the texture.
 - **backdrop-flash**: Verified. One move puts a color field (auto hue from the shot's grade or picture, turned -35°,
   streaks, subject tone, rim-light, punch 1.06) between a clip and its subject on frames [1,1,0,1]; the edit makes or
   reuses the cut_out itself, shown on those frames only, and tints the shot where no cut-out can be made
