@@ -9,7 +9,7 @@
 import { call } from "../agent/next-call.mjs";
 import { readTime } from "./scan.mjs";
 import { SCAN_VERSION } from "./score.mjs";
-import { candidateLine, droppedLine, editsLast, elsewhereLine, nothingFoundText, scannedLine, someoneElses } from "./search.mjs";
+import { candidateLine, droppedLine, editsLast, elsewhereLine, nothingFoundText, scannedLine, someoneElses, withStudies } from "./search.mjs";
 import { scanCall, searchCall } from "./step.mjs";
 import { needLine, wantBySection } from "./needs.mjs";
 import { applySaid, linesBlock, lineStretch, spokenLines } from "./words.mjs";
@@ -145,11 +145,18 @@ function findCandidate(footage, ref) {
   return ordered.find((entry) => !entry.scan) ?? ordered[0] ?? null;
 }
 
-// The candidate after `code` in the last search that is not scanned yet.
-function nextCandidate(footage, code) {
+// "top" when someone else's edits are known: the best unscanned one that is not one, else findCandidate's.
+function topOf(footage, known) {
+  const list = footage?.candidates ?? [];
+  const ordered = (footage?.order ?? []).map((code) => list.find((entry) => entry.code === code)).filter(Boolean);
+  return ordered.find((entry) => !entry.scan && !someoneElses(entry, known)) ?? findCandidate(footage, "top");
+}
+
+// The candidate after `code` in the last search that is not scanned yet (nor someone else's edit).
+function nextCandidate(footage, code, known = null) {
   const list = footage?.candidates ?? [];
   const order = (footage?.order ?? []).filter((each) => each !== code);
-  return order.map((each) => list.find((entry) => entry.code === each)).find((entry) => entry && !entry.scan) ?? null;
+  return order.map((each) => list.find((entry) => entry.code === each)).find((entry) => entry && !entry.scan && !someoneElses(entry, known)) ?? null;
 }
 
 /**
@@ -291,6 +298,7 @@ export function createFootageActions({ finder, waitMs = FOOTAGE_WAIT_MS, keepMs 
       throw new FootageError(error?.code === "NO_YTDLP" ? "failed" : error?.code ?? "failed", short(oneLine(error?.message ?? error), 240));
     }
     // Someone else's edits are listed after the rest (and so scanned last), never hidden.
+    known = await withStudies(known, found.candidates);
     const ranked = editsLast(found.candidates, known);
     const update = (saved) => {
       const next = ranked.length ? addCandidates(saved, ranked) : structuredClone(saved ?? emptyFootage());
@@ -319,7 +327,8 @@ export function createFootageActions({ finder, waitMs = FOOTAGE_WAIT_MS, keepMs 
     const asked = parseRef(ref);
     if (!asked) throw new FootageError("bad_input", `scan is "top", a code such as F1, or yt:<id>; "${short(ref, 40)}" is none of these.`, scanCall("top"));
     let saved = footage ?? emptyFootage();
-    let candidate = findCandidate(saved, ref);
+    known = await withStudies(known, saved.candidates);
+    let candidate = asked.top ? topOf(saved, known) : findCandidate(saved, ref);
     // A YouTube id not in the list joins it (the agent or the person found it elsewhere).
     if (!candidate && asked.id?.startsWith("clip:yt-")) {
       const videoId = asked.id.slice("clip:yt-".length);
@@ -331,6 +340,7 @@ export function createFootageActions({ finder, waitMs = FOOTAGE_WAIT_MS, keepMs 
       if (!saved.candidates.length) throw new FootageError("not_found", "No footage found yet: search first.", searchCall());
       throw new FootageError("not_found", `${ref} is not one of this video's footage candidates (${saved.candidates.map((entry) => entry.code).join(", ")}).`, call("library", { topic: "footage" }));
     }
+    known = await withStudies(known, [candidate]);
     // Saves the candidate (one that joined from a yt: id) in the current state when it is missing.
     const ensure = (current) => {
       const after = structuredClone(current ?? emptyFootage());
@@ -415,17 +425,22 @@ export function createFootageActions({ finder, waitMs = FOOTAGE_WAIT_MS, keepMs 
       return after;
     };
     const song = need ? { bpm: need.bpm, shots: need.shots, import: need.import, parts: need.parts.map(({ kind, from, to, shots }) => ({ kind, from, to, shots })), want: wantBySection(want, need.parts) } : undefined;
-    const nextImport = firstHit ? importLineCall(candidate.code, firstHit, candidate.seconds) : picks.length ? importCall(candidate.code, picks) : null;
+    // Someone else's edit (not the person's pasted link): the next call moves on, its import stays possible.
+    const elsewhere = Boolean(someoneElses(candidate, known)) && !candidate.given;
+    const importNext = firstHit ? importLineCall(candidate.code, firstHit, candidate.seconds) : picks.length ? importCall(candidate.code, picks) : null;
+    const nextImport = elsewhere ? null : importNext;
+    const following = nextCandidate(saved, candidate.code, known);
     // After this scan: someone else's edit says so once; and when fewer than half of the last search is scanned, how many.
     const listed = (saved.order ?? []).map((code) => saved.candidates.find((entry) => entry.code === code)).filter(Boolean).map((entry) => entry.code === candidate.code ? { ...entry, scan: entry.scan ?? { id } } : entry);
     return { text: withLead(personClips, [scanText(candidate, result, need, heard), elsewhereLine(candidate, known), scannedLine(listed, known)]),
       data: { code: candidate.code, id, shots: (result.shots ?? []).slice(0, FOOTAGE_SHOTS_SHOWN).map(({ n, start, end, motion, face, match, flags, says, said: hit, hasSubs }) => ({ n, start, end, motion, face, match, flags, ...(says ? { says } : {}), ...(hit ? { said: true } : {}), ...(hasSubs ? { hasSubs: true } : {}) })), matchShown: Boolean(result.matchShown),
         ...(result.marks?.length ? { logo: markPlaces(result.marks) } : {}), ...(result.drawn ? { drawn: true } : {}), ...(song ? { song } : {}),
+        ...(elsewhere ? { edit: true, ...(importNext ? { import: importNext } : {}) } : {}),
         ...(lines.length ? { captions: { lang: answer.lang, auto: Boolean(answer.auto), ...(said ? { said, hits: applied.hits } : {}) }, lines: spoken.map(({ start, end, text, hit, shots }) => ({ start, end, text, shots, ...(hit ? { said: true } : {}) })) } : {}) },
-      nextCall: nextImport ?? (nextCandidate(saved, candidate.code) ? scanCall(nextCandidate(saved, candidate.code).code) : searchCall()), update };
+      nextCall: nextImport ?? (following ? scanCall(following.code) : searchCall()), update };
   }
 
-  function note(input, { footage, personClips }) {
+  function note(input, { footage, personClips, known = null }) {
     const given = input.note ?? {};
     const candidate = findCandidate(footage, given.id);
     if (!candidate || parseRef(given.id)?.top) throw new FootageError("not_found", "note.id is one of this video's footage codes, such as F3 (library {topic:\"footage\"} lists them).", call("library", { topic: "footage" }));
@@ -439,21 +454,22 @@ export function createFootageActions({ finder, waitMs = FOOTAGE_WAIT_MS, keepMs 
       return after;
     };
     const after = update(footage);
-    const next = given.verdict === "no" ? nextCandidate(after, candidate.code) : null;
+    const next = given.verdict === "no" ? nextCandidate(after, candidate.code, known) : null;
     // A no moves on to the next video; a pick or maybe scans this one (a saved scan answers at once).
     const nextCall = given.verdict === "no" ? (next ? scanCall(next.code) : searchCall()) : scanCall(candidate.code);
     return { text: withLead(personClips, [`${candidate.code}: ${given.verdict} saved.`]), data: { code: candidate.code, verdict: given.verdict }, nextCall, update };
   }
 
-  function list({ footage, personClips, known = null }) {
+  async function list({ footage, personClips, known = null }) {
+    known = await withStudies(known, footage?.candidates);
     const candidates = editsLast(logoLast(footage?.candidates ?? []), known);
     if (!candidates.length) {
       return { text: withLead(personClips, ["No footage found for this video yet. Search with the series or subject and the scene; want names what the shots should show, in visual words."]),
         data: { candidates: [] }, nextCall: searchCall() };
     }
     const lines = [`${candidates.length} found video${candidates.length === 1 ? "" : "s"}${footage.want ? `; want: "${footage.want}"` : ""}:`, ...candidates.map((candidate) => candidateLabel(candidate, known)), scannedLine(candidates, known)];
-    const first = findCandidate(footage, "top");
-    return { text: withLead(personClips, lines), data: { candidates: candidates.map(({ code, id, title, scan: scanned, note: noted, imported }) => ({ code, id, title, scanned: Boolean(scanned), ...(noted ? { note: noted.verdict } : {}), ...(imported ? { imported: true } : {}) })) },
+    const first = topOf(footage, known);
+    return { text: withLead(personClips, lines), data: { candidates: candidates.map((entry) => ({ code: entry.code, id: entry.id, title: entry.title, scanned: Boolean(entry.scan), ...(entry.note ? { note: entry.note.verdict } : {}), ...(entry.imported ? { imported: true } : {}), ...(someoneElses(entry, known) ? { edit: true } : {}) })) },
       nextCall: first ? scanCall(first.code) : searchCall() };
   }
 

@@ -17,21 +17,21 @@ Contents: Three calls · Visual words, not names · Reading a scan · What is sa
 1. `search`: the series or subject and the scene. Up to 10 videos, best first (the person's
    pasted link, verified channels, big channels), each `F1`, `F2`... for this video. Other
    people's edits, reactions, reviews, live and members-only videos are dropped. A video inspire
-   listed, a saved reference, or one with a patch that stays in place is flagged "someone
-   else's edit" and listed last: study it as a reference or pick another. `want` is saved.
+   listed, a saved reference, or one whose study shows a patch staying in place is flagged
+   "someone else's edit", listed last; its scan's `next:` moves on (`data.import` keeps it).
+   `want` is saved.
 2. `scan` (`"top"`, `"F2"` or `"yt:<id>"`): downloads a 360p copy of the parts worth seeing
    (the whole video up to 8 min; else its most replayed parts and the chapters your words name,
    8 min in all; `from`/`to` for one stretch; `whole:true` up to 30 min), then lists the 12 best
    shots. It waits about 50 s; a longer scan answers with progress: send the same call again.
-   Shot numbers: a code once shown keeps its footage, and a later scan of the same video adds
-   its new shots from the next number up. All saved shots are ranked and matched to the newest
-   `want` together; the sheet is the newest scan's. Under half scanned: the
-   answer says how many and names the next scan.
+   Shot numbers: a code keeps its footage; a later scan of the same video numbers new shots
+   on from the last. All saved shots are ranked and matched to the newest
+   `want` together; the sheet is the newest scan's. Under half scanned, it names the next.
 3. `import`: the shots you pick become H.264 clips (1080p at most), each with its credit, ready
    for `compose {footage:[...]}` or `add_layer`. `F1.37` alone imports one shot; `from`/`to` a
    stretch of 60 s at most. Only scanned videos import; 5 min a call, 15 min a project.
 
-In the `kino` command, `project import file=F1`, `file=F1.15` and `clip:` ids go to kino as typed.
+The `kino` command sends `project import file=F1`, `file=F1.15` and `clip:` ids as typed.
 
 `library {topic:"footage"}` lists this video's found videos again. `look {mode:"source",
 ref:"F1"}` shows a scan's stills labeled `F1.<shot>`; look at them before you pick.
@@ -100,8 +100,8 @@ own words (a moment you did not look at is refused), such as
 `library {topic:"inspire", name:"seen yt:X @1.8 overlay, made: green outline traced on the figure"}`.
 Kinds: type, overlay, composite, color, made, frame, spoken, plain (one or more, commas fine).
 The time is one of the 6 (0.5 s off is fine); a label at the same time replaces the old one.
-The order opens `label yt:X on screen (seen)` for each of the first 2 saved references
-until all its moments are labeled; each label reply names the next look. Then ask
+The order opens `label yt:X on screen (seen)` for each of the first 2 saved, studied references
+until all its moments are labeled (one with no frame strips has none); each label reply names the next look. Then ask
 what your edit shows that these do not: the labels are what you build toward, not a template.
 
 The check `reference_kinds` (an error) reads the labels: with 2 or more labeled references, a kind
@@ -119,6 +119,7 @@ code rain, zoom burst. A look kino cannot make (speed lines) answers `no kino na
 - Each clip keeps its creator and link as metadata. Put no credits on screen unless the person asks.
 - A final render's answer has one `Sources` line: pass it on only when the person says they will publish.
 - `source:"commons"` searches Wikimedia Commons (needs the web search switch in Settings).
+
 ## Limits
 
 - No cookies are ever sent. When YouTube asks for a bot check, kino pauses YouTube for 15

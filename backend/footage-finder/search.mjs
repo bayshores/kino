@@ -208,21 +208,44 @@ export async function searchFootage(query, { run, count = FOOTAGE_SHOWN, signal,
 // measuredDoubt's words for a patch that stays in place (a watermark, another app's frame).
 const STAYS = /^(?:"[^"]*"|a patch) stays in place \d+%/;
 
+// The patch words of a measuredDoubt ("a patch stays in place 92%"), or "".
+const patchOf = (measured) => (String(measured ?? "").split("; ").find((doubt) => STAYS.test(doubt)) ?? "").replace(/ \(.*$/, "");
+
 /**
  * What a project's inspire already knows, from inspire's projectView: {listed: ids of the video
  * searches' results, saved: the saved references, patch: {id: "a patch stays in place 92%"}} for a
  * measured study that shows a persistent patch outside a corner (inspire.mjs measuredDoubt drops
  * a maker's small corner tag). Sound searches are left out: their results are never footage.
+ * `study(id)` (optional) answers a stored study's measuredDoubt for any id (withStudies reads it).
  */
-export function knownEdits(view) {
+export function knownEdits(view, study = null) {
   const listed = new Set();
   for (const search of view?.searches ?? []) if (search.kind !== "sounds") for (const id of search.ids ?? []) listed.add(id);
   const patch = {};
   for (const [id, ref] of Object.entries(view?.refs ?? {})) {
-    const found = String(ref?.measuredDoubt ?? "").split("; ").find((doubt) => STAYS.test(doubt));
-    if (found) patch[id] = found.replace(/ \(.*$/, "");
+    const found = patchOf(ref?.measuredDoubt);
+    if (found) patch[id] = found;
   }
-  return { listed, saved: new Set(view?.saved ?? []), patch };
+  return { listed, saved: new Set(view?.saved ?? []), patch, ...(study ? { study, studied: new Set() } : {}) };
+}
+
+/**
+ * `known` with the stored studies of these candidates read in (a video studied for any project,
+ * not only this one's references). Without `known.study` it answers `known` unchanged.
+ */
+export async function withStudies(known, candidates = []) {
+  if (!known?.study) return known;
+  const patch = { ...known.patch };
+  const studied = new Set(known.studied);
+  for (const candidate of candidates) {
+    if (candidate?.source !== "youtube" || !candidate.videoId) continue;
+    const id = `yt:${candidate.videoId}`;
+    if (studied.has(id) || patch[id]) continue;
+    studied.add(id);
+    const found = patchOf(await Promise.resolve(known.study(id)).catch(() => ""));
+    if (found) patch[id] = found;
+  }
+  return { ...known, patch, studied };
 }
 
 /**
@@ -236,7 +259,7 @@ export function someoneElses(candidate, known) {
   const patch = known.patch?.[id];
   if (known.saved?.has(id)) return { id, saved: true, why: "saved as a reference" };
   if (known.listed?.has(id)) return { id, why: "listed by inspire as an edit" };
-  return patch ? { id, why: `measured as another editor's frame (${patch})` } : null;
+  return patch ? { id, why: `${patch} of its frames` } : null;
 }
 
 /** The candidates with someone else's edits after the rest, each group in its order. */

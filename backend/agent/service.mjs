@@ -18,7 +18,7 @@ import { EASINGS, lowpassSampler, PRESETS, speedAnimations } from "../../engine/
 import { addNeeds, answerNeed, emptyNeeds, finishNeed, needsCall, needsLine, needState, NEEDS_WAIVER, openNeeds, parseNeedItems } from "./needs.mjs";
 import { LIBRARY_TOPICS, NOTES_ACTIONS } from "./actions.mjs";
 import { createFootageActions, FootageError, FOOTAGE_RESULT_KEEP_MS, FOOTAGE_TOPIC_LINE, FOOTAGE_WAIT_MS, isFoundClip, parseRef as parseFootageRef, personClipCount, personClipsLine, scanIdOf } from "../footage-finder/actions.mjs";
-import { elsewhereLine, knownEdits } from "../footage-finder/search.mjs";
+import { elsewhereLine, knownEdits, withStudies } from "../footage-finder/search.mjs";
 import { importedSeconds, planTake, takeText } from "../footage-finder/take.mjs";
 import { footageSheet, foundClipTag, groupClips, groupLine, GROUP_TILES_MOST } from "../footage-finder/sheet.mjs";
 import { FOOTAGE_WAIVER, footageLed, footageStepOn } from "../footage-finder/step.mjs";
@@ -6636,9 +6636,11 @@ export function createAgentService(deps) {
   // update is applied to the saved footage state inside the call's own state update.
   // What this project's inspire already holds (results, saved references, measured patches), so the
   // footage answers can flag a candidate that is someone else's edit (footage-finder/search.mjs). Null when unknown.
+  // study(id) reads any video's stored study (no measuring starts), for a patch that stays in place.
   async function footageKnown(projectId) {
     const view = await deps.inspire?.projectView?.(projectId).catch(() => null);
-    return view ? knownEdits(view) : null;
+    const study = deps.inspire?.reference ? async (id) => (await deps.inspire.reference(id))?.measuredDoubt ?? "" : null;
+    return view ? knownEdits(view, study) : null;
   }
 
   async function footage(input) {
@@ -6763,7 +6765,7 @@ export function createAgentService(deps) {
     if (!result.media.length) throw new AgentError("failed", takeText(candidate, result));
     const media = (await deps.listMedia?.().catch(() => [])) ?? [];
     const lead = personClipsLine(personClipCount(record.document, media));
-    const answer = { text: [lead, takeText(candidate, result), elsewhereLine(candidate, await footageKnown(projectId))].filter(Boolean).join("\n"),
+    const answer = { text: [lead, takeText(candidate, result), elsewhereLine(candidate, await withStudies(await footageKnown(projectId), [candidate]))].filter(Boolean).join("\n"),
       data: { code: candidate.code, media: result.media.map(({ id, src, name, duration, width, height, footage }) => ({ id, src, name, duration, width, height, shot: footage?.shot ?? null })), failed: result.failed },
       nextCall: nextOf("look", { mode: "source" }) };
     return done(projectId, answer);

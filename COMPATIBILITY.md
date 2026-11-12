@@ -805,8 +805,9 @@ How to read it:
   run live in CI; the image model does not know character names.
 - **Someone else's edit flagged**: Stub-verified, not on a live project. A found video that inspire listed,
   that is a saved reference or whose study shows a patch outside a corner is flagged, listed last and named
-  in one line with two choices (study it, or pick another), still usable; under half scanned says so.
-  Evidence: `backend/footage-finder.test.mjs` (someone else's edit).
+  in one line with two choices (study it, or pick another), still usable (its scan's next call moves on,
+  the import stays in data); under half scanned says so. Evidence: `backend/footage-finder.test.mjs`
+  (someone else's edit; the service search and import answers).
 - **Footage codes and long scans**: Verified on a lavfi clip. The `kino` command sends `F1`, `F1.15`,
   `clip:` and `yt:` imports as typed; a scan picks stills in passes of 200 times (ffmpeg's expression
   parser refuses a flat sum of 99 terms; 250 stills through two ffmpeg passes land as files 000 to 249); a

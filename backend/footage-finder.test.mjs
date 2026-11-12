@@ -677,12 +677,15 @@ test("library footage: the person's clips lead every answer, search's next is sc
     },
   };
   const service = createAgentService({ store, agentState: createAgentStateStore(dataRoot), agentDirectory: path.join(dataRoot, "agent"), mediaRoot: path.join(dataRoot, "media"),
-    exportBatches: {}, fontCatalog: { async loadInto() {} }, loadFonts: async () => [], listMedia: async () => [], footage: finder });
+    exportBatches: {}, fontCatalog: { async loadInto() {} }, loadFonts: async () => [], listMedia: async () => [], footage: finder,
+    // The project's inspire listed the first result as an edit: the agent's search answer lists it last, flagged.
+    inspire: { projectView: async () => ({ searches: [{ kind: "videos", ids: [`yt:${found(1).videoId}`] }], saved: [], refs: {} }), reference: async () => null } });
   const searched = await service.call("library", { project: "anime-edit", topic: "footage", search: "show fight", want: "white hair, blindfold" });
   assert.equal(searched.isError, undefined, searched.text);
+  assert.match(searched.text, /\nF10 [^\n]*"Episode 1 long[^\n]*· someone else's edit \(listed by inspire as an edit\)\n/);
   const lines = searched.text.split("\n");
   assert.equal(lines[0], "This video has 1 clip of the person's: they lead; found clips fill the gaps.");
-  assert.match(lines[2], /^F1 Big Studio · 23:40 · "Episode 1 long title/);
+  assert.match(lines[2], /^F1 Big Studio · 23:40 · "Episode 2 long title/);
   assert.match(searched.text, /Dropped 5: 3 edits, 2 reactions\./);
   assert.equal(lines.at(-1), 'next: library {"topic":"footage","scan":"top"}');
   assert.ok(searched.text.length / 4 < 1500, `${searched.text.length} characters`);
@@ -826,7 +829,7 @@ test("someone else's edit (an inspire result, a saved reference, a measured patc
   assert.equal(someoneElses(found(1), known).why, "listed by inspire as an edit");
   assert.equal(someoneElses(found(2), known), null, "a sound search result is not footage");
   assert.equal(someoneElses(found(3), known).saved, true);
-  assert.match(someoneElses(found(4), known).why, /measured as another editor's frame \(a patch stays in place 92%\)/);
+  assert.equal(someoneElses(found(4), known).why, "a patch stays in place 92% of its frames");
   assert.equal(someoneElses(found(5), known), null);
   assert.equal(someoneElses(found(1), null), null);
   // The search lists the edits after the rest (they get the later codes) and says so on their lines; "top" is the first that is not one.
@@ -844,6 +847,15 @@ test("someone else's edit (an inspire result, a saved reference, a measured patc
   const edit = await actions.handle({ scan: "F3" }, { footage, personClips: 0, known });
   assert.match(edit.text, /\nF3 is yt:v{10}1, listed by inspire as an edit: study it as a reference \(library \{"topic":"inspire","name":"save yt:v{10}1"\}\) or pick another clip \(library \{"topic":"footage"\} lists them\)\./);
   assert.match(edit.text, /\nFound 5, scanned 1: scan the next with library \{"topic":"footage","scan":"F1"\}\.$/m);
+  // Its next call moves on to a clip that is not one; the import stays in data for an agent that goes on.
+  assert.deepEqual(edit.nextCall.input, { topic: "footage", scan: "F1" });
+  assert.deepEqual(edit.data.import.input, { action: "import", file: "F3", options: { shots: [1] } });
+  // A stored study from any project counts too (inspire's reference), read once per id.
+  let reads = 0;
+  const studied = knownEdits({}, async (id) => { reads += 1; return id === `yt:${ids[4]}` ? "a patch stays in place 70% (a watermark or another app's frame?)" : ""; });
+  const listedAgain = await actions.handle({}, { footage, personClips: 0, known: studied });
+  assert.match(listedAgain.text, /\n[^\n]*"Episode 5" · someone else's edit \(a patch stays in place 70% of its frames\)$/);
+  assert.equal(reads, 5);
   assert.match(elsewhereLine({ ...found(3), code: "F3" }, known), /^F3 is yt:v{10}3, saved as a reference: its picture is another editor's work, so pick another clip/);
   // Without inspire's knowledge nothing is flagged; scanned 2 of 4 is half, so no count line.
   assert.doesNotMatch((await actions.handle({ scan: "F3" }, { footage, personClips: 0 })).text, /another editor|someone else/);
@@ -1130,13 +1142,17 @@ test("a slow import answers with a repeat call, and the repeat joins it: one dow
   const finder = { readScan: async () => ({ shots: [{ n: 4, start: 30, end: 32 }] }),
     take: () => { takes += 1; return new Promise((resolve) => { finish = () => resolve({ media: [{ id: "m1.mp4", src: "/api/media/m1.mp4", duration: 2, footage: { shot: 4 } }], failed: [] }); }); } };
   const service = createAgentService({ store, agentState, agentDirectory: path.join(dataRoot, "agent"), mediaRoot: path.join(dataRoot, "media"),
-    exportBatches: {}, fontCatalog: { async loadInto() {} }, loadFonts: async () => [], listMedia: async () => [], footage: finder, footageWaitMs: 20 });
+    exportBatches: {}, fontCatalog: { async loadInto() {} }, loadFonts: async () => [], listMedia: async () => [], footage: finder, footageWaitMs: 20,
+    // Its stored study (from any project) shows a patch outside a corner: the import goes ahead and says so in one line.
+    inspire: { projectView: async () => ({ searches: [], saved: [], refs: {} }), reference: async () => ({ measuredDoubt: "a patch stays in place 80% (a watermark or another app's frame?)" }) } });
   const importing = () => service.call("project", { project: "anime-edit", action: "import", file: "F1", options: { shots: [4] } });
   const first = await importing();
   assert.match(first.text, /^F1 is still importing 1 piece .*Send the same call again/);
   const second = importing();
   setTimeout(() => finish(), 5);
-  assert.match((await second).text, /^Imported 1 clip of F1/);
+  const done = (await second).text;
+  assert.match(done, /^Imported 1 clip of F1/);
+  assert.match(done, /\nF1 is yt:v{10}1, a patch stays in place 80% of its frames: study it as a reference \(library \{"topic":"inspire","name":"save yt:v{10}1"\}\) or pick another clip/);
   assert.equal(takes, 1);
   assert.deepEqual((await agentState.read("anime-edit")).footage.candidates[0].imported, { shots: [4], seconds: 2 });
 });
