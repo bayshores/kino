@@ -315,9 +315,22 @@ function translateFootage(operation, resolver, document) {
   const allowed = new Set(["type", "videoType", "sceneId", "id", "name", "format", "duration", "seed", ...FOOTAGE_FIELDS]);
   for (const key of Object.keys(operation)) if (!allowed.has(key)) throw problem(`compose {footage} has no field "${key}". Its fields: footage, music, voice, treatment, pace, accents, cards, cardGap, duration, format, seed, title, end, scene, id, name.`, closest(key, [...allowed]));
   // cards: made graphics to add to the deck's (cards.js CARDS), or false for none; cardGap: seconds between them.
-  if (operation.cards !== undefined && operation.cards !== false && (!Array.isArray(operation.cards) || operation.cards.some((card) => !CARD_NAMES.includes(card))))
-    throw problem(`cards is a list of ${CARD_NAMES.join(", ")} (added to the deck's cards), or false for no made graphics.`, closest(String([].concat(operation.cards).find((card) => !CARD_NAMES.includes(card)) ?? ""), CARD_NAMES));
-  if (operation.cardGap !== undefined && (typeof operation.cardGap !== "number" || !(operation.cardGap >= 0.5 && operation.cardGap <= 60))) throw problem("cardGap is seconds from 0.5 to 60 between made graphics (default 5).");
+  // One name is a list of one; true is the deck's own cards (the default).
+  if (typeof operation.cards === "string") operation.cards = [operation.cards];
+  if (operation.cards === true) delete operation.cards;
+  // A refusal's example (the retry's fix): the compose as sent with the one field corrected, not
+  // the beats compose that is the op's usual example.
+  const sentWith = (key, value) => {
+    const { type: _type, videoType, sceneId, [key]: _old, ...rest } = operation;
+    return { op: "compose", ...(sceneId !== undefined ? { scene: sceneId } : {}), ...(videoType !== undefined ? { type: videoType } : {}), ...rest, ...(value !== undefined ? { [key]: value } : {}) };
+  };
+  if (operation.cards !== undefined && operation.cards !== false && (!Array.isArray(operation.cards) || operation.cards.some((card) => !CARD_NAMES.includes(card)))) {
+    const near = (card) => (CARD_NAMES.includes(card) ? card : closest(String(card), CARD_NAMES)[0]);
+    const fixed = Array.isArray(operation.cards) ? [...new Set(operation.cards.map(near).filter(Boolean))] : [];
+    throw Object.assign(problem(`cards is a list of ${CARD_NAMES.join(", ")} (added to the deck's cards), or false for no made graphics.`, closest(String([].concat(operation.cards).find((card) => !CARD_NAMES.includes(card)) ?? ""), CARD_NAMES)), { example: sentWith("cards", fixed.length ? fixed : undefined) });
+  }
+  if (operation.cardGap !== undefined && (typeof operation.cardGap !== "number" || !(operation.cardGap >= 0.5 && operation.cardGap <= 60)))
+    throw Object.assign(problem("cardGap is seconds from 0.5 to 60 between made graphics (default 5)."), { example: sentWith("cardGap", undefined) });
   try { operation.footage = readFootageList(operation.footage); }
   catch (error) { throw problem(error.message); }
   for (const key of ["music", "voice"]) if (operation[key] !== undefined && (typeof operation[key] !== "string" || !operation[key].trim())) throw problem(`${key} is an imported sound's name or id.`);

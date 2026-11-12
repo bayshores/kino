@@ -240,6 +240,20 @@ test("deck cards: compose places punch-in, speed-lines and a signature move one 
   assert.equal(paced("promo", 30, { deck, cards: false }).plan.cards, null);
 });
 
+test("out of pictures over the bar beside a spoken line, the body fills with pictures under it, never a gap", () => {
+  const still = (t) => ({ t, motion: 0, change: 0.001, bright: 0.5, faces: [] });
+  const moving = (t) => ({ ...still(t), motion: 0.1, change: 0.05 });
+  const clip = (key, duration, sample, extra = {}) => ({ key, name: key, src: `${key}.mp4`, kind: "camera", width: 1920, height: 1080, duration, in: 0, out: duration, words: [], samples: Array.from({ length: duration * 2 }, (_, index) => sample(index / 2)), shots: [{ start: 0, end: duration }], ...extra });
+  const said = [["Wait,", 1, 1.3], ["you", 1.4, 1.6], ["came", 1.7, 1.9], ["back", 2, 2.2], ["for", 2.3, 2.4], ["me?", 2.5, 2.8]].map(([text, start, end]) => ({ text, start, end }));
+  const face = (t) => (t >= 0.5 && t <= 3 ? { ...still(t), change: 0.05, faces: [[0.4, 0.2, 0.2, 0.3]] } : still(t));
+  // Two pictures over the bar, then none at all.
+  for (const clips of [[clip("c0", 20, face, { words: said }), clip("c1", 4, moving), clip("c2", 4, moving), clip("c3", 20, still)], [clip("c0", 20, face, { words: said }), clip("c3", 4, still)]]) {
+    const plan = planEdit({ clips, frame: { width: 1920, height: 1080 }, duration: 15, treatment: "punchy", seed: 3, title: "Hi" });
+    for (const [index, shot] of plan.shots.entries()) if (index) assert.equal(shot.start, plan.shots[index - 1].end, `a gap before shot ${shot.n}`);
+    assert.ok(plan.shots.some((shot) => shot.moment.score < 45));
+  }
+});
+
 test("accents: a zoom punch on every other downbeat in the open, every one in the ending, none under words", () => {
   const bars = [0, 2, 4, 6, 8, 10, 12, 14];
   assert.deepEqual(accentTimes(bars, { ending: 10, quiet: [{ start: 3.9, end: 4.2 }] }), [0, 8, 10, 12, 14]);

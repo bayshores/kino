@@ -431,10 +431,18 @@ export function planEdit(input) {
       continue;
     }
     if (!moment) {
-      // Out of new moments: the clips' best moments again, a second look.
-      const again = moments.filter((entry) => entry.kind === "visual").sort((a, b) => b.score - a.score)[shots.length % Math.max(1, moments.length)];
-      if (!again) break;
-      moment = { ...again, in: round3(Math.min(clipEnd(byKey.get(again.clip)) - 1, again.in + 0.5)) };
+      // Out of new moments: the best unused picture under the bar, else the clips' best moments
+      // again, a second look. Why: on run 6's clips 2 pictures cleared the bar beside one spoken
+      // line, the index below ran past the pictures, and the edit showed nothing from 3.2 to 12.2 s
+      // (.scratch/defaults/compose-deck/before.md, main). With no picture at all, the next line said.
+      moment = ranked.moments.filter((entry) => entry.kind === "visual" && !used.has(entry) && allowed(entry) && roomOf(entry) >= 0.8).sort((a, b) => b.score - a.score)[0];
+      if (!moment) {
+        // From every picture, over the bar or not: run 6's first 5 clips had none over it at all.
+        const pictures = (moments.some((entry) => entry.kind === "visual") ? moments : ranked.moments).filter((entry) => entry.kind === "visual").sort((a, b) => b.score - a.score);
+        const again = pictures[shots.length % Math.max(1, pictures.length)];
+        moment = again ? { ...again, in: round3(Math.min(clipEnd(byKey.get(again.clip)) - 1, again.in + 0.5)) } : queue.shift();
+        if (!moment) break;
+      }
     }
     const speech = moment.kind === "speech" && !voice;
     if (song && !speech) {

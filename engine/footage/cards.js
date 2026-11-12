@@ -109,9 +109,19 @@ export function placeCards(plan, names, { drop = null, gap = CARD_GAP } = {}) {
   const ops = [], placed = [], missed = [];
   const taken = [];
   const spaced = (at) => taken.every((time) => Math.abs(time - at) >= gap - 1e-6);
-  // Where a ready call points when no moment fits: the first moment, else the longest shot.
-  const longest = [...plan.shots].sort((a, b) => (b.end - b.start) - (a.end - a.start))[0];
-  const firstSlot = Object.values(slots).flat()[0] ?? (longest ? { shot: longest, at: round3(longest.start + Math.min(0.5, (longest.end - longest.start) * 0.25)), prev: null } : null);
+  // Where a ready call points when no moment fits: the first moment, else the shot with the most
+  // picture outside the title and the end card (the longest shot alone put a punch-in under the
+  // end card on run 6's clips: compose-deck review probe).
+  const open = plan.shots.map((shot) => {
+    let from = shot.start, to = Math.min(shot.end, plan.endCard.at - 0.3);
+    if (plan.title) {
+      const titleEnd = plan.title.at + plan.title.dur;
+      if (plan.title.at <= from + 0.05 && titleEnd > from) from = titleEnd;
+      else if (plan.title.at > from && plan.title.at < to) to = plan.title.at;
+    }
+    return { shot, from, to };
+  }).filter((span) => span.to > span.from).sort((a, b) => (b.to - b.from) - (a.to - a.from))[0];
+  const firstSlot = Object.values(slots).flat()[0] ?? (open ? { shot: open.shot, at: round3(open.from + Math.min(0.5, (open.to - open.from) * 0.25)), prev: null } : null);
   for (const card of [...new Set(names)]) {
     const entry = CARDS[card];
     if (!entry) {
