@@ -1243,7 +1243,12 @@ How to read it:
   fetches it. Test-verified with a stubbed mix and listener, and through the service's look call on a 9:16 scene
   with no music (`backend/speech-transcribe.test.mjs`); run by hand on a dm3-b clip with real FFmpeg and small.en
   (0.64 s; heard "Heh, heh, ..." p 0.85 against a line read as "Hey, hey, ...", language guess en p 0.34).
-  Gap: a clip whose language guess is unsure (under 0.5) is still transcribed in English.
+  Each line is listened to in its own clip's language (stored, else a sure guess, else English and the unsure
+  guess, with the reason printed), a clip's own-language transcript read with older names counts, and a line is
+  heard only when all its words match (else "heard other words" with the differing words). Test-verified with the
+  stubbed listener and the service with a stubbed multilingual model (`backend/speech-transcribe.test.mjs`).
+  Gap: an unsure guess still reads the line's own words in English; whisper-cli cannot score a given text, so
+  short lines get no probability for their own words.
 
 ## Audio and captions
 

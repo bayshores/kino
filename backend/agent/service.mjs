@@ -5826,11 +5826,17 @@ export function createAgentService(deps) {
   // whisper in tests.
   async function linesHeardLook({ document, codes, scene }) {
     const lines = [];
+    const languageModel = Boolean((deps.linesLanguages ?? languageSetup)());
     for (const layer of scene.layers) {
       if (!["audio", "video"].includes(layer.type) || !layer.src || !(layer.animations ?? []).some((animation) => /^(?:Line) (?:up|down)$/.test(animation?.name ?? ""))) continue;
       let file;
       try { file = mediaFileOf(layer); } catch { continue; }
-      const transcript = await transcripts.saved?.(file, document, layer, { any: true }).catch(() => null);
+      let transcript = await transcripts.saved?.(file, document, layer, { any: true }).catch(() => null);
+      // A clip read only in English, with the multilingual model on this computer: the clip readout's
+      // language pass (checks its language once, reads it in a sure other one); never fetches the model.
+      if (languageModel && transcript && !(transcript.language && transcript.language !== "en") && transcripts.heard) {
+        transcript = await transcripts.heard(file, document, layer, transcript).catch(() => transcript) ?? transcript;
+      }
       lines.push(...keptLines(scene, layer, transcript, { name: refName(layer.id, codes), guess: await languageGuessOf(file, deps.linesLanguages ? { languages: deps.linesLanguages } : {}).catch(() => null) }));
     }
     lines.sort((a, b) => a.start - b.start);
@@ -5840,7 +5846,6 @@ export function createAgentService(deps) {
     } catch (error) {
       throw new AgentError("failed", `The lines could not be heard: ${String(error.message).split("\n")[0].slice(0, 200)}`);
     }
-    const languageModel = Boolean((deps.linesLanguages ?? languageSetup)());
     return linesHeardText(heard, { scene: refName(scene.id, codes), languageModel });
   }
 

@@ -969,7 +969,10 @@ export function createTranscriptCache({
       const found = languages();
       const guess = found ? await guessOf(filename, found) : null;
       if (otherLanguage(guess)) {
-        for (const file of new Set([sidecarPath(filename, found.modelName, names), sidecarPath(filename, found.modelName)])) {
+        // As for English below: one heard with other names (the brief's names changed since) counts too.
+        const prefix = `${path.basename(sidecarPath(filename, found.modelName))}-`;
+        const others = (await readdir(path.dirname(filename)).catch(() => [])).filter((name) => name.startsWith(prefix) && !name.endsWith(".tmp")).sort();
+        for (const file of new Set([sidecarPath(filename, found.modelName, names), sidecarPath(filename, found.modelName), ...others.map((name) => path.join(path.dirname(filename), name))])) {
           try {
             const value = JSON.parse(await readFile(file, "utf8"));
             if (value?.version >= 1 && Array.isArray(value.words)) return { ...asRead(value), language: guess.language, languageP: guess.p };
