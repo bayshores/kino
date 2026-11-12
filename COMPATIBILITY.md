@@ -1219,6 +1219,11 @@ How to read it:
 - **render**: Verified. MP4, WebM, MOV, GIF, PNG, APNG, PNG sequence and Lottie, draft or final, with
   queue, wait and cancel; a draft is half size at 30fps (or fps up to 30), never 15. Evidence: `backend/agent-render.test.mjs`,
   `backend/agent-reach-exports.test.mjs`, `backend/agent-render-cancel.test.mjs`.
+- **Project frame rate**: Verified. project create {fps} and update_project {fps} keep a rate (20,
+  "24000/1001") echoed in the receipt and status; look frame snaps to it, look frames, check and
+  render default step at it, at:"f36" is a frame, a rate change names off-grid times; update_scene
+  {fps} is refused with the update_project op. Evidence: `backend/agent-service.test.mjs`,
+  `engine/exportOptions.test.js`, `engine/blocks.test.js`, `backend/agent-common-mistakes.test.mjs`.
 - **23.976 and 29.97 fps**: Verified. render, check, compose and the export setting take NTSC rates
   with exact frame fractions. Not yet: NLE export and a final-render output audit at these rates.
   Evidence: `backend/agent-render.test.mjs`, `engine/exportOptions.test.js`, `engine/blocks.test.js`,

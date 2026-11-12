@@ -7,6 +7,7 @@ import { normalizePin, normalizeTracks } from "./pin.js";
 import { normalizeRecording } from "./recording.js";
 import { normalizeBoard } from "./board.js";
 import { normalizeSources } from "./sources.js";
+import { FPS_HELP, parseFps } from "./frameRate.js";
 import { normalizeFill } from "./paintValidation.js";
 import { isEffectAnimation, normalizeEffectAnimation } from "./effects/animation.js";
 import { normalizeTextStyleRanges } from "./textStyleRanges.js";
@@ -1737,5 +1738,11 @@ export function parseDocument(value) {
   normalizeBoard(document);
   // The material the video is made from (sources.js): names and text only.
   normalizeSources(document);
+  // The project's frame rate (frameRate.js projectFps): left out, frames step at 30 as before.
+  if (document.fps !== undefined) {
+    const fps = parseFps(document.fps);
+    if (fps === null) fail("document.fps", FPS_HELP);
+    document.fps = fps;
+  }
   return document;
 }

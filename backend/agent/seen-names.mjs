@@ -86,6 +86,8 @@ const SEEN_AS = {
   "two color split": ["split-fields"], "color split": ["split-fields"], "split fields": ["split-fields"], "color fields": ["split-fields"], "two tone split": ["split-fields"],
   "brush edge": ["shape-modifiers", "split-fields", "shape-wipe"], "rough edge": ["shape-modifiers", "split-fields", "shape-wipe"], "ragged edge": ["shape-modifiers", "shape-wipe"],
   "torn edge": ["shape-modifiers", "shape-wipe"], "jagged edge": ["shape-modifiers", "shape-wipe"], "dry brush": ["shape-modifiers", "split-fields"], "brush wipe": ["shape-wipe", "split-fields"], "brush mask": ["shape-modifiers", "shape-wipe"],
+  // The project's frame rate (update_project {fps}, project create {fps}).
+  "frame rate": ["update_project"], framerate: ["update_project"], fps: ["update_project"], "frames per second": ["update_project"], "23.976": ["update_project"], "on frame": ["update_project"],
   "film burn": ["film-burn"], burn: ["film-burn"], "light burn": ["film-burn"], "film damage": ["film-burn", "grain"], "old film": ["film-burn", "grain", "vignette"],
 };
 // Looks kino has no maker for yet. Asked for alone, they print a line that says so (and what to do)

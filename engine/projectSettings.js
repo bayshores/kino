@@ -1,19 +1,40 @@
 // Edits to project-wide settings: update_project, waive_check and unwaive_check.
 // parseDocument (qualityFields.js) checks the values after every edit.
 import { MAX_WAIVERS } from "./qualityFields.js";
+import { onFrame, readFps } from "./frameRate.js";
 
 // What update_project may change. checkWaivers has its own operations.
-const PROJECT_PROPERTIES = new Set(["name", "videoType", "rhythm"]);
+const PROJECT_PROPERTIES = new Set(["name", "videoType", "rhythm", "fps"]);
 
-/** update_project {properties}: sets the name, videoType or rhythm. null removes videoType or rhythm. */
+/** update_project {properties}: sets the name, videoType, rhythm or fps. null removes videoType, rhythm or fps. */
 export function applyProjectUpdate(document, properties) {
   if (!properties || typeof properties !== "object" || Array.isArray(properties) || !Object.keys(properties).length)
     throw new Error("update_project needs properties, such as {videoType:\"promo\"} or {rhythm:{bpm:120, offset:0}}.");
   for (const [key, value] of Object.entries(properties)) {
     if (!PROJECT_PROPERTIES.has(key)) throw new Error(`update_project can change ${[...PROJECT_PROPERTIES].join(", ")}; not ${key}.`);
     if (value === null && key !== "name") delete document[key];
+    // The project's frame rate (frameRate.js): 20, 23.976, "24000/1001" are kept as frames a second.
+    else if (key === "fps") document.fps = readFps(value);
     else document[key] = value;
   }
+}
+
+/**
+ * The layer and animation times of `document` that do not sit on a frame of `fps` (frameRate.js
+ * onFrame), as {id, field, time}: what a rate change moved off its grid. At most `most`.
+ */
+export function offGridTimes(document, fps, most = 8) {
+  const found = [];
+  const add = (id, field, time) => { if (Number.isFinite(time) && !onFrame(time, fps) && found.length < most) found.push({ id, field, time }); };
+  for (const scene of document.scenes ?? []) {
+    for (const layer of scene.layers ?? []) {
+      for (const animation of layer.animations ?? []) {
+        add(animation.id, "start", animation.start);
+        add(animation.id, "end", animation.start + animation.duration);
+      }
+    }
+  }
+  return found;
 }
 
 // The waiver's targets as a list: target is one ID (or *) or a list of IDs, saved as one waiver each.

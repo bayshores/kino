@@ -4,11 +4,13 @@
 //   "with:hero-title"   when it starts
 //   "cue:drop"          a named moment in document.cues (a marker you set, a beat, a caption word)
 //   "auto"              just after the last entrance in the scene (0.2 s into an empty scene)
+//   "f12"               frame 12 at the project's frame rate (exactly, not rounded to ms)
 // Each may end with +n or -n seconds: "after:hero-title.in-0.2", "with:logo+0.1", "auto+0.3".
 // The server turns every form into seconds, and reports the result in the edit's `times`.
 import { layoutText, textUnits } from "../textLayout.js";
 import { totalUnitDelay } from "../textTiming.js";
 import { round } from "../numbers.js";
+import { DEFAULT_PROJECT_FPS, frameToTime } from "../frameRate.js";
 
 const FORM = /^(after|with|cue|auto)(?::(.*))?$/;
 const OFFSET = /^(.*?)\s*([+-])\s*(\d*\.?\d+)$/;
@@ -27,10 +29,13 @@ export function parseAt(value) {
   if (typeof value !== "string" || !value.trim()) throw new Error(`at must be seconds, "after:<layer or animation>", "with:<…>", "cue:<name>" or "auto".`);
   const text = value.trim();
   if (/^\d*\.?\d+$/.test(text)) return { kind: "seconds", seconds: Number(text) };
+  // "f12": frame 12 at the project's frame rate (frameRate.js projectFps; 30 without one).
+  const frame = /^f(\d+)$/i.exec(text);
+  if (frame) return { kind: "frame", frame: Number(frame[1]) };
   const auto = /^auto\s*(?:([+-])\s*(\d*\.?\d+))?$/.exec(text);
   if (auto) return { kind: "auto", offset: auto[2] === undefined ? 0 : (auto[1] === "-" ? -1 : 1) * Number(auto[2]) };
   const [, kind, rest = ""] = FORM.exec(text) ?? [];
-  if (!kind) throw new Error(`at "${value}" is not a time. Use seconds, "after:hero-title", "with:logo+0.1", "cue:drop" or "auto".`);
+  if (!kind) throw new Error(`at "${value}" is not a time. Use seconds, "f12" (a frame), "after:hero-title", "with:logo+0.1", "cue:drop" or "auto".`);
   if (kind === "auto") throw new Error(`at "${value}": auto takes no name (write "auto" or "auto+0.3").`);
   const whole = rest.trim();
   if (!whole) throw new Error(`at "${value}" needs a name after "${kind}:".`);
@@ -85,6 +90,9 @@ export function lastEntranceEnd(scene, fonts, { skip = new Set() } = {}) {
  */
 export function resolveAt(value, lookup) {
   const at = parseAt(value);
+  // A frame's exact start, not rounded to milliseconds: 1.5015 s (frame 36 at 23.976) rounded
+  // to 1.502 would first show a frame late.
+  if (at.kind === "frame") return frameToTime(at.frame, lookup.fps ?? DEFAULT_PROJECT_FPS);
   let time;
   if (at.kind === "seconds") time = at.seconds;
   else if (at.kind === "auto") time = (lookup.auto?.() ?? AUTO_START) + at.offset;

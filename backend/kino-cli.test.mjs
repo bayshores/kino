@@ -341,7 +341,7 @@ describe("commands against a running kino", () => {
 
   test("project create, edit inline and from stdin, then status shows the result", async () => {
     const created = await runKino(["project", "create", "id=cli-demo", "name=CLI demo", "width=320", "height=180", "duration=2"], { env });
-    assert.deepEqual({ ...created, stdout: created.stdout.split("\n")[0] }, { code: 0, stdout: "created cli-demo rev 1 and opened it · s1 320×180 2s bg #ffffff", stderr: "" });
+    assert.deepEqual({ ...created, stdout: created.stdout.split("\n")[0] }, { code: 0, stdout: "created cli-demo rev 1 and opened it · s1 320×180 2s 30 fps bg #ffffff", stderr: "" });
 
     const inline = await runKino(["edit", JSON.stringify([{ op: "add_layer", layerType: "rectangle", name: "box", properties: { x: 40, y: 30, width: 80, height: 60 } }])], { env });
     assert.equal(inline.code, 0, inline.stderr);

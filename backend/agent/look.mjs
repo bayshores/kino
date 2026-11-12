@@ -21,6 +21,7 @@ import { hasTextChanges } from "../../engine/textChange.js";
 import { shownTextAt } from "../../engine/textChangeDraw.js";
 import { resizeTextLayer } from "../../engine/textLayout.js";
 import { missingDocumentFonts } from "../../engine/fontRecovery.js";
+import { frameRateFraction } from "../../engine/frameRate.js";
 import { exportScene, renderStills } from "../export.mjs";
 import { PREVIEW_FPS, PREVIEW_QUALITY, previewSize } from "../preview-segments.mjs";
 import { renderContentKey } from "../render-segment-cache.mjs";
@@ -198,11 +199,14 @@ export function evenTimes(start, end, count) {
 
 // Every output frame from `start` to `end` (seconds), at most FRAMES_MOST; `rest` is the time of
 // the first frame left out (null when all fit).
-export function everyFrame(start, end, most = FRAMES_MOST) {
-  const first = Math.floor(start * FRAME_RATE + 1e-6), last = Math.floor(end * FRAME_RATE + 1e-6);
+// `fps` is the project's rate (frameRate.js projectFps); frame times come from its exact fraction,
+// so frame 36 at 23.976 is 1.5015 s, not 1.5.
+export function everyFrame(start, end, most = FRAMES_MOST, fps = FRAME_RATE) {
+  const { num, den } = frameRateFraction(fps);
+  const first = Math.floor((start * num) / den + 1e-6), last = Math.floor((end * num) / den + 1e-6);
   const count = Math.max(1, last - first + 1);
-  const times = Array.from({ length: Math.min(count, most) }, (_, index) => (first + index) / FRAME_RATE);
-  return { times, rest: count > most ? sec((first + most) / FRAME_RATE) : null };
+  const times = Array.from({ length: Math.min(count, most) }, (_, index) => ((first + index) * den) / num);
+  return { times, rest: count > most ? sec(((first + most) * den) / num) : null };
 }
 
 // Sheet times: evenly spread, but never exactly at the end (the last frame is just before it).

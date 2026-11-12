@@ -118,6 +118,10 @@ test("relative timing reads seconds, after:, with:, cue: and auto, with offsets"
   assert.throws(() => resolveAt("cue:nope", lookup), /No cue nope/);
   assert.throws(() => resolveAt("with:hero-title-1", lookup), /before the scene starts/);
   assert.throws(() => parseAt("later"), /is not a time/);
+  // "f12": a frame at the project's rate (lookup.fps; 30 without one), its exact start.
+  assert.equal(resolveAt("f12", { ...lookup, fps: 20 }), 0.6);
+  assert.equal(resolveAt("f36", { ...lookup, fps: 24000 / 1001 }), 1.5015);
+  assert.equal(resolveAt("f15", lookup), 0.5);
 });
 
 test("27 recipes: 24 layer recipes and 3 transitions, each with a working example", () => {

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { resolveExportDimensions, exportFrameCount, exportFrameStep, exportFrameTime, exportFrameTimes } from "./exportOptions.js";
-import { ffmpegRate, fpsLabel, frameRateFraction, frameToTime, parseFps } from "./frameRate.js";
+import { ffmpegRate, fpsLabel, frameRateFraction, frameToTime, nearestFrame, onFrame, parseFps, projectFps, snapTime } from "./frameRate.js";
 import { nextMp4Encoder } from "./mp4Encoders.js";
 import { MEDIA_SAMPLE_TOLERANCE } from "./playback.js";
 import { MAX_TIME } from "./schema.js";
@@ -72,6 +72,18 @@ test("23.976 and 29.97 are read in every spelling and timed by their exact fract
   const long = exportFrameTimes(MAX_TIME, ntsc, { format: "mp4" });
   assert.equal(long.length, 17_983);
   assert.equal(long.at(-1), 17_982 * 1001 / 30000);
+});
+
+test("a project's frame rate: 30 without one, times snap to its nearest frame, a time between frames is off it", () => {
+  const trailer = 24000 / 1001;
+  assert.equal(projectFps({}), 30);
+  assert.equal(projectFps({ fps: trailer }), trailer);
+  // 1.5 s on a 23.976 project is frame 36, which starts at 1.5015 s.
+  assert.equal(nearestFrame(1.5, trailer), 36);
+  assert.equal(snapTime(1.5, trailer), 1.5015);
+  assert.equal(onFrame(1.5015, trailer), true);
+  assert.equal(onFrame(0.6, 20), true);
+  assert.equal(onFrame(0.43, 20), false);
 });
 
 test("MP4 alternatives advance in reference order while skipping unavailable candidates", () => {

@@ -233,6 +233,8 @@ const REFUSED = [
   ["a video with no src", { op: "add_layer", layerType: "video", name: "build-target", properties: { x: 0, y: 0, width: 640, height: 360, mediaSourceDuration: 3.8, volume: 0 } }, 'video layer "build-target" has no src'],
   ["an image with an empty src", { op: "add_layer", layerType: "image", name: "logo4", properties: { src: " " } }, 'image layer "logo4" has no src'],
   ["an audio layer with no properties", { op: "add_layer", layerType: "audio", name: "music" }, 'audio layer "music" has no src'],
+  // A scene keeps no frame rate: update_scene {fps} used to save without a word, the project at 30.
+  ["fps on a scene", { op: "update_scene", properties: { fps: 24 } }, "set with update_project"],
 ];
 
 test("any other mistake is refused with one short example that works", { timeout: 120_000 }, async () => {
