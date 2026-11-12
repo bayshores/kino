@@ -2,7 +2,9 @@
 // ranked list of candidate videos to scan. Metadata only: nothing is downloaded here, and a
 // candidate's picture size is never guessed from the search (the scan's probe reads it).
 // yt-dlp runs through inspire.mjs runYtDlp: no cookies, no config file, its default user agent.
+import { call, callText } from "../agent/next-call.mjs";
 import { clock, doubtOf, parseSearchLines, parseVideoInfo, refId } from "../inspire.mjs";
+import { scanCall } from "./step.mjs";
 
 /** How many results one YouTube search asks for (ytsearch20). */
 export const FOOTAGE_SEARCH_COUNT = 20;
@@ -199,6 +201,72 @@ export async function searchFootage(query, { run, count = FOOTAGE_SHOWN, signal,
   const others = found.candidates.filter((candidate) => !given.some((own) => own.videoId === candidate.videoId));
   const candidates = rankFootage([...given, ...others], words).slice(0, Math.max(wanted, given.length));
   return { words: words || links.join(" "), ...(tried ? { tried } : {}), candidates, dropped: found.dropped };
+}
+
+// ---- someone else's edit ----------------------------------------------------------------------
+
+// measuredDoubt's words for a patch that stays in place (a watermark, another app's frame).
+const STAYS = /^(?:"[^"]*"|a patch) stays in place \d+%/;
+
+/**
+ * What a project's inspire already knows, from inspire's projectView: {listed: ids of the video
+ * searches' results, saved: the saved references, patch: {id: "a patch stays in place 92%"}} for a
+ * measured study that shows a persistent patch outside a corner (inspire.mjs measuredDoubt drops
+ * a maker's small corner tag). Sound searches are left out: their results are never footage.
+ */
+export function knownEdits(view) {
+  const listed = new Set();
+  for (const search of view?.searches ?? []) if (search.kind !== "sounds") for (const id of search.ids ?? []) listed.add(id);
+  const patch = {};
+  for (const [id, ref] of Object.entries(view?.refs ?? {})) {
+    const found = String(ref?.measuredDoubt ?? "").split("; ").find((doubt) => STAYS.test(doubt));
+    if (found) patch[id] = found.replace(/ \(.*$/, "");
+  }
+  return { listed, saved: new Set(view?.saved ?? []), patch };
+}
+
+/**
+ * Why a YouTube candidate is probably another editor's finished edit, or null: the person saved it
+ * as a reference ("saved as a reference"), inspire listed it for this project ("listed by inspire
+ * as an edit"), or its stored study shows a patch that stays in place. A flag, never a ban.
+ */
+export function someoneElses(candidate, known) {
+  if (!known || candidate?.source !== "youtube" || !candidate.videoId) return null;
+  const id = `yt:${candidate.videoId}`;
+  const patch = known.patch?.[id];
+  if (known.saved?.has(id)) return { id, saved: true, why: "saved as a reference" };
+  if (known.listed?.has(id)) return { id, why: "listed by inspire as an edit" };
+  return patch ? { id, why: `measured as another editor's frame (${patch})` } : null;
+}
+
+/** The candidates with someone else's edits after the rest, each group in its order. */
+export const editsLast = (candidates, known) => known
+  ? [...candidates].sort((a, b) => Number(Boolean(someoneElses(a, known)) && !a.given) - Number(Boolean(someoneElses(b, known)) && !b.given))
+  : candidates;
+
+/**
+ * The one line for a candidate that is someone else's edit, or "": its code, id and why, then the
+ * two choices (study it as a reference, or pick another clip). The clip stays usable.
+ */
+export function elsewhereLine(candidate, known) {
+  const edit = someoneElses(candidate, known);
+  if (!edit) return "";
+  const pick = `pick another clip (${callText(call("library", { topic: "footage" }))} lists them)`;
+  return edit.saved
+    ? `${candidate.code} is ${edit.id}, ${edit.why}: its picture is another editor's work, so ${pick}.`
+    : `${candidate.code} is ${edit.id}, ${edit.why}: study it as a reference (${callText(call("library", { topic: "inspire", name: `save ${edit.id}` }))}) or ${pick}.`;
+}
+
+/**
+ * When fewer than half of the listed candidates are scanned (and one is): `Found 10, scanned 2:
+ * scan the next with library {...}.` The next is the first unscanned one that is not someone
+ * else's edit, noted "no" or imported. "" otherwise.
+ */
+export function scannedLine(listed, known = null) {
+  const scanned = listed.filter((candidate) => candidate.scan).length;
+  if (!scanned || scanned * 2 >= listed.length) return "";
+  const next = listed.find((candidate) => !candidate.scan && !candidate.imported && candidate.note?.verdict !== "no" && !someoneElses(candidate, known));
+  return next ? `Found ${listed.length}, scanned ${scanned}: scan the next with ${callText(scanCall(next.code))}.` : "";
 }
 
 // ---- agent text -------------------------------------------------------------------------------

@@ -10,7 +10,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createKinoMcpServer } from "./mcp.mjs";
 import { createWebCache } from "./web-cache.mjs";
 import { createFootageFinder } from "./footage-finder/index.mjs";
-import { candidateLine, droppedLine, nothingFoundText, parseFootageLines } from "./footage-finder/search.mjs";
+import { candidateLine, droppedLine, elsewhereLine, knownEdits, nothingFoundText, parseFootageLines, scannedLine, someoneElses } from "./footage-finder/search.mjs";
 import { createCommonsSource, parseCommonsSearch } from "./footage-finder/licensed.mjs";
 import { addCandidates, createFootageActions, FOOTAGE_TOPIC_LINE, logoLast, scanText } from "./footage-finder/actions.mjs";
 import { LOOK_MODEL, lookModelReady } from "./look-embed.mjs";
@@ -813,6 +813,46 @@ test("footage codes: at most 24 kept, the oldest go first but never a scanned, n
   assert.equal(footage.candidates.length, 24);
   assert.deepEqual(footage.candidates.slice(0, 4).map((entry) => entry.code), ["F1", "F2", "F3", "F10"]);
   assert.deepEqual(footage.order.slice(0, 2), ["F3", "F21"]);
+});
+
+test("someone else's edit (an inspire result, a saved reference, a measured patch) is flagged and ranked last, never hidden; the scan and list answers say it in one line; fewer than half scanned says how many", async () => {
+  const ids = [1, 2, 3, 4, 5].map((n) => found(n).videoId);
+  const known = knownEdits({
+    searches: [{ kind: "videos", ids: [`yt:${ids[0]}`] }, { kind: "sounds", ids: [`yt:${ids[1]}`] }],
+    saved: [`yt:${ids[2]}`],
+    // A patch outside a corner is another app's frame; inspire already drops a maker's corner tag.
+    refs: { [`yt:${ids[3]}`]: { measuredDoubt: "a patch stays in place 92% (a watermark or another app's frame?); almost no cuts (a raw clip, not an edit?)" }, [`yt:${ids[4]}`]: { measuredDoubt: "compilation length" } },
+  });
+  assert.equal(someoneElses(found(1), known).why, "listed by inspire as an edit");
+  assert.equal(someoneElses(found(2), known), null, "a sound search result is not footage");
+  assert.equal(someoneElses(found(3), known).saved, true);
+  assert.match(someoneElses(found(4), known).why, /measured as another editor's frame \(a patch stays in place 92%\)/);
+  assert.equal(someoneElses(found(5), known), null);
+  assert.equal(someoneElses(found(1), null), null);
+  // The search lists the edits after the rest (they get the later codes) and says so on their lines; "top" is the first that is not one.
+  const finder = { search: async () => ({ words: "a clip", candidates: [1, 2, 3, 4, 5].map((n) => found(n)), dropped: {} }), readScan: async () => null,
+    scan: async () => ({ want: "", windows: [{ start: 0, end: 60 }], shots: [{ n: 1, start: 1, end: 3, motion: 50, face: 0, flags: [] }], skipped: {} }), captions: async () => ({ none: true }) };
+  const actions = createFootageActions({ finder });
+  const answer = await actions.handle({ search: "a clip" }, { footage: null, personClips: 0, known });
+  assert.deepEqual(answer.data.candidates.map((entry) => entry.edit ? `${entry.code}!` : entry.code), ["F1", "F2", "F3!", "F4!", "F5!"]);
+  assert.match(answer.text, /F3 [^\n]*"Episode 1"[^\n]*· someone else's edit \(listed by inspire as an edit\)/);
+  assert.doesNotMatch(answer.text, /F1 [^\n]*someone else/);
+  assert.deepEqual(answer.nextCall.input, { topic: "footage", scan: "top" });
+  const footage = answer.update(null);
+  assert.deepEqual(footage.order, ["F1", "F2", "F3", "F4", "F5"]);
+  // Scanning one of them still works; its answer says why in one line with the two choices, and how many are scanned.
+  const edit = await actions.handle({ scan: "F3" }, { footage, personClips: 0, known });
+  assert.match(edit.text, /\nF3 is yt:v{10}1, listed by inspire as an edit: study it as a reference \(library \{"topic":"inspire","name":"save yt:v{10}1"\}\) or pick another clip \(library \{"topic":"footage"\} lists them\)\./);
+  assert.match(edit.text, /\nFound 5, scanned 1: scan the next with library \{"topic":"footage","scan":"F1"\}\.$/m);
+  assert.match(elsewhereLine({ ...found(3), code: "F3" }, known), /^F3 is yt:v{10}3, saved as a reference: its picture is another editor's work, so pick another clip/);
+  // Without inspire's knowledge nothing is flagged; scanned 2 of 4 is half, so no count line.
+  assert.doesNotMatch((await actions.handle({ scan: "F3" }, { footage, personClips: 0 })).text, /another editor|someone else/);
+  assert.equal(scannedLine([{ scan: {} }, { scan: {} }, { code: "F3" }, { code: "F4" }]), "");
+  assert.equal(scannedLine([{ scan: {} }, { code: "F2" }, { code: "F3" }]), "Found 3, scanned 1: scan the next with library {\"topic\":\"footage\",\"scan\":\"F2\"}.");
+  // The list says the same; nothing is dropped.
+  const listed = await actions.handle({}, { footage, personClips: 0, known });
+  assert.equal(listed.data.candidates.length, 5);
+  assert.match(listed.text, /someone else's edit/);
 });
 
 const line = (text) => ({ text, by: "you", quote: text });
