@@ -2574,16 +2574,22 @@ export function createAgentService(deps) {
         (fields.movedWithLayer ??= []).push(...found.presetsMoved.map(({ layerId, animationId, name, what }) => `${refName(animationId, codes)}${name ? ` (${name})` : ""}${what ? ` ${what}` : ""} with ${refName(layerId, codes)}`));
         continue;
       }
-      // update_scene with a new duration: whole-scene animations that now end with the scene, and a board's last shot (engine/sceneLength.js).
+      // update_scene with a new duration: whole-scene animations that now end with the scene (engine/sceneLength.js).
       if (found.sceneLength) {
-        const { was, now: length, animations, board } = found.sceneLength;
+        const { was, now: length, animations } = found.sceneLength;
         const named = animations.map(({ layerId, animationId, name }) => `${refName(animationId, codes)}${name ? ` (${name})` : ""} on ${layerId === "background" ? "the background" : refName(layerId, codes)}`);
         fields.sceneLength = {
-          was, now: length,
-          ...(named.length ? { endsWithScene: named.slice(0, 12), ...(named.length > 12 ? { more: named.length - 12 } : {}), note: `${plural(named.length, "animation")} ran the whole scene (0 to ${was} s) and now run 0 to ${length} s` } : {}),
-          ...(board?.shot ? { board: `shot ${board.shot} now ends at ${board.to} s (was ${board.from} s); the board is one revision newer` } : {}),
-          ...(board?.refused ? { board: `the saved board ends at ${board.from} s and the song or video now ends at ${board.to} s: a change over 1 s is not followed. One call: edit {ops:[{op:"board", end:${board.to}}]}` } : {}),
+          ...fields.sceneLength, was, now: length,
+          endsWithScene: named.slice(0, 12), ...(named.length > 12 ? { more: named.length - 12 } : {}), note: `${plural(named.length, "animation")} ran the whole scene (0 to ${was} s) and now run 0 to ${length} s`,
         };
+        continue;
+      }
+      // The edit changed the video's or the music's length under a board that tiled it: its last shot followed, or the one call that does it.
+      if (found.boardFollow) {
+        const board = found.boardFollow;
+        fields.sceneLength = { ...fields.sceneLength, board: board.shot
+          ? `shot ${board.shot} now ends at ${board.to} s (was ${board.from} s); the board is one revision newer`
+          : `the saved board ends at ${board.from} s and the song or video now ends at ${board.to} s: a change over 1 s is not followed. One call: edit {ops:[{op:"board", end:${board.to}}]}` };
         continue;
       }
       const key = { add_captions: "captions", detect_beats: "beats", fit_music: "music", add_sequence: "sequence", duck_audio: "duck", isolate_voice: "voice", cut_out: "cutout", track: "track", pin: "pin", stabilize: "stabilize", cut_speech: "speech", sync_clips: "sync", match_color: "color", place_broll: "broll", keep_line: "keepLine", place_sounds: "sounds" }[operation.type];

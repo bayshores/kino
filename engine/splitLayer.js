@@ -16,8 +16,8 @@
 // piece, unless its held value still shows on that piece (a move that ended before the cut still
 // places the copy). A crossing animation is kept on both, at the same scene times. Hide and Show
 // are set for each piece's own span: the first piece loses those after `at` (a Hide that was due
-// later moves to `at`), the copy keeps only the last one before `at` (moved to `at`) and a Hide
-// past its end moves to its end.
+// later moves to `at`), the copy keeps only the last one before `at` (moved to `at`) and, unless
+// it holds its last frame, a Hide past its end moves to its end.
 import { duplicateSelection } from "./duplicate.js";
 import { animatesSpeed, evaluateLayer } from "./animation.js";
 import { animationPlaybackLength, effectiveMediaDuration, hasMediaPlay, mediaSoundTime } from "./playback.js";
@@ -149,7 +149,10 @@ export function splitLayer(document, sceneId, layerId, { at, to, copy = {} }) {
     if (item.id === layerId) return { ...item, ...first, animations: visibleUntil(item.animations.filter((_, index) => !dropFirst.has(index)), at) };
     if (item.id === copyId) {
       const kept = visibleFrom(item.animations.map(moved).filter((_, index) => !dropSecond.has(index)), at);
-      return { ...item, ...second, animations: Number.isFinite(secondEnd) && !reversed && second.mediaDuration > 0 ? visibleUntil(kept, secondEnd) : kept };
+      // A piece that holds its last frame (mediaFreeze "last") shows past its end as the whole clip
+      // did, so its later Hide and Show still time that hold and stay.
+      const ends = Number.isFinite(secondEnd) && !reversed && second.mediaDuration > 0 && second.mediaFreeze !== "last";
+      return { ...item, ...second, animations: ends ? visibleUntil(kept, secondEnd) : kept };
     }
     return item;
   });

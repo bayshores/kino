@@ -427,21 +427,31 @@ test("update_scene duration lengthens whole-scene animations and the board's las
   const effect = (id, start, duration) => ({ id, kind: "custom", name: id, start, duration, easing: "linear", from: { opacity: 0.5 }, to: { opacity: 1 } });
   const shot = (id, cue, dur) => ({ id, cue, dur, pacing: "free", media: "none", in: "none", crop: "none", subject: "none", follow: "none", text: "none", sound: "none", why: "a line" });
   const clip = createLayer("rectangle", { id: "clip", animations: [effect("grade", 0, 14), effect("fade", 12, 2), effect("short", 0, 6)] });
-  const source = parseDocument(createDocument({
-    id: "len", name: "len", board: { rev: 1, music: "none", shots: [shot("a", 0, 6), shot("b", 6, 8)] },
-    scenes: [createScene({ id: "s", duration: 14, layers: [clip], backgroundAnimations: [{ id: "bg", name: "Color", kind: "custom", start: 0, duration: 14, easing: "linear", from: { fill: "#000000" }, to: { fill: "#ffffff" } }] })],
+  // A Speed animation over the whole clip keeps its times: stretching it would move every frame.
+  const footage = createLayer("video", { id: "footage", src: "/api/media/clip.mp4", mediaSourceDuration: 60,
+    animations: [{ id: "ramp", kind: "custom", name: "Speed", start: 0, duration: 14, easing: "linear", from: { speed: 1 }, to: { speed: 1.5 } }] });
+  const song = createLayer("audio", { id: "song", src: "/api/media/song.wav", mediaStart: 0, mediaDuration: 14, mediaSourceDuration: 100 });
+  const document = (music) => parseDocument(createDocument({
+    id: "len", name: "len", board: { rev: 1, music, shots: [shot("a", 0, 6), shot("b", 6, 8)] },
+    scenes: [createScene({ id: "s", duration: 14, layers: [clip, footage, song], backgroundAnimations: [{ id: "bg", name: "Color", kind: "custom", start: 0, duration: 14, easing: "linear", from: { fill: "#000000" }, to: { fill: "#ffffff" } }] })],
   }));
+  const source = document("none");
   const operation = { type: "update_scene", sceneId: "s", properties: { duration: 14.333 } };
   const reports = new Map();
   const next = applyOperations(source, [operation], { reports });
   const animations = next.scenes[0].layers[0].animations;
   assert.deepEqual(animations.map((item) => [item.id, item.start, item.duration]), [["grade", 0, 14.333], ["fade", 12, 2], ["short", 0, 6]], "only the animation that ran the whole scene follows");
   assert.equal(next.scenes[0].backgroundAnimations[0].duration, 14.333);
+  assert.equal(next.scenes[0].layers[1].animations[0].duration, 14, "a Speed animation keeps its times");
   assert.deepEqual(reports.get(operation).sceneLength.animations.map((item) => [item.layerId, item.animationId]), [["background", "bg"], ["clip", "grade"]]);
   assert.deepEqual([next.board.shots[1].dur, next.board.rev], [8.333, 2], "the board's last shot ends where the scene does");
+  assert.deepEqual([...reports.values()].at(-1).boardFollow, { shot: 2, from: 14, to: 14.333 });
+  // Over a song: the scene made longer first and the song's Play after it, in one edit, is followed once.
+  const songFirst = applyOperations(document("song"), [operation, { type: "update_layer", sceneId: "s", layerId: "song", properties: { mediaDuration: 14.333 } }]);
+  assert.deepEqual([songFirst.board.shots[1].dur, songFirst.board.rev], [8.333, 2], "the board follows the song's new end");
   // A change over a second is a different cut: the board stays, and the receipt says so.
   const far = new Map();
   const longer = applyOperations(source, [{ ...operation, properties: { duration: 16 } }], { reports: far });
   assert.equal(longer.board.shots[1].dur, 8);
-  assert.equal([...far.values()][0].sceneLength.board.refused, "too long");
+  assert.equal([...far.values()].at(-1).boardFollow.refused, "too long");
 });

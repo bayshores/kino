@@ -4,6 +4,7 @@ import { evaluateLayer } from "./animation.js";
 import { createDocument, createLayer, createScene, parseDocument } from "./model.js";
 import { mediaFrameState } from "./playback.js";
 import { splitLayer } from "./splitLayer.js";
+import { visibleByOperations } from "./visibilityOps.js";
 
 const anim = (id, start, duration, from, to) => ({ id, kind: "custom", name: id, start, duration, easing: "linear", from, to });
 
@@ -51,8 +52,11 @@ test("split_layer gives each piece Show and Hide for its own span", () => {
   const times = (layer) => layer.animations.map((item) => [item.kind, item.start]);
   assert.deepEqual(times(first), [["show", 1], ["hide", 3]], "the first piece hides where it is cut");
   assert.deepEqual(times(second), [["show", 3], ["hide", 5]], "the new piece shows from the cut and hides at the end it had");
-  const late = splitLayer(clipDocument({ animations: [{ id: "off", name: "Hide", kind: "hide", start: 5.5 }] }), "main", "clip", { at: 3 }).document.scenes[0].layers;
-  assert.deepEqual(late[1].animations.map((item) => item.start), [5], "a Hide past the piece's end (file seconds 1 to 5) moves to its end");
+  const late = (mediaFreeze) => splitLayer(clipDocument({ mediaFreeze, animations: [{ id: "off", name: "Hide", kind: "hide", start: 5.5 }] }), "main", "clip", { at: 3 }).document.scenes[0].layers[1];
+  assert.deepEqual(late("none").animations.map((item) => item.start), [5], "a Hide past the piece's end (scene seconds 1 to 5) moves to its end");
+  const held = late("both");
+  assert.deepEqual(held.animations.map((item) => item.start), [5.5], "a piece that holds its last frame keeps the Hide that ends the hold");
+  assert.equal(mediaFrameState(held, 5.25).visible && visibleByOperations(held.animations, 5.25), true, "the held last frame shows at 5.25 s as the whole clip's did");
 });
 
 test("split_layer from/to skips the file between and refuses what it can't cut", () => {
