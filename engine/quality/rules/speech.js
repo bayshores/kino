@@ -561,8 +561,99 @@ function captionStretches(model) {
   return list;
 }
 
-/** speech_captions: captions are shown over a voice but leave out words it says. */
+/**
+ * speech_captions: captions are shown over a voice but leave out words it says, or a text shows
+ * the line of a clip that is muted there (the viewer reads a voice they never hear).
+ */
 export function speechCaptions(model, ctx) {
+  return [...captionGaps(model, ctx), ...mutedLines(model, ctx)];
+}
+
+// A text shows this share of a line's words (2 or more words) while its clip is muted.
+const LINE_SHOWN = 0.6;
+// A muted clip's line counts as covered when this share of its words is heard from another sound.
+const LINE_HEARD = 0.6;
+
+// A clip this much quieter than the song under it, or less, cannot be heard over it.
+const UNDER_SONG = 0.25;
+// The song counts as a bed for that when its volume is at least this.
+const SONG_BED = 0.5;
+
+// The volumes `layer` is at from `from` to `to` (scene seconds), every 0.1 s.
+function volumesBetween(layer, from, to) {
+  const list = [];
+  for (let time = from; time < to + 1e-6; time += 0.1) list.push(volumeAt(layer, Math.min(time, to)));
+  return list;
+}
+
+// The layer is muted from `from` to `to` (scene seconds): at 0.05 or less, or at a quarter of a song
+// that plays the whole stretch at 0.5 or more (a voice far under a song is not heard either).
+function mutedBetween(scene, layer, from, to) {
+  const top = Math.max(...volumesBetween(layer, from, to));
+  if (top <= HEARD) return true;
+  const songs = scene.layers.filter((other) => other.id !== layer.id && other.type === "audio" && other.src && other.enabled !== false)
+    .filter((other) => { const range = mediaPlaybackRange(other, scene.duration); return range && range.start <= from + 1e-6 && range.end >= to - 1e-6; });
+  const bed = Math.max(0, ...songs.map((song) => Math.min(...volumesBetween(song, from, to))));
+  return bed >= SONG_BED && top <= UNDER_SONG * bed;
+}
+
+/**
+ * A reading text whose words match 60% or more of a line a video clip says (ctx.clipLines, from the
+ * saved transcripts) while that clip plays muted under it. Nothing else says the line: the fix is
+ * keep_line, which plays only that line (and the text already shows it, so it adds no subtitle).
+ */
+function mutedLines(model, ctx) {
+  const scene = ctx.speechScene;
+  const lines = (ctx.clipLines ?? []).filter((line) => line?.layerId && line.text && Number.isFinite(line.from) && Number.isFinite(line.to));
+  if (!scene || !lines.length) return [];
+  const strings = shownStrings(model);
+  if (!strings.length) return [];
+  const heard = voices(ctx).flatMap(heardWords);
+  const findings = [];
+  for (const line of lines) {
+    const layer = scene.layers.find((other) => other.id === line.layerId);
+    if (!layer || layer.type !== "video" || layer.enabled === false || !mutedBetween(scene, layer, line.from, line.to)) continue;
+    const words = String(line.text).split(/\s+/).map(plainWord).filter(Boolean);
+    if (words.length < 2) continue;
+    // Another sound says it: a voice clip heard in the mix with the same words.
+    const heardNow = new Set(heard.filter((word) => word.end >= line.from - 0.5 && word.start <= line.to + 0.5).map((word) => plainWord(word.text)));
+    if (words.filter((word) => heardNow.has(word)).length / words.length >= LINE_HEARD) continue;
+    // The texts shown with the line (a word a layer, kinetic type, counts as one text): each is mostly
+    // the line's words, so a long title that holds two common words of a short line is not it.
+    const shown = strings.filter((candidate) => {
+      if (!candidate.stretches.some((stretch) => stretch.start < line.to + 0.75 && stretch.end > line.from - 0.75)) return false;
+      return candidate.words.filter((word) => words.includes(word)).length / candidate.words.length >= LINE_SHOWN;
+    });
+    const pooled = new Set(shown.flatMap((candidate) => candidate.words));
+    const matched = words.filter((word) => pooled.has(word)).length;
+    if (matched < 2 || matched / words.length < LINE_SHOWN) continue;
+    const entry = shown[0];
+    const shownText = shown.map((candidate) => candidate.text).join(" ").replaceAll('"', "'");
+    const name = line.layer ?? layer.id;
+    const waive = `Muted on purpose: waive_check {code:"speech_captions", target:"${name}", reason:"<why it stays silent>"}.`;
+    // keep_line needs speed 1, forwards, every frame: one edit puts the layer back (the finding then
+    // returns with the keep_line call if the line still plays), as the lines note says for a slowed clip.
+    const reset = line.slowed ? JSON.stringify({ ops: [
+      { op: "update_layer", layer: name, properties: { mediaSpeed: 1, mediaReverse: null, mediaFrameRate: null } },
+      ...(line.speedAnimations ?? []).map((animationId) => ({ op: "delete_animation", animationId })),
+    ] }) : null;
+    // A line clipLines cut short ("…") is kept by its scene seconds: its words are not all known.
+    const what = String(line.text).endsWith("…") ? { from: line.from, to: line.to } : { line: line.text };
+    const keep = JSON.stringify({ ops: [{ op: "keep_line", layer: name, ...what, subtitle: false }, { op: "isolate_voice", layer: name }] });
+    findings.push({
+      rule: "speech_captions", severity: "warn", layerId: layer.id, itemId: entry.item.id, at: sec(line.from),
+      message: `"${shownText}" shows the line ${name} says, but ${name} is muted there: the viewer reads a voice they never hear.`,
+      measured: `line "${String(line.text).replaceAll('"', "'")}" at ${sec(line.from)}-${sec(line.to)} s, ${name} muted${shown.length > 1 ? `, ${shown.length} texts show it` : ""}`,
+      required: "a line shown as text is heard from its clip, or from another sound",
+      fix: { kind: "hint", text: line.slowed
+        ? `edit ${reset}: ${name} plays ${line.how || "at another speed"}, and keep_line needs speed 1, forwards, every frame. Then check again: this returns with the keep_line call if the line still plays. ${waive}`
+        : `edit ${keep}: plays only that line (your text stays the subtitle) and drops the clip's own music under it. ${waive}` },
+    });
+  }
+  return findings;
+}
+
+function captionGaps(model, ctx) {
   const voicesHere = voices(ctx);
   if (!voicesHere.length) return [];
   const captions = captionStretches(model);

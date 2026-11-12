@@ -852,11 +852,15 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
       const speech = await heardSpeech(scene, transcriptOf, pixels, loudnessOf, levelsOf, songOf);
       const speechStamp = speech.map((entry) => `${entry.layer.id}:${entry.transcript ? `${entry.transcript.model}@${entry.transcript.version}` : entry.music ? "music" : "none"}${entry.loudness ? `:peaks${entry.loudness.duration}` : ""}${entry.levels ? `:lufs${entry.levels.duration}` : ""}${entry.change ? `:change${entry.change.time}` : ""}`).join(",");
       // The lines the video's clips say, heard or muted (reference_range names them in its fix).
-      const sceneLines = clipLines && isVideo && pixels ? await clipLines(document, scene).catch(() => []) : [];
+      // Read for every check of the video scene: a transcript saved after a full check (look source
+      // {layer}) changes its lines, so the stamp below is in the cache key (a quick check hands the rules none).
+      const knownLines = clipLines && isVideo ? await clipLines(document, scene).catch(() => []) : [];
+      const sceneLines = pixels ? knownLines : [];
+      const linesStamp = knownLines.length ? createHash("sha256").update(JSON.stringify(knownLines.map((line) => [line.layerId, line.text, line.from, line.to, line.slowed ?? false]))).digest("hex").slice(0, 12) : "";
       const { people, stamp: peopleStamp, why: peopleWhy } = await peopleIn(scene, peopleOf, pixels);
       if (peopleWhy && !notes.includes(peopleWhy)) notes.push(peopleWhy);
       if (isVideo) crops = cropCounts(scene, { mediaSizes: media.sizes, sourceLooks, people });
-      const base = `${sceneBase(document, scene, { fonts, codes, styleSpec: sceneStyle, deck: sceneDeck, briefFonts, length: sceneLength, asks: sceneAsks })}\n${refStamp}${closeRefs.length ? `\nlent:${closeRefs.map((ref) => `${ref.id}:${ref.cuts.length}`).join(",")}` : ""}\nhouse:${houseStamp}\nvideo:${isVideo}\n${speechStamp}\n${peopleStamp}\nsearch:${soundSearch}${media.pending ? `\nunmeasured:${media.pending}` : ""}\nsubject:${askStamp}`;
+      const base = `${sceneBase(document, scene, { fonts, codes, styleSpec: sceneStyle, deck: sceneDeck, briefFonts, length: sceneLength, asks: sceneAsks })}\n${refStamp}${closeRefs.length ? `\nlent:${closeRefs.map((ref) => `${ref.id}:${ref.cuts.length}`).join(",")}` : ""}\nhouse:${houseStamp}\nvideo:${isVideo}\n${speechStamp}\nlines:${linesStamp}\n${peopleStamp}\nsearch:${soundSearch}${media.pending ? `\nunmeasured:${media.pending}` : ""}\nsubject:${askStamp}`;
       const latestFps = fullCheckFps.get(baseKey(base));
       const full = !pixels && renderFrames
         ? kept(keyOf(base, { pixels: true, outputFps })) ?? (latestFps != null ? kept(keyOf(base, { pixels: true, outputFps: latestFps })) : null) ?? null

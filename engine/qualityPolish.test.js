@@ -627,6 +627,41 @@ test("speech_captions: captions over a voice that leave out words it says", asyn
   assert.deepEqual((await check("speech_captions", whoosh, speechContext(whoosh, whoops))).findings, []);
 });
 
+test("speech_captions: a text shows the line of a clip that is muted there", async () => {
+  const clip = (props) => ({ type: "video", id: "clip", name: "clip", src: "/api/media/clip.mp4", x: 0, y: 0, width: 1920, height: 1080, mediaStart: 0, mediaOffset: 0, mediaDuration: 4, volume: 0, ...props });
+  const shown = (words) => text("line", words, { fontSize: 64 });
+  const line = { layer: "clip", layerId: "clip", text: "We leave at dawn today.", from: 1, to: 2.5 };
+  const run = async (layers, lines = [line], speech = []) => {
+    const document = scene({ layers });
+    return (await check("speech_captions", document, { speechScene: document.scenes[0], speech, clipLines: lines })).findings;
+  };
+  const [muted] = await run([clip(), shown("We leave at dawn")]);
+  assert.equal(muted.severity, "warn");
+  assert.equal(muted.message, '"We leave at dawn" shows the line clip says, but clip is muted there: the viewer reads a voice they never hear.');
+  assert.match(muted.fix.text, /^edit \{"ops":\[\{"op":"keep_line","layer":"clip","line":"We leave at dawn today\.","subtitle":false\},\{"op":"isolate_voice","layer":"clip"\}\]\}/);
+  // A slowed layer is put back to speed 1, forwards, every frame, its Speed animations deleted; the check then returns the keep_line call.
+  const slowed = { ...line, slowed: true, how: "speed 0.5", speedAnimations: ["A3"] };
+  assert.match((await run([clip(), shown("We leave at dawn")], [slowed]))[0].fix.text, /^edit \{"ops":\[\{"op":"update_layer","layer":"clip","properties":\{"mediaSpeed":1,"mediaReverse":null,"mediaFrameRate":null\}\},\{"op":"delete_animation","animationId":"A3"\}\]\}: clip plays speed 0\.5/);
+  // A line clipLines cut short ("...") is kept by its scene seconds.
+  assert.match((await run([clip(), shown("We leave at dawn today and so")], [{ ...line, text: "We leave at dawn today and so we…" }]))[0].fix.text, /^edit \{"ops":\[\{"op":"keep_line","layer":"clip","from":1,"to":2\.5,"subtitle":false\}/);
+  assert.deepEqual(await run([clip({ volume: 1 }), shown("We leave at dawn")]), []);
+  assert.deepEqual(await run([clip(), shown("Nothing like it")]), []);
+  assert.deepEqual(await run([clip(), shown("Dawn")], [{ ...line, text: "Dawn." }]), []);
+  // A long title holding two common words of a short line is not that line; one word a layer (kinetic type) is.
+  assert.deepEqual(await run([clip(), shown("We never leave the place we call home")], [{ ...line, text: "We leave." }]), []);
+  const kinetic = (await run([clip(), ...["We", "leave", "at", "dawn"].map((word) => text(word, word, { fontSize: 64 }))]))[0];
+  assert.match(kinetic.message, /^"We leave at dawn" shows the line clip says/);
+  // A clip at 0.06 under a song at 1 is not heard either; at 0.5 it is.
+  const song = { type: "audio", id: "song", name: "song", src: "/api/media/song.mp3", mediaStart: 0, mediaOffset: 0, mediaDuration: 4, volume: 1 };
+  assert.equal((await run([clip({ volume: 0.06 }), song, shown("We leave at dawn")])).length, 1);
+  assert.deepEqual(await run([clip({ volume: 0.5 }), song, shown("We leave at dawn")]), []);
+  // Another sound that says the same words (a voice in the mix) means the viewer hears it.
+  const said = ["we", "leave", "at", "dawn", "today"].map((word, index) => ({ text: word, start: 1 + index * 0.25, end: 1.2 + index * 0.25 }));
+  const document = scene({ layers: [clip(), voice("vo", { mediaDuration: 4 }), shown("We leave at dawn")] });
+  const mix = { speechScene: document.scenes[0], clipLines: [line], speech: [{ layer: document.scenes[0].layers.find((layer) => layer.id === "vo"), transcript: { words: said } }] };
+  assert.deepEqual((await check("speech_captions", document, mix)).findings, []);
+});
+
 // The sound rules (engine/quality/rules/sound.js): each layer's transcript or song loudness comes in as ctx.speech.
 async function soundFindings(code, layers, entryOf) {
   const document = scene({ duration: 6, layers });
