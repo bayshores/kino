@@ -115,8 +115,8 @@ Each has an automatic fix (`check {fix:"auto"}`) but render_artifact:
    is reviewed as it is now. Drafts, stills (png) and scenes under 5 s are not gated. A
    skip: `waive_check {code:"review", target:"s1", reason}`.
 6. Saved references: final needs `look {mode:"versus"}` in the last 10 revs (`reference_needed`):
-   6 rows, a shot by its `move.ref` moment, else one of its kind (app, type, footage,
-   end), else "no fair match". Gaps: hero fill, contrast, craft drift and `reference_range` rows. A lost
+   rows by place (opening, loudest change, ending, rest by position), same kind first; a pin
+   on its shot; a still on 2 rows at most; their labels. Gaps: fill, contrast, drift, range. A lost
    judge round blocks. Skip: `waive_check {code:"reference", target:"*", reason}`.
 
 ## Building in order

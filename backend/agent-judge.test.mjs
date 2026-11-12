@@ -10,7 +10,7 @@ import { createAgentStateStore } from "./agent/state.mjs";
 import { boardRefKeys, createJudge, judgeLine, judgeLost, judgeView, pairSize, pinnedPairs, planPairs, resultText } from "./agent/judge.mjs";
 import { createPicks, pickRecord, readPairs, SITTING_GAP_MS, SITTING_PICKS, sittingLeft } from "./agent/picks.mjs";
 import { stillTimes } from "./measure/stills.mjs";
-import { boardShotKind, craftRow, gapWords, imageStats, pixelKind, referenceMoments, sameKindMoment } from "./agent/versus.mjs";
+import { boardShotKind, craftRow, editLoudest, gapWords, imageStats, pairRows, pickRows, pixelKind, placeMoment, referenceMoments, seenAt, shapeLoudest } from "./agent/versus.mjs";
 
 let folder;
 before(async () => { folder = await mkdtemp(path.join(tmpdir(), "kino-judge-")); });
@@ -51,7 +51,7 @@ test("versus pairs a board shot's pinned moment (move.ref) with that reference, 
   assert.deepEqual(boardRefKeys(board), ["phone-film", "agent-launch", "agent2", "promo", "teaser"]);
 });
 
-test("versus pairs like with like: a shot gets a reference moment of its own kind, or no fair match, and only craft gaps", async () => {
+test("versus puts like next to like: the same place in the video, its own kind first, a pin on its own row, a still on at most 2 rows, and only craft gaps", async () => {
   const draw = (paint) => { const canvas = createCanvas(320, 180); const context = canvas.getContext("2d"); paint(context); return canvas.toBuffer("image/png"); };
   const card = draw((context) => { context.fillStyle = "#111"; context.fillRect(0, 0, 320, 180); context.fillStyle = "#fff"; context.fillRect(100, 80, 120, 20); });
   // An interface: flat panels with many small rows of sharp lines.
@@ -67,11 +67,49 @@ test("versus pairs like with like: a shot gets a reference moment of its own kin
   const ref = { id: "yt:R", folder: dir, seconds: 6, stills: order.map((_, index) => ({ at: index + 0.5, file: `${index}.png` })) };
   ref.moments = await referenceMoments(ref);
   assert.deepEqual(ref.moments.map((moment) => moment.kind), ["footage", "app", "type", "app", "end", "end"]);
-  // An app shot late in the edit gets the app moment nearest that point, never the footage at the same point.
-  assert.equal(sameKindMoment([ref], "app", 0.1).moment.at, 1.5);
-  assert.equal(sameKindMoment([ref], "app", 0.6).moment.at, 3.5);
-  assert.equal(sameKindMoment([ref], "app", 0.6, new Set(["yt:R@3.5"])).moment.at, 1.5, "a used still goes last");
-  assert.equal(sameKindMoment([ref], "device", 0.5), null, "pixels never find a phone in hand: no fair match");
+  // At the same point of the story a moment of the same kind wins over a nearer one of another kind;
+  // a still on 2 rows goes last; with no moment of that kind, the nearest of another kind.
+  const at = (row, uses) => placeMoment([ref], row, uses).moment.at;
+  assert.equal(at({ kind: "app", share: 0.1 }), 1.5);
+  assert.equal(at({ kind: "app", share: 0.55 }), 3.5);
+  assert.equal(at({ kind: "app", share: 0.55 }, new Map([["yt:R@3.5", 2]])), 1.5, "a still on 2 rows goes last");
+  assert.equal(placeMoment([ref], { kind: "device", share: 0.45 }).same, false, "pixels never find a phone in hand: another kind");
+  // The opening beside their opening, the ending beside theirs (another kind there beats a far app),
+  // the loudest change beside the first still at or after theirs (heard), else the same point.
+  assert.deepEqual([at({ kind: "footage", role: "opening", share: 0.3 }), at({ kind: "app", role: "ending", share: 0.6 })], [0.5, 5.5]);
+  assert.deepEqual([at({ kind: "app", role: "peak", share: 0.1 }), placeMoment([ref], { kind: "app", role: "peak", share: 0.1 }).byPlace], [1.5, true]);
+  assert.equal(placeMoment([{ ...ref, heard: { change: { at: 3.2 } } }], { kind: "app", role: "peak", share: 0.1 }).moment.at, 3.5);
+  assert.equal(editLoudest([{ name: "song-intro-1", time: 0, weight: 9 }, { name: "song-drop-1", time: 4, weight: 3 }, { name: "song-section-2", time: 8, weight: 5 }, { name: "rhythm-1", time: 3, weight: 10 }]), 8);
+  // The opening and ending rows lean to place: a footage edit beside a reference that opens on type
+  // and ends on a card gets those stills, while a place row still prefers its own kind.
+  const long = { id: "yt:L", seconds: 30, moments: Array.from({ length: 30 }, (_, index) => ({ at: index + 0.5, kind: index < 3 ? "type" : index >= 28 ? "end" : "footage" })) };
+  assert.deepEqual([placeMoment([long], { kind: "footage", role: "opening", share: 0 }).moment.at, placeMoment([long], { kind: "footage", role: "ending", share: 1 }).moment.at], [0.5, 29.5]);
+  assert.equal(placeMoment([long], { kind: "footage", share: 0.02 }).moment.at, 3.5, "a place row keeps its own kind");
+  // A same-kind still used once still beats another kind; on 2 rows the row says why another kind was used.
+  const one = { id: "yt:O", seconds: 10, moments: [{ at: 1.5, kind: "type" }, { at: 4.5, kind: "footage" }, { at: 6.5, kind: "type" }] };
+  assert.equal(placeMoment([one], { kind: "footage", share: 0.5 }, new Map([["yt:O@4.5", 1]])).same, true);
+  assert.deepEqual([placeMoment([one], { kind: "footage", share: 0.5 }, new Map([["yt:O@4.5", 2]])).otherWhy, placeMoment([one], { kind: "app", share: 0.5 }).otherWhy], ["full", "none"]);
+  // The loudest change of a hand-cut edit: its music's saved song shape, in video seconds.
+  const song = { sections: [{ kind: "intro", at: 0.5, weight: 9 }, { kind: "drop", at: 5, weight: 7 }, { kind: "verse", at: 2, weight: 3 }] };
+  assert.equal(await shapeLoudest([{ duration: 4, layers: [] }, { duration: 10, layers: [{ type: "audio", src: "kino-media:x", volume: 1 }] }], async () => song), 9);
+  assert.equal(await shapeLoudest([{ duration: 4, layers: [{ type: "audio", src: "kino-media:x", volume: 1 }] }], async () => { throw new Error("not in the library"); }), null);
+  // Rows: opening, the shot holding the loudest change, ending, a kept (pinned) shot, then spread.
+  const shots = Array.from({ length: 8 }, (_, index) => ({ start: index * 2, end: index * 2 + 2, at: index * 2 + 1 }));
+  assert.deepEqual(pickRows(shots, 4, { peak: 9.5, keep: [shots[1]] }).map((row) => [row.at, row.role]), [[1, "opening"], [3, "place"], [9, "peak"], [15, "ending"]]);
+  assert.deepEqual(pickRows(shots, 4).map((row) => row.at), [1, 7, 11, 15]);
+  // A loudest change in the last shot leaves the ending its row (and is its own row when far from that frame).
+  assert.deepEqual(pickRows(shots, 6, { peak: 15 }).map((row) => row.role).filter((role) => role !== "place"), ["opening", "ending"]);
+  assert.deepEqual(pickRows(shots, 6, { peak: 14 }).filter((row) => row.at > 13).map((row) => [row.role, Boolean(row.extra)]), [["peak", true], ["ending", false]]);
+  assert.equal(pickRows(shots, 6, { peak: 14 }).length, 6);
+  // A pinned moment fills its own row; six shots pinning one still fill 2 rows, the rest are placed.
+  const pin = { ref: "yt:R", refAt: 2.5, still: path.join(dir, "2.png"), pinned: "r@2.5" };
+  const pairs = pairRows([0, 1, 2, 3, 4, 5].map((index) => ({ at: index + 0.5, kind: "footage", role: index ? "place" : "opening", pin })), [ref], 6);
+  assert.deepEqual(pairs.map((pair) => pair.match), ["pinned", "pinned", "kind", "place", "place", "place"]);
+  assert.ok(pairs.every((pair) => pairs.filter((other) => other.refAt === pair.refAt).length <= 2), pairs.map((pair) => pair.refAt).join(" "));
+  assert.match(pairs[2].full, /^r@2\.5 is on 2 rows already/);
+  // What theirs shows on screen there, from its labels when it has them.
+  const seen = { seen: [{ at: 2.4, kinds: ["type", "overlay"], words: "NO WAY BACK" }, { at: 4.5, kinds: ["plain"] }] };
+  assert.deepEqual([seenAt(seen, 2.5), seenAt(seen, 4.5), seenAt(seen, 0.5), seenAt(ref, 2.5)], ['type, overlay "NO WAY BACK"', "plain footage", null, null]);
   // A board shot's kind comes from what it holds.
   assert.deepEqual([boardShotKind({ media: "/m/a.mp4" }, { name: "screen recording.mov" }), boardShotKind({ media: "none", text: { text: "Zuri" } }, { last: true }),
     boardShotKind({ media: "/m/b.mp4", subject: { what: "a girl walks", boxes: [] } }, { name: "street.mp4" }), boardShotKind({ media: "/m/logo.png" }, { name: "logo.png", last: true })], ["app", "end", "footage", "end"]);

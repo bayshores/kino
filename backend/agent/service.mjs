@@ -99,7 +99,7 @@ import { rendererIsProcessor } from "../render-devices.mjs";
 import { plannedFrameCount } from "../export-batches.mjs";
 import { planClips } from "./clips-sheet.mjs";
 import { evenTimes, everyFrame, FRAMES_MOST, reviewColumns, sceneKey, SEAM_EDGE, SEAM_MERGE, SEAM_OFFSETS, SHEET_FRAMES, sheetTimes, SOURCE_EDGE, SOURCE_EDGE_RANGE, STRIP_TILES, tileSize, VERSUS_EDGE } from "./look.mjs";
-import { boardShotKind, craftRow, editPixelKind, gapWords, imageStats, KIND_WORDS, referenceMoments, sameKindMoment } from "./versus.mjs";
+import { boardShotKind, craftRow, editLoudest, editPixelKind, gapWords, imageStats, KIND_WORDS, pairRows, pickRows, referenceMoments, ROWS_PER_STILL, shapeLoudest } from "./versus.mjs";
 import { CAMERA_RULES, motionGraphImage, motionTrace, traceText } from "./motion-graph.mjs";
 import { kinoTimeline } from "../../engine/quality/kinoTimeline.js";
 import { changedStretches, findingsAt, frameSignature, nearDuplicate, newFindingsLine, rememberReviewed, REVIEW_COMPACT_EDGE, REVIEW_FULL_EDGE, REVIEW_IMAGE_BUDGET, REVIEW_SKIP_UNDER, REVIEW_WAIVER, reviewEvents, reviewKey, reviewSizes, unreviewed } from "./review.mjs";
@@ -3938,8 +3938,8 @@ export function createAgentService(deps) {
 
   // ---- look versus and the reference gate (judge.mjs) ---------------------------------------
   // Agents overrate their own edits. look {mode:"versus"} puts the edit's frames beside the saved
-  // references' stills of the same kind of shot (versus.mjs: the pinned moment, else the same
-  // kind, else "no fair match"), with the craft gaps that transfer (hero fill, contrast, and the
+  // references' stills at the same place (versus.mjs: opening, loudest change, ending, the rest by
+  // position; a pin on its own shot; the same kind first), with the craft gaps that transfer (hero fill, contrast, and the
   // reference_drift rows on type, motion, holds and cuts) and the person's blind judge result for
   // this revision. A final render needs one for the revision it renders (refuseWithoutReference).
   // Reference stills' stats are kept here so a second versus reads no picture twice.
@@ -3967,11 +3967,12 @@ export function createAgentService(deps) {
     const scenes = document.scenes.filter((item) => !item.isComponent);
     const total = scenes.reduce((sum, item) => sum + item.duration, 0);
     if (!(total > 0)) throw new AgentError("bad_input", "versus needs a video longer than 0 s.");
-    // Fair pairs (versus.mjs): a shot's pinned moment (move.ref "phone-film@3.13") first, else the
-    // reference moment of the same kind nearest the same point of the story, else no match.
+    // Fair pairs (versus.mjs): rows at the same place in the video (the opening, the loudest change,
+    // the ending, the rest by position), each beside the reference moment at that place, the same
+    // kind first; a shot's pinned moment (move.ref "phone-film@3.13") on its own row only.
     const rows = Math.min(VERSUS_ROWS, pairCount(total));
     const board = document.board?.shots?.length ? document.board : null;
-    const pinned = board ? pinnedPairs(board, scenes[0].id, known, rows) : { pairs: [], missing: [], waiting: [] };
+    const pinned = board ? pinnedPairs(board, scenes[0].id, known, Infinity) : { pairs: [], missing: [], waiting: [] };
     if (!refs.length && !pinned.pairs.length) throw Object.assign(new AgentError("not_ready", 'The saved references have no stills yet: kino is measuring them again, one at a time. look {mode:"versus"} again in a minute.'), { nextCall: nextOf("look", { mode: "versus" }) });
     const prepared = new Map();
     const preparedOf = async (sceneId) => { if (!prepared.has(sceneId)) prepared.set(sceneId, await prepare(document, sceneId, fonts)); return prepared.get(sceneId); };
@@ -3981,43 +3982,57 @@ export function createAgentService(deps) {
     };
     const pool = known.filter((ref) => ref.stills?.length);
     for (const ref of pool) ref.moments = await referenceMoments(ref, versusStatsCache);
-    // The edit's moments to pair: the board's shots (at their middles, spread over the board), or
-    // without a board, rows at even points of the story, each read from its pixels.
+    // The edit's moments to pair (versus.mjs pickRows): the opening, the moment of the loudest change
+    // (the heaviest song cue), the ending, one shot for each pinned moment, then the rest spread
+    // over the video. Board shots are read from what they hold; without a board, even points of
+    // the story are read from their pixels.
+    // fit_music's cues first, else the music's saved song shape (as reference_range), so a hand-cut edit has one too.
+    const peak = editLoudest(document.cues) ?? (await shapeLoudest(scenes, async (layer) => (await songShapes.saved?.(mediaFileOf(layer))) ?? null));
     const slots = [];
-    const spread = (list, most) => (list.length <= most ? list : Array.from({ length: most }, (_, index) => list[Math.floor(((index + 0.5) * list.length) / most)]));
+    const notShown = [];
     if (board) {
       const names = await shotFileNames(board);
-      const taken = new Set(pinned.pairs.map((pair) => pair.shot));
-      const free = board.shots.map((shot, index) => ({ shot, index })).filter(({ shot, index }) => !taken.has(index + 1) && Number.isFinite(shot?.cue) && shot.dur > 0);
-      for (const { shot, index } of spread(free, rows - pinned.pairs.length)) {
+      const pinOf = new Map(pinned.pairs.map((pair) => [pair.shot, pair]));
+      const shots = board.shots.map((shot, index) => ({ shot, index })).filter(({ shot }) => Number.isFinite(shot?.cue) && shot.dur > 0).map(({ shot, index }) => {
         const prev = board.shots[index - 1] ?? null, next = board.shots[index + 1] ?? null;
-        const t = sec(shot.cue + shot.dur / 2);
-        slots.push({ sceneId: scenes[0].id, t, at: t, shot: index + 1, kind: boardShotKind(shot, { name: names[shot.media] ?? null, prev, next, prevName: names[prev?.media] ?? null, nextName: names[next?.media] ?? null, last: index === board.shots.length - 1 }) });
+        return { start: shot.cue, end: shot.cue + shot.dur, at: sec(shot.cue + shot.dur / 2), shot: index + 1,
+          kind: boardShotKind(shot, { name: names[shot.media] ?? null, prev, next, prevName: names[prev?.media] ?? null, nextName: names[next?.media] ?? null, last: index === board.shots.length - 1 }) };
+      });
+      // One row for each pinned moment (the first shot that pins it), however many shots pin it.
+      const firstPins = new Map();
+      for (const shot of shots) { const pin = pinOf.get(shot.shot); if (pin && !firstPins.has(`${pin.ref}@${pin.refAt}`)) firstPins.set(`${pin.ref}@${pin.refAt}`, shot); }
+      const picked = pickRows(shots, rows, { peak, keep: [...firstPins.values()] });
+      for (const row of picked) {
+        // The loudest change's row shows the frame just after it.
+        const t = row.role === "peak" ? sec(Math.min(Math.max(peak + 0.1, row.start), row.end - 0.05)) : row.at;
+        slots.push({ ...row, sceneId: scenes[0].id, t, at: t, pin: row.extra ? null : pinOf.get(row.shot) ?? null });
       }
+      // A pinned moment whose shot got no row (the rows are full) is said, not dropped silently.
+      for (const shot of firstPins.values()) if (!picked.some((row) => row.shot === shot.shot)) notShown.push(`shot ${shot.shot} ${pinOf.get(shot.shot).pinned}`);
     } else {
-      for (let index = 0; index < rows; index += 1) {
-        const share = (index + 0.5) / rows;
-        let at = share * total, scene = scenes[0];
-        for (scene of scenes) { if (at < scene.duration) break; at -= scene.duration; }
-        const t = sec(Math.min(at, scene.duration));
-        slots.push({ sceneId: scene.id, t, at: sec(share * total), kind: editPixelKind(await editStats(scene.id, t), share) });
+      const points = Array.from({ length: rows }, (_, index) => ({ start: (index / rows) * total, end: ((index + 1) / rows) * total, at: ((index + 0.5) / rows) * total }));
+      for (const row of pickRows(points, rows, { peak })) {
+        const at = row.role === "peak" ? Math.min(peak + 0.1, total - 0.05) : row.at;
+        let local = at, scene = scenes[0];
+        for (scene of scenes) { if (local < scene.duration) break; local -= scene.duration; }
+        const t = sec(Math.min(local, scene.duration));
+        slots.push({ ...row, sceneId: scene.id, t, at: sec(at), pin: null, kind: editPixelKind(await editStats(scene.id, t), at / total) });
       }
     }
-    const used = new Set(pinned.pairs.map((pair) => `${pair.ref}@${pair.refAt}`));
-    const matched = slots.map((slot) => {
-      const found = sameKindMoment(pool, slot.kind, slot.at / total, used);
-      if (!found) return { ...slot, ref: null, refAt: null, still: null, nofair: true };
-      used.add(`${found.ref.id}@${found.moment.at}`);
-      return { ...slot, ref: found.ref.id, refAt: found.moment.at, still: path.join(found.ref.folder, found.moment.file), theirs: found.moment.stats };
-    });
-    const pairs = [...pinned.pairs, ...matched].sort((a, b) => a.at - b.at).map((pair, index) => ({ ...pair, n: index + 1 }));
-    // The craft gaps of each fair pair (hero fill, contrast); none for a shot with no fair match.
-    for (const pair of pairs) if (pair.still) pair.gaps = gapWords(await editStats(pair.sceneId, pair.t), pair.theirs ?? (await imageStats(pair.still, versusStatsCache)));
+    const pairs = pairRows(slots, pool, total);
+    // The craft gaps of each pair of the same kind (hero fill, contrast); none across kinds.
+    for (const pair of pairs) if (pair.still && (pair.same || pair.match === "pinned")) pair.gaps = gapWords(await editStats(pair.sceneId, pair.t), pair.theirs ?? (await imageStats(pair.still, versusStatsCache)));
     const name = (id) => { const ref = known.find((entry) => entry.id === id); return String(ref?.keys?.[0] || ref?.channel || ref?.id || id).slice(0, 16); };
-    const why = (pair) => (pair.pinned ? `pinned ${pair.pinned}` : pair.nofair ? `no fair match, no saved reference has ${KIND_WORDS[pair.kind]}` : `same kind, ${KIND_WORDS[pair.kind]}`);
+    const placeWords = (pair) => (pair.role === "opening" ? "opening beside theirs" : pair.role === "ending" ? "ending beside theirs"
+      : pair.role === "peak" ? (pair.byPlace ? 'loudest change beside the same point (theirs not measured: check {} measures it in the background; look {mode:"versus"} again after)' : "loudest change beside theirs") : "same point of the story");
+    const otherWords = { none: (kind) => `no saved reference has ${KIND_WORDS[kind]}`, full: (kind) => `their ${KIND_WORDS[kind]} stills are on ${ROWS_PER_STILL} rows already`, far: (kind) => `no ${KIND_WORDS[kind]} near there` };
+    const why = (pair) => (pair.match === "pinned" ? `pinned ${pair.pinned}` : pair.match === "none" ? "no saved reference still"
+      : `${placeWords(pair)}, ${pair.same ? `same kind (${KIND_WORDS[pair.kind]})` : `other kind (${(otherWords[pair.otherWhy] ?? otherWords.far)(pair.kind)}; no gap numbers)`}`);
+    const shortRole = { opening: "opening ", peak: "loudest ", ending: "ending ", place: "" };
+    for (const pair of pairs) await preparedOf(pair.sceneId);
     const image = await look.versusImage(pairs.map((pair) => ({ prepared: prepared.get(pair.sceneId), time: pair.t, still: pair.still,
-      editLabel: `${pair.n} ${pair.shot ? `shot ${pair.shot}` : "yours"} @${pair.at}s`,
-      refLabel: pair.still ? `${pair.n} ${pair.pinned ? `pin ${pair.pinned.split("@")[0]}` : name(pair.ref)} @${pair.refAt}s` : `${pair.n} no fair match` })));
+      editLabel: `${pair.n} ${shortRole[pair.role] ?? ""}${pair.shot ? `shot ${pair.shot} ` : ""}@${pair.at}s`,
+      refLabel: (pair.still ? `${pair.n} ${pair.pinned ? `pin ${pair.pinned.split("@")[0]}` : name(pair.ref)} @${pair.refAt}s${pair.seen ? ` ${pair.seen.split(" \"")[0].split(",")[0]}` : ""}` : `${pair.n} no reference still`).slice(0, 34) })));
     const file = await look.save(projectId, "versus", image.png);
     noteLive({ sceneId: null }, pairs.map((pair) => ({ sceneId: pair.sceneId, time: pair.t })));
     // The reference_drift rows that are off, from each scene's latest full check (check measures
@@ -4039,10 +4054,12 @@ export function createAgentService(deps) {
       for (const finding of findings) range.push(`${where}outside your ${measuredRefs} references: ${finding.measured} (theirs: ${String(finding.required).replace(/^inside your \d+ saved references: /, "")}). check lists each fix.`);
     }
     if (measuredRefs >= 2 && !range.length) range.push(`inside your ${measuredRefs} references in brightness, contrast, dark share, text per 10 s, voice.`);
-    const fair = pairs.filter((pair) => pair.still).length;
+    const same = pairs.filter((pair) => pair.still && pair.same).length, other = pairs.filter((pair) => pair.still && !pair.same).length;
     const lines = [
-      `versus rev ${record.revision}: ${pairs.length} rows, yours (left) beside a saved reference (right) of the same kind of shot: ${fair} matched${fair < pairs.length ? `, ${pairs.length - fair} with no fair match` : ""}. Compare craft (hero size, type, motion, holds, contrast), not content or footage colors.`,
-      ...pairs.map((pair) => `row ${pair.n} ${pair.shot ? `shot ${pair.shot} ` : ""}@${pair.at}s: ${why(pair)}${pair.still ? ` (${name(pair.ref)} @${pair.refAt}s)` : ""}${pair.gaps?.length ? `; ${pair.gaps.join("; ")}` : ""}${pair.far ? `; ${pair.far}` : ""}.`),
+      `versus rev ${record.revision}: ${pairs.length} rows, yours (left) beside a saved reference (right) at the same place (${peak === null ? "opening, ending" : "opening, loudest change, ending"}, the rest by position): ${same} of the same kind of shot${other ? `, ${other} of another kind` : ""}${pairs.length - same - other ? `, ${pairs.length - same - other} with no reference still` : ""}. Compare craft (hero size, type, overlays, graphics, motion, holds, contrast), not content or footage colors.`,
+      ...pairs.flatMap((pair) => [`row ${pair.n} ${pair.shot ? `shot ${pair.shot} ` : ""}@${pair.at}s: ${why(pair)}${pair.still ? ` (${name(pair.ref)} @${pair.refAt}s)` : ""}${pair.gaps?.length ? `; ${pair.gaps.join("; ")}` : ""}${pair.far ? `; ${pair.far}` : ""}${pair.full ? `; ${pair.full}` : ""}.`,
+        ...(pair.seen ? [`  theirs on screen @${pair.refAt}s: ${pair.seen}`] : [])]),
+      ...(notShown.length ? [`not shown (rows full, pin fewer shots to compare each): ${notShown.join(", ")}.`] : []),
       ...(pinned.missing.length ? [`not pinned, no saved reference by that key: ${pinned.missing.join(", ")} (library inspire name:"save yt:<id> as <key>").`] : []),
       ...(pinned.waiting.length ? [`not pinned yet, that reference is saved but not measured yet: ${pinned.waiting.join(", ")} (look {mode:"versus"} again in a minute).`] : []),
       ...(drift.length ? drift : ["reference_drift: near the references in the craft measured."]),
@@ -4051,8 +4068,8 @@ export function createAgentService(deps) {
       `image ${file}`,
     ];
     return done(projectId, { text: lines.join("\n"), images: [{ path: file, mime: "image/png", data: input.inline === false ? undefined : image.png.toString("base64") }],
-      data: { rev: record.revision, mode: "versus", path: file, rows: pairs.map((pair) => ({ n: pair.n, at: pair.at, ref: pair.ref, refAt: pair.refAt, match: pair.pinned ? "pinned" : pair.nofair ? "none" : "kind",
-        ...(pair.kind ? { kind: pair.kind } : {}), ...(pair.shot ? { shot: pair.shot } : {}), ...(pair.pinned ? { pinned: pair.pinned } : {}), ...(pair.gaps?.length ? { gaps: pair.gaps } : {}), ...(pair.far ? { far: pair.far } : {}) })) } },
+      data: { rev: record.revision, mode: "versus", path: file, rows: pairs.map((pair) => ({ n: pair.n, at: pair.at, ref: pair.ref, refAt: pair.refAt, match: pair.match, role: pair.role,
+        ...(pair.kind ? { kind: pair.kind } : {}), ...(pair.seen ? { seen: pair.seen } : {}), ...(pair.shot ? { shot: pair.shot } : {}), ...(pair.pinned ? { pinned: pair.pinned } : {}), ...(pair.gaps?.length ? { gaps: pair.gaps } : {}), ...(pair.far ? { far: pair.far } : {}) })) } },
     { change(draft) { draft.versus = { rev: record.revision }; } });
   }
 
