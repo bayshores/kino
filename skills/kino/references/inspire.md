@@ -22,9 +22,8 @@ frame strips · Proposing ideas · Sound effects
   are read 4 times a second and can mistake interface labels for captions.
 - One video is measured at a time; numbers arrive as each is read.
 - Searches and saved references belong to the project; the numbers are shared.
-- yt-dlp missing: the search says how to install it (`KINO_YTDLP`). Downloads need a
-  JavaScript runtime (deno, node or bun; `KINO_YTDLP_JS` names one); with none, the answer says
-  so. On YouTube's "not a bot" sign-in, kino stops downloading for 15 minutes, never signs in.
+- yt-dlp missing: the search says how to install it (`KINO_YTDLP`). Downloads need deno, node
+  or bun (`KINO_YTDLP_JS`). On YouTube's "not a bot" sign-in, kino pauses 15 minutes.
 
 ## Before the plan
 
@@ -37,18 +36,19 @@ frame strips · Proposing ideas · Sound effects
   more with none saved is refused (`reference_needed`), as is one whose references were all
   saved after its first build. `waive_check {code:"reference", target:"*", reason}` skips all.
 - Saving the brief's `about` line searches its quote, and the quote with up to 6 words beside it
-  in their message (to a sentence end or a video word), and keeps what the subject is known for
-  in `state.origin` (a word in 40% of 6+ titles; the 3 most viewed), or `skipped`. With a word and
-  none of their own footage, `next:` leads to a footage search for `<about quote> <word>`, then
-  a scan with `want:"<word>"`; it keeps an edit upload with the word (`doubt: edit upload`).
-- Results come best first: views, verified channel, 2 a channel, then how their frames look
-  (SigLIP on the thumbnail, then a keyframe a shot) against the search words and
-  the project's taste (saved = liked, unsaved = rejected; varied until 2 are saved). Near-identical
-  copies collapse into the most viewed (`N copies hidden`). `doubt:` marks likely slop (AI, SEO,
-  tutorial, template or stock words in the title or description, hashtag spam, few views, under
-  6 s); `same frames` means the shots barely change (AI loop or a still: look first). Vet each
-  before saving (who made it, views, frames); reject AI imagery or voice, template or stock
-  edits, and reuploads.
+  in their message, and keeps what the subject is known for in `state.origin` (a word in 40% of
+  6+ titles; the 3 most viewed). With a word and none of their footage, `next:` leads to a
+  footage search for `<about quote> <word>`, then a scan with `want:"<word>"`.
+- Best first: views, verified channel, 2 a channel, then frames (SigLIP) against the words and
+  taste (saved = liked, unsaved = rejected). Copies collapse (`N copies hidden`). `doubt:` is
+  slop from the title (AI, SEO, tutorial, template, stock, hashtags, few views, under 6 s) or
+  kino's measure (a patch in place 60%+, almost no cuts, text on plain, 10 min+); `same
+  frames`: an AI loop or a still. `fit:` holds it to the brief (`3:08 for a 20 s edit: name the
+  stretch you take`; 9:16 once measured). Reject AI imagery or voice, templates, stock, reuploads.
+- Compare first: one search (same words again = one) and under 3 results read (a study or
+  look): `step:` and a save lead to a second search with new results. A save needs
+  `take:"<structure, pacing, type, transitions or sound: what>"`, plus `1:02 to 1:20` for a
+  reference 3x the video; status, the study, look show it back.
 
 ## Borrowing a rhythm from YouTube
 

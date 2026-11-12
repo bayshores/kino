@@ -126,7 +126,7 @@ test("a bad move.ref says what the project accepts now: its saved keys, the fixe
   assert.equal(other(undefined), 'Saved now: phone-film, yt:uXlWYZ022zU. Send ref "<one of them>@<seconds>".');
   assert.equal(other(7), "", "the list is said once");
   // Nothing saved: the exact call that saves one. Unknown (no inspire): nothing added.
-  assert.match(referenceHelp([])("launch@3"), /^No reference is saved in this project: save one with library \{topic:"inspire", name:"save yt:<id> as <key>"\}/);
+  assert.match(referenceHelp([])("launch@3"), /^No reference is saved in this project: save one with library \{topic:"inspire", name:"save yt:<id> as <key>", take:"<what this edit takes from it>"\}/);
   assert.equal(referenceHelp(null)("launch@3"), "");
 });
 
@@ -197,7 +197,7 @@ test("kino checks the shots against the video, the files and the fonts: overlap,
   const noMoment = { kind: "transition", name: "zoom-through", ref: "phone-film" };
   const refused = await editBoard("board-checks", [motion(0, 2, { move: noMoment }), motion(2, 2.417, { move: noMoment })]);
   assert.equal(refused.data.boardError, "bad_shot", refused.text);
-  assert.match(refused.data.reason, /shot 1 move\.ref is "<reference key>@<seconds>".* No reference is saved in this project: save one with library \{topic:"inspire", name:"save yt:<id> as <key>"\}.* Also: shot 2 move\.ref is "<reference key>@<seconds>", the reference moment it copies \(e\.g\. "app-trailer@3\.2"\)\.$/);
+  assert.match(refused.data.reason, /shot 1 move\.ref is "<reference key>@<seconds>".* No reference is saved in this project: save one with library \{topic:"inspire", name:"save yt:<id> as <key>", take:"<what this edit takes from it>"\}.* Also: shot 2 move\.ref is "<reference key>@<seconds>", the reference moment it copies \(e\.g\. "app-trailer@3\.2"\)\.$/);
   assertRefused(await editBoard("board-checks", [motion(0, 4.417, { crop: [0, 0, 50, 50] })]), "bad_shot", 'shot 1 has no media, so in, crop, subject and follow are "none".');
   assertRefused(await editBoard("board-checks", [motion(undefined, 4.417)]), "bad_shot", "shot 1 has no cue: its start in seconds.");
   assertRefused(await editBoard("board-checks", [motion(0, 4.417, { why: "" })]), "bad_shot", "shot 1 has no why: one line on why this shot.");

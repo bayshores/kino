@@ -15,7 +15,7 @@ import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { aboutWords, applyBrief, aspectLabel, BRIEF_FIELDS, BRIEF_LIMITS, briefChanges, briefData, briefText, isSaid, directionLines, emptyBrief, guessedBans, nextMove, orderStep, orderSteps, namedThings, PLAN_CALL, realEdit, referenceSearches, shapeLine, songTitleOf, REPLY_LIMIT, replyCount, savedText } from "./agent/brief.mjs";
+import { aboutWords, applyBrief, aspectLabel, BRIEF_FIELDS, BRIEF_LIMITS, briefChanges, briefData, briefText, compareSearch, compareStep, isSaid, directionLines, emptyBrief, guessedBans, nextMove, orderStep, orderSteps, namedThings, PLAN_CALL, realEdit, referenceSearches, shapeLine, songTitleOf, REPLY_LIMIT, replyCount, savedText } from "./agent/brief.mjs";
 import { namedShape, shapeGuess } from "../engine/quality/rules/shape.js";
 import { createAgentStateStore } from "./agent/state.mjs";
 import { styleContext } from "../engine/styleSpec.js";
@@ -882,7 +882,7 @@ async function savedReference(project, name, key = null, seconds = null) {
   strip.getContext("2d").fillRect(0, 0, 240, 135);
   await writeFile(path.join(folder, "strips", name, "1.jpg"), strip.toBuffer("image/jpeg"));
   await writeFile(path.join(folder, `${name}.json`), JSON.stringify({ id: `yt:${name}`, title: name, state: "measured", version: 2, seconds: 9, ...(seconds ? { numbers: { seconds } } : {}), strips: [{ at: 1, file: "1.jpg", kinds: ["cut"] }] }));
-  const saved = await agent("library", { project, topic: "inspire", name: `save yt:${name}${key ? ` as ${key}` : ""}` });
+  const saved = await agent("library", { project, topic: "inspire", name: `save yt:${name}${key ? ` as ${key}` : ""}`, take: "pacing: holds before each cut" });
   assert.equal(saved.isError, undefined, saved.text);
   if (key) assert.equal(saved.data.key, key, "save ... as <key> names it for a board move.ref");
 }
@@ -911,6 +911,30 @@ test("the first reference search is filled from what the person named; each want
   assert.equal(find.call.input.search, "The Long Climb Glass Harbor edit");
   assert.equal(find.alt.input.search, "The Long Climb edit");
   assert.equal(orderSteps({ brief: { rev: 1, fields: {} } }, video)[0].call.input.search, "<an edit like yours>");
+  // Compare: one search ran and under 3 of its results were read, so a second search with other
+  // words comes first (here the same without the song); 3 read, or a save, ends it.
+  const ran = { brief, refSearches: [{ query: "The Long Climb Glass Harbor edit", kind: "videos", ids: ["yt:1", "yt:2", "yt:3"] }], read: ["yt:1"] };
+  const [compare, again] = orderSteps(ran, { ...video, songTitle: "Glass Harbor", studied: ["yt:2"] });
+  assert.deepEqual([compare.step, compare.call.input, again.step], ["compare: search again (2 of 3 read)", { topic: "inspire", search: "The Long Climb edit" }, "find 2 references (inspire)"]);
+  assert.deepEqual(compareStep({ ...ran, read: ["yt:1", "yt:3"] }, { ...video, studied: ["yt:2"] }), [], "3 read");
+  assert.deepEqual(compareStep(ran, { ...video, references: 1 }), [], "after the first save");
+  // A second search counts only with other words and a result the first lacked: the same words again, in any case, compare nothing.
+  const again2 = (query, ids) => compareStep({ ...ran, refSearches: [...ran.refSearches, { query, kind: "videos", ids }] }, video);
+  assert.deepEqual(again2("the long  climb Glass Harbor EDIT ", ["yt:1", "yt:2"]).map((one) => one.step), ["compare: search again (1 of 3 read)"], "the same search twice");
+  assert.deepEqual(again2("The Long Climb edit", ["yt:1", "yt:2"]).map((one) => one.step), ["compare: search again (1 of 3 read)"], "other words, nothing new");
+  assert.deepEqual(again2("The Long Climb edit", ["yt:1", "yt:9"]), [], "two searches, a new result");
+  // Fewer than 3 results: all of them read is enough. No brief, under 5 s or a waived check: no compare step at all.
+  assert.deepEqual(compareStep({ ...ran, refSearches: [{ query: "a", kind: "videos", ids: ["yt:1", "yt:2"] }], read: ["yt:1", "yt:2"] }, video), []);
+  assert.equal(compareStep({ ...ran, refSearches: [{ query: "a", kind: "videos", ids: ["yt:1", "yt:2"] }], read: ["yt:1"] }, video)[0].step, "compare: search again (1 of 2 read)");
+  assert.deepEqual([compareStep({ ...ran, brief: undefined }, video), compareStep(ran, { ...video, seconds: 4 }), compareStep(ran, { ...video, referenceWaived: true })], [[], [], []]);
+  // The agent's own subject words fill the slot of the second search.
+  const slotted = { rev: 1, fields: { message: line("a night drive edit") } };
+  assert.deepEqual(compareSearch(slotted, "Glass Harbor", [{ query: "night drive Glass Harbor edit" }]), { topic: "inspire", search: "night drive edit" });
+  // Every search run: the kind of edit the message names, then the same as Shorts for a vertical video.
+  assert.deepEqual(compareSearch(brief, "", [{ query: "The Long Climb edit" }]), { topic: "inspire", search: "<The Long Climb plus other words: the song, the kind of edit, or where its makers post>" });
+  const amv = { ...brief, fields: { ...brief.fields, message: line("A fast amv of the lighthouse stairs") } };
+  assert.deepEqual(compareSearch(amv, "", [{ query: "The Long Climb edit" }]), { topic: "inspire", search: "The Long Climb amv" });
+  assert.deepEqual(compareSearch(amv, "", [{ query: "The Long Climb edit" }, { query: "The Long Climb amv" }], { vertical: true }), { topic: "inspire", search: "The Long Climb edit", kind: "shorts" });
   // Studying: each of the 2 wanted saved references, named in the step; none left when both are studied.
   const saved = { ...video, references: 2, saved: ["yt:a", "yt:b", "yt:c"] };
   assert.deepEqual(orderSteps({ brief }, { ...saved, studied: ["yt:a"] }).map((entry) => [entry.step, entry.call.input.ref]), [["study yt:b (look)", "yt:b"]]);
