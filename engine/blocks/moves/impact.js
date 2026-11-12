@@ -120,7 +120,7 @@ function reasonsNear(kind, facts, time) {
   }
   for (const event of facts?.events ?? []) {
     const motive = fits(cueMotives({ name: "", kind: "event", time: event.at }, { ...facts, cues: [], events: [event] }));
-    if (motive) found.push({ cue: null, time: event.at, motive });
+    if (motive) found.push({ cue: null, time: event.at, motive, event });
   }
   return found.sort((a, b) => Math.abs(a.time - time) - Math.abs(b.time - time));
 }
@@ -138,8 +138,10 @@ function timeMotive(kind, facts, time, raw) {
   if (near && close(near)) {
     const gap = round(Math.abs(near.time - time), 3);
     const way = near.time < time ? "earlier" : "later";
+    // effect_fit reads a footage moment only as a cue pinned to its clip: the receipt gives that call.
+    const pin = !near.cue && near.event?.media !== undefined ? `; effect_fit reads it as a cue: set_cues {cues:[{name:"hit-1", layer:"${near.event.layer}", media:${near.event.media}}]}, then at "cue:hit-1"` : "";
     return { cue: near.cue, at: near.time, motive: { ...near.motive, weight: clamp(near.motive.weight ?? 0.5, 0.2, 1) }, snapped: true,
-      note: `${said} → ${name(near)} at ${round(near.time, 3)} s (${gap ? `${gap} s ${way}` : "the same frame"}, ${SAYS[near.motive.motive]})` };
+      note: `${said} → ${name(near)} at ${round(near.time, 3)} s (${gap ? `${gap} s ${way}` : "the same frame"}, ${SAYS[near.motive.motive]})${pin}` };
   }
   if (kind === "dip" || kind === "strobe") throw refuse(kind, `at ${JSON.stringify(raw ?? time)} is a time, not a reason`, facts, time);
   const far = near ? `the nearest ${kind} reason, ${name(near)} (${SAYS[near.motive.motive]}), is ${round(Math.abs(near.time - time), 3)} s ${near.time < time ? "earlier" : "later"}` : `nothing in this edit measures ${NEEDS[kind].map((motive) => SAYS[motive]).join(" or ")}`;

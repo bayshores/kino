@@ -38,8 +38,8 @@ export function shotBox(crop, source, frame) {
 // The move op a shot's designed move becomes, from the move's own fields: a transition gets the
 // shot before it (from) and this shot (to); a move on one layer gets this shot's layer (its text
 // for a type move). null when the move needs fields kino cannot fill from the board.
-function moveOp(shot, layer, previous, text, cues = []) {
-  if (shot.move?.name === "push" && shot.move.kind === "camera") return pushOp(shot, layer);
+function moveOp(shot, layer, previous, text, cues = [], file = null, frame = null) {
+  if (shot.move?.name === "push" && shot.move.kind === "camera") return pushOp(shot, layer, file, frame);
   if (shot.move?.name === "impact-accent") return accentOp(shot, layer, cues);
   const definition = MOVES[shot.move?.name];
   if (!definition) return null;
@@ -64,14 +64,21 @@ const NEAR_CUE = 0.1;
 // A camera push on a footage shot: the 2D camera (frame op) from the crop to PUSH_KEEP of it over
 // the whole shot, centered on the subject box as far as the crop allows (on the crop's middle
 // without a subject). rect is % of the layer, which is the whole source.
-function pushOp(shot, layer) {
+function pushOp(shot, layer, file, frame) {
   if (shot.media === NONE || !layer) return null;
-  const [x, y, w, h] = Array.isArray(shot.crop) ? shot.crop : [0, 0, 100, 100];
+  const cropped = Array.isArray(shot.crop);
+  const [x, y, w, h] = cropped ? shot.crop : [0, 0, 100, 100];
   // The saved board keeps the subject as boxes (one per moment); the push aims at the first.
   const box = [shot.subject?.boxes?.[0], shot.subject?.box].find(Array.isArray) ?? null;
   const [cx, cy] = box ? [box[0] + box[2] / 2, box[1] + box[3] / 2] : [x + w / 2, y + h / 2];
-  const width = w * PUSH_KEEP, height = h * PUSH_KEEP;
-  const left = clamp(cx - width / 2, x, x + w - width), top = clamp(cy - height / 2, y, y + h - height);
+  const height = h * PUSH_KEEP;
+  // A crop has the frame's shape within 2%; the end rect takes the frame's exact shape, so the
+  // frame op's fit leaves no sliver past the file's edge when the rect meets it.
+  const ratio = file?.width > 0 && file?.height > 0 && frame?.width > 0 && frame?.height > 0 ? (frame.width / frame.height) / (file.width / file.height) : null;
+  const width = cropped && ratio ? Math.min(100, height * ratio) : w * PUSH_KEEP;
+  // Inside the crop when it fits there, else inside the file.
+  const [low, high] = width <= w ? [x, x + w - width] : [0, 100 - width];
+  const left = clamp(cx - width / 2, low, high), top = clamp(cy - height / 2, y, y + h - height);
   const rect = [left, top, width, height].map((value) => Math.round(value * 100) / 100);
   const op = { op: "frame", layer, rect, at: r3(shot.cue), dur: r3(shot.dur) };
   SAID.set(op, `frame rect [${rect.join(", ")}] over ${r3(shot.dur)} s, toward ${box ? "the subject box" : "the crop's middle"}`);
@@ -123,8 +130,9 @@ export function boardBuildOps(board, frame, fileOf, cues = []) {
     const end = r3(shot.cue + shot.dur);
     const shown = [show(shot.cue), ...(end < frame.duration - ONE_FRAME ? [hide(end)] : [])];
     let layer = null;
+    let file = null;
     if (shot.media !== NONE) {
-      const file = fileOf(shot.media);
+      file = fileOf(shot.media);
       if (!file) { missing.push(n); return; }
       const box = shotBox(shot.crop === WHOLE ? WHOLE : shot.crop, file, frame);
       const speed = shot.speed ?? 1;
@@ -144,7 +152,7 @@ export function boardBuildOps(board, frame, fileOf, cues = []) {
       if (!layer) cards += 1;
     }
     const own = layer ?? text;
-    const move = shot.move && !shot.move.none ? moveOp(shot, own, previous, text, cues) : null;
+    const move = shot.move && !shot.move.none ? moveOp(shot, own, previous, text, cues, file, frame) : null;
     if (shot.move?.name && !shot.move.none) moves.push({ n, name: shot.move.name, op: move, ...(move && SAID.has(move) ? { said: SAID.get(move) } : {}) });
     previous = own;
   });

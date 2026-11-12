@@ -21,6 +21,7 @@ import { SHOT_LAYERS } from "../engine/board.js";
 import { BEAT_ANALYSIS_VERSION } from "../engine/beatDetection.js";
 import { SONG_SHAPE_VERSION } from "./song-shape.mjs";
 import { referenceHelp } from "./agent/blocks.mjs";
+import { boardBuildOps } from "./agent/board-build.mjs";
 import { estimateTextTokens } from "./meter.mjs";
 import { ffmpeg, run, skipWithoutMediaTools, startTestServer, withoutNext } from "./media.test.support.mjs";
 
@@ -599,9 +600,21 @@ test("a board move named slow-push is a push; compose places a camera push towar
   const layers = (await record(id)).document.scenes[0].layers;
   const shot = layers.find((layer) => layer.name === "board-S1");
   assert.ok(layers.find((layer) => layer.id === shot.parentId)?.animations.some((animation) => animation.start === 0 && animation.duration === 2), "the camera group pushes over the whole shot");
+  // Built again: one camera group, one accent, the same layer count.
+  const again = await agent("edit", { project: id, ops: [{ op: "compose", from: "board" }] });
+  assert.equal(again.isError, undefined, again.text);
+  const rebuilt = (await record(id)).document.scenes[0];
+  assert.deepEqual([rebuilt.layers.length, rebuilt.layers.filter((layer) => / camera$/.test(layer.name ?? "")).length, (rebuilt.moves ?? []).filter((move) => move.name === "impact-accent").length], [layers.length, 1, 1]);
+  // 9:16 from a 16:9 file, a crop 2% narrower than the frame at the file's left edge: the end
+  // rect takes the frame's exact shape and stays on the file (no sliver past its edge).
+  const tall = boardBuildOps({ music: "none", shots: [{ cue: 0, dur: 2, media: "/m.mp4", in: 0, crop: [0, 0, 31, 100], text: "none",
+    subject: { what: "a face", box: [0, 40, 10, 20] }, move: { kind: "camera", name: "push" } }] }, { width: 1080, height: 1920, duration: 2 }, () => ({ width: 1920, height: 1080, duration: 5, kind: "video" }));
+  const [left, top, width, height] = tall.moves[0].op.rect;
+  assert.deepEqual([left, top, height], [0, 5, 90]);
+  assert.ok(Math.abs((width * 1920) / (height * 1080) - 1080 / 1920) < 0.001, `the end rect has the frame's shape (${width} x ${height})`);
 });
 
-test("the person's settings can allow the board: kino keeps that board as the approved one",{ skip, timeout: 60_000 }, async () => {
+test("the person's settings can allow the board: kino keeps that board as the approved one", { skip, timeout: 60_000 }, async () => {
   const id = "board-allowed";
   await stopProject(id);
   assert.equal((await editBoard(id, STOP_SHOTS())).isError, undefined);
