@@ -4,6 +4,8 @@ import assert from "node:assert/strict";
 import { createDocument, createLayer, createScene, parseDocument } from "./model.js";
 import { applyOperations } from "./operations.js";
 import { volumeAt } from "./animation.js";
+import { voiceLines } from "./mixLevels.js";
+import { mediaPlaybackRange } from "./playback.js";
 import { defaultFonts } from "./fonts.js";
 import { captionWordsFromSpeech, clipLines, clipLinesText, clipSoundText, readClipSound, cutSpeechIndices, fileWords, shiftScene, speechFlags, speechPieces, speechText, speechWords } from "./speech.js";
 
@@ -381,6 +383,47 @@ test("keep_line with from, to and text works with no transcript and takes duck n
   assert.equal(bare.layers.some((layer) => layer.role === "caption"), false);
   assert.equal(volumeAt(bare.layers.find((layer) => layer.id === "music"), 5), 1);
   assert.throws(() => applyOperations(document, [{ type: "keep_line", sceneId: "s", layerId: "clip", line: "x", transcript: { words: [] } }]), /no words heard/);
+});
+
+test("keep_line over measured music levels the line against the music around it, holds the mix, releases on a beat, and dropout hits back on the downbeat", () => {
+  // A quiet clip (-24 LUFS, run 8's laugh) under a steady song at -13 LUFS; beats every 0.5 s.
+  const flat = (lufs, seconds) => ({ step: 0.1, momentary: new Array(seconds * 10).fill(lufs) });
+  const levels = { clip: flat(-24, 12), music: flat(-13, 30) };
+  const beats = { music: { beats: Array.from({ length: 60 }, (_, index) => index * 0.5), duration: 30 } };
+  const clip = createLayer("audio", { id: "clip", name: "clip.wav", src: "/api/media/clip.wav", mediaSourceDuration: 12 });
+  const document = documentWith([clip, musicLayer()], 12);
+  const run = (extra) => {
+    const reports = new Map();
+    const operation = { type: "keep_line", sceneId: "s", layerId: "clip", from: 4, to: 6, subtitle: false, levels, beats, ...extra };
+    const scene = parseDocument(applyOperations(document, [operation], { reports })).scenes[0];
+    return { report: reports.get(operation), clip: scene.layers.find((layer) => layer.id === "clip"), music: scene.layers.find((layer) => layer.id === "music") };
+  };
+  // Default: the line 6 LU over the dipped bed (voice_under_bed's 6), the two summing to the music around (-13).
+  const plain = run({});
+  assert.equal(plain.clip.voiceLevel, -14, "the export levels the line to the music around minus 1 LU, not to -16");
+  assert.equal(Math.round(volumeAt(plain.music, 5) * 1000) / 1000, 0.447, "the dip puts the bed 6 LU under the line (-7 dB)");
+  assert.deepEqual(plain.report.mix, { line: -14, around: -13, under: -13, change: 0 });
+  assert.match(plain.report.summary, /mix under the line -13 vs -13 LUFS in the 2 s around \(\+0 LU\)/);
+  assert.ok(plain.report.notes.some((note) => /comes back up on the beat at 6\.5 s/.test(note)), "the release ends on the next beat");
+  assert.equal(volumeAt(plain.music, 6.5), 1);
+  // The check hears the line where the export puts it: 6 LU over the dipped bed, no voice_under_bed.
+  const words = [{ text: "a", start: 4.1, end: 4.9 }, { text: "b", start: 5, end: 5.9 }];
+  assert.equal(Math.round(voiceLines(levels.clip, plain.clip, mediaPlaybackRange(plain.clip, 12), words)[0].lufs), -14);
+  // A given dip is kept; the receipt prints what it does to the mix (a fact, no refusal).
+  assert.deepEqual(run({ dip: 0.35 }).report.mix, { line: -14, around: -13, under: -13.4, change: -0.4 });
+  // A quiet bed (a talk over music at -30): the line stays the -16 talking-head line, the mix rises.
+  const quiet = run({ levels: { clip: flat(-24, 12), music: flat(-30, 30) } });
+  assert.equal(quiet.clip.voiceLevel, -16);
+  assert.ok(quiet.report.mix.change > 10, "the receipt says the mix rises under the line");
+  // dropout: the music is out under the line and comes back on the next bar line (8 s), not before.
+  const out = run({ dropout: true });
+  assert.deepEqual([volumeAt(out.music, 5), volumeAt(out.music, 7.5), volumeAt(out.music, 8.1)], [0, 0, 1]);
+  assert.equal(out.clip.voiceLevel, -13, "alone, the line holds the music's level");
+  assert.throws(() => run({ dropout: true, dip: 0.5 }), /dip or dropout/);
+  // Unmeasured: the old 0.7 dip and no line level.
+  const old = run({ levels: {}, beats: {} });
+  assert.equal(volumeAt(old.music, 5), 0.7);
+  assert.equal(old.clip.voiceLevel, undefined);
 });
 
 test("clipLines keeps the lines a clip says, shortest first, and drops sound tags, unsure guesses and one-word noises", () => {

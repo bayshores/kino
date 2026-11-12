@@ -47,10 +47,46 @@ export function curveValues(curve, spans) {
 /** The loudness (LUFS) of a file over `spans` (file seconds), or null. */
 export const loudnessOver = (curve, spans) => energyMean(curveValues(curve, spans));
 
-/** The gain (dB) that brings a line measured at `lufs` to VOICE_TARGET_LUFS, or null. */
-export function levelGain(lufs) {
+/** The gain (dB) that brings a line measured at `lufs` to `target` (VOICE_TARGET_LUFS by default), or null. */
+export function levelGain(lufs, target = VOICE_TARGET_LUFS) {
   if (!Number.isFinite(lufs)) return null;
-  return round1(Math.max(-MAX_LEVEL_DB, Math.min(MAX_LEVEL_DB, VOICE_TARGET_LUFS - lufs)));
+  return round1(Math.max(-MAX_LEVEL_DB, Math.min(MAX_LEVEL_DB, target - lufs)));
+}
+
+// A kept clip line over music (keep_line). Leveled to the fixed VOICE_TARGET_LUFS under a song
+// dipped 9 dB, run 8's only kept line left the mix 2 to 5 LU under the 2 s around it, a hole where
+// the line should land (.scratch/run8/trace/audio.md L31-32). Human edits hold the total under a
+// line (one measured -10.9 LUFS with and without speech, audio.md L84) or let the music drop out.
+// So over music the line sits LINE_OVER_BED LU over the dipped music under it, and the two together
+// sum to the music heard in the 2 s around the line. The design asked for 3 LU; kino's own
+// voice_under_bed check warns under VOICE_OVER_BED (6) LU, so a 3 LU default handed the agent a
+// warning (and a critic its "dip deeper" note). The same 6 here keeps keep_line and the check in
+// agreement; the total still holds (renders in .scratch/run8/wave/line-over-music-review).
+export const LINE_OVER_BED = VOICE_OVER_BED;
+// A dip goes no deeper than this (dB): music under -20 dB sounds switched off (audioDucking DIP_FLOOR).
+const LINE_DIP_FLOOR_DB = -20;
+const powerSum = (...values) => 10 * Math.log10(values.filter(Number.isFinite).reduce((sum, value) => sum + 10 ** (value / 10), 0));
+
+/**
+ * The level of a kept line over music, all in LUFS as heard: `line` the line before leveling (its
+ * volume applied), `around` the music in the 2 s around it, `under` the music under it before the
+ * dip. Returns {target, gain, heard, dipDb, total} (dipDb: the music's change under the line, 0 or
+ * less; -Infinity with dropout), or null when a level is unknown. `dropDb` sets the dip instead
+ * (a given dip), `dropout` takes the music out: the line alone then holds the music's level (a guess).
+ * The line is never leveled under VOICE_TARGET_LUFS: over a quiet bed (a talk over music at 0.2)
+ * it stays the -16 talking-head line it was, and the mix rises under it (the receipt says by how much).
+ */
+export function lineOverMusic({ line, around, under }, { dropDb, dropout = false } = {}) {
+  if (![line, around, under].every(Number.isFinite)) return null;
+  // The line that, with a bed LINE_OVER_BED under it, sums to `around`; at least the talking-head target.
+  const target = Math.max(VOICE_TARGET_LUFS, dropout ? around : around - 10 * Math.log10(1 + 10 ** (-LINE_OVER_BED / 10)));
+  const gain = round1(Math.max(-MAX_LEVEL_DB, Math.min(MAX_LEVEL_DB, target - line)));
+  const heard = line + gain;
+  const dipDb = dropout ? -Infinity
+    : Number.isFinite(dropDb) ? Math.min(0, dropDb)
+    : Math.max(LINE_DIP_FLOOR_DB, Math.min(0, heard - LINE_OVER_BED - under));
+  const total = powerSum(heard, under + dipDb);
+  return { target: round1(target), gain, heard: round1(heard), dipDb: Number.isFinite(dipDb) ? round1(dipDb) : dipDb, total: round1(total) };
 }
 
 // A clip whose spoken lines need leveling gains more than this apart is leveled line by line.
@@ -62,8 +98,8 @@ export const LINE_SPREAD_DB = 6;
  * LINE_SPREAD_DB apart (TTS lines made at different levels), one gain per line. Returns null, or
  * {gain, lines?: [{from, to, gain}]} whose lines cover the file, changing gain mid-pause.
  */
-export function voiceLeveling(curve, spans) {
-  const gain = levelGain(loudnessOver(curve, spans));
+export function voiceLeveling(curve, spans, target = VOICE_TARGET_LUFS) {
+  const gain = levelGain(loudnessOver(curve, spans), target);
   if (gain === null) return null;
   const groups = [];
   for (const span of [...spans].sort((a, b) => a.start - b.start)) {
@@ -71,7 +107,7 @@ export function voiceLeveling(curve, spans) {
     if (group && span.start - group.at(-1).end <= LINE_PAUSE) group.push(span);
     else groups.push([span]);
   }
-  const lines = groups.map((group) => ({ start: group[0].start, end: group.at(-1).end, gain: levelGain(loudnessOver(curve, group)) ?? gain }));
+  const lines = groups.map((group) => ({ start: group[0].start, end: group.at(-1).end, gain: levelGain(loudnessOver(curve, group), target) ?? gain }));
   const gains = lines.map((line) => line.gain);
   if (lines.length < 2 || Math.max(...gains) - Math.min(...gains) <= LINE_SPREAD_DB) return { gain };
   const middle = (index) => Math.round((lines[index].end + lines[index + 1].start) * 500) / 1000;
@@ -153,7 +189,8 @@ export const LINE_PAUSE = 0.6;
  * (heard: each word's {text, start, end (scene s), lufs}); lines under 0.4 s are left out.
  */
 export function voiceLines(curve, layer, range, words, breaks = () => false) {
-  const leveling = voiceLeveling(curve, words.map((word) => ({ start: word.start, end: word.end })));
+  // A line keep_line leveled over music (layer.voiceLevel) is heard at that level, as the export does.
+  const leveling = voiceLeveling(curve, words.map((word) => ({ start: word.start, end: word.end })), layer?.voiceLevel ?? VOICE_TARGET_LUFS);
   const at = (time) => range.start + (time - range.offset);
   const lines = [];
   let run = [];

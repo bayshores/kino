@@ -1440,6 +1440,14 @@ function normalizeLayer(raw, path, animationIds, counters) {
       fail(`${path}.voiceCleanup`, `needs a video or audio layer; a ${layer.type} layer has no sound`);
     requireBoolean(layer.voiceCleanup, `${path}.voiceCleanup`);
   }
+  // The LUFS the export levels this layer's kept lines to (keep_line over music sets it; mixLevels.js
+  // lineOverMusic): optional, without it a spoken clip is leveled to -16. null removes it.
+  if (layer.voiceLevel === null) delete layer.voiceLevel;
+  if (layer.voiceLevel !== undefined) {
+    if (layer.type !== "video" && layer.type !== "audio")
+      fail(`${path}.voiceLevel`, `needs a video or audio layer; a ${layer.type} layer has no sound`);
+    layer.voiceLevel = requireNumber(layer.voiceLevel, `${path}.voiceLevel`, -60, 0);
+  }
   // Low-pass cutoff in Hz (lowpass.js): optional, 0 is off, null removes it.
   if (layer.lowpass === null) delete layer.lowpass;
   if (layer.lowpass !== undefined) {
