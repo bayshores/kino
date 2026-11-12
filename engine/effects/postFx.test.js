@@ -134,6 +134,16 @@ test("duotone and tritone map real luminance endpoints while keeping source alph
   assertColorNear(pixelAt(tri, WIDTH, 10, 10), [26, 16, 51]);
   assertColorNear(pixelAt(tri, WIDTH, 32, 10), [233, 79, 100]);
   assertColorNear(pixelAt(tri, WIDTH, 54, 10), [255, 233, 176]);
+  // Splits 0.02 apart (a hit's recolor measured on a dark screenshot) land where they are set:
+  // luma 12, 17 and 255 of 255 come out shadow, midtone and highlight, not blended across a table step.
+  const dark = '<rect x="0" y="0" width="21" height="48" fill="#0C0C0C"/><rect x="21" y="0" width="22" height="48" fill="#111111"/><rect x="43" y="0" width="21" height="48" fill="#FFFFFF"/>';
+  const narrow = pixels(renderTritone, {
+    threshold1: 0.055, threshold2: 0.075, softness: 0.004, contrast: 1,
+    shadowColor: "#1A1033", midtoneColor: "#E94F64", highlightColor: "#FFE9B0",
+  }, { source: dark });
+  assertColorNear(pixelAt(narrow, WIDTH, 10, 10), [26, 16, 51], 3, "shadow");
+  assertColorNear(pixelAt(narrow, WIDTH, 32, 10), [233, 79, 100], 3, "midtone");
+  assertColorNear(pixelAt(narrow, WIDTH, 54, 10), [255, 233, 176], 3, "highlight");
   const antialiased = pixels((frame) => frame.content, {}, { source: transparentCircle });
   const gradedAntialiased = pixels(renderDuotone, { shadowColor: "#1400FF", highlightColor: "#FFE4E4" }, { source: transparentCircle });
   assertAlphaEqual(antialiased, gradedAntialiased);
