@@ -545,6 +545,8 @@ export function voiceLevelSpread(model, ctx) {
 const PHRASE_BEATS = 16;
 // The song's own ending: its file ends within this many seconds of the out point.
 const OWN_ENDING = 1;
+// A ring from the song's last hit (fitMusic.js songEnding) is at most this long.
+const RING_REACH = 1.5;
 
 /** end_on_fade: the video ends with a fade while the song is still mid-phrase. */
 export function endOnFade(model, ctx) {
@@ -569,6 +571,10 @@ export function endOnFade(model, ctx) {
     if (levelBetween(sound, out - 0.5, out) < medianLevel(sound) - STILL_GOING) continue;
     // On a section cue, or on a phrase line of the rhythm: a fade there closes the phrase.
     if (sectionCues(ctx.cues).some((cue) => Math.abs(cue.time - end) <= 0.25)) continue;
+    // fit_music's ending: a phrase end it moved the end to (song-end), or the song's last hit
+    // ringing out to the end (song-ring, the volume still full on the hit).
+    if ((ctx.cues ?? []).some((cue) => (/^song-end-\d+$/.test(cue.name) && Math.abs(cue.time - end) <= FRAME)
+      || (/^song-ring-\d+$/.test(cue.name) && cue.time < end && end - cue.time <= RING_REACH && volumeAt(layer, cue.time) >= earlier * 0.9))) continue;
     const bpm = model.rhythm?.bpm;
     if (bpm > 0) {
       const beat = 60 / bpm;

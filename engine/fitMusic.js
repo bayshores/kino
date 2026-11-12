@@ -404,8 +404,49 @@ export function stretchDrop({ sections = [], seconds, whole = true, bar, beat = 
   return { drop: [...drops].sort((a, b) => cost(a) - cost(b) || a.at - b.at)[0], parts, runUp, changeNear };
 }
 
+// The ending a stretch that does not reach the song's own ending gets when the caller gave no end
+// (songEnding). A phrase end this far or less before the scene end is taken (the end moves there);
+// else the song's last hit before the end rings out: it plays at full volume for RING_HOLD (the
+// attack), then decays (quart-out) over the RING_MIN to RING_MAX seconds left to the end, never a
+// 1 to 2 bar fade through a phrase (dm2 runs a and b: both songs faded or stopped mid-phrase at 14 s).
+const TAKE = 0.25;
+const RING_MIN = 0.3;
+const RING_MAX = 1.2;
+const RING_HOLD = 0.04;
+export const RING_EASE = "quart-out";
+
+/**
+ * Where a stretch that fades can end, following the song: {end, taken?, ring?: {at, kind, tail},
+ * offer: {at, kind, frames}}. Bar lines sit every `bar` from the payoff (the drop is on one), phrase
+ * ends every 4 bars from it. `floor`: the latest time something else starts in the scene (the end
+ * never moves to or before it). `frames` is signed: the scene end's move to the offered place.
+ */
+export function songEnding({ payoff, bar, beat = bar / 4, end, start = 0, songEnd = Infinity, floor = 0, fps = 30 }) {
+  const frames = (seconds) => Math.round(seconds * fps);
+  const phrase = GROUP * bar;
+  const near = Math.round((end - payoff) / phrase);
+  const phrases = [near - 1, near, near + 1].filter((n) => n >= 1).map((n) => round(Math.round((payoff + n * phrase) * fps) / fps)).filter((time) => time <= songEnd + EPS);
+  const nearest = phrases.sort((a, b) => Math.abs(a - end) - Math.abs(b - end))[0];
+  const offer = nearest == null ? null : { at: nearest, kind: "phrase end", frames: frames(nearest - end) };
+  const close = offer && nearest <= end + EPS && end - nearest <= TAKE + EPS && nearest - payoff >= bar - EPS;
+  if (close && nearest > floor + EPS) return { end: nearest, taken: true, offer };
+  // Near enough to take, but something else starts after it: the receipt says what.
+  if (close) offer.blocked = true;
+  // The latest hit with RING_MIN to `max` seconds left to the end: a bar line, else a beat.
+  const latest = (step, max) => {
+    const time = payoff + Math.floor((end - RING_MIN - payoff) / step + EPS) * step;
+    return end - time <= max + EPS && time > start + EPS ? time : null;
+  };
+  const onBarLine = latest(bar, RING_MAX);
+  const hit = onBarLine ?? latest(beat, Math.max(RING_MAX, RING_MIN + beat));
+  if (hit == null) return { end, offer };
+  const inPhrase = (hit - payoff) / phrase;
+  const kind = onBarLine == null ? "beat" : Math.abs(inPhrase - Math.round(inPhrase)) < EPS ? "phrase line" : "bar line";
+  return { end, ring: { at: round(hit), kind, tail: round(end - hit) }, offer };
+}
+
 /** One unbroken stretch of the song, its drop on the payoff. */
-function planStretch({ sections = [], seams = [], seconds, whole = true, bar, beat = bar / 4, downbeat = 0, payoff, turn = null, end, roomy: given }) {
+function planStretch({ sections = [], seams = [], seconds, whole = true, bar, beat = bar / 4, downbeat = 0, payoff, turn = null, end, roomy: given, free = false, floor = 0, fps = 30 }) {
   const { drop, parts, runUp, changeNear } = stretchDrop({ sections, seconds, whole, bar, beat, downbeat, payoff, turn, end });
   if (!drop) fail("the song has no drop (no point where the kick and bass come in strong); pick a song with one, or place it with update_layer.");
   const notes = [];
@@ -414,6 +455,10 @@ function planStretch({ sections = [], seams = [], seconds, whole = true, bar, be
   const start = Math.max(0, offset);
   const from = start - offset;
   const songEnd = seconds + offset;
+  // No end given: the end follows the song (a phrase end taken, else its last hit rings out).
+  const close = free && !(whole && songEnd <= end + CUT_SLACK) && end - payoff >= 1 ? songEnding({ payoff, bar, beat, end, start, songEnd, floor, fps }) : null;
+  if (close) close.songAt = (time) => round(time - offset);
+  if (close?.taken) end = close.end;
   const own = whole && songEnd <= end + CUT_SLACK; // the song's own ending is inside the video
   const stop = Math.min(end, songEnd);
   if (start > CUT_SLACK) notes.push(`the song starts at ${round(start)} s (its drop is ${round(drop.at)} s in): a later payoff, or a song with a later drop, fills the opening`);
@@ -426,8 +471,9 @@ function planStretch({ sections = [], seams = [], seconds, whole = true, bar, be
   // The closing fade: 1 to 2 bars, but it never starts inside the drop's first group of 4 bars
   // while a one-bar fade fits after that group (run 8: a 2-bar fade would have cut the drop's
   // full-volume time to 2 bars).
-  const fadeOut = own ? 0 : round(Math.min(FADE_OUT_MAX, 2 * bar, Math.max(bar, (stop - payoff) / 2), Math.max(bar, stop - payoff - GROUP * bar), stop - start));
-  const pieces = [{ from: round(from), to: round(stop - offset), at: round(start), fadeIn, fadeOut }];
+  const ring = !own && close?.ring && close.ring.at < stop ? close.ring : null;
+  const fadeOut = own ? 0 : ring ? round(stop - ring.at - RING_HOLD) : round(Math.min(FADE_OUT_MAX, 2 * bar, Math.max(bar, (stop - payoff) / 2), Math.max(bar, stop - payoff - GROUP * bar), stop - start));
+  const pieces = [{ from: round(from), to: round(stop - offset), at: round(start), fadeIn, fadeOut, ...(ring ? { fadeEase: RING_EASE } : {}) }];
   if (own && songEnd < end - bar - EPS) notes.push(`the song ends at ${round(songEnd)} s, ${round(end - songEnd)} s before the end`);
   // A payoff the agent gave (or a spine's) that leaves the drop under one 4-bar group before the
   // fade: said with the payoff that gives it the group (run 8's spine payoff 11.3 of 15 s left it
@@ -438,8 +484,8 @@ function planStretch({ sections = [], seams = [], seconds, whole = true, bar, be
   const plan = given ?? payoffPlan(end, bar);
   const roomy = plan.groups >= 1 ? plan.payoff : plan.oneGroup;
   const gives = plan.groups > 1 ? `${plan.groups} groups of 4 bars and ${round(plan.fade)} s` : "4 bars and a bar";
-  if (!own && roomy != null && heard < GROUP * bar - beat && roomy < payoff - beat) notes.push(`the drop plays ${round(heard)} s before the fade, under 4 bars: payoff ${roomy} s gives it ${gives} to fade`);
-  if (!own) {
+  if (!own && roomy != null && heard < GROUP * bar - beat && roomy < payoff - beat) notes.push(`the drop plays ${round(heard)} s before the ${ring ? "ring" : "fade"}, under 4 bars: payoff ${roomy} s gives it ${gives} to fade`);
+  if (!own && !close) {
     // A fade closes a phrase when it ends on a phrase line (every 4 bars from the drop).
     const phrase = 4 * bar;
     const line = payoff + Math.round((end - payoff) / phrase) * phrase;
@@ -449,9 +495,10 @@ function planStretch({ sections = [], seams = [], seconds, whole = true, bar, be
   if (turn != null && turnLands == null) notes.push("no song change before the payoff for the turn");
   else if (turn != null && Math.abs(turnLands - turn) > 0.01) notes.push(`the song changes at ${round(turnLands)} s (${round(turnLands - turn) > 0 ? "+" : ""}${round(turnLands - turn)} s from the turn): move the turn there for a hit`);
   const placed = placeSections({ parts, seams, pieces, lands: { payoff, turn: null } });
-  placed.push(own ? { at: round(songEnd), kind: "ending" } : { at: round(stop - fadeOut), kind: "fade" });
+  placed.push(own ? { at: round(songEnd), kind: "ending" } : ring ? { at: ring.at, kind: "ring" } : { at: round(stop - fadeOut), kind: "fade" });
+  if (close?.taken && !own) placed.push({ at: round(end), kind: "end" });
   if (!own && whole === false) notes.push("the measured song stops before its end: it fades out");
-  return { pieces, sections: placed.sort((a, b) => a.at - b.at), ending: own ? round(songEnd) : null, notes };
+  return { pieces, sections: placed.sort((a, b) => a.at - b.at), ending: own ? round(songEnd) : null, notes, ...(close ? { close: { ...close, ring, end: round(end) } } : {}) };
 }
 
 // The bars of a song that has no measured ones: a constant grid (downbeat + n * bar), no hits, no
@@ -776,10 +823,48 @@ function payoffLine(payoff, picked, bar, beat, plan) {
   const heard = round(last.at + (last.to - last.from) - fade - payoff);
   const group = GROUP * bar;
   const groups = Math.floor((heard + beat / 2) / group); // half a beat of slack: tracked beats sit a few ms off the grid
-  const then = fade > 0 ? `then ${round(fade)} s to fade` : "then the song's own ending";
+  const then = plan.close?.ring ? `then its last hit rings ${plan.close.ring.tail} s` : fade > 0 ? `then ${round(fade)} s to fade` : "then the song's own ending";
   if (groups >= 1) return `${payoff} s (none given: the drop plays ${groups} group${groups === 1 ? "" : "s"} of 4 bars, ${heard} s, ${then}${section})`;
   const offer = picked?.oneGroup != null && picked.oneGroup < payoff ? `; payoff ${picked.oneGroup} s gives it the group` : "";
   return `${payoff} s (none given: 45% of the video before the drop; it plays ${heard} s, under one group of 4 bars (${round(group)} s), ${then}${offer}${section})`;
+}
+
+// The latest time something other than the song starts in the scene before `end` (a layer's
+// sound or picture, an animation, a board shot): the end never moves to or before it.
+function latestStart(document, scene, song, end) {
+  const latest = { time: 0, what: null };
+  const seen = (time, what) => { if (Number.isFinite(time) && time < end - EPS && time >= latest.time) Object.assign(latest, { time, what }); };
+  for (const layer of scene.layers) {
+    if (song.includes(layer)) continue;
+    const name = layer.name || layer.id;
+    if (layer.mediaDuration > 0) seen(layer.mediaStart, `"${name}"`);
+    for (const animation of layer.animations ?? []) seen(animation?.start, `"${name}" ${animation?.name || "animation"}`);
+  }
+  for (const [index, shot] of (document.board?.shots ?? []).entries()) seen(shot.cue, `shot ${index + 1}`);
+  return latest;
+}
+
+// Moves the scene end earlier to `to`: what ran past it (a clip, an animation, the board's last shot) ends there.
+function trimEnd(document, scene, song, to) {
+  for (const layer of scene.layers) {
+    if (song.includes(layer)) continue;
+    if (layer.mediaDuration > 0 && layer.mediaStart + layer.mediaDuration > to) layer.mediaDuration = round(to - layer.mediaStart);
+    for (const animation of layer.animations ?? []) if (animation && animation.start < to && animation.start + (animation.duration ?? 0) > to) animation.duration = round(to - animation.start);
+  }
+  for (const shot of document.board?.shots ?? []) if (shot.cue < to && shot.cue + shot.dur > to) shot.dur = round(to - shot.cue);
+  scene.duration = to;
+}
+
+// The receipt's ending line: the place in the video and in the song, what kind it is, and the frames the end moved or would move.
+function endingLine(close, was, floor) {
+  const offer = close.offer;
+  const move = (frames) => `${frames > 0 ? "+" : ""}${frames} frame${Math.abs(frames) === 1 ? "" : "s"}`;
+  if (close.taken && offer.frames === 0) return `${offer.kind} at ${close.end} s (song ${close.songAt(close.end)} s): the video ends on it`;
+  if (close.taken) return `${offer.kind} at ${close.end} s (song ${close.songAt(close.end)} s): the scene end moved ${move(offer.frames)} (was ${round(was)} s); end:${round(was)} keeps it`;
+  const blocked = offer?.blocked && floor?.what ? ` (not taken: ${floor.what} starts at ${round(floor.time)} s)` : "";
+  const there = offer ? `; ${offer.kind} at ${offer.at} s (song ${close.songAt(offer.at)} s) would need the scene end moved ${move(offer.frames)}${blocked}` : "";
+  if (close.ring) return `the song's hit at ${close.ring.at} s (song ${close.songAt(close.ring.at)} s, ${close.ring.kind}) rings ${close.ring.tail} s to the end${there}`;
+  return `fades to the end${there}`;
 }
 
 /** Applies fit_music {sceneId, layerId, payoff?, turn?, end?, plan?, drop?, recut?, shape: {sections, seconds, whole, bars?}, analysis}. Returns the receipt. */
@@ -810,12 +895,17 @@ export function applyFitMusic(document, operation) {
   if (!PLANS.includes(which)) fail(`plan is "stretch" (one unbroken stretch), "stop" (the song's stop, then a drop on the payoff) or "recut" (the song re-arranged), not ${JSON.stringify(which)}.`);
   if (operation.drop != null && !(typeof operation.drop === "number" && operation.drop >= 0)) fail("drop is a time in the song in seconds (0 or more): the drop that lands on the payoff.");
   if (which === "stop" && !Array.isArray(shape.bars?.lines)) fail("the song has no measured bars, so plan \"stop\" cannot be used; use plan \"stretch\".");
-  const input = { sections: shape.sections, seams: Array.isArray(shape.seams) ? shape.seams : [], seconds, whole: shape.whole !== false, ...grid, payoff: operation.payoff, turn: operation.turn ?? null, end, bars: shape.bars, drop: operation.drop ?? null, roomy: picked };
-  const plan = planFitMusic({ ...input, plan: which });
-
-  // The old pieces (this layer, and pieces an earlier fit_music made from it) go; the new ones take their place.
   const headId = layer.fitMusic ?? layer.id;
   const old = scene.layers.filter((item) => item.id === headId || item.fitMusic === headId);
+  // No end given: the end may move to a phrase end of the song, never to or before something else starting.
+  const fps = typeof document.fps === "number" && document.fps > 0 ? document.fps : 30;
+  const free = operation.end == null;
+  const floor = free ? latestStart(document, scene, old, end) : null;
+  const input = { sections: shape.sections, seams: Array.isArray(shape.seams) ? shape.seams : [], seconds, whole: shape.whole !== false, ...grid, payoff: operation.payoff, turn: operation.turn ?? null, end, bars: shape.bars, drop: operation.drop ?? null, roomy: picked, free, floor: floor?.time ?? 0, fps };
+  const plan = planFitMusic({ ...input, plan: which });
+  if (plan.close?.taken) trimEnd(document, scene, old, plan.close.end);
+
+  // The old pieces (this layer, and pieces an earlier fit_music made from it) go; the new ones take their place.
   const head = old.find((item) => item.id === headId) ?? layer;
   const base = head.name;
   const volume = head.volume ?? 1;
@@ -832,7 +922,7 @@ export function applyFitMusic(document, operation) {
     const stop = round(piece.at + copy.mediaDuration);
     copy.animations = (copy.animations ?? []).filter((animation) => !(animation?.to && "volume" in animation.to) && !(animation?.from && "volume" in animation.from)).map((animation) => (number === 0 ? animation : { ...structuredClone(animation), id: uid() }));
     if (piece.fadeIn) copy.animations.push({ id: uid(), name: FIT_NAMES.in, kind: "custom", easing: "linear", start: piece.at, duration: piece.fadeIn, from: { volume: 0 }, to: { volume } });
-    if (piece.fadeOut) copy.animations.push({ id: uid(), name: FIT_NAMES.out, kind: "custom", easing: number === plan.pieces.length - 1 ? "ease-in" : "linear", start: round(stop - piece.fadeOut), duration: piece.fadeOut, from: { volume }, to: { volume: 0 } });
+    if (piece.fadeOut) copy.animations.push({ id: uid(), name: FIT_NAMES.out, kind: "custom", easing: piece.fadeEase ?? (number === plan.pieces.length - 1 ? "ease-in" : "linear"), start: round(stop - piece.fadeOut), duration: piece.fadeOut, from: { volume }, to: { volume: 0 } });
     return copy;
   });
   const at = scene.layers.indexOf(old[0] ?? layer);
@@ -856,6 +946,7 @@ export function applyFitMusic(document, operation) {
     plays: plan.pieces.map((piece) => `${clock(piece.from)}-${clock(piece.to)}`).join(", "),
     ...(chosen ? { payoff: payoffLine(operation.payoff, picked, grid.bar, grid.beat ?? grid.bar / 4, plan) } : {}),
     sections: lines,
+    ...(plan.close ? { ending: endingLine(plan.close, end, floor) } : {}),
     ...(rhythm ? { rhythm: `${rhythm.bpm} bpm, first beat ${rhythm.offset} s (set from the song's measured beats)` } : {}),
     // The plans not used that this song allows, one line each, for choosing by the video's story.
     ...(plans.length ? { plans } : {}),

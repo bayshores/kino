@@ -1908,8 +1908,11 @@ export function createAgentService(deps) {
     const payoff = (document.cues ?? []).find((cue) => cue.name === payoffCue)?.time;
     const fit = { type: "fit_music", sceneId, layerId: music.id, ...(payoff > 0 ? { payoff } : {}) };
     try {
-      const fitted = await runFitMusic(document, fit, { ...work, reports: null });
-      (work.notes ??= []).push(`format music: one stretch of the song (fit_music)${payoff > 0 ? `, its drop on ${payoffCue} at ${payoff} s` : ""}`);
+      const reports = new Map();
+      const fitted = await runFitMusic(document, fit, { ...work, reports });
+      // The ending fit_music chose (a phrase end that moved the scene end, or the last hit ringing out).
+      const ending = [...reports.values()].find((report) => report?.ending)?.ending;
+      (work.notes ??= []).push(`format music: one stretch of the song (fit_music)${payoff > 0 ? `, its drop on ${payoffCue} at ${payoff} s` : ""}${ending ? `; ending: ${ending}` : ""}`);
       return fitted;
     }
     catch (error) {
@@ -1936,12 +1939,14 @@ export function createAgentService(deps) {
       const fit = { type: "fit_music", sceneId: scene.id, layerId: music.id };
       const fitted = await runFitMusic(document, fit, { ...work, reports });
       const after = boardSpan(fitted, fitted.board);
-      if (Math.abs(after.start - before.start) > 0.05 || Math.abs(after.end - before.end) > 0.05) {
+      // The end may move with the video's end (fit_music took a phrase end of the song).
+      if (Math.abs(after.start - before.start) > 0.05 || Math.abs(after.end - before.end - (after.length - before.length)) > 0.05) {
         (work.notes ??= []).push(`board music: kept as laid (fit_music would move it to ${after.start}-${after.end} s, off the board's ${before.start}-${before.end} s)`);
         return document;
       }
       const head = mainScene(fitted).layers.find((item) => item.id === music.id);
-      (work.notes ??= []).push(`board music: placed with fit_music (song from ${head?.mediaOffset ?? 0} s, was ${was} s; cues song-*${fitted.rhythm ? `, rhythm ${fitted.rhythm.bpm} bpm from ${fitted.rhythm.offset} s` : ""}); update_layer mediaOffset puts it back`);
+      const ending = [...reports.values()].find((report) => report?.ending)?.ending;
+      (work.notes ??= []).push(`board music: placed with fit_music (song from ${head?.mediaOffset ?? 0} s, was ${was} s; cues song-*${fitted.rhythm ? `, rhythm ${fitted.rhythm.bpm} bpm from ${fitted.rhythm.offset} s` : ""}); update_layer mediaOffset puts it back${ending ? `; ending: ${ending}` : ""}`);
       payoffOffer(work, "board music", [...reports.values()], fit, fitted, before, scene.id, music.id);
       return fitted;
     }

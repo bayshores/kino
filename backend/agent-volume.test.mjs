@@ -92,8 +92,9 @@ test("the skill's fit_music example runs as written: one stretch of the song, it
   assert.equal(reply.isError, undefined, reply.text);
   const payoff = reply.data.music.sections.find((line) => line.endsWith("(payoff)"));
   assert.ok(/ s drop, weight [\d.]+ \(payoff\)$/.test(payoff) && Math.abs(parseFloat(payoff) - 8) <= 1 / 30, reply.data.music.sections.join("; "));
-  // One unbroken stretch: the song from 8 s (its drop at 16 s lands on the payoff), faded out to the end.
-  assert.deepEqual([reply.data.music.pieces, reply.data.music.plays, reply.data.music.sections.at(-1)], [1, "0:08-0:20", "10 s fade"]);
+  // One unbroken stretch: the song from 8 s (its drop at 16 s lands on the payoff); no phrase end near 12 s, so its last beat rings out to the end.
+  assert.deepEqual([reply.data.music.pieces, reply.data.music.plays, reply.data.music.sections.at(-1)], [1, "0:08-0:20", "11.5 s ring"]);
+  assert.match(reply.data.music.ending, /^the song's hit at 11\.5 s \(song 19\.5 s, beat\) rings 0\.5 s to the end; phrase end at 16 s/);
   const record = await (await server.api("/api/projects/fit")).json();
   const pieces = record.document.scenes[0].layers.filter((layer) => layer.type === "audio");
   assert.equal(pieces.length, reply.data.music.pieces);
@@ -106,13 +107,14 @@ test("the skill's fit_music example runs as written: one stretch of the song, it
   const formatted = await (await server.api("/api/projects/fit-format")).json();
   const quote = formatted.document.cues.find((cue) => cue.name === "quote").time;
   assert.ok(formatted.document.cues.some((cue) => cue.name === "song-drop-1" && Math.abs(cue.time - quote) <= 1 / 30), JSON.stringify(formatted.document.cues));
-  assert.match(JSON.stringify(format.data ?? format.text), /one stretch of the song \(fit_music\)/);
+  // The note carries the ending fit_music chose (the format's receipt has no music line of its own).
+  assert.match(JSON.stringify(format.data ?? format.text), /one stretch of the song \(fit_music\)[^"]*; ending: /);
 
   // A board over a song laid by hand: placed with fit_music (its drop on 45% of 12 s, the floor, the rhythm
   // from its beats); over a tone with no drop the board is kept and the song stays as laid.
   const shot = { cue: 0, dur: 12, pacing: "free", media: "none", in: "none", crop: "none", subject: "none", follow: "none", text: { text: "Hi", family: "Montserrat" }, sound: "none", why: "a title" };
   const tone = await importTone("bed.wav", 220, 12);
-  for (const [id, src, said] of [["fit-board", media.src ?? media.media?.src, /board music: placed with fit_music/], ["tone-board", tone, /board music: kept as laid \(the song has no (drop|steady beat) measured; update_layer mediaOffset places it\).*board r1: 1 shot|board r1: 1 shot.*board music: kept as laid/]]) {
+  for (const [id, src, said] of [["fit-board", media.src ?? media.media?.src, /board music: placed with fit_music[^"]*; ending: /], ["tone-board", tone, /board music: kept as laid \(the song has no (drop|steady beat) measured; update_layer mediaOffset places it\).*board r1: 1 shot|board r1: 1 shot.*board music: kept as laid/]]) {
     await agent("project", { action: "create", id, name: id, width: 640, height: 360, duration: 12 });
     const laid = await agent("edit", { project: id, ops: [{ op: "add_layer", layerType: "audio", name: "music", properties: { src, mediaDuration: 12 } }] });
     assert.equal(laid.isError, undefined, laid.text);
@@ -128,7 +130,7 @@ test("the skill's fit_music example runs as written: one stretch of the song, it
   const scene = boarded.scenes[0];
   const late = await agent("edit", { project: "fit-board", ops: [{ op: "fit_music", sceneId: scene.id, layerId: scene.layers.find((layer) => layer.name === "music").id, payoff: 10 }] });
   assert.equal(late.isError, undefined, late.text);
-  assert.match(JSON.stringify(late.data.notes), /fit_music: the drop plays [\d.]+ s before the fade, under 4 bars: payoff [\d.]+ s gives it .*to move the payoff shots to the drop, send one edit: board with each shot as it is but these cues \(1 0-12\), then \{op:\\"fit_music\\"/);
+  assert.match(JSON.stringify(late.data.notes), /fit_music: the drop plays [\d.]+ s before the ring, under 4 bars: payoff [\d.]+ s gives it .*to move the payoff shots to the drop, send one edit: board with each shot as it is but these cues \(1 0-12\), then \{op:\\"fit_music\\"/);
 });
 
 test("look sound measures the ducked mix: loudness every 0.5 s and the dip", { skip: skipWithoutMediaTools }, async () => {
