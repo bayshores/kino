@@ -642,6 +642,10 @@ test("a board move named slow-push is a push; compose places a camera push towar
   assert.equal(again.isError, undefined, again.text);
   const rebuilt = (await record(id)).document.scenes[0];
   assert.deepEqual([rebuilt.layers.length, rebuilt.layers.filter((layer) => / camera$/.test(layer.name ?? "")).length, (rebuilt.moves ?? []).filter((move) => move.name === "impact-accent").length], [layers.length, 1, 1]);
+  // In a music edit (an accent cue elsewhere) check reads the cut under that hit as its reason: no untriggered.
+  assert.equal((await agent("edit", { project: id, ops: [{ op: "set_cues", cues: [{ name: "a-1", kind: "accent", time: 1 }] }] })).isError, undefined);
+  const fit = await agent("check", { project: id, rules: ["effect_fit"], pixels: false });
+  assert.doesNotMatch(fit.text, /effect_fit/, fit.text);
   // 9:16 from a 16:9 file, a crop 2% narrower than the frame at the file's left edge: the end
   // rect takes the frame's exact shape and stays on the file (no sliver past its edge).
   const tall = boardBuildOps({ music: "none", shots: [{ cue: 0, dur: 2, media: "/m.mp4", in: 0, crop: [0, 0, 31, 100], text: "none",

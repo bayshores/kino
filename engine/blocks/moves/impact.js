@@ -201,7 +201,7 @@ export function hitMotive(facts, time, input = {}) {
     const near = at ? cues.filter((entry) => entry.kind !== "beat" && entry.kind !== "onset" && Math.abs(entry.time - time) <= SNAP_FRAMES * FRAME + 1e-6)
       .sort((a, b) => Math.abs(a.time - time) - Math.abs(b.time - time))[0] : null;
     if (!near) {
-      const note = `at ${JSON.stringify(raw ?? time)} is a time with no cue, so effect_fit will ask for one: pin it with set_cues {cues:[{name:"hit-1", time:${round(time)}}]} (or layer + media for a clip's moment), then at "cue:hit-1"`;
+      const note = `at ${JSON.stringify(raw ?? time)} is a time with no cue: in a music edit effect_fit reads a cut under its first frame as its reason, else asks for one: pin it with set_cues {cues:[{name:"hit-1", time:${round(time)}}]} (or layer + media for a clip's moment), then at "cue:hit-1"`;
       return { cue: null, at: time, motive: weighed({ motive: "time" }, WEAK), measured: WEAK, fill: null, rest: null, note };
     }
     cue = near;

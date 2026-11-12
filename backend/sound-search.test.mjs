@@ -256,6 +256,8 @@ test("the cut's visible actions each get a library sound, low sounds only on imp
   assert.match(librarySoundsText({ query: "step", results: [made] }), /^1 of 1 library sounds made by kino for "step"[\s\S]*footstep step \(made by kino\)$/m);
   assert.match(librarySoundsText({ query: "step", results: [made, catalog.sounds[0]] }), /^2 of 2 library sounds \(1 made by kino, the rest CC0\) for/);
   assert.match(librarySoundsText({ query: "swish", results: [catalog.sounds[0]] }), /^1 of 1 CC0 library sounds for/);
+  // A made sound past the first 10 shown still keeps "CC0" off the count of all matches.
+  assert.match(librarySoundsText({ query: "step", results: [...Array(10).fill(catalog.sounds[0]), made] }), /^10 of 11 library sounds \(1 made by kino, the rest CC0\) for/);
   const text = actionSoundsText({ scene: "s1", actions: [{ id: "a1", at: 1.5, kind: "whoosh", tags: ["zoom-through"] }, { id: "a2", at: 5.3, kind: "glitch", tags: ["glitch-hit"], songHit: true }],
     offers: { a1: [catalog.sounds[0], catalog.sounds[1]] }, unmeasured: 3 });
   assert.match(text, /^2 visible actions in s1 .*clip events not measured for 3 clips.*sound effects on them now: 0/);
