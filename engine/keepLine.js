@@ -44,7 +44,8 @@ import { FIT_NAMES } from "./fitMusic.js";
 import { sectionCues } from "./mixLevels.js";
 import { audibleRanges } from "./videoSound.js";
 import { captionWordsFromSpeech, checkSpeechLayer, speechPieces, speechWords, withoutGluedTag } from "./speech.js";
-import { SOUND_SURE, soundMoments } from "./speech.js";
+import { LINE_SURE, LOW_CONFIDENCE, SOUND_SURE, soundMoments } from "./speech.js";
+import { hiddenRanges } from "./visibilityOps.js";
 import { energyMean, heardLoudness, lineOverMusic, lineWays, loudestHeard, loudnessOver, MAX_LEVEL_DB, waysText } from "./mixLevels.js";
 import { BED_VOLUME, EVEN_RAMP, LINE_EVEN_LU, LINE_OVER_BED, leveledVoice, lineEvening } from "./mixLevels.js";
 import { churnRun } from "./quality/rules/sound.js";
@@ -186,6 +187,66 @@ function silenceAround(ranges, volume, sceneDuration) {
     if (Number.isFinite(range.end) && range.end + DOWN_PAD < sceneDuration - 0.002) ramp(range.sound ? LINE_NAMES.soundDown : LINE_NAMES.down, range.end, range.end + DOWN_PAD, volume, 0);
   }
   return added;
+}
+
+// Two frames at 30 fps: the gap a subtitle page leaves before the next one (captionPaging gapFrames).
+const CAPTION_GAP = 2 / 30;
+
+// The stretches [{start, end}] a layer shows in, with the eye and Show/Hide of it and every group over it.
+function shownStretches(chain, duration) {
+  if (chain.some((item) => item.visible === false)) return [];
+  const hidden = chain.flatMap((item) => hiddenRanges(item.animations ?? [], duration)).sort((a, b) => a.start - b.start);
+  const shown = [];
+  let at = 0;
+  for (const range of hidden) {
+    if (range.start > at) shown.push({ start: at, end: range.start });
+    at = Math.max(at, range.end);
+  }
+  if (at < duration) shown.push({ start: at, end: duration });
+  return shown;
+}
+
+// The caption groups (top-level layers holding role "caption" texts) in the scene, for a kept line at
+// [start, end]: [{name, group (a top-level group, which add_captions name replaces), starts (when its
+// texts come on), over (its texts shown over the line: [{name, text}]), own (all of it comes on during the
+// line: that line's subtitle, typed or made)}].
+function captionGroups(scene, start, end) {
+  const byId = new Map(scene.layers.map((item) => [item.id, item]));
+  const groups = new Map();
+  for (const text of scene.layers.filter((item) => item.type === "text" && item.role === "caption")) {
+    const chain = [];
+    for (let at = text; at && !chain.includes(at); at = at.parentId ? byId.get(at.parentId) : null) chain.push(at);
+    const root = chain.at(-1);
+    const group = groups.get(root.id) ?? { name: root.name, group: root.type === "group" && !root.parentId, starts: [], over: [] };
+    groups.set(root.id, group);
+    const shown = shownStretches(chain, scene.duration);
+    group.starts.push(...shown.map((item) => item.start));
+    if (shown.some((item) => item.start < end - 0.01 && item.end > start + 0.01))
+      group.over.push({ name: text.name, text: String(text.text ?? "").replace(/\s+/g, " ").trim() });
+  }
+  return [...groups.values()].map((group) => ({ ...group, own: group.starts.length > 0 && group.starts.every((time) => time >= start - 0.05 && time <= end) }));
+}
+
+// The words of a text, lowercase letters and digits only: ["ill", "kill", "you"].
+const wordsOf = (text) => String(text).toLowerCase().split(/\s+/).map((item) => item.replace(/[^\p{L}\p{N}]/gu, "")).filter(Boolean);
+
+// The subtitles shown over the kept line whose words `said` are heard there: a group that all comes on
+// during the line (that line's own subtitle, typed or made), or one whose texts over the line share at
+// least half of the words heard (a caption track of this voice). Captions of other words (a credit,
+// another voice's track) are not this line's subtitle. Each with the call that changes it: name replaces
+// the line's own group; a page of a longer track gets update_layer on its text, so the rest stays.
+function subtitlesOver(groups, said) {
+  const heard = new Set(said.flatMap((item) => wordsOf(item.text)));
+  return groups.filter((group) => group.over.length).filter((group) => {
+    if (group.own) return true;
+    const shared = new Set(group.over.flatMap((item) => wordsOf(item.text)).filter((item) => heard.has(item)));
+    return heard.size > 0 && shared.size >= Math.ceil(heard.size / 2);
+  }).map((group) => ({
+    name: group.name,
+    text: group.over.map((item) => item.text).join(" "),
+    change: group.own && group.group ? `text:"<the words said>" with name:"${group.name}" replaces it`
+      : `update_layer {layer:"${group.over[0].name}", properties:{text:"<the words said>"}} changes its words${group.own ? "" : `, the rest of ${group.name} stays`}`,
+  }));
 }
 
 // The music layer to dip, or null with the reason.
@@ -379,6 +440,13 @@ function removeDips(scene, musicLayer, start, end, own, levels) {
   return { removed, stays };
 }
 
+// A music-out line's notes once a shared dip holds the music at a bed under it: what said the music
+// goes out says the bed instead (the too-quiet note keeps its measured shortfall).
+function bedWording(notes, bed) {
+  return notes.map((note) => note.replace("; music out under the line", `; the music at its bed (${bed}) under the line`)
+    .replace(/, so the music goes out under it(;|$)/, `, so a dip cannot hold it: the music sits at a bed of ${bed} under it, shared with another line's dip$1`));
+}
+
 // Rewrites the music-return note (and the mix) of each earlier keep_line receipt in `reports` whose
 // music comes back at another time now that later lines are placed (a later line joined its dip).
 function refreshEarlier(document, reports, current) {
@@ -394,10 +462,13 @@ function refreshEarlier(document, reports, current) {
     if (upAt === null || (Math.abs(upAt - link.at) <= 0.02 && Math.abs(under - link.under) <= 0.001)) continue;
     const bed = under > 0.001 && link.under <= 0.001 ? `; the music holds a bed at ${round(under)} under the lines instead of going out` : "";
     report.notes[link.index] = `a later line in this edit shares this line's dip: the music is back by ${upAt} s (${round(upAt - link.end, 1)} s after the line)${bed}`;
-    if (bed) {
-      report.notes = report.notes.map((note) => note.replace("; music out under the line", `; the music at its bed (${round(under)}) under the line`));
-      if (report.duck && typeof report.duck === "object") report.duck = { ...report.duck, to: round(under) };
-    }
+    // The dip as it now plays under this line (a later line moved its end or raised it to a bed).
+    const pair = duckPairs(musicLayer).find((item) => item.start < link.end && item.end > link.start);
+    const dipSaid = pair ? `ducked to ${round(under)} at ${round(pair.start)}-${round(Math.min(pair.end, scene.duration))} s` : null;
+    const restate = (text) => (dipSaid ? text.replace(/ducked to [\d.]+ at [\d.]+-[\d.]+ s/, dipSaid) : text);
+    if (report.duck && typeof report.duck === "object") report.duck = { ...report.duck, to: round(under), ...(typeof report.duck.summary === "string" ? { summary: restate(report.duck.summary) } : {}) };
+    if (typeof report.summary === "string") report.summary = restate(report.summary);
+    if (bed) report.notes = bedWording(report.notes, round(under));
     if (report.mix && Number.isFinite(link.bedFull)) {
       const total = round(powerSum(report.mix.line, link.bedFull + db(under / link.level)), 1);
       report.mix = { ...report.mix, under: total, change: round(total - report.mix.around, 1) };
@@ -570,6 +641,60 @@ function evenLine(scene, owner, said, start, end, curve, forced) {
   return { median: evening.median, spread: evening.spread, places, shift: evening.shift };
 }
 
+// A receipt's hidden link to the line's ways and the way taken, so the agent service's peak cap
+// (backend/line-peak.mjs) rewrites the receipt's numbers after it lowers the line.
+const LEVELS = Symbol("keep_line levels");
+const MIX_TAIL = /mix under the (line|sound) -?[\d.]+ vs -?[\d.]+ LUFS in the 2 s around \([+-]?[\d.]+ LU\)/;
+
+/**
+ * The receipt of a keep_line whose line came down `db` (negative) after it was placed (the peak cap):
+ * mix.line, mix.under, the summary, the way taken in `ways` and the way note give the line as it now
+ * plays. True when something was rewritten.
+ */
+export function lowerKeptLine(receipt, db) {
+  if (!receipt || !(db < 0)) return false;
+  const signed = (value) => `${value >= 0 ? "+" : ""}${value}`;
+  let changed = false;
+  if (Number.isFinite(receipt.mix?.line) && Number.isFinite(receipt.mix?.under)) {
+    // The bed under the line is what the total holds besides the line; it does not move.
+    const bedEnergy = Math.max(0, 10 ** (receipt.mix.under / 10) - 10 ** (receipt.mix.line / 10));
+    const line = round(receipt.mix.line + db, 1);
+    const under = round(10 * Math.log10(10 ** (line / 10) + bedEnergy), 1);
+    const change = Number.isFinite(receipt.mix.around) ? round(under - receipt.mix.around, 1) : receipt.mix.change;
+    receipt.mix = { ...receipt.mix, line, under, change };
+    if (typeof receipt.summary === "string") receipt.summary = receipt.summary.replace(MIX_TAIL, (_, what) => `mix under the ${what} ${under} vs ${receipt.mix.around} LUFS in the 2 s around (${signed(change)} LU)`);
+    changed = true;
+  }
+  const link = receipt[LEVELS];
+  if (link?.ways && typeof receipt.ways === "string") {
+    const key = link.way === "lift" ? "lift" : link.way === "dip" || link.way === "shared" ? "dip" : link.way === "out" ? "out" : null;
+    const taken = key ? link.ways[key] : null;
+    if (taken) {
+      const lowered = { ...taken, reach: round(taken.reach + db, 1) };
+      // Headroom is the song's loudest moment over the line and the bed together: the bed's share stays.
+      const headroom = () => {
+        if (taken.headroom === null || taken.headroom === undefined) return taken.headroom ?? null;
+        const bed = taken.reach - taken.over; // the song under the line (LUFS)
+        const before = 10 * Math.log10(10 ** (taken.reach / 10) + 10 ** (bed / 10));
+        const after = 10 * Math.log10(10 ** (lowered.reach / 10) + 10 ** (bed / 10));
+        return round(taken.headroom + before - after, 1);
+      };
+      if (key !== "out") Object.assign(lowered, { db: round(taken.db + db, 1), over: round(taken.over + db, 1), headroom: headroom() });
+      if (key === "lift") Object.assign(lowered, { factor: Math.round(10 ** (lowered.db / 20) * 100) / 100, short: round(Math.max(0, LINE_OVER_BED - lowered.over), 1) });
+      const note = Number.isInteger(link.note) ? receipt.notes?.[link.note] : null;
+      if (typeof note === "string" && key !== "out")
+        receipt.notes[link.note] = note.replace(`${taken.reach} LUFS, ${signed(taken.over)} LU over`, `${lowered.reach} LUFS, ${signed(lowered.over)} LU over`)
+          .replace(`x${taken.factor} to`, `x${lowered.factor ?? taken.factor} to`)
+          .replace(`the line at ${taken.reach} LUFS`, `the line at ${lowered.reach} LUFS`)
+          .replace(Number.isFinite(taken.headroom) ? `, ${Math.abs(taken.headroom)} dB ${taken.headroom >= 0 ? "under" : "over"} the song's loudest moment` : /^$^/, `, ${Math.abs(lowered.headroom)} dB ${lowered.headroom >= 0 ? "under" : "over"} the song's loudest moment`);
+      link.ways = { ...link.ways, [key]: lowered };
+      receipt.ways = waysText(link.ways, link.level);
+      changed = true;
+    }
+  }
+  return changed;
+}
+
 /** Applies keep_line to `document` (changed in place). Returns the receipt. */
 export function applyKeepLine(document, operation, { fonts, reports } = {}) {
   const scene = document.scenes.find((item) => item.id === operation.sceneId);
@@ -592,9 +717,11 @@ export function applyKeepLine(document, operation, { fonts, reports } = {}) {
 
   // The words the scene plays, as captions read them (none when the clip was not transcribed or has none).
   // A sound tag glued to a word ("see.(laughs)") is left out, as clipLines shows the line.
-  const heard = operation.transcript?.words?.length
-    ? captionWordsFromSpeech(speechWords(scene, checkSpeechLayer(scene, layer, "keep_line"), operation.transcript)
-      .map((word) => ({ ...word, text: withoutGluedTag(word.text) || word.text }))).words : [];
+  const spoken = operation.transcript?.words?.length ? speechWords(scene, checkSpeechLayer(scene, layer, "keep_line"), operation.transcript) : [];
+  // Each word keeps the transcript's probability (p), for the unsure-words note below.
+  const heard = spoken.length
+    ? captionWordsFromSpeech(spoken.map((word) => ({ ...word, text: withoutGluedTag(word.text) || word.text }))).words
+      .map((word) => ({ ...word, p: spoken.find((item) => Math.abs(item.start - word.start) < 1e-6)?.p ?? 1 })) : [];
   let start;
   let end;
   let said;
@@ -613,7 +740,7 @@ export function applyKeepLine(document, operation, { fonts, reports } = {}) {
     if (match.note) lineNote = match.note;
     start = found[0].at;
     end = found.at(-1).end;
-    said = found.map((item) => ({ text: item.text, start: item.at, end: item.end }));
+    said = found.map((item) => ({ text: item.text, start: item.at, end: item.end, p: heard.find((word) => word.start === item.at)?.p ?? 1 }));
   } else {
     for (const key of ["from", "to"]) if (typeof operation[key] !== "number" || !Number.isFinite(operation[key])) fail(`${key} is seconds on the scene's clock, a number.`);
     start = Math.max(operation.from, range.start);
@@ -624,6 +751,9 @@ export function applyKeepLine(document, operation, { fonts, reports } = {}) {
   start = round(start);
   end = round(end);
 
+  // When the next kept line in the scene starts (before this one joins a close one): its subtitle's limit.
+  const nextLine = Math.min(Infinity, ...scene.layers.flatMap((item) => ((item.animations ?? []).some(isLineMark) ? keptRanges(item) : []))
+    .map((item) => item.start).filter((time) => time > end + 0.001));
   // The sound: only the kept stretches (an earlier keep_line's too) at the layer's own volume.
   // Each piece keeps the part of the line it plays; a piece that plays none is silent.
   const kept = plays.map(({ piece, play }) => {
@@ -650,17 +780,46 @@ export function applyKeepLine(document, operation, { fonts, reports } = {}) {
   const differs = operation.text !== undefined && heardText && letters(heardText) !== letters(operation.text);
   if (differs) notes.push(`kino heard "${heardText.length > 80 ? `${heardText.slice(0, 80)}...` : heardText}" in that stretch; the subtitle shows your text "${operation.text.length > 80 ? `${operation.text.slice(0, 80)}...` : operation.text}"`);
   let subtitle = null;
+  let standing = null;
   const name = operation.name ?? `line-at-${round(start, 1)}s`;
-  // A kept sound has no subtitle unless text is given.
-  if (operation.subtitle !== false && !(sound && operation.text === undefined)) {
+  // A subtitle already shown over the line (made by hand, or by an earlier keep_line with text) stays
+  // when no words are given: the transcript's words would replace words someone chose.
+  const titled = operation.subtitle !== false && !(sound && operation.text === undefined);
+  const groups = titled ? captionGroups(scene, start, end) : [];
+  const shownOver = subtitlesOver(groups, said);
+  const asIs = operation.text === undefined && operation.name === undefined ? shownOver[0] : null;
+  if (asIs) {
+    standing = asIs;
+    const quote = asIs.text.length > 60 ? `${asIs.text.slice(0, 60)}...` : asIs.text;
+    notes.push(`the subtitle ${asIs.name} ("${quote}") already shows over this line, so it stays and no new one is made; ${asIs.change}`);
+  } else if (titled) {
     const look = operation.look ?? "subtitle";
+    const others = shownOver.filter((item) => item.name !== name);
+    if (others.length) notes.push(`the subtitle ${others[0].name} ("${others[0].text.slice(0, 60)}") also shows over this line; ${others[0].change} instead`);
+    // Captions of other words (another voice's track) on screen at the same time: named, left as they are.
+    const track = groups.find((group) => group.over.length && group.group && group.name !== name && !shownOver.some((item) => item.name === group.name));
+    if (track) notes.push(`the caption group ${track.name} ("${track.over.map((item) => item.text).join(" ").slice(0, 60)}", other words than heard here) also show over this line; subtitle:false keeps them alone`);
+    // The next line or another subtitle that comes on after this line: this subtitle is down 2 frames before it.
+    const nextOn = Math.min(nextLine, ...groups.filter((group) => group.name !== name).flatMap((group) => group.starts).filter((time) => time > end + 0.001));
     if (operation.text !== undefined) {
       // A page stays up long enough to read (20 characters a second, 5/6 s at least), past the line when it is short.
       const readEnd = Math.min(scene.duration, round(Math.max(end, start + Math.max(operation.text.length / 20, 5 / 6) + 0.02)));
-      if (readEnd > end) notes.push(`the subtitle stays up to ${readEnd} s so it can be read`);
+      const into = readEnd > nextOn - CAPTION_GAP + 0.001 ? `, into what comes on at ${round(nextOn)} s (the next line or subtitle)` : "";
+      if (readEnd > end) notes.push(`the subtitle stays up to ${readEnd} s so it can be read${into}`);
       subtitle = applyAddCaptions(document, { type: "add_captions", sceneId: scene.id, text: operation.text, format: "text", start, end: readEnd, look, name }, { fonts });
     }
-    else if (said.length) subtitle = applyAddCaptions(document, { type: "add_captions", sceneId: scene.id, words: said, look, name }, { fonts });
+    else if (said.length) {
+      // The pages stay inside the kept stretch: past its end only through the line's fade down, and
+      // not into the next kept line or subtitle; a page too short to read starts earlier instead (captionPaging pageWords).
+      const until = round(Math.min(scene.duration, Math.max(end, Math.min(end + DOWN_PAD, nextOn - CAPTION_GAP))));
+      subtitle = applyAddCaptions(document, { type: "add_captions", sceneId: scene.id, words: said, look, name }, { fonts, span: { start, end: until } });
+      // Few or unsure words (the clip readout's own bar for a line: LINE_SURE, LOW_CONFIDENCE): the words used and how sure.
+      const mean = said.reduce((sum, item) => sum + (item.p ?? 1), 0) / said.length;
+      if (said.length < 2 || mean < LINE_SURE || said.some((item) => (item.p ?? 1) < LOW_CONFIDENCE)) {
+        const shown = said.slice(0, 6).map((item) => `${item.text} p ${round(item.p ?? 1, 2)}`).join(", ");
+        notes.push(`the subtitle shows ${said.length === 1 ? "the 1 word" : `the ${said.length} words`} the transcript heard there (${shown}${said.length > 6 ? ", ..." : ""}; a clip line needs 2 or more words at mean p ${LINE_SURE}); if the clip says other words, text:"<the words said>" puts them on the subtitle`);
+      }
+    }
     else notes.push("no words were heard in that stretch, so there is no subtitle: give text (what is said) to add one");
   }
 
@@ -681,6 +840,7 @@ export function applyKeepLine(document, operation, { fonts, reports } = {}) {
   let bedSaid = null;
   let dropSaid = null;
   let returnLink = null;
+  let levelsLink = null;
   if (music.layer) {
     const level = music.layer.volume ?? 1;
     // Over measured music: the line is leveled against the music around it and the dip holds the
@@ -815,7 +975,7 @@ export function applyKeepLine(document, operation, { fonts, reports } = {}) {
         if (shared.gap) bedSaid = { at: [shared.gap.start, shared.gap.end], bed: shared.bed ?? 0 };
         if (shared.bed) {
           duck = { ...duck, to: shared.bed, summary: duck.summary.replace(/ ducked to 0 at /, ` ducked to ${shared.bed} at `) };
-          for (const [index, note] of notes.entries()) notes[index] = note.replace("; music out under the line", `; the music at its bed (${shared.bed}) under the line`);
+          notes.splice(0, notes.length, ...bedWording(notes, shared.bed));
         }
         // The mix under this line with the bed in it.
         if (shared.bed && mix?.line !== undefined && Number.isFinite(over?.measured?.under)) {
@@ -870,6 +1030,7 @@ export function applyKeepLine(document, operation, { fonts, reports } = {}) {
       }
     }
     if (ways) waysSaid = { ways: waysText(ways, level), way: way ?? (out ? "out" : "dip") };
+    if (ways) levelsLink = { ways, level, way: waysSaid.way, note: wayNote >= 0 ? wayNote : null };
     if (operation.wait !== undefined && !out) notes.push("wait is ignored without dropout:true (it is how long the music stays out for the next downbeat)");
   } else {
     for (const entry of kept) delete entry.piece.voiceLevel;
@@ -896,17 +1057,19 @@ export function applyKeepLine(document, operation, { fonts, reports } = {}) {
     ...(differs ? { heard: heardText } : {}),
     ...(sound ? { sound: { label: sound.label, sure: sound.sure, db: sound.db } } : {}),
     kept: ranges.length,
-    subtitle: subtitle ? { name: subtitle.name, pages: subtitle.pages, look: subtitle.look ?? operation.look ?? "subtitle" } : (operation.subtitle === false ? "off" : "none"),
+    subtitle: subtitle ? { name: subtitle.name, pages: subtitle.pages, look: subtitle.look ?? operation.look ?? "subtitle", at: [subtitle.first, subtitle.last] }
+      : standing ? { name: standing.name, kept: true } : (operation.subtitle === false ? "off" : "none"),
     duck: duck ? { layer: duck.layer, to: duck.to, summary: duck.summary } : "none",
     ...(mix ? { mix } : {}),
     ...(waysSaid ?? {}),
     ...(bedSaid ? { bed: bedSaid } : {}),
     ...(dropSaid ? { drop: dropSaid } : {}),
     ...(even ? { even: { median: even.median, spread: even.spread, places: even.places } } : {}),
-    summary: `kept ${sound ? `${sound.label.replaceAll("_", " ")} (${sound.db} dB) ` : text ? `"${text.length > 60 ? `${text.slice(0, 60)}...` : text}" ` : ""}of ${layer.name} at ${start}-${end} s (file ${fileFrom}-${fileTo} s), the rest of its sound silenced; ${subtitle ? `subtitle ${subtitle.name}` : "no subtitle"}; ${duck ? duck.summary : "no music dip"}${mix ? `; mix under the ${sound ? "sound" : "line"} ${mix.under} vs ${mix.around} LUFS in the 2 s around (${mix.change >= 0 ? "+" : ""}${mix.change} LU)` : ""}`,
+    summary: `kept ${sound ? `${sound.label.replaceAll("_", " ")} (${sound.db} dB) ` : text ? `"${text.length > 60 ? `${text.slice(0, 60)}...` : text}" ` : ""}of ${layer.name} at ${start}-${end} s (file ${fileFrom}-${fileTo} s), the rest of its sound silenced; ${subtitle ? `subtitle ${subtitle.name}` : standing ? `subtitle ${standing.name} kept as it was` : "no subtitle"}; ${duck ? duck.summary : "no music dip"}${mix ? `; mix under the ${sound ? "sound" : "line"} ${mix.under} vs ${mix.around} LUFS in the 2 s around (${mix.change >= 0 ? "+" : ""}${mix.change} LU)` : ""}`,
     ...(notes.length ? { notes } : {}),
   };
   if (returnLink && notes.length) Object.defineProperty(receipt, RETURN, { value: returnLink, enumerable: false });
+  if (levelsLink) Object.defineProperty(receipt, LEVELS, { value: levelsLink, enumerable: false });
   // Every line's note in one edit is written after all the lines are placed.
   refreshEarlier(document, reports, receipt);
   return receipt;

@@ -176,8 +176,10 @@ export function pageEvents(events, { fps = 30, timing = "source", fits, limits =
 /**
  * Pages for a timed transcript [{text, start, end}] (seconds). A page ends at a sentence end, before
  * a pause of half a second or more, or when two lines are full; it never lasts over 7 s.
+ * `span` {start, end} (keep_line's kept stretch): no page runs past span.end; a page that is then
+ * too short to read starts earlier, back to span.start or the page before it.
  */
-export function pageWords(words, { fps = 30, fits, limits = SUBTITLE_LIMITS } = {}) {
+export function pageWords(words, { fps = 30, fits, limits = SUBTITLE_LIMITS, span } = {}) {
   const clean = words.map((word, index) => {
     const text = String(word?.text ?? word?.word ?? "").trim();
     const start = Number(word?.start);
@@ -206,7 +208,15 @@ export function pageWords(words, { fps = 30, fits, limits = SUBTITLE_LIMITS } = 
     current.push(word);
   }
   flush();
-  const changes = timePages(pages, { fps, fit: true, limits });
+  const changes = timePages(pages, { fps, fit: true, limits, ...(span ? { end: span.end } : {}) });
+  if (span) {
+    const gap = limits.gapFrames / fps;
+    pages.forEach((page, index) => {
+      const earliest = Math.max(span.start, index ? pages[index - 1].end + gap : -Infinity);
+      const wanted = page.end - readingSeconds(page.text, limits);
+      if (wanted < page.start - 1e-9) page.start = round(Math.max(earliest, Math.min(page.start, wanted)));
+    });
+  }
   return { pages, changes, split: 0 };
 }
 

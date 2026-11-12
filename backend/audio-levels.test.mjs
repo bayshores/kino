@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createDocument, createLayer, createScene, parseDocument } from "../engine/model.js";
 import { applyOperations } from "../engine/operations.js";
-import { applyKeepLine } from "../engine/keepLine.js";
+import { applyKeepLine, lowerKeptLine } from "../engine/keepLine.js";
 import { energyMean } from "../engine/mixLevels.js";
 import { capLinePeak } from "./line-peak.mjs";
 import { createAgentClient } from "./agent/client.mjs";
@@ -692,8 +692,13 @@ test("keep_line evens a line's loud and quiet words and its lifted line stays un
     t.diagnostic(`word ${index + 1}: receipt ${db} dB, render ${moved.toFixed(2)} dB`);
     assert.ok(Math.abs(moved - db) <= 1, `word ${index + 1} moved ${moved.toFixed(2)} dB in the render, the receipt says ${db}`);
   }
-  // The line as a whole is heard where the receipt set it (mix.line, LUFS), less a lowering the peak asked for.
-  const line = receipt.mix.line + (peak.lowered?.db ?? 0);
+  // The line as a whole is heard where the receipt says (mix.line, LUFS) once the receipt follows the
+  // peak's lowering (lowerKeptLine, as the agent service does).
+  const placed = receipt.mix.line;
+  assert.ok(peak.lowered, JSON.stringify(peak));
+  lowerKeptLine(receipt, peak.lowered.db);
+  const line = receipt.mix.line;
+  assert.equal(line, Math.round((placed + peak.lowered.db) * 10) / 10);
   t.diagnostic(`line: receipt ${line} LUFS, render ${alone.lineLufs} LUFS (momentary energy mean; integrated ${alone.lufs}); peak ${JSON.stringify(peak)}; peak at the line: receipt ${peak.peakDbfs} dBFS, render true peak ${mixed.peak} dBTP; ${receipt.ways}`);
   assert.ok(Math.abs(alone.lineLufs - line) <= 1, `the voice alone is ${alone.lineLufs} LUFS, the receipt says ${line}`);
   assert.ok(Math.abs(mixed.peak - peak.peakDbfs) <= 1, `the render's true peak over the line ${mixed.peak}, the receipt's ${peak.peakDbfs}`);

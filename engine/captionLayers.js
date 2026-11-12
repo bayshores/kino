@@ -126,7 +126,7 @@ export function captionFits(scene, style, fonts) {
 }
 
 // The pages in source time, from whichever input the operation has.
-function sourcePages(scene, operation, { fits, fps }) {
+function sourcePages(scene, operation, { fits, fps, span }) {
   if (operation.file !== undefined && operation.text === undefined)
     fail("file is read by the kino command line and the MCP tools; over HTTP, send the file's text as text.");
   const hasText = operation.text !== undefined;
@@ -135,7 +135,7 @@ function sourcePages(scene, operation, { fits, fps }) {
   const timing = optionalChoice(operation.timing, "timing", CAPTION_TIMINGS) ?? "source";
   if (hasWords) {
     if (!Array.isArray(operation.words) || !operation.words.length || operation.words.length > 20000) fail("words must be a list of 1 to 20000 {text, start, end}.");
-    return { ...pageWords(operation.words, { fps, fits }), events: operation.words.length, format: "words" };
+    return { ...pageWords(operation.words, { fps, fits, span }), events: operation.words.length, format: "words" };
   }
   if (typeof operation.text !== "string") fail("text must be a string.");
   const format = optionalChoice(operation.format, "format", ["srt", "vtt", "text"]) ?? subtitleFormat(operation.text);
@@ -243,9 +243,9 @@ function pageLayers(page, index, { scene, style, fonts, name, parentId }) {
 /**
  * Everything add_captions would do, without changing the document:
  * {layers, pages (scene time), cues, report}. `fonts` measures the lines; `fps` sets the 2-frame
- * gap (30 unless given).
+ * gap (30 unless given). `span` {start, end} keeps word pages inside a stretch (keep_line).
  */
-export function planCaptions(document, scene, given, { fonts, fps = 30 } = {}) {
+export function planCaptions(document, scene, given, { fonts, fps = 30, span } = {}) {
   const { operation: asked, speech } = fromSpeech(scene, given);
   // A look's font, size, color, box, place and entrance, under the operation's own fields.
   const operation = asked.look === undefined ? asked
@@ -261,7 +261,7 @@ export function planCaptions(document, scene, given, { fonts, fps = 30 } = {}) {
   const bounds = clip?.bounds ?? { start: 0, end: scene.duration };
   // Phrase looks lay out their own lines (captionLooks.js), so only the 42-character limit pages them here.
   const fits = phrased ? () => true : captionFits(scene, style, fonts);
-  const source = sourcePages(scene, operation, { fits, fps });
+  const source = sourcePages(scene, operation, { fits, fps, span });
   const minimum = 1 / fps;
   let dropped = 0;
   let cut = 0;
@@ -331,10 +331,10 @@ function removeCaptionGroup(scene, name) {
 }
 
 /** Applies add_captions to the document (changed in place). Returns the plan's report. */
-export function applyAddCaptions(document, operation, { fonts, fps } = {}) {
+export function applyAddCaptions(document, operation, { fonts, fps, span } = {}) {
   const scene = document.scenes.find((item) => item.id === operation.sceneId);
   if (!scene) throw new Error(`Scene ${operation.sceneId} was not found.`);
-  const plan = planCaptions(document, scene, operation, { fonts, fps });
+  const plan = planCaptions(document, scene, operation, { fonts, fps, span });
   const replaced = removeCaptionGroup(scene, plan.report.name);
   scene.layers.push(...plan.layers);
   const slug = cueSlug(plan.report.name);
