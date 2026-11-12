@@ -8,6 +8,7 @@ import { randomUUID } from "node:crypto";
 import { runExportProcess } from "./export-process.mjs";
 import { ffmpegCommand } from "./media-probe.mjs";
 import { heavyDecodeSlot } from "./process-slots.mjs";
+import { isSoundEffect, steadyBeat } from "./audio-analysis.mjs";
 
 export const LOUDNESS_CURVE_VERSION = 1;
 const STEP = 0.1;
@@ -121,10 +122,12 @@ export function createLoudnessCurves({ measure = measureLoudnessCurve, now = () 
 
 /**
  * The words of the newest saved transcript beside `file` (<file>.words-<model>,
- * backend/speech/transcribe.mjs sidecarPath), or null. A song (<file>.beats with a tempo) has none.
+ * backend/speech/transcribe.mjs sidecarPath), or null. A song has none: the same song test as the
+ * rest of kino (audio-analysis.mjs steadyBeat, a library sound effect never a song), so a voice whose
+ * saved beat grid is weak (any tempo under SONG_CONFIDENCE) keeps its words and is leveled.
  */
 export async function savedWordsOf(file) {
-  try { if (Number(JSON.parse(await readFile(`${file}.beats`, "utf8"))?.bpm) > 0) return null; } catch { /* no beats: not a song */ }
+  try { if (!(await isSoundEffect(file)) && steadyBeat(JSON.parse(await readFile(`${file}.beats`, "utf8")))) return null; } catch { /* no beats: not a song */ }
   let names;
   try { names = (await readdir(dirname(file))).filter((name) => name.startsWith(`${basename(file)}.words-`) && !name.endsWith(".tmp")); } catch { return null; }
   for (const name of names.sort().reverse()) {

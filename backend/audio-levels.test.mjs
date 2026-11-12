@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { createLayer, createScene } from "../engine/model.js";
 import { createAgentClient } from "./agent/client.mjs";
 import { describeLevels, describeMixPeaks, limiterPlaces, loudMixWarning, loudnessGain, mixLead, readLevels, readPeakWindows } from "./audio-levels.mjs";
-import { createLoudnessCurves, measureLoudnessCurve, readMomentary } from "./loudness-curve.mjs";
+import { createLoudnessCurves, measureLoudnessCurve, readMomentary, savedWordsOf } from "./loudness-curve.mjs";
 import { exportScene, measureMixPeaks, sceneSoundClips } from "./export.mjs";
 import { ffmpeg, makeToneAfterSilence, run, skipWithoutMediaTools, startTestServer } from "./media.test.support.mjs";
 import { validateRenderFile } from "./render-validation.mjs";
@@ -121,6 +121,17 @@ test("a sound shorter than a loudness window is read once silence pads it (place
   // 0.1 s of a -6 dBFS tone in a 400 ms window: about 6 LU under the tone's own level (-9 LUFS).
   assert.ok(padded > -20 && padded < -10, `padded ${padded}`);
   assert.ok(!(loudest(await measureLoudnessCurve(file)) >= padded));
+});
+
+test("saved words: a voice with a weak saved beat keeps them, a song (a steady beat) has none", async (t) => {
+  const folder = await mkdtemp(join(tmpdir(), "kino-words-"));
+  t.after(() => rm(folder, { recursive: true, force: true }));
+  const file = join(folder, "voice.wav");
+  await writeFile(`${file}.words-base.en`, JSON.stringify({ words: [{ text: "Hello", start: 0.2, end: 0.6 }] }));
+  await writeFile(`${file}.beats`, JSON.stringify({ bpm: 96, confidence: 0.42 }));
+  assert.deepEqual((await savedWordsOf(file)).map((word) => word.text), ["Hello"]);
+  await writeFile(`${file}.beats`, JSON.stringify({ bpm: 96, confidence: 0.85 }));
+  assert.equal(await savedWordsOf(file), null);
 });
 
 test("one caller cancelling a loudness measurement stops only its own wait; the last one cancelling stops the measurement", async () => {

@@ -100,7 +100,7 @@ import { createQualityChecker, qualityRulesText, videoScene } from "./quality.mj
 import { houseMoments, houseStructure, houseType } from "../house-memory.mjs";
 import { plateChanges, techniquesLine, techniquesUsed } from "../../engine/quality/techniques.js";
 import { sceneReturnsLine } from "../../engine/quality/returns.js";
-import { KIND_WORDS as SOUND_KIND_WORDS, visibleActions } from "../../engine/soundActions.js";
+import { catalogLevel, KIND_WORDS as SOUND_KIND_WORDS, visibleActions } from "../../engine/soundActions.js";
 import { footageCueTime } from "../../engine/footageCues.js";
 import { FOOTAGE_VERSION } from "../footage/analyze.mjs";
 import { PLAIN_TAGS, TECHNIQUE_TAGS, techniquesText } from "../../engine/techniques.js";
@@ -2248,8 +2248,15 @@ export function createAgentService(deps) {
       const curve = await (!(Number(file.duration) > 3) ? measureLoudnessCurve(fileOnDisk, undefined, { pad: 0.4 }) : Promise.reject(new Error("long")))
         .catch(() => loudnessCurves.get(fileOnDisk)).catch(() => null);
       const libraryId = String(file.credit?.id ?? "").replace(/^sfx:/, "");
-      const catalogPeak = libraryId ? deps.soundLibrary?.catalog?.().sounds?.find((sound) => sound.id === libraryId)?.peak : undefined;
-      sounds.push({ at, kind: kind ?? "hit", ...(action ? { action: action.id, tags } : {}), src, name: file.name, duration: file.duration, peaks, curve, peak: catalogPeak, ...(Number.isFinite(entry.under) ? { under: entry.under } : {}) });
+      const listed = libraryId ? deps.soundLibrary?.catalog?.().sounds?.find((sound) => sound.id === libraryId) : undefined;
+      // The library sounds of the same kind with their measured level (catalogLevel): the receipt
+      // offers the next louder one when this sound reaches the volume limit short of its aim.
+      const kindWords = entry.what ?? SOUND_KIND_WORDS[kind];
+      const pool = kindWords ? (deps.soundLibrary?.offerSounds?.(kindWords, { seed: document.id, low: kind === "impact" || entry.what !== undefined, count: 40 }) ?? [])
+        .filter((sound) => sound.id !== libraryId).map((sound) => ({ id: sound.id, level: catalogLevel(sound) })).filter((sound) => Number.isFinite(sound.level)) : [];
+      const level = catalogLevel(listed);
+      sounds.push({ at, kind: kind ?? "hit", ...(action ? { action: action.id, tags } : {}), src, name: file.name, duration: file.duration, peaks, curve, peak: listed?.peak,
+        ...(Number.isFinite(level) ? { level } : {}), ...(pool.length ? { pool } : {}), ...(Number.isFinite(entry.under) ? { under: entry.under } : {}) });
     }
     // Beds: what the effect plays over. A voice (a saved transcript) is not a bed; a sound effect is not either.
     const beds = [];

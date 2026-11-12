@@ -199,7 +199,7 @@ export function madeNamesIn(scene) {
     if (layer.cutoutOf) names.add("cut_out");
     for (const animation of layer.animations ?? []) {
       if (animation?.effect) names.add(animation.effect);
-      if (animation?.name === "Line up") names.add("keep_line");
+      if (animation?.name === "Line up" || animation?.name === "Sound up") names.add("keep_line");
     }
   }
   if (scene?.finish) names.add("scene-background");
