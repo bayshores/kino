@@ -5,14 +5,45 @@
 import { kinoTimeline } from "../../engine/quality/kinoTimeline.js";
 import { expandComponents } from "../../engine/linkedComponents.js";
 import { mainScene } from "../../engine/board.js";
-import { gammaToMean, liftGrainId, liftId, liftShot, lumaStats } from "../../engine/quality/liftDark.js";
-import { sceneShots } from "./exposure-match.mjs";
+import { coveredAt } from "../../engine/quality/techniques.js";
+import { area, intersection, visibleBoxAt } from "../../engine/quality/model.js";
+import { cropFrame, gammaToMean, liftGrainId, liftId, liftShot, lumaStats } from "../../engine/quality/liftDark.js";
 
 // 240 px wide: wider than match_references' 160, so the 2nd and 98th percentiles have pixels to stand on.
 const MEASURE_WIDTH = 240;
 // With no other shot to follow and no target: about the middle of a lit video's mean luma (a guess).
 const FALLBACK_TARGET = 100;
 const PER_SHOT = 3;
+// Another picture counts as a shot to follow when it covers a fifth of the frame or more: a 16:9 clip
+// across a 9:16 frame covers 32%; a small inset or a logo does not set the brightness.
+const OTHER_SHARE = 0.2;
+
+const isPicture = (item) => item.kind === "video" || item.kind === "image";
+
+/**
+ * The scene's pictures (video and image layers) as the viewer sees them: where each is shown whole
+ * (opacity 0.9 or more) and not hidden under a full-frame picture above it, PER_SHOT times spread
+ * over those samples, each with the part of the frame the picture covers then, so letterbox bars, a
+ * backdrop or the frame around an inset are not measured as the shot ([{layerId, name, times, boxes, share, first}]).
+ */
+export function pictureShots(model) {
+  const frame = { x0: 0, y0: 0, x1: model.width, y1: model.height };
+  const shots = [];
+  for (const item of model.items) {
+    if (!isPicture(item) || item.isMask || !item.source?.layerId || item.source.componentPath) continue;
+    const shown = [];
+    for (let index = 0; index < model.times.length; index += 1) {
+      if (item.samples.opacity[index] < 0.9 || coveredAt(model, item, index)) continue;
+      const box = intersection(visibleBoxAt(model, item, index), frame);
+      if (area(box) > 0) shown.push({ time: model.times[index], box });
+    }
+    if (!shown.length) continue;
+    const picked = [...new Set(Array.from({ length: PER_SHOT }, (_, step) => Math.min(shown.length - 1, Math.floor(((step + 0.5) / PER_SHOT) * shown.length))))].map((index) => shown[index]);
+    const share = Math.max(...picked.map((entry) => area(entry.box))) / area(frame);
+    shots.push({ layerId: item.source.layerId, name: item.name ?? item.source.layerId, times: picked.map((entry) => entry.time), boxes: picked.map((entry) => entry.box), share, first: shown[0].time });
+  }
+  return shots.sort((a, b) => a.first - b.first);
+}
 
 const levels255 = (value) => Math.round(value * 255);
 
@@ -43,19 +74,22 @@ export async function liftDark(document, { sceneId = null, layerIds = [], target
   const base = old.length ? await runOps(document, old.map((effect) => ({ op: "delete_animation", animationId: effect.id }))) : document;
   if (remove) return { document: base, lines: [`lift_dark: took off ${old.length} lift effect${old.length === 1 ? "" : "s"}`], lifted: [] };
   const model = kinoTimeline(base, scene.id, { fonts });
-  const shots = sceneShots(model);
+  const shots = pictureShots(model);
   const baseScene = base.scenes.find((entry) => entry.id === scene.id);
-  // A named layer that is never the top full-frame picture is measured over its own time.
+  // A named layer that is never shown whole is measured over its own time, on the whole frame.
   const own = layerIds.map((layerId) => shots.find((shot) => shot.layerId === layerId) ?? ownShot(baseScene, layerId)).filter(Boolean);
-  const others = shots.filter((shot) => !layerIds.includes(shot.layerId));
+  const others = shots.filter((shot) => !layerIds.includes(shot.layerId) && shot.share >= OTHER_SHARE);
   const all = [...own, ...others];
   const times = all.flatMap((shot) => shot.times);
   const width = Math.min(MEASURE_WIDTH, model.width);
+  const scale = width / model.width;
+  // Each shot's frames cut to the picture's own box (the whole frame when it fills it).
+  const framesOf = (shot, frames) => shot.times.map((_, index) => cropFrame(frames?.[shot.at + index], shot.boxes?.[index], scale)).filter(Boolean);
   const frames = times.length ? await render(expandComponents(base, scene.id, { fonts }), times, { width }) : [];
   let offset = 0;
   for (const shot of all) {
-    shot.frames = shot.times.map((_, index) => frames?.[offset + index]).filter(Boolean);
     shot.at = offset;
+    shot.frames = framesOf(shot, frames);
     offset += shot.times.length;
   }
   const otherMean = median(others.map((shot) => lumaStats(shot.frames)?.mean));
@@ -77,7 +111,7 @@ export async function liftDark(document, { sceneId = null, layerIds = [], target
     after = await runOps(base, ops);
     // The receipt's "after" is the render (overlays and the frame finish included), not the model.
     const drawn = await render(expandComponents(after, scene.id, { fonts }), times, { width });
-    for (const entry of lifted) entry.after = lumaStats(entry.times.map((_, index) => drawn?.[entry.at + index]).filter(Boolean)) ?? entry.after;
+    for (const entry of lifted) entry.after = lumaStats(framesOf(entry, drawn)) ?? entry.after;
   }
   const shotLine = (entry) => `${name(entry.layerId)} mean ${levels255(entry.before.mean)} to ${levels255(entry.after.mean)}, contrast (p90-p10) ${levels255(entry.before.contrast)} to ${levels255(entry.after.contrast)}, black ${levels255(entry.before.p2)} to ${levels255(entry.after.p2)} (a plain gamma ${entry.gamma.gamma} to the same mean: contrast ${levels255(entry.gamma.stats.contrast)}, black ${levels255(entry.gamma.stats.p2)}); +${entry.stops} stops${entry.amount ? `, grain ${entry.amount}` : ""}`;
   const kept = skipped.length ? `; ${skipped.map((shot) => `${name(shot.layerId)} ${levels255(lumaStats(shot.frames)?.mean ?? 0)}`).join(", ")} already at or above it, left alone` : "";

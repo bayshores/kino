@@ -904,17 +904,28 @@ test("match_references grades only the shot outside the references' range, repla
 });
 
 test("lift_dark aims a dark shot at the other shots' median, adds a curve and grain, reports the render's numbers and replaces its own effects", async () => {
-  const shot = (id, start) => createLayer("video", { id, name: id, src: `/api/media/${id}.mp4`, x: 0, y: 0, width: 1920, height: 1080, start, duration: 5, mediaStart: start, mediaDuration: 5, mediaSourceDuration: 20 });
-  const document = parseDocument(createDocument({ scenes: [createScene({ id: "main", width: 1920, height: 1080, duration: 10, layers: [shot("dark", 0), shot("lit", 5)] })] }));
+  // Two 16:9 shots in a frame of `frame` [w, h], placed at y with height h (letterbox bars around them in 9:16).
+  const shotsIn = ([frameWidth, frameHeight], [y, height]) => {
+    const shot = (id, start) => createLayer("video", { id, name: id, src: `/api/media/${id}.mp4`, x: 0, y, width: frameWidth, height, start, duration: 5, mediaStart: start, mediaDuration: 5, mediaSourceDuration: 20 });
+    return parseDocument(createDocument({ scenes: [createScene({ id: "main", width: frameWidth, height: frameHeight, duration: 10, layers: [shot("dark", 0), shot("lit", 5)] })] }));
+  };
+  const document = shotsIn([1920, 1080], [0, 1080]);
   // The dark shot is a ramp from 6 to 60 of 255 (mean 33), drawn through its lift curve when it has
-  // one; the lit shot is 90 everywhere.
+  // one; the lit shot is 90 everywhere; black outside the shots' band.
   const curveOf = (scene) => scene.layers.find((layer) => layer.id === "dark")?.animations.find((animation) => animation.id === "dark.lift")?.parameters?.master;
   const render = async (scene, times, { width }) => times.map((time) => {
-    const height = Math.round((width * 9) / 16);
+    const height = Math.round((width * scene.height) / scene.width), [y0, y1] = [scene.layers[0].y, scene.layers[0].y + scene.layers[0].height].map((y) => Math.round((y * width) / scene.width));
     const pixels = new Uint8ClampedArray(width * height * 4);
-    for (let at = 0; at < pixels.length; at += 4) pixels.fill(time >= 5 ? 90 : 6 + Math.round(54 * ((at / 4) % width) / width), at, at + 3), pixels[at + 3] = 255;
+    for (let at = 0; at < pixels.length; at += 4) {
+      const row = Math.floor(at / 4 / width), band = row >= y0 && row < y1;
+      pixels.fill(!band ? 0 : time >= 5 ? 90 : 6 + Math.round(54 * ((at / 4) % width) / width), at, at + 3), pixels[at + 3] = 255;
+    }
     const curve = time < 5 && curveOf(scene);
-    return curve ? applyTables([{ width, height, pixels }], curvesTables({ master: curve }))[0] : { width, height, pixels };
+    if (!curve) return { width, height, pixels };
+    // The curve draws on the layer only: the bars stay as they were.
+    const drawn = applyTables([{ width, height, pixels }], curvesTables({ master: curve }))[0];
+    for (let at = 0; at < pixels.length; at += 4) if (Math.floor(at / 4 / width) >= y0 && Math.floor(at / 4 / width) < y1) pixels.set(drawn.pixels.subarray(at, at + 4), at);
+    return { width, height, pixels };
   });
   const sent = [];
   const runOps = async (doc, ops) => {
@@ -936,6 +947,10 @@ test("lift_dark aims a dark shot at the other shots' median, adds a curve and gr
   sent.length = 0;
   await liftDark(first.document, { layerIds: ["dark"], target: 60, grain: false, fonts: defaultFonts, render, runOps });
   assert.deepEqual(sent.map((op) => op.op === "delete_animation" ? op.animationId : op.id), ["dark.lift", "dark.lift-grain", "dark.lift"]);
+  // In a 9:16 frame the same shots sit between black bars: each is measured inside its own box, so
+  // the bars neither set the black point nor pull the shot past the other shot's 90.
+  const tall = await liftDark(shotsIn([1080, 1920], [656, 608]), { layerIds: ["dark"], fonts: defaultFonts, render, runOps });
+  assert.match(tall.lines[0], /^lift_dark target 90 \(median of 1 other shot\): dark mean 33 to (8[89]|9[0-2]), contrast \(p90-p10\) 43 to \d+, black 7 to 7 /, tall.lines[0]);
   const [picked] = translateOperations([{ op: "lift_dark", layer: "dark", target: 80 }], createResolver(document), document);
   assert.deepEqual([picked.layerIds, picked.target], [["dark"], 80]);
 });

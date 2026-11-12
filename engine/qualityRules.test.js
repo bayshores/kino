@@ -2476,6 +2476,11 @@ test("liftShot: a dark frame lifted to a mean keeps its black point and gains mo
   // A small lift adds no grain; a shot at or above the target is left alone.
   assert.equal(liftShot([frame], 40 / 255).grain, null);
   assert.equal(liftShot([frame], 30 / 255), null);
+  // Drawn footage: flat fills (60% at 25, 30% at 40, 10% at 90) with no darker toe. The darkest
+  // fill is not a black point to keep, so it rises with the rest and the mean reaches the target.
+  const fills = { width: 10, height: 10, pixels: new Uint8ClampedArray(400).map((_, at) => (at % 4 === 3 ? 255 : at < 240 ? 25 : at < 360 ? 40 : 90)) };
+  const drawn = liftShot([fills], 70 / 255);
+  assert.deepEqual([...levels(lumaStats([fills])), ...levels(drawn.after)], [36, 25, 15, 90, 69, 45, 36, 181]);
 });
 
 test("reference_range: no clip speech before the loudest song change warns when most references have a voice there; the song's singer does not count", async () => {

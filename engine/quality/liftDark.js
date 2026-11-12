@@ -34,7 +34,35 @@ const GRAIN_MAX = 0.25;
 // and hard light moves a value v by about 2 x amount x (grain - 0.5) x v.
 const GRAIN_SPREAD = 0.144;
 
+// Video black (16 of 255, the limited-range floor): the highest level kept as black when the
+// darkest level is a large flat area (a drawn fill, a flat card) rather than a toe of shadows.
+const VIDEO_BLACK = 16 / 255;
+
 const luma = (pixels, at) => 0.2126 * pixels[at] + 0.7152 * pixels[at + 1] + 0.0722 * pixels[at + 2];
+
+/**
+ * The level the lift keeps where it is: the 2nd percentile when the shadows spread above it (filmed
+ * footage), but no higher than video black when a tenth of the picture or more sits on that one
+ * level (drawn footage's flat dark fill), so the fill rises with the rest instead of staying dark.
+ */
+export function blackPoint(stats) {
+  const black = Math.min(0.25, Math.max(0, stats.p2));
+  return stats.p10 - black < 1 / 255 ? Math.min(black, VIDEO_BLACK) : black;
+}
+
+/**
+ * The pixels of an RGBA frame wholly inside `box` ({x0, y0, x1, y1} in scene pixels; `scale` frame
+ * pixels per scene pixel; an edge pixel half on a bar is left out), or the frame when none is.
+ */
+export function cropFrame(frame, box, scale = 1) {
+  if (!frame?.pixels?.length || !box) return frame;
+  const x0 = Math.max(0, Math.ceil(box.x0 * scale - 1e-6)), y0 = Math.max(0, Math.ceil(box.y0 * scale - 1e-6));
+  const x1 = Math.min(frame.width, Math.floor(box.x1 * scale + 1e-6)), y1 = Math.min(frame.height, Math.floor(box.y1 * scale + 1e-6));
+  if (x1 - x0 < 1 || y1 - y0 < 1 || (x0 === 0 && y0 === 0 && x1 === frame.width && y1 === frame.height)) return frame;
+  const width = x1 - x0, pixels = new Uint8ClampedArray(width * (y1 - y0) * 4);
+  for (let y = y0; y < y1; y += 1) pixels.set(frame.pixels.subarray((y * frame.width + x0) * 4, (y * frame.width + x1) * 4), (y - y0) * width * 4);
+  return { width, height: y1 - y0, pixels };
+}
 
 /** {mean, p2, p10, p50, p90, p98, contrast} of RGBA frames' Rec. 709 luma, 0 to 1 (contrast is p90 - p10). */
 export function lumaStats(frames) {
@@ -66,7 +94,7 @@ export function lumaStats(frames) {
  * roll-off, faded in between the black point and the 10th percentile.
  */
 export function liftValue(x, stats, stops) {
-  const black = Math.min(0.25, Math.max(0, stats.p2));
+  const black = blackPoint(stats);
   if (x <= black) return x;
   const u = (x - black) / (1 - black);
   // Divided by white's own value, so white stays white (the roll-off alone ends short of 1).
@@ -81,7 +109,7 @@ export function liftValue(x, stats, stops) {
 
 /** The curves effect's master points for a lift (at most 16, inputs rising). */
 export function liftCurve(stats, stops) {
-  const black = Math.min(0.25, Math.max(0, stats.p2));
+  const black = blackPoint(stats);
   const points = [[0, 0]];
   if (black > 0.002) points.push([round4(black), round4(black)]);
   for (let step = 1; step <= CURVE_STEPS; step += 1) {
@@ -142,6 +170,8 @@ export function liftShot(frames, target, { sourceScale = 1 } = {}) {
   if (!(stops > 0)) return null;
   const curve = liftCurve(before, stops);
   const after = lumaStats(applyTables(usable, curvesTables({ master: curve })));
+  // A curve that moves nothing (every pixel at or under the kept black) is no lift.
+  if (after.mean - before.mean < 1 / 255) return null;
   return { before, after, stops, curve, grain: liftGrain(before, stops, { sourceScale }) };
 }
 
