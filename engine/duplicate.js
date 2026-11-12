@@ -240,6 +240,9 @@ export function selectionStart(layers) {
 function copyTimes(scene, layerIds, at, count, options) {
   if (!Array.isArray(at) || !at.length || at.length > MAX_COPIES || !at.every((time) => Number.isFinite(time) && time >= 0))
     throw new Error(`at must list 1 to ${MAX_COPIES} times in seconds (or cues), one per copy.`);
+  // A copy placed after the end would never be seen.
+  const past = at.find((time) => Number.isFinite(scene?.duration) && time >= scene.duration);
+  if (past !== undefined) throw new Error(`at ${past} s is past the scene's end (${scene.duration} s): give a time inside the scene, or make the scene longer first.`);
   if (options.count !== undefined && options.count !== at.length) throw new Error(`at lists ${at.length} time${at.length === 1 ? "" : "s"}, count says ${options.count}: drop count or make them match.`);
   if (options.stagger !== undefined) throw new Error("at and stagger are two timings: give at (a time per copy) or stagger (seconds between copies), not both.");
   const layers = subtreeOf(scene.layers, layerIds);
@@ -256,8 +259,16 @@ function copyTimes(scene, layerIds, at, count, options) {
 // The document with every time of the named layers `delay` seconds later: animation starts, the
 // play time of videos and audio, a component's clock and play windows (the four time fields
 // speech.js rippleScene moves), so a footage or component copy plays at its own time.
+// A Hide or Show pushed past the scene's end stops at the end: it draws the same, and the saved
+// point stays inside the scene (add_animation refuses one past it).
 function delayLayers(document, sceneId, ids, delay) {
-  const later = (animation) => (typeof animation?.start === "number" ? { ...animation, start: round(Math.max(0, animation.start + delay)) } : animation);
+  const end = document.scenes.find((scene) => scene.id === sceneId)?.duration ?? Infinity;
+  const later = (animation) => {
+    if (typeof animation?.start !== "number") return animation;
+    const start = round(Math.max(0, animation.start + delay));
+    const point = animation.kind === "hide" || animation.kind === "show";
+    return { ...animation, start: point ? Math.min(start, end) : start };
+  };
   const shifted = (layer) => {
     const next = { ...layer };
     if (Array.isArray(layer.animations)) next.animations = layer.animations.map(later);

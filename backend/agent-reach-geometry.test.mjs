@@ -376,7 +376,7 @@ test("later ops of the same edit can name what duplicate_layers and split_layer 
     { op: "update_layer", layer: "ring 3", properties: { opacity: 0.5 } },
   ] });
   assert.equal(reply.isError, undefined, reply.text);
-  assert.match(reply.text, /ring: 3 places at 0\.2 2 3 s .*\(x at 2\); fill #00ff00 to #0000ff/);
+  assert.match(reply.text, /ring: the original at 0\.2 s, copies at 2 3 s \(x at 2\); fill #00ff00 to #0000ff/);
   const layers = (await saved(before.id)).document.scenes[0].layers;
   const named = (name) => layers.find((layer) => layer.name === name);
   assert.deepEqual(["ring", "ring 2", "ring 3"].map((name) => [named(name).animations[0].start, named(name).fill, named(name).x]),

@@ -72,6 +72,10 @@ function groupUses(scene, scenes) {
     } else if (layer.type === "text" && String(layer.text ?? "").trim()) {
       const text = String(layer.text).trim().toLowerCase().replace(/\s+/g, " ");
       add(`text:${text}`, `"${text.length > 24 ? `${text.slice(0, 23)}…` : text}"`, timeOf(layer), layer);
+    } else if (layer.type === "image" && layer.src) {
+      // An image returns when its file does: two imports both named "image" are not one device.
+      const base = nameBase(layer.name);
+      add(`image:${layer.src}`, !base || base === "image" ? "image" : `image ${base}`, timeOf(layer), layer);
     } else {
       add(`${layer.type}:${nameBase(layer.name)}`, nameBase(layer.name) || layer.type, timeOf(layer), layer);
     }
@@ -124,9 +128,13 @@ export function openAndClose(scene, { duration = scene?.duration ?? 0, scenes = 
     .map((group) => group.label);
 }
 
-/** One line: `returns: ring 4 at 3.3 7 11.3 14.2 (scaleX 0.4 to 1.6) · ... · first 1 s and last frame share: nothing`. */
+/** One line: `returns: ring at 3.3 7 11.3 14.2 (scaleX 0.4 to 1.6) · ... · first 1 s and last frame share: nothing`. */
+// At most this many times per device, so a 50-copy duplicate keeps the line short (a guess).
+const SHOWN_PLACES = 8;
 export function returnsLine(devices, { share = [] } = {}, limit = 4) {
-  const listed = devices.slice(0, limit).map((device) => `${device.label} ${device.places.length} at ${device.places.join(" ")}${device.changes.length ? ` (${device.changes.map((change) => `${change.key} ${change.first} to ${change.last}`).join(", ")})` : ""}`);
+  // "<label> at <times>": no count after the label, so "image at 2 5" is not read as a layer "image 2".
+  const times = (places) => (places.length > SHOWN_PLACES ? `${places.slice(0, SHOWN_PLACES).join(" ")} … (${places.length} places)` : places.join(" "));
+  const listed = devices.slice(0, limit).map((device) => `${device.label} at ${times(device.places)}${device.changes.length ? ` (${device.changes.map((change) => `${change.key} ${change.first} to ${change.last}`).join(", ")})` : ""}`);
   const more = devices.length > limit ? ` · +${devices.length - limit} more` : "";
   const head = listed.length ? listed.join(" · ") + more : "no made layer, word, move or shot is shown twice";
   return `returns: ${head} · first 1 s and last frame share: ${share.length ? share.join(", ") : "nothing"}`;

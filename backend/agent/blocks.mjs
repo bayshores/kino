@@ -1192,16 +1192,16 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     const scene = (operation.sceneId ? document.scenes.find((item) => item.id === operation.sceneId) : null)
       ?? document.scenes.find((item) => item.layers.some((layer) => layer.id === ids[0]));
     if (!scene) throw problem(`No layer "${ids[0]}".`);
-    if (!Array.isArray(operation.at)) throw problem("at is a list of times or cues, one per copy: at:[3.3, \"cue:drop\"].");
+    // One time (at:8 or at:"cue:drop") is one copy, as at:[8].
+    const written = Array.isArray(operation.at) ? operation.at : [operation.at];
     const fonts = await fontsOf(document, work);
     const lookup = timeLookup(document, scene, fonts, work);
-    const written = operation.at;
     operation.at = written.map((value) => round(resolveAt(value, lookup)));
     const made = await applyGeometryOperation(document, { ...operation, sceneId: scene.id }, { fonts });
     const root = scene.layers.find((layer) => layer.id === ids[0]);
     const cues = written.map((value, index) => (typeof value === "string" ? `${value.replace(/^cue:/, "")} at ${operation.at[index]}` : null)).filter(Boolean);
     const varied = Object.entries(operation.vary ?? {}).map(([key, values]) => `${key} ${values[0]} to ${values[values.length - 1]}`);
-    work.notes.push(`${root?.name ?? ids[0]}: ${operation.at.length + 1} places at ${[made.first, ...operation.at].map((time) => round(time)).join(" ")} s (the original's own first)${cues.length ? ` (${cues.join(", ")})` : ""}${varied.length ? `; ${varied.join(", ")} in time order` : ""}`);
+    work.notes.push(`${root?.name ?? ids[0]}: the original at ${round(made.first)} s, copies at ${operation.at.join(" ")} s${cues.length ? ` (${cues.join(", ")})` : ""}${varied.length ? `; ${varied.join(", ")} in time order` : ""}`);
     return made.document;
   }
 
