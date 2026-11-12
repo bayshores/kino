@@ -1377,9 +1377,13 @@ How to read it:
   a +18 dB tone step reads +18 LU, and +15.5 with +12 dB into the limiter) with the
   loudest kept line before it, the ending (hard stop on or off an onset, fade length and bar lines
   crossed, from the song's measured bar lines or printed as a guess, tail) with the picture's time past the sound, and the song's share under half volume over
-  40%. end_on_fade leaves a hard stop within 0.1 s after an onset. Evidence: `engine/mixReadout.test.js`,
+  40%. end_on_fade leaves a hard stop within 0.1 s after an onset. The "auto" gain and limiter ceiling
+  are fitted as a render fits them (trial encodes), and each cue line names the loudest reading before
+  it and the song's dips in that second. Replayed on two real drafts, the drop reads as their files do
+  (+2.1 and +3.7 LU, was +4.6 and +7.4). Evidence: `engine/mixReadout.test.js`,
   `engine/qualityPolish.test.js`, `backend/audio-levels.test.mjs`. Gap: no saved reference keeps a drop rise;
-  on a replayed real project the readout read the line before the drop 3.3 LU under its rendered file.
+  the dip clause reads the song layer's own volume only (dm5-a's hole at 8.0-8.5 s comes from another
+  music layer, not named), and a WebM or MOV render's sound encode is not modeled.
 - **Limiter places fixed in one call**: Verified on generated audio. `check {fix:"auto"}` measures each
   layer at a shared place alone and turns down only the one that makes the peak, by its measured share
   of the peak (all of them by xN when none can clear it alone; a short clip whole, a long one over the

@@ -22,7 +22,7 @@ import { normalizeRenderQuality, motionSampleTimes, createSampleBlend, MAX_MOTIO
 import { shutterFps, shutterSampleCount } from "../engine/previewBlur.js";
 import { frameReference, inspectMotion, inspectRenderedOutput } from "./render-output-audit.mjs";
 import { cuts as modelCuts } from "../engine/quality/analysis.js";
-import { LIMITER_CEILING_DB, PEAK_METER, PEAK_WINDOWS, askedLead, fitLoudness, limiterPlaces, loudMixWarning, loudnessGain, masterLimiter, measureMixLevels, mixLead, peakOver, readPeakWindows, referenceLead } from "./audio-levels.mjs";
+import { LIMITER_CEILING_DB, PEAK_METER, PEAK_WINDOWS, askedLead, fitGain, fitLimiterCeiling, fitLoudness, limiterPlaces, loudMixWarning, loudnessGain, masterLimiter, measureMixLevels, mixLead, peakOver, readPeakWindows, referenceLead } from "./audio-levels.mjs";
 import { analyzeAudioFile, isSoundEffect, steadyBeat } from "./audio-analysis.mjs";
 import { encodeRenderPng } from "./render-png.mjs";
 import { createCanvas, loadImage } from "@napi-rs/canvas";
@@ -947,10 +947,10 @@ export function soundMixArgs(clips, duration, output) {
  * With `gainDb` (a number), the mix as a render plays it: that loudness gain, then the master
  * limiter at its starting ceiling (the drop readout, engine/mixReadout.js).
  */
-export async function soundCurve(clips, duration, signal, { gainDb = null } = {}) {
+export async function soundCurve(clips, duration, signal, { gainDb = null, ceiling = undefined } = {}) {
   const heard = audibleClips(clips, duration);
   if (!heard.length) return [];
-  const rendered = Number.isFinite(gainDb) ? `volume=${gainDb}dB,${masterLimiter()},` : "";
+  const rendered = Number.isFinite(gainDb) ? `volume=${gainDb}dB,${masterLimiter(ceiling)},` : "";
   const graph = `${audioMixGraph(heard, duration, "mp4", 0)},${rendered}${SAMPLE_TIMES},apad=whole_dur=${duration},ebur128=peak=true:metadata=1,ametadata=mode=print:file=-`;
   const printed = await runProcess(ffmpegCommand(), ["-hide_banner", "-nostdin", "-loglevel", "error", ...audioInputArgs(heard),
     "-filter_complex", graph, "-t", String(duration), "-f", "null", "-"], signal);
@@ -976,12 +976,13 @@ export async function soundCurve(clips, duration, signal, { gainDb = null } = {}
  * Those are render loudness "off". `auto` is what the default "auto" target does first (clips read
  * with sceneSoundClips lead: true name their songs and words): { target, targetLufs, gainDb, held,
  * places, worst } (worst: the place most over the ceiling after that gain), or null when no gain applies.
- * The gain is its first trial's; a render corrects it by a few tenths of a dB when the limiter gives some back.
+ * With heard, `auto` names the gain fitted as a render fits it (trials, first: the first trial's gain).
  * `windows` are the mix's 0.1 s peaks ([{t, peak}], dBFS). With perLayer, each playing entry at a
  * place shared by two or more layers gets peakDbfs: that layer's own peak over the place, alone.
- * With heard, one more run gives `heard`: { gainDb, windows: [{t, m, s}] }, the momentary loudness
- * every 0.1 s of the mix as a default render plays it ("auto"'s gain, 0 when none applies, then the
- * limiter), so a drop the limiter holds down reads as the file will.
+ * With heard, the trial encodes and one more run give `heard`: { gainDb, first, trials, ceiling,
+ * windows: [{t, m, s}] }, the momentary loudness every 0.1 s of the mix as a default render plays it
+ * ("auto"'s fitted gain, 0 when none applies, then the limiter at the fitted ceiling), so a drop the
+ * limiter holds down reads as the file will.
  */
 export async function measureMixPeaks(clips, duration, signal, { perLayer = false, references = [], heard: readHeard = false } = {}) {
   const heard = audibleClips(clips, duration);
@@ -1037,8 +1038,32 @@ export async function measureMixPeaks(clips, duration, signal, { perLayer = fals
     auto = { target: gain.target, targetLufs: gain.targetLufs, gainDb: gain.gainDb, held: gain.held, places: shifted.length,
       worst: worst ? { at: worst.at, overDb: worst.overDb } : null, ...(gain.why ? { why: gain.why } : {}) };
   }
-  const gainDb = auto?.gainDb ?? 0;
-  const rendered = readHeard ? { gainDb, windows: await soundCurve(heard, duration, signal, { gainDb }) } : null;
+  // heard: the gain a render lands on, fitted the way it fits it (fitGain: the limiter gives back
+  // part of each gain, so the render corrects it over up to 5 trials; dm5-a: first trial -0.2 dB,
+  // the render +2.4 dB), each trial an encode as the render runs it (below).
+  let rendered = null;
+  if (readHeard && gain) {
+    // Each trial encodes the limited sound with this computer's MP4 sound encoder (as a default MP4
+    // render resolves it; the fallback's AAC when none resolves) and lowers the ceiling while the
+    // encode peaks over -1 dBTP, as the render does (fitLimiterCeiling).
+    const directory = await makeTempFolder("kino-heard-");
+    let fitted;
+    try {
+      const encoder = await resolveMp4Encoder(undefined, { width: 1920, height: 1080, fps: 30 }, { signal }).catch(() => null);
+      const codecArgs = encoder ? mp4AudioArgs(encoder.id, encoder.aacCodec) : mp4AudioArgs("mp4.alt");
+      const graph = audioMixGraph(heard, duration, "mp4", 0);
+      fitted = await fitGain({ integratedLufs, truePeakDbtp, loudestAt: null }, lead.target, lead,
+        (loudness) => fitLimiterCeiling(audioInputArgs(heard), `${graph},${loudness.filter}`, { codecArgs, format: "mp4", directory, signal }));
+    } finally { await removeTempFolder(directory); }
+    const ceiling = fitted.ceiling;
+    rendered = { gainDb: fitted.loudness.gainDb, first: fitted.first, trials: fitted.trials, ceiling, windows: await soundCurve(heard, duration, signal, { gainDb: fitted.loudness.gainDb, ceiling }) };
+    if (auto && rendered.gainDb !== auto.gainDb) {
+      // The mix line names the fitted gain too, and where the limiter works with it.
+      const shifted = limiterPlaces(windows, { ceiling: LIMITER_CEILING_DB - rendered.gainDb });
+      const worst = shifted.reduce((most, place) => (!most || place.overDb > most.overDb ? place : most), null);
+      auto = { ...auto, gainDb: rendered.gainDb, first: rendered.first, trials: rendered.trials, held: fitted.loudness.held, places: shifted.length, worst: worst ? { at: worst.at, overDb: worst.overDb } : null };
+    }
+  } else if (readHeard) rendered = { gainDb: 0, windows: await soundCurve(heard, duration, signal, { gainDb: 0 }) };
   return { integratedLufs, truePeakDbtp, limitedLufs, places, auto, windows, ...(rendered ? { heard: rendered } : {}) };
 }
 

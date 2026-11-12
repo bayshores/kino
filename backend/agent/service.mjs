@@ -9090,9 +9090,13 @@ export function createAgentService(deps) {
     // Read as a default render plays the mix ("auto"'s gain, then the limiter: a drop the limiter
     // holds down reads as the file will), else at loudness "off" before the limiter.
     const heard = mix.heard?.windows?.length ? mix.heard : null;
-    const gain = heard ? `${heard.gainDb >= 0 ? "+" : ""}${heard.gainDb} dB` : "";
-    const which = heard ? `the mix as a default render plays it: loudness "auto" ${gain}, then the limiter` : "the mix at loudness \"off\", before the limiter";
-    for (const cue of read) lines.push(`cue: ${cueRiseText(cueRise(heard?.windows ?? mix.windows, cue, kept))} (momentary 0.4 s readings, energy mean; ${which})`);
+    const signedDb = (value) => `${value >= 0 ? "+" : ""}${value} dB`;
+    const fit = heard?.trials > 1 ? ` (fitted as a render fits it: ${heard.trials} trials from ${signedDb(heard.first)})` : "";
+    // The gain and ceiling come from trial encodes with this computer's MP4 sound encoder, as a default
+    // MP4 render runs them (dm5-a and dm5-b, measured against their rendered files: 0.0 LU apart).
+    const ceiling = Number.isFinite(heard?.ceiling) ? `at ${Math.round(heard.ceiling * 10) / 10} dBFS, both fitted with trial encodes as an MP4 render fits them` : `at its starting ${LIMITER_CEILING_DB} dBFS`;
+    const which = heard ? `the mix as a default render plays it: loudness "auto" ${signedDb(heard.gainDb)}${fit}, then the limiter ${ceiling}` : "the mix at loudness \"off\", before the limiter";
+    for (const cue of read) lines.push(`cue: ${cueRiseText(cueRise(heard?.windows ?? mix.windows, cue, kept, { song: layer }))} (momentary 0.4 s readings, energy mean; ${which})`);
     const ending = songEnding({ layer, duration: scene.duration, windows: mix.windows, grid, fileSeconds });
     if (ending) lines.push(endingText(name, ending));
     const line = kept.find((entry) => entry.name !== name) ?? null;

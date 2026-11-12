@@ -442,6 +442,23 @@ test("the mix line's readings carry the momentary loudness that reads a drop's r
   const held = cueRise(await soundCurve(clips, 6.5, undefined, { gainDb: 12 }), { at: 3, kind: "drop" });
   t.diagnostic(`with +12 dB and the limiter: before ${held.before}, after ${held.after}, rise ${held.rise} LU`);
   assert.ok(held.rise < 16 && held.rise > 10, `the limited drop rises ${held.rise} LU`);
+  // A drop that pulses 2 times a second with saved references at -6 LUFS: the first gain drives it
+  // into the limiter, so the render tries more gains (3 trials here; the closest is kept). The heard
+  // readings take the gain the render lands on and read the drop as the rendered file's own meter
+  // does (dm5-a: first trial -0.2 dB, render +2.4).
+  await run(ffmpeg, ["-v", "error", "-y", "-f", "lavfi", "-i", "aevalsrc=if(lt(t\\,3)\\,0.05\\,0.4*(0.5+0.5*sin(2*PI*2*t)))*sin(2*PI*220*t):s=48000:d=6", "-ac", "2", join(mediaRoot, "pulse.wav")]);
+  const references = [{ id: "yt:loud", lufs: -6 }];
+  const pulse = createScene({ ...scene, layers: [{ ...scene.layers[0], src: "/api/media/pulse.wav" }] });
+  const fitted = await measureMixPeaks(await sceneSoundClips(pulse, { mediaRoot, directory, duration: 6.5 }), 6.5, undefined, { heard: true, references });
+  assert.ok(fitted.heard.trials > 1, `${fitted.heard.trials} trials from ${fitted.heard.first} to ${fitted.heard.gainDb} dB`);
+  const render = await exportScene(pulse, { profile: "mp4.alt", fps: 10, loudness: "auto", referenceLoudness: references }, { mediaRoot, outputPath: join(mediaRoot, "drop.mp4") });
+  const fileScene = createScene({ id: "file", name: "File", width: 32, height: 32, duration: 6.5, background: "#000000",
+    layers: [createLayer("audio", { id: "file", name: "file", src: "/api/media/drop.mp4", mediaSourceDuration: 6.5, volume: 1 })] });
+  const fileWindows = await soundCurve(await sceneSoundClips(fileScene, { mediaRoot, directory, duration: 6.5 }), 6.5);
+  const [model, file] = [cueRise(fitted.heard.windows, { at: 3, kind: "drop" }), cueRise(fileWindows, { at: 3, kind: "drop" })];
+  t.diagnostic(`gain ${fitted.heard.gainDb} dB (${fitted.heard.trials} trials, ceiling ${fitted.heard.ceiling}), render ${render.loudness.gainDb} dB; model ${model.before}/${model.after}, file ${file.before}/${file.after}`);
+  assert.equal(fitted.heard.gainDb, render.loudness.gainDb);
+  assert.ok(Math.abs(model.after - file.after) <= 1 && Math.abs(model.rise - file.rise) <= 1, `model ${model.before}/${model.after}, file ${file.before}/${file.after}`);
   const ending = songEnding({ layer: scene.layers[0], duration: 6.5, windows: mix.windows, grid: { onsets: [5.45], beats: [] }, fileSeconds: 6 });
   assert.deepEqual([ending.kind, ending.at, ending.onset], ["stop", 5.5, 5.45]);
   assert.ok(Math.abs(ending.soundEnd - 5.55) <= 0.1 && Math.abs(ending.after - 0.95) <= 0.1, `sound ends ${ending.soundEnd}, picture after ${ending.after}`);
@@ -616,7 +633,8 @@ test("the render reply gives the sound's loudness and true peak and warns about 
   const sound = await agent("look", { project, mode: "motion", ref: "sound" });
   assert.match(sound.text, /\nlimiter: .*works at \d+ place/);
   // The default "auto" gain turns this mix down past every place: check fix:auto keeps its shape.
-  assert.match(mixLine, /adds -[\d.]+ dB first, then the limiter never works$/);
+  // The gain is fitted as the render fits it (the limiter gives part of the first trial back).
+  assert.match(mixLine, /adds -[\d.]+ dB first( \(fitted as a render fits it: \d trials from -[\d.]+ dB\))?, then the limiter never works$/);
   const kept = await agent("check", { project, pixels: false, fix: "auto" });
   assert.match(kept.text, /not applied mix: loudness "auto" \(the render default\) adds -[\d.]+ dB first, so the limiter never works/);
   assert.doesNotMatch(kept.text, /mix fix:/);
