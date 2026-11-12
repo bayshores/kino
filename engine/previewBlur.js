@@ -12,6 +12,29 @@ import { IDENTITY, layerMatrix, multiply } from "./geometry.js";
 import { renderDirectionalBlur } from "./effects/motionBlurs.js";
 
 export const PREVIEW_SAMPLES = 4;
+
+// With the project's shutter on (update_project {shutterAngle}), look frames and draft renders draw
+// the real shutter (several moments averaged, as a final does) so a turn or a scale pop smears too,
+// which the cheap smear above misses (it follows the box center only). Each moving frame draws at
+// most this many moments. A guess: 6 keeps a 30 degree turn over 3 frames at 20 fps a smear, not
+// copies, at look size, while a moving look frame costs about 6 plain ones. A draft takes render
+// options {motionSamples} instead; frames that do not move are drawn once.
+export const LOOK_MOTION_SAMPLES = 6;
+
+/** The frame rate the shutter is a part of: the scene's own rate when it has one, else 30. */
+export function shutterFps(scene) {
+  const fps = Number(scene?.fps);
+  return Number.isFinite(fps) && fps > 0 ? fps : 30;
+}
+
+/**
+ * The scene's shutter (the project's shutterAngle, copied onto each drawn scene by expandComponents)
+ * as render options for a look frame or a draft: {shutterAngle, maxMotionSamples}, or {} when off.
+ */
+export function sceneShutterOptions(scene, maxSamples = LOOK_MOTION_SAMPLES) {
+  const angle = Number(scene?.shutterAngle);
+  return angle > 0 && angle <= 360 ? { shutterAngle: angle, maxMotionSamples: maxSamples } : {};
+}
 // The final render's default shutter: motionBlur 0.5 (a 180° shutter) at 30 fps.
 export const PREVIEW_SHUTTER = 0.5 / 30;
 // Scene pixels of travel during the shutter below which a layer is drawn sharp (480 px/s).

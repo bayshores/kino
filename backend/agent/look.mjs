@@ -22,6 +22,7 @@ import { shownTextAt } from "../../engine/textChangeDraw.js";
 import { resizeTextLayer } from "../../engine/textLayout.js";
 import { missingDocumentFonts } from "../../engine/fontRecovery.js";
 import { exportScene, renderStills } from "../export.mjs";
+import { sceneShutterOptions, shutterFps } from "../../engine/previewBlur.js";
 import { PREVIEW_FPS, PREVIEW_QUALITY, previewSize } from "../preview-segments.mjs";
 import { renderContentKey } from "../render-segment-cache.mjs";
 import { graphicsCacheInput } from "../render-devices.mjs";
@@ -364,7 +365,11 @@ export function createLook({ cache, outDirectory, mediaRoot, renderSettings }) {
   // `height` too lets a frame be drawn larger than the scene (zoom draws small layers at 2×);
   // with only a width, export keeps the scene's own height as the limit.
   async function frameKey(prepared, time, width, height, render) {
-    const options = { format: "png", time: Math.min(time, prepared.scene.duration), width, ...(height ? { height } : {}) };
+    // The project's shutter (update_project {shutterAngle}) draws the real motion blur, bounded to
+    // LOOK_MOTION_SAMPLES moments; without it look keeps the cheap smear (previewBlur.js).
+    const shutter = sceneShutterOptions(prepared.scene);
+    const options = { format: "png", time: Math.min(time, prepared.scene.duration), width, ...(height ? { height } : {}),
+      ...(shutter.shutterAngle ? { ...shutter, fps: shutterFps(prepared.scene) } : {}) };
     const contentKey = await renderContentKey(prepared.scene, options, {
       fonts: prepared.fonts,
       mediaRoot,
@@ -404,7 +409,7 @@ export function createLook({ cache, outDirectory, mediaRoot, renderSettings }) {
       const drawn = await frame(prepared, time, width);
       for (const entry of found) if (entry.key === key) entry.png = drawn.png;
     } else if (missing.size) {
-      const stills = await renderStills(prepared.scene, [...missing.values()], { width, mediaRoot, fonts: prepared.fonts, render, previewBlur: true });
+      const stills = await renderStills(prepared.scene, [...missing.values()], { width, mediaRoot, fonts: prepared.fonts, render, previewBlur: true, shutter: sceneShutterOptions(prepared.scene) });
       const keys = [...missing.keys()];
       for (const [index, still] of stills.entries()) {
         await cache.set(keys[index], still.buffer);

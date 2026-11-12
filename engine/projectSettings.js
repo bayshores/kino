@@ -3,9 +3,21 @@
 import { MAX_WAIVERS } from "./qualityFields.js";
 
 // What update_project may change. checkWaivers has its own operations.
-const PROJECT_PROPERTIES = new Set(["name", "videoType", "rhythm"]);
+const PROJECT_PROPERTIES = new Set(["name", "videoType", "rhythm", "shutterAngle"]);
 
-/** update_project {properties}: sets the name, videoType or rhythm. null removes videoType or rhythm. */
+/**
+ * The project's shutter in degrees (update_project {shutterAngle}): 0 to 360, 180 is half a frame
+ * open. Missing means off for look and drafts, as before it existed; finals keep their own 180.
+ * Checked by parseDocument; null removes it.
+ */
+export function normalizeShutterAngle(document) {
+  if (document.shutterAngle === undefined || document.shutterAngle === null) { delete document.shutterAngle; return; }
+  const angle = document.shutterAngle;
+  if (typeof angle !== "number" || !Number.isFinite(angle) || angle < 0 || angle > 360)
+    throw new Error("document.shutterAngle must be a number of degrees from 0 to 360 (180 is the film look, 0 is off).");
+}
+
+/** update_project {properties}: sets the name, videoType, rhythm or shutterAngle. null removes all but name. */
 export function applyProjectUpdate(document, properties) {
   if (!properties || typeof properties !== "object" || Array.isArray(properties) || !Object.keys(properties).length)
     throw new Error("update_project needs properties, such as {videoType:\"promo\"} or {rhythm:{bpm:120, offset:0}}.");

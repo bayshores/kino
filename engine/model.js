@@ -1,4 +1,5 @@
 import { normalizeQualityDocumentFields, normalizeQualityLayerFields, normalizeQualitySceneFields } from "./qualityFields.js";
+import { normalizeShutterAngle } from "./projectSettings.js";
 import { normalizeBlockDocumentFields, normalizeBlockLayerFields, normalizeBlockSceneFields } from "./blockFields.js";
 import { normalizeDrift } from "./camera.js";
 import { normalizeLetterbox, normalizeSceneFinish } from "./sceneFinishFields.js";
@@ -1732,6 +1733,7 @@ export function parseDocument(value) {
   });
   validateComponents(document);
   normalizeQualityDocumentFields(document, MAX_TIME);
+  normalizeShutterAngle(document);
   normalizeBlockDocumentFields(document);
   // The storyboard (board.js): its shape only; the board op checks it against media and fonts.
   normalizeBoard(document);

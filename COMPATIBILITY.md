@@ -1238,6 +1238,10 @@ How to read it:
   playback segments and `look` show a preview: a layer moving over 8 px in the 1/60 s shutter is
   smeared along its path (`engine/effects/motionBlurs.test.js`). Gaps: the preview and the sample count
   follow moves, not scale or spin, nor moves inside components or text units.
+- **Project shutter in look and drafts**: Verified. `update_project {properties:{shutterAngle:180}}`
+  makes look frames, sheets and draft renders draw the real shutter (up to 6 moments a moving frame),
+  so a turn or scale pop smears; finals use the angle; a fast move while it is off says so in the
+  receipt. Evidence: `backend/motion-blur-samples.test.mjs`. Gap: the dashboard keeps the cheap preview.
 - **Whip preset**: Verified. `preset-whip` (`whip-in`, `whip-out`) is a 0.35 s slide that fades at
   its far end, smeared along its path in every drawing; judder counts that smear. Evidence:
   `engine/effects/motionBlurs.test.js`, `engine/qualityRules.test.js`.
