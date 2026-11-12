@@ -646,9 +646,14 @@ export function planEdit(input) {
   const captions = [];
   for (const shot of shots) {
     if (!shot.speech) continue;
+    const until = round3(shot.end - 0.05);
+    // A word said after the caption leaves is not shown, and a word whisper timed to no length (run
+    // 6's scream clip ends on "can't!" at 2.987-2.987 s) shows for 0.04 s, so the caption move takes it.
     const words = shot.moment.words.filter((word) => word.start >= shot.in - 0.05 && word.end <= shot.moment.out + 0.05)
-      .map((word) => ({ text: word.text, at: round3(shot.start + word.start - shot.in), end: round3(shot.start + word.end - shot.in) }));
-    if (words.length) captions.push({ shot: shot.n, energy: style.captions, words, until: round3(shot.end - 0.05) });
+      .map((word) => ({ text: word.text, at: round3(shot.start + word.start - shot.in), end: round3(shot.start + word.end - shot.in) }))
+      .filter((word) => word.at < until)
+      .map((word) => (word.end > word.at ? word : { ...word, end: round3(word.at + 0.04) }));
+    if (words.length) captions.push({ shot: shot.n, energy: style.captions, words, until });
   }
   let voicePlan = null;
   if (voice) {

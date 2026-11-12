@@ -63,8 +63,15 @@ export function createFootageFacts({ listMedia, mediaRoot, transcripts, beatAnal
   }
   // The words of a sound file, heard with the names of `document`'s brief (or the transcript a cut
   // voice of it was cut on: service.mjs transcripts).
+  // A saved transcript comes first, also one heard before the brief's names changed: the one status,
+  // check, look source and keep_line read. Hearing a clip again with new names can lose its words: on
+  // the run 6 copy it read the "I can't," status named as "(unclear)", so compose kept no line
+  // (.scratch/defaults/compose-speech-review/run1.md).
   async function words(file, notes, name, document, src) {
-    try { return (await transcripts.get(file, document, { src })).words ?? []; }
+    try {
+      const shown = transcripts.saved ? await transcripts.saved(file, document, { src }, { any: true }).catch(() => null) : null;
+      return (shown ?? await transcripts.get(file, document, { src })).words ?? [];
+    }
     catch (error) {
       notes.push(`no words for ${name}: ${String(error.message).split(". ")[0]}`);
       return null;

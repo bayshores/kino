@@ -103,7 +103,12 @@ export function speechMoments(clip, topic) {
   if (!clip.words?.length) return [];
   const all = clip.words.filter((word) => !word.unclear);
   const found = [];
-  const list = sentences(all).filter((sentence) => sentence.start >= (clip.in ?? 0) - 1e-6 && sentence.end <= (clip.out ?? Infinity) + 1e-6);
+  // At the file's own end a last word may end a few ms past the measured duration (the transcript
+  // and the file are measured apart: run 6's scream clip says "I can't!" to 2.987 s of a 2.983 s
+  // file, and the whole line was dropped). 0.05 s is a guess; a chosen out point stays exact.
+  const end = clip.out ?? Infinity;
+  const slack = Number.isFinite(clip.duration) && end >= clip.duration - 1e-3 ? 0.05 : 1e-6;
+  const list = sentences(all).filter((sentence) => sentence.start >= (clip.in ?? 0) - 1e-6 && sentence.end <= end + slack);
   for (let index = 0; index < list.length; index += 1) {
     let sentence = list[index];
     // A one- or two-word sentence ("Okay.") rides with the next one when it follows closely.

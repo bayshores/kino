@@ -3,7 +3,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { barAtOrAfter, beatGrid, editBeats, snapToImpact, speechSpan } from "./footage/cuts.js";
-import { markedSubject, openingMoment } from "./footage/moments.js";
+import { markedSubject, openingMoment, speechMoments } from "./footage/moments.js";
+import { pickLines } from "./footage/lines.js";
 import { frameShot, shotLayout } from "./footage/layout.js";
 import { facePartPoint, pickFace } from "./footage/faceParts.js";
 import { accentTimes, burstPassages, phrasePlan, songSections } from "./footage/pace.js";
@@ -178,6 +179,14 @@ test("spoken lines: with no voice a short clear repeated line is heard, captione
   const named = paced(null, 18, { clip: { words: said }, lines: ["kill you", "never said"] }).plan;
   assert.equal(named.shots.filter((shot) => shot.speech).length, 1);
   assert.match(named.spokenLines.at(-1), /lines not heard in the clips: "never said"/);
+  // A last word ending 4 ms past the file's measured end is still a line (run 6's scream clip);
+  // a tag word that kept one bracket is none.
+  const tail = speechMoments({ key: "k", duration: 2.983, in: 0, out: 2.983, words: [{ text: "I", start: 2.4, end: 2.7, p: 0.9 }, { text: "can't!", start: 2.7, end: 2.987, p: 0.9 }], samples: [] }, new Set());
+  assert.equal(tail.length, 1);
+  assert.deepEqual(pickLines([{ ...tail[0], text: "Laughing)", score: 90 }], { duration: 18 }).chosen, []);
+  // A word timed to no length still gets a caption length the caption move takes.
+  const zero = paced(null, 18, { clip: { words: [said[0], { ...said[1], start: 5.3, end: 5.3 }], sound: { src: "c.mp4", own: true, duration: 20, loud: -20 } } }).plan;
+  assert.ok(zero.captions.length && zero.captions.every((caption) => caption.words.every((word) => word.end > word.at)));
 });
 
 test("pace: runs of whole beats on the beat grid, a calm open and an ending twice as fast", () => {

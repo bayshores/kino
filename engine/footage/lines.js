@@ -67,7 +67,9 @@ export function rankLines(moments, { all = moments, message = "" } = {}) {
 export function pickLines(candidates, { option, duration, opening = null, budget = Infinity, all = candidates, message = "", least = 0 }) {
   // A sound tag ("coughs*", "[music]", "(laughs)") is no line: on the run 6 copy the only lines
   // left out were three such tags.
-  const said = (text) => /\p{L}/u.test(String(text).replace(/\[[^\]]*\]|\([^)]*\)|\S*\*\S*/g, ""));
+  // A tag split over words keeps one bracket ("Laughing)" on the run 6 copy): any word with a
+  // bracket or a star is a tag word.
+  const said = (text) => /\p{L}/u.test(String(text).replace(/\[[^\]]*\]|\([^)]*\)|\S*[*()[\]]\S*/g, ""));
   const ranked = rankLines(candidates.filter((moment) => said(moment.text)), { all, message });
   if (option === false) return { chosen: [], left: ranked, missing: [], count: 0 };
   const listed = Array.isArray(option);
