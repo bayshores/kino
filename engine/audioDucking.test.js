@@ -270,6 +270,37 @@ test("each line gets its own dip at its own measured depth, the song comes back 
   assert.deepEqual(duck(document, { under: ["v3"], levels, to: 0.3 }).report.times, [[7.25, 10]]);
 });
 
+// .scratch friction wave 4 (replay-proof): the default dipped lines whose ways said "no dip needed",
+// and printed "heard at full" for a cue a dip started on.
+const flatCurve = (lufs, seconds) => ({ step: 0.1, momentary: new Array(seconds * 10).fill(lufs) });
+const said = (text, start, end) => ({ text, start, end, p: 1 });
+function duckVo(cues, songLufs, words, extra = {}) {
+  const document = documentWith([sound("music", { mediaSourceDuration: 30 }), sound("vo", { mediaSourceDuration: 10 })]);
+  document.cues = cues;
+  return duck(document, { under: ["vo"], speech: { vo: { words } }, levels: { music: flatCurve(songLufs, 30), vo: flatCurve(-16, 10) }, ...extra });
+}
+
+test("a line already 6 LU over the song as it plays gets no default dip, and the receipt says why", () => {
+  // The voice counts at -16 LUFS, the song at -23: +7 LU (it dipped to 0.794 for 9 LU before).
+  const { report, music } = duckVo([], -23, [said("one", 2, 2.6), said("two", 2.7, 3.4)]);
+  assert.deepEqual([report.dips, volumeAt(music, 3)], [0, 1]);
+  assert.match(report.ways[0], /no dip needed/);
+  assert.equal(report.clear, "no dip under vo 2-3.4 s (+7 LU): already 6 LU or more over the song as it plays there (measured; ways: no dip needed); to:<volume> dips anyway");
+  assert.equal(duckVo([], -23, [said("one", 2, 2.6)], { to: 0.5 }).report.dips, 1);
+});
+
+test("a dip that starts on a section cue covers it, and a last word past the drop holds the dip with its rise", () => {
+  const onCue = duckVo([{ name: "chorus", time: 2.2, kind: "marker" }], -10, [said("one", 0.3, 1), said("two", 2.3, 3)], { fadeUp: 2 });
+  assert.deepEqual(onCue.report.times, [[0.15, 2.2], [2.2, 5]]);
+  assert.equal(onCue.report.sections, undefined);
+  assert.match(onCue.report.warning, /covers the song's chorus at 2\.2 s/);
+  // "two" runs 2.7-3.4 s over a drop at 3.2 s: the dip holds to 3.4 s (it ended at 3.2 s) and is back up 0.3 s later.
+  const past = duckVo([{ name: "drop", time: 3.2, kind: "marker" }], -10, [said("one", 2, 2.6), said("two", 2.7, 3.4)]);
+  assert.deepEqual(past.report.times, [[1.85, 3.7]]);
+  assert.deepEqual([3.3, 3.7].map((time) => Math.round(volumeAt(past.music, time) * 1000) / 1000), [0.178, 1]);
+  assert.equal(past.report.payoff, 'the dip under vo holds to the end of its last word "two" at 3.4 s, 0.2 s past the song\'s drop at 3.2 s, then comes up in 0.3 s: +15 LU (-25 to -10 LUFS, 0.4 s each side, measured)');
+});
+
 test("voiceLeveling levels one clip line by line when its lines need gains over 6 dB apart", () => {
   // Line one at -28 LUFS (0 to 2 s), line two at -18 LUFS (3 to 5 s), silence between.
   const curve = { step: 0.1, momentary: Array.from({ length: 50 }, (_, index) => (index < 20 ? -28 : index < 30 ? null : -18)) };

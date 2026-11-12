@@ -3630,6 +3630,10 @@ export function createAgentService(deps) {
       const wholes = [...new Set(plan.trimmed.flatMap((place) => place.layers.filter((layer) => layer.whole).map((layer) => String(layer.name).slice(0, 24))))];
       mixTail = `; check {fix:"auto"} turns down ${plan.trimmed.length} of ${mix.places.length} ${mix.places.length === 1 ? "place" : "places"}` +
         (wholes.length ? ` (${wholes.map((name) => `${name} whole`).join(", ")}: its dips would churn or meet a fade; the fix sizes it from each layer measured alone)` : "");
+      // The places the fix leaves (a line keep_line leveled, a fade): the one call that clears the worst of them.
+      const done = new Set(plan.trimmed.map((place) => place.at));
+      const rest = restCallFor(mix.places.filter((place) => !done.has(place.at)), null, returnsScene.layers);
+      if (rest) mixTail += `; the rest: ${rest}`;
     }
     if (mix) lines.push(describeMixPeaks(mix, { tail: "; all of them: look {mode:\"motion\", ref:\"sound\"}" }) + mixTail);
     for (const note of result.notes) lines.push(`note: ${note}`);

@@ -151,3 +151,20 @@ test("measured alone, the layer that makes a place's peak comes down by its own 
   assert.equal(peakCauses(place(-2, -2.5)), null);
   assert.deepEqual(peakTrims(document.scenes[0], [place(-2, -2.5)]).fixed, ["mix 9.6 s (9.6-9.8 s, 4.6 dB over) x0.58: song 1->0.58, step 0.58"]);
 });
+
+// .scratch friction wave 4 (dm2-a board-S1): fix:auto took a kept line from +4.9 to +2.3 LU over the song.
+test("a limiter place keeps the level keep_line set for a kept line and takes the trim from the song", () => {
+  const ramp = (name, start, duration, from, to) => ({ id: name.replace(" ", "-"), name, kind: "custom", easing: "smooth", start, duration, from: { volume: from }, to: { volume: to } });
+  const document = parseDocument({ ...createDocument(), scenes: [createScene({ id: "s", duration: 10, layers: [
+    createLayer("audio", { id: "song", name: "song", src: "/api/media/a.wav", volume: 1, mediaSourceDuration: 10 }),
+    createLayer("audio", { id: "line", name: "line", src: "/api/media/b.wav", volume: 1, voiceLevel: -12, mediaSourceDuration: 10,
+      animations: [ramp("Line mute", 0, 0.001, 1, 0), ramp("Line up", 1.92, 0.08, 0, 1), ramp("Line down", 3, 0.12, 1, 0)] })] })] });
+  // The line alone at -3 dBFS, the song at -4, the mix +1.5 dBTP (x0.7 to the ceiling).
+  const place = { at: 2.4, from: 2.4, to: 2.6, peakDbtp: 1.5, overDb: 3, factor: 0.7,
+    playing: [{ layerId: "line", name: "line", peakDbfs: -3 }, { layerId: "song", name: "song", peakDbfs: -4 }] };
+  // Measured alone, the line is the loudest: it was the one turned down (x0.36).
+  assert.deepEqual([...peakCauses(place)], [["line", 0.36]]);
+  const trim = peakTrims(document.scenes[0], [place]);
+  assert.deepEqual(trim.ops.map((op) => [op.op, op.layerId]), [["add_animation", "song"], ["add_animation", "song"]]);
+  assert.deepEqual(trim.fixed, ["mix 2.4 s (2.4-2.6 s, 3 dB over): song x0.25 1->0.25 (alone -4 dBFS); kept line at the level keep_line set (line 2-3 s)"]);
+});
