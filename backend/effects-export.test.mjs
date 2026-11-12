@@ -8,7 +8,23 @@ import { createLayer, createScene } from "../engine/model.js";
 import { EFFECTS, effectDefaults } from "../engine/effects/catalog.js";
 import { cubeText } from "../engine/effects/colorMath.js";
 import { EFFECT_PRESET_DEFINITIONS } from "../engine/effects/presetCatalog.js";
-import { exportScene } from "./export.mjs";
+import { exportScene, lumaLevels, normalizesLevels } from "./export.mjs";
+
+test("normalize levels: the 2nd and 98th luma percentile of opaque pixels, for grades that ask", () => {
+  // Every 4th pixel is sampled; half of those are transparent and skipped, leaving the 50 lumas
+  // 50, 52, ... 148, whose 2nd and 98th percentiles are 50 and 146.
+  const data = new Uint8ClampedArray(400 * 4);
+  for (let pixel = 0; pixel < 400; pixel += 1) data.set([50 + pixel / 4, 50 + pixel / 4, 50 + pixel / 4, pixel % 8 === 4 ? 0 : 255], pixel * 4);
+  const [low, high] = lumaLevels([{ data }]);
+  assert.deepEqual([Math.round(low * 255), Math.round(high * 255)], [50, 146]);
+  assert.equal(lumaLevels([{ data: new Uint8ClampedArray(16) }]), null);
+  assert.equal(normalizesLevels({ kind: "effect", effect: "duotone", to: { normalize: true } }), true);
+  // A duotone saved before normalize existed is not measured (it draws as it did).
+  assert.equal(normalizesLevels({ kind: "effect", effect: "duotone", to: {} }), false);
+  assert.equal(normalizesLevels({ kind: "effect", effect: "tritone", to: { normalize: false } }), false);
+  assert.equal(normalizesLevels({ kind: "effect", effect: "color-look", to: { look: "section-grade" } }), true);
+  assert.equal(normalizesLevels({ kind: "effect", effect: "color-look", to: { look: "ember" } }), false);
+});
 
 const OUTPUT = { format: "lottie", fps: 2, duration: 1 };
 

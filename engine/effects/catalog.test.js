@@ -12,6 +12,7 @@ import {
   normalizeEffectParameters,
 } from "./catalog.js";
 import { IDENTITY_CURVE } from "./colorMath.js";
+import { createEffectAnimation, effectsAt } from "./animation.js";
 
 // The lut effect needs the src of an imported .cube file; every other default is complete.
 const LUT_SOURCE = "/api/media/0a1b2c3d-0000-4000-8000-000000000001.cube";
@@ -134,6 +135,29 @@ test("Post FX uses the observed catalog order, starting values and typed color i
   for (const key of ["luma-highlight", "noise-mask", "pixelate"]) assert.equal(effectDefinition(key).easing, "smooth");
   assert.equal(normalizeEffectParameters("duotone", { shadowColor: "#abc" }).shadowColor, "#AABBCC");
   assert.throws(() => normalizeEffectParameters("duotone", { shadowColor: "rgba(0,0,0,1)" }), /hex color/);
+  // Duotone and tritone normalize to the layer's measured levels (helpers.levels) unless normalize
+  // is false, and keep:"skin" draws them as a 3D LUT that leaves skin partly its own color.
+  for (const key of ["duotone", "tritone"]) {
+    const drawn = (parameters, levels) => {
+      const defs = [];
+      const output = effectDefinition(key).render({ content: "<rect/>", bounds: { x: 0, y: 0, width: 4, height: 4 },
+        parameters: { ...effectDefaults(key), ...parameters }, time: 0, progress: 0, helpers: { id: (kind) => kind, defs, ...(levels ? { levels } : {}) } });
+      return defs.join("") + output;
+    };
+    // A new effect stores normalize true; one saved before the field existed has none and draws
+    // as it did, even with levels measured.
+    const layer = { id: "l", type: "rectangle", animations: [] };
+    const created = createEffectAnimation(key, layer, 0, { duration: 2 }, "a", {});
+    assert.equal(created.to.normalize, true);
+    assert.equal(effectDefaults(key).keep, "none");
+    const saved = { ...created, to: Object.fromEntries(Object.entries(created.to).filter(([name]) => name !== "normalize")) };
+    assert.equal(effectsAt({ ...layer, animations: [saved] }, 1)[0].parameters.normalize, undefined);
+    const plain = drawn({ normalize: true }), stretched = drawn({ normalize: true }, [0.1, 0.6]);
+    assert.notEqual(plain, stretched);
+    assert.equal(drawn({ normalize: false }, [0.1, 0.6]), plain);
+    assert.equal(drawn({}, [0.1, 0.6]), plain);
+    assert.match(drawn({ normalize: true, keep: "skin" }, [0.1, 0.6]), /feComposite in="lut"/);
+  }
   assert.throws(() => normalizeEffectParameters("pixelate", { pixelSizeStep: 0 }), /from 1 to 128/);
   assert.throws(() => normalizeEffectParameters("dithering", { subdivisions: 2049 }), /from 1 to 2048/);
   // Noise Mask's Cell Size: 0 (the default, and what older documents get) keeps Scale's cells.

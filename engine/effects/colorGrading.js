@@ -292,7 +292,9 @@ export function renderColorWheels(frame) {
   for (const wheel of ["lift", "gamma", "gain"]) {
     const [fallback, min, max] = wheel === "lift" ? [0, -1, 1] : wheel === "gamma" ? [1, 0.1, 4] : [1, 0, 4];
     parameters[wheel] = numberParameter(frame, wheel, fallback, min, max);
-    for (const channel of ["Red", "Green", "Blue"]) parameters[`${wheel}${channel}`] = numberParameter(frame, `${wheel}${channel}`, 0, -1, 1);
+    // Channel gains share gain's scale (catalog.js color-wheels): -4..4 added to gain.
+    const reach = wheel === "gain" ? 4 : 1;
+    for (const channel of ["Red", "Green", "Blue"]) parameters[`${wheel}${channel}`] = numberParameter(frame, `${wheel}${channel}`, 0, -reach, reach);
   }
   const step = transfer(colorWheelTables(parameters, TABLE_SIZE));
   return step ? filterEffect(frame, step, { padding: 0 }) : frame.content;

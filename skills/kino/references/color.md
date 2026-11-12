@@ -13,6 +13,13 @@ or changing one color, plus the `add` blend mode.
 - Not in that list but also color: `duotone` and `tritone` (two or three colors by brightness), and the finish `grain` and `vignette`; `focus-band` is depth of field (blur.md). `library {topic:"effects"}` lists all effects, `{topic:"effects", name}` gives one's fields.
 - A ready-made grade: `color-look` with `look` matte, ember, frost, ink, dusk, meadow, harbor or
   punch and `amount` 0 to 1 (e.g. `{look:"harbor", amount:0.6}`).
+- A one-hue section grade (monochrome wash, tint, relight) in one call: `color-look` with
+  `look:"section-grade"`, `hue` (HSL degrees, default 160), `keep:"skin"` (default; or `"color"`
+  with `keepColor`), `keepAmount` 0.6, `bloom` 0.3, `blackLift` 0.04. It stretches the shot's own
+  luma range first (`normalize`, default on), so faces stay lit instead of one flat tone.
+  `duotone` and `tritone` take the same `normalize`, `keep`, `keepColor`, `keepRange`, `keepAmount`.
+- color-wheels gains share one scale: `gain` multiplies white; `gainRed`/`gainGreen`/`gainBlue`
+  add to it for one channel (-4 to 4; gain 0.7 with gainBlue 0.8 is blue white at 1.5).
 - One color only: `color-ranges` takes `<range>Hue`, `<range>Saturation`, `<range>Lightness` for red,
   orange, yellow, green, aqua, blue, purple, magenta (e.g. `blueHue:-20`), plus `highlights`, `shadows`.
 - A LUT: import the .cube with `project {action:"import", file}`, then `effect:"lut"` with

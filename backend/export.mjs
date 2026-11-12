@@ -1137,9 +1137,79 @@ async function prepareMedia(
     });
   }
   const luts = await loadSceneLuts(scene, mediaRoot, renderedIds, signal);
+  const levels = await measureSceneLevels(scene, videoSources, { directory, signal, warnings });
   // `morph` false: check and look draw morph joins as morphDissolveScene's dissolve, without the flow.
   const morphs = design || !morph ? new Map() : await morphPictures(scene, videoSources, { directory, fps, frameTimes, signal, warnings });
-  return { images, imageSources, imageFrames, videos, videoPlans, audio, lottieVideoIds, lottieVideoLayerIds, luts, directory, morphs };
+  return { images, imageSources, imageFrames, videos, videoPlans, audio, lottieVideoIds, lottieVideoLayerIds, luts, levels, directory, morphs };
+}
+
+// Grades that normalize (duotone, tritone, color-look section-grade; engine/effects/relight.js)
+// map the layer's own luma range to the full range before their colors.
+export function normalizesLevels(animation) {
+  if (animation?.kind !== "effect" || animation.enabled === false || animation.to?.normalize === false) return false;
+  // A duotone or tritone saved before normalize existed has none and is not measured.
+  return ((animation.effect === "duotone" || animation.effect === "tritone") && animation.to?.normalize === true) ||
+    (animation.effect === "color-look" && animation.to?.look === "section-grade");
+}
+
+// The 2nd and 98th percentile luma (0..1) of RGBA pictures, counting only opaque pixels.
+export function lumaLevels(pictures) {
+  const histogram = new Uint32Array(256);
+  let total = 0;
+  for (const { data } of pictures) for (let index = 0; index < data.length; index += 16) {
+    if (data[index + 3] < 128) continue;
+    histogram[Math.round(0.2126 * data[index] + 0.7152 * data[index + 1] + 0.0722 * data[index + 2])] += 1;
+    total += 1;
+  }
+  if (!total) return null;
+  const at = (share) => {
+    let seen = 0;
+    for (let value = 0; value < 256; value += 1) { seen += histogram[value]; if (seen >= share * total) return value / 255; }
+    return 1;
+  };
+  return [at(0.02), at(0.98)];
+}
+
+// Levels by video file and source times: a look at another frame measures nothing again.
+const measuredLevels = new Map();
+const LEVEL_SAMPLES = 6;
+
+/**
+ * Map(layer id -> [low, high]) for the video layers whose grade normalizes. Each is measured once
+ * from LEVEL_SAMPLES pictures spread over the scene and pooled, so every frame of an export and
+ * every look at the layer get the same mapping: the grade does not flicker as the shot changes.
+ */
+async function measureSceneLevels(scene, videoSources, { directory, signal, warnings }) {
+  const levels = new Map();
+  let folders = 0;
+  for (const layer of scene.layers) {
+    const source = videoSources.get(layer.id);
+    if (!source || !(layer.animations ?? []).some(normalizesLevels)) continue;
+    const duration = Math.max(0.001, Number(scene.duration) || 1);
+    const times = Array.from({ length: LEVEL_SAMPLES }, (_, index) => duration * (index + 0.5) / LEVEL_SAMPLES);
+    const key = `${source.videoPath}|${JSON.stringify(videoSourceTimes(layer, times).map((entry) => entry?.time ?? null))}`;
+    if (!measuredLevels.has(key)) {
+      const pictures = [];
+      // extractVideoFrames makes each picture's own folder, so only the parent is made here
+      // (as morphPictures does).
+      const folder = join(directory, `levels-${folders++}`);
+      await mkdir(folder, { mode: 0o700 });
+      for (const [index, time] of times.entries()) {
+        aborted(signal);
+        const picture = await videoPictureAt(source, time, join(folder, String(index))).catch(() => null);
+        if (picture) pictures.push(picture);
+      }
+      // A failed read is not remembered (the next render measures again) and is said out loud:
+      // the grade then draws without normalize.
+      if (pictures.length) measuredLevels.set(key, lumaLevels(pictures));
+      else warnings?.push({ code: "grade-levels-unmeasured", layerId: layer.id,
+        message: `Could not read pictures of “${layer.name ?? layer.id}” to measure its levels; its grade is drawn without normalize.` });
+      if (measuredLevels.size > 64) measuredLevels.delete(measuredLevels.keys().next().value);
+    }
+    const measured = measuredLevels.get(key);
+    if (measured) levels.set(layer.id, measured);
+  }
+  return levels;
 }
 
 // One picture of a video layer at scene time `time`, as {width, height, data} RGBA.
@@ -1471,6 +1541,7 @@ function frameSvg(scene, time, media, fonts, dimensions, { design = false, raste
     videoFrames,
     fonts,
     luts: media.luts,
+    levels: media.levels,
   }).replace(/^(<svg[^>]*?) width="[^"]+" height="[^"]+"/, `$1 width="${dimensions.width}" height="${dimensions.height}" preserveAspectRatio="none"`);
   return rasterizer ? linkEmbeddedPictures(svg, rasterizer, media.directory) : svg;
 }
@@ -3239,7 +3310,7 @@ async function exportSceneNow(
           rasterize: (svg, width, height) => rasterizer.render(linkEmbeddedPictures(svg, rasterizer, rasterMedia.directory), width, height),
           capture: (target, time) => captureLayerSvg(scene, target.id, time, {
             raster: false, rasterScale: { x: density, y: density }, embedMedia: rasterMedia.images,
-            imageFrames, videoFrames, fonts, luts: rasterMedia.luts,
+            imageFrames, videoFrames, fonts, luts: rasterMedia.luts, levels: rasterMedia.levels,
           }),
         });
         for (const description of effectPlan.descriptions) warnings.push({ code: "lottie-effect-rasterized", layerId: description.id,

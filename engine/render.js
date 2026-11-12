@@ -860,6 +860,8 @@ function effectContent(content, layer, state, context, paintBounds, drawnBounds 
         clipSentinel: (matrix) => rasterClipBounds(state, context, matrix),
         // Loaded .cube LUTs by src, for the lut effect (see the `luts` option of renderSceneSvg).
         luts: context.luts,
+        // The layer's measured luma levels for duotone, tritone and section-grade normalize.
+        levels: context.levels?.get(layer.id),
         includeBounds: (next) => { extent = next; drawn = mergeBounds([drawn, next]); } } });
   }
   return { content, bounds: extent, drawn };
@@ -1515,7 +1517,7 @@ export function renderLayerSvg(layer, time = 0, options = {}) {
 export function renderSceneSvg(
   scene,
   time = 0,
-  { design = false, embedMedia, videoFrames, decodedVideos, videoLead, imageFrames, interactiveMedia = false, canvas = false, raster = false, rasterScale = { x: 1, y: 1 }, fonts = defaultFonts, idPrefix = "", capture, mediaTime = time, luts, calmLight = false, draft = false, previewBlur = false } = {},
+  { design = false, embedMedia, videoFrames, decodedVideos, videoLead, imageFrames, interactiveMedia = false, canvas = false, raster = false, rasterScale = { x: 1, y: 1 }, fonts = defaultFonts, idPrefix = "", capture, mediaTime = time, luts, levels, calmLight = false, draft = false, previewBlur = false } = {},
 ) {
   if (!scene || !Array.isArray(scene.layers))
     throw new TypeError("A scene with a layers array is required.");
@@ -1558,6 +1560,8 @@ export function renderSceneSvg(
     capture,
     // Map of .cube LUT src → parsed LUT (parseCubeLut), null while it loads, or { error }.
     luts,
+    // Map of layer id → [low, high] luma levels of its media, for grades that normalize (relight.js).
+    levels,
     // Reduced motion in the dashboard preview: short Light bursts are drawn calmly (light.js).
     calmLight: Boolean(calmLight),
     // The motion-blur preview's shutter in seconds, 0 when off (previewBlur.js). Never in Design.

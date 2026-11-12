@@ -597,6 +597,10 @@ How to read it:
 - **Color group**: Verified. Six grading effects as SVG filters, so preview and export match.
   Evidence: `engine/effects/colorGrading.test.js`, `backend/agent-reach-effects.test.mjs`, golden
   `color-grading`.
+- **Relighting grades**: Test-verified. color-look `section-grade` (hue, keep skin, bloom, blackLift) in
+  one effect; duotone and tritone `normalize` (export-measured levels, live preview without) and `keep`;
+  one gain scale on color-wheels. Evidence: `engine/effects/colorLook.test.js`, `catalog.test.js`,
+  `colorGrading.test.js`.
 - **LUTs**: Verified. `project import file.cube` (1D and 3D), then `lut`; within 4/255. Evidence:
   `backend/agent-reach-effects.test.mjs`, `backend/effects-export.test.mjs`.
 - **add blend**: Verified. `blendMode:"add"` draws in Chromium, within 2/255. Evidence:
