@@ -49,6 +49,8 @@ export async function seeThrough(mediaRoot, src) {
       return head.subarray(0, bytesRead).includes(WEBM_ALPHA);
     } catch { return false; } finally { await handle?.close(); }
   }
+  // Only picture files that can keep alpha are drawn: a clip or a JPEG is never read whole here.
+  if (!/\.(png|webp|gif|avif|tiff?)$/i.test(id)) return false;
   const grid = await pictureAlpha(mediaRoot, src);
   return Boolean(grid?.solid.some((cell) => !cell));
 }

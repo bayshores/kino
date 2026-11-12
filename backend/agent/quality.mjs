@@ -495,6 +495,18 @@ function waiverTargets(finding, model) {
   return targets;
 }
 
+// The waivers that match a finding, and whether they waive it. A finding that names several layers
+// (soft_upscale's layers drawing one file) is waived when each of them is, so a waiver kept from
+// before the grouping covers only its own layer; each matching waiver still counts as in use.
+export function waiversFor(finding, model, waivers) {
+  if (!(finding.itemIds?.length > 1)) {
+    const waiver = waiverFor(finding, model, waivers);
+    return { waiver, used: waiver ? [waiver] : [] };
+  }
+  const each = finding.itemIds.map((itemId) => waiverFor({ ...finding, itemId }, model, waivers));
+  return { waiver: each.every(Boolean) ? each[0] : undefined, used: [...new Set(each.filter(Boolean))] };
+}
+
 function waiverFor(finding, model, waivers) {
   const targets = waiverTargets(finding, model);
   // A reference_range waiver keeps only the rows its reason names (checks.mjs rangeRowsOf).
@@ -932,11 +944,13 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
       for (const finding of found) {
         const item = finding.itemId ? model.itemOf(finding.itemId) : null;
         const { fix, auto, call } = fixOps(finding.fix, finding, model, document, codes, fonts);
-        const waiver = waiverFor(finding, model, waivers);
-        if (waiver) silencing.add(waiver);
+        const { waiver, used: matched } = waiversFor(finding, model, waivers);
+        for (const entry of matched) silencing.add(entry);
         findings.push({
           severity: finding.severity, rule: finding.rule,
           ref: item ? refOfItem(item, model, codes) : finding.layerId ? refName(finding.layerId, codes) : refName(scene.id, codes),
+          // Every layer a grouped finding names: a waive_check target list covers them all.
+          ...(finding.itemIds?.length > 1 ? { refs: finding.itemIds.map((id) => model.itemOf(id)).filter(Boolean).map((entry) => refOfItem(entry, model, codes)) } : {}),
           ...(scenes.length > 1 || sceneId ? { scene: refName(scene.id, codes) } : {}),
           ...(finding.at != null ? { at: sec(finding.at) } : {}), ...(finding.until != null ? { until: sec(finding.until) } : {}),
           message: finding.message,
