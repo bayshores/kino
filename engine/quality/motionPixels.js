@@ -12,7 +12,7 @@
 // Brightness is the mean Rec.709 luma of the encoded pixels (0 to 255), the number ffmpeg calls
 // YAVG. A plain dissolve moves it in a straight line; linear light would dip in every dissolve.
 import { cuts, sec } from "./analysis.js";
-import { area, boxAt, chainOf, frameAt, intersection, tweensOf, visibleBoxAt } from "./model.js";
+import { area, boxAt, chainOf, frameAt, intersection, runs, tweensOf, visibleBoxAt } from "./model.js";
 import { coveredAt, techniquesUsed, transitions } from "./techniques.js";
 import { CUE_WINDOW, cutInOf, freezeCue, frozenFootage, plannedFreeze } from "./rules/footage.js";
 import { mediaFrameState } from "../playback.js";
@@ -418,6 +418,52 @@ function windowKind(model, window) {
   return change > 0.2 ? "appears" : change < -0.2 ? "disappears" : "moves";
 }
 
+/**
+ * True when something moves on or over `item` all through `from` to `to` (seconds), leaving no
+ * still stretch of FREEZE_MIN: an animation of the layer or a group around it (an eased push or
+ * drift, a shake), an effect animation on it, or a layer drawn over its box that animates, runs an
+ * effect or moves by itself (text animating in, an overlay running). Drawn animation holds a cel
+ * on purpose (study a/result.md 7, b/result.md 3 and 4): an eased push's slow ends changed the
+ * pixels too little and brought frozen_picture back, so a held picture under motion is alive.
+ */
+export function aliveDuring(model, item, from, to) {
+  const chain = chainOf(model, item);
+  const own = new Set(chain.map((entry) => entry.id));
+  const frame = { x0: 0, y0: 0, x1: model.width, y1: model.height };
+  const spans = [];
+  const add = (start, end) => { if (end > start && end >= from && start <= to) spans.push([Math.max(from, start), Math.min(to, end)]); };
+  const over = (other, start, end) => {
+    const index = frameAt(model, (Math.max(from, start) + Math.min(to, end)) / 2);
+    return other.samples.opacity[index] >= 0.1 && area(intersection(intersection(visibleBoxAt(model, other, index), visibleBoxAt(model, item, index)), frame)) > 0;
+  };
+  const timed = (entry) => [
+    ...tweensOf(model, entry.id).filter((tween) => !tween.discrete && tween.end > tween.start).map((tween) => [tween.start, tween.end]),
+    ...(model.effects ?? []).filter((effect) => effect.itemId === entry.id).map((effect) => [effect.start, effect.end])];
+  for (const entry of chain) for (const [start, end] of timed(entry)) add(start, end);
+  for (const other of model.items) {
+    if (own.has(other.id) || other.isMask || other.kind === "audio" || other.kind === "group" || other.source?.sceneBackground) continue;
+    for (const [start, end] of timed(other)) if (over(other, start, end)) add(start, end);
+    // A clip counts as moving whenever it shows (model.js), even when it is itself held: only drawn movers here.
+    if (other.samples.moving && other.kind !== "video") for (const run of runs(model.times.length, (index) => other.samples.moving[index] > 0))
+      if (over(other, model.times[run.from], model.times[run.to])) add(model.times[run.from], model.times[run.to] + 1 / model.fps);
+  }
+  spans.sort((a, b) => a[0] - b[0]);
+  let reached = from;
+  for (const [start, end] of spans) {
+    if (start - reached >= FREEZE_MIN - 1e-6) return false;
+    reached = Math.max(reached, end);
+  }
+  return to - reached < FREEZE_MIN - 1e-6;
+}
+
+// The ready fix for a held picture: an eased slow push over the hold (passes linear_motion, and a
+// moving layer is alive for frozen_picture). 4% of the size a second, from SLOW_PUSH's full-frame
+// 1.0 to 1.12 over 3 s (rules/motion.js); at least 2% so a short hold still moves (a guess).
+function holdPush(item, from, to) {
+  const duration = Math.max(FREEZE_MIN, to - from);
+  return { kind: "motion", technique: "slow-push", itemId: item.id, start: sec(from), duration: sec(duration), scale: Math.round((1 + Math.max(0.02, 0.04 * duration)) * 1000) / 1000, easing: "smooth" };
+}
+
 /** frozen_picture: the rendered picture inside a video layer's box stops changing for FREEZE_MIN or longer. */
 export async function frozenPicture(model, ctx) {
   if (!ctx.renderFrames) return [];
@@ -452,6 +498,8 @@ export async function frozenPicture(model, ctx) {
     const reportStill = (from, to) => {
       if (to - from < FREEZE_MIN - 1e-6) return;
       if (layer && plannedFreeze(ctx.scene, layer.id, from, to)) return;
+      // Something moves on or over the held picture all through the hold: alive, not frozen.
+      if (aliveDuring(model, span.item, from, to)) return;
       if (known.some((finding) => (finding.itemIds ?? [finding.itemId]).includes(span.item.id) && finding.at <= to + 0.1 && finding.at >= from - 1)) return;
       const source = layer ? ` (its file from ${sec(sourceAt(from))} to ${sec(sourceAt(to))} s)` : "";
       // A still placed on a sound hit or a spoken line is a designed beat: it warns. Not at the
@@ -463,7 +511,7 @@ export async function frozenPicture(model, ctx) {
         measured: `picture inside the layer changes under ${FREEZE_DIFF * 100}% for ${sec(to - from)} s${source}`,
         required: `video on screen keeps moving (a held picture under ${FREEZE_MIN} s), or waive_check a deliberate freeze frame`,
         message: `${ctx.name(span.item)} shows a still picture from ${sec(from)} to ${sec(to)} s${source} while it is on screen${cue ? `, placed on ${cue}: a designed freeze warns, an accidental stall blocks` : ""}.`,
-        fix: { kind: "hint", text: "Show a part of the file where something moves (mediaOffset), cut away sooner, or put motion on it (a slow push or a scroll). A still screen recording reads as a frozen app." },
+        fix: holdPush(span.item, from, to),
       });
     };
     // The picture of points[i] is the one of points[from]: each frame is compared with the first of

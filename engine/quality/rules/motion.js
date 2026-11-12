@@ -467,11 +467,15 @@ export function firstEntrance(model, ctx) {
         moved.push(motion);
       }
     }
+    // A late entrance is never pulled earlier by the fix: moving it would show the layer before its
+    // own beat, over a shot it was not made for (study c/result.md 6: a word moved from 2.12 s to 0 s).
     findings.push({
       rule: "first_entrance", severity: "warn", itemId: item.id, at: sec(first.start),
       measured: sec(delay), required: "0.1–0.3s after the cut",
       message: `The first entrance after ${cut ? `the cut at ${sec(cut)}s` : "the start"} (${ctx.name(item)}) begins ${delay < 0.1 ? "at once" : `${sec(delay)}s later`}; give the eye 0.1–0.3s.`,
-      fix: { kind: "tweens", auto: true, changes: moved.flatMap((motion) => motion.tweens.map((tween) => ({ tweenId: tween.id, itemId: motion.itemId, properties: { start: sec(tween.start + shift) } }))) },
+      fix: shift < 0
+        ? { kind: "hint", text: `Keep it when ${ctx.name(item)} enters on its own beat; else start something 0.1-0.3 s after the cut (${sec(cut + 0.2)} s).` }
+        : { kind: "tweens", auto: true, changes: moved.flatMap((motion) => motion.tweens.map((tween) => ({ tweenId: tween.id, itemId: motion.itemId, properties: { start: sec(tween.start + shift) } }))) },
     });
   }
   return findings;

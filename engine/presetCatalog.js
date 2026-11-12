@@ -123,8 +123,14 @@ export function presetLayerGeometry(layer, document, fonts) {
 }
 export function presetValues(value, source) {
   const preset = normalizePreset(value);
+  // A fade on a sound layer is a Volume fade (study b/result.md 8: preset-fade mode out on the song
+  // was refused): from the layer's volume to 0, linear, so equal power (topic sound).
+  if (source?.type === "audio" && preset.id === "fade") {
+    const level = { volume: typeof source.volume === "number" ? source.volume : 1 }, silent = { volume: 0 };
+    return { kind: preset.mode, from: preset.mode === "in" ? silent : level, to: preset.mode === "in" ? level : silent };
+  }
   const layer = effectiveBoxStyle(source);
-  if (!layer || layer.type === "audio") throw new TypeError("Presets need a layer that is drawn");
+  if (!layer || layer.type === "audio") throw new TypeError(`Presets need a layer that is drawn; on a sound layer only preset-fade works (a Volume fade), or add a Volume animation such as {kind:"out", start, duration:1, from:{volume:1}, to:{volume:0}}`);
   if (preset.text && layer.type !== "text") throw new TypeError("Text presets need a text layer");
   const { id, mode, parameters: p } = preset;
   let rest, effect, discrete;

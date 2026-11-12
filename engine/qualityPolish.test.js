@@ -1035,7 +1035,10 @@ test("frozen_footage: a clip whose picture stops on screen is a gate", async () 
   // Once it plays again it moves again: held_static does not call the rest of the scene a hold.
   await silent("held_static", ...footage([take({ mediaDuration: 6, animations: [...shown(0, 6), ...stop] })]));
   // Holding its last frame a second past its play range, or a still of it put where it ends.
-  await fires("frozen_footage", ...footage([take({ mediaDuration: 2, mediaFreeze: "last", animations: shown(0, 3) })]));
+  const [heldLast] = await fires("frozen_footage", ...footage([take({ mediaDuration: 2, mediaFreeze: "last", animations: shown(0, 3) })]));
+  // Its fix hides the clip where Play ends (mediaFreeze last holds it to the scene's end).
+  assert.deepEqual([heldLast.fix.kind, heldLast.fix.end], ["retime", 2]);
+  assert.match(heldLast.message, /held after its Play ends at 2 s/);
   const still = { type: "image", id: "held", name: "held", src: "/api/media/held.png", x: 0, y: 0, width: 1920, height: 1080, animations: shown(2, 3) };
   const [made] = await fires("frozen_footage", ...footage([take({ mediaDuration: 2, animations: shown(0, 2) }), still]));
   assert.match(made.message, /a still in the place of "walk", right where it ends/);

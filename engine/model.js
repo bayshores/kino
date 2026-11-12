@@ -867,7 +867,8 @@ function normalizeAnimation(raw, path, ids, layer, depth = 0, offset = 0) {
   else {
     try { animation.preset = normalizePreset(animation.preset); } catch (error) { fail(`${path}.preset`, error.message); }
     if (animation.kind !== animation.preset.mode) fail(`${path}.preset.mode`, "must match the operation kind");
-    if (layer.type === "audio") fail(`${path}.preset`, "presets need a layer that is drawn");
+    // A fade is the one preset a sound layer takes: a Volume fade (presetCatalog.js presetValues).
+    if (layer.type === "audio" && animation.preset.id !== "fade") fail(`${path}.preset`, "presets need a layer that is drawn");
     if (animation.preset.text && layer.type !== "text") fail(`${path}.preset.text`, "requires a text layer");
   }
   if (animation.discrete === undefined || animation.discrete === null) delete animation.discrete;

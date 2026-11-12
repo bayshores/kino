@@ -16,6 +16,7 @@ import { cropCounts, cropLine, seenMark } from "./quality/rules/footage.js";
 import { cropPast } from "./footage/burned.js";
 import { askLine } from "./quality/rules/ask.js";
 import { judderBlurId } from "./quality/techniques.js";
+import { aliveDuring } from "./quality/motionPixels.js";
 import { onscreenKinds } from "./quality/rules/referenceKinds.js";
 
 // ---------------------------------------------------------------- builders
@@ -591,6 +592,21 @@ test("first_entrance: the first entrance starts 0.1–0.3 s after the start", as
   const cards = scene({ layers: [0, 1, 2].map((index) => rect(`card-${index}`, { x: 120 + index * 440, animations: [fadeIn(index * 0.1, 0.4)] })) });
   const [stagger] = await fires("first_entrance", cards);
   assert.deepEqual(stagger.fix.changes.map((change) => [change.itemId, change.properties.start]), [["card-0", 0.2], ["card-1", 0.3], ["card-2", 0.4]]);
+  // A late entrance (on its own beat at 2.1 s) is never pulled earlier: no automatic move.
+  const [late] = await fires("first_entrance", opening(2.1));
+  assert.equal(late.fix.kind, "hint");
+});
+
+test("frozen_picture: a held picture with an eased push, or a text animating over it, is alive", () => {
+  const clip = (animations = [], over = []) => scene({ duration: 3, layers: [
+    { type: "video", id: "cel", name: "cel", src: "/api/media/cel.mp4", x: 0, y: 0, width: 1920, height: 1080, mediaSourceDuration: 10, animations }, ...over] });
+  const alive = (document) => { const model = modelOf(document); return aliveDuring(model, model.items.find((item) => item.id === "cel"), 0.5, 2); };
+  assert.equal(alive(clip()), false);
+  // An eased push over the hold: its slow ends change few pixels, yet the picture moves.
+  assert.equal(alive(clip([move(0, 3, "smooth", { scaleX: 1, scaleY: 1 }, { scaleX: 1.08, scaleY: 1.08 })])), true);
+  assert.equal(alive(clip([], [text("word", "KILL", { x: 600, y: 400, animations: [move(0.4, 1.8, "smooth", { y: 450 }, { y: 400 })] })])), true);
+  // Motion over only part of the hold leaves a still stretch.
+  assert.equal(alive(clip([move(0.5, 0.4, "smooth", { scaleX: 1, scaleY: 1 }, { scaleX: 1.08, scaleY: 1.08 })])), false);
 });
 
 test("speed_jump: speed matches where two moves join", async () => {

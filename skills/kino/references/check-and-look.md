@@ -19,6 +19,7 @@ Contents: Check · Polish · Looking · Review before final · Building in order
 - `jump_cut` (warns): back-to-back shots of one file framed alike: cut away or punch in.
 - `frozen_footage` (gate): a clip's picture stops 0.3 s+ (speed 0, a held frame, a still in its
   place). Start it earlier, slow it (mediaSpeed 0.85+), or cut away. On a sound hit it warns.
+  `frozen_picture`: motion on or over a hold counts; drawn hold under 2 s: waive ("drawn hold").
 - `out_of_sync` (gate): a line over a synced file's picture of another moment: the fix retimes it.
 - `covered_layer` (warns): a solid shape, mp4 or jpg above hides a layer all its time on screen
   (a png, webm or mov may be clear). Fix: move it above (auto for a full-frame overlay).
@@ -82,8 +83,6 @@ Each has an automatic fix (`check {fix:"auto"}`) but render_artifact:
 ## Looking
 
 - CLI: `kino look frame t=3 width=720`; a list is one word (`fields=x,width`).
-- `inspect {targets, fields}`: `color` answers with `fill`,
-  `size`: `width`, `height`.
 - `sheet` (default): a scene in about 12 tiles; with cuts, one or more a shot, labeled
   `2 · 1.42s` (at most 24 shots; `from` shows the rest). With several
   scenes and none named, one frame a scene. `sheet {from:60, to:120}`: one stretch.

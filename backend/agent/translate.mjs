@@ -14,7 +14,7 @@ import { CUTOUT_ENGINES, CUTOUT_OUTPUTS } from "../cutout/cutout.mjs";
 import { RULES } from "../../engine/quality/index.js";
 import { closest, nearMiss, ReferenceError } from "./refs.mjs";
 import { refId } from "../inspire.mjs";
-import { RANGE_ROW_WORDS, rangeRowsOf } from "./checks.mjs";
+import { RANGE_ROW_WORDS, isDrawnHoldWaiver, rangeRowsOf } from "./checks.mjs";
 import { BLOCK_OPERATION_TYPES, blockCreatedIds, blockReferencedIds, isBlockOperation, translateBlock } from "./blocks.mjs";
 import { durationFromToken, easingFromToken } from "../../engine/blocks/tokens.js";
 import { MOVES } from "../../engine/blocks/moves/index.js";
@@ -263,6 +263,25 @@ function outlineGlowFontSize(operation, resolver, document) {
   return undefined;
 }
 
+// mediaStart and mediaDuration time Play on video, audio and GIF layers only; a shape, text or
+// group drew them nowhere and showed for the whole scene (study b/result.md 2). On add_layer of
+// such a layer they mean when it shows, so they become a Show at mediaStart and a Hide at
+// mediaStart + mediaDuration (the hide-show topic), and the receipt says so.
+const PLAYS_MEDIA = new Set(["video", "audio", "image"]);
+function showWindowAsAnimations(operation, fixes) {
+  const props = operation.properties;
+  if (operation.type !== "add_layer" || PLAYS_MEDIA.has(operation.layerType) || !props) return;
+  const { mediaStart: start, mediaDuration: length } = props;
+  if (start === undefined && length === undefined) return;
+  if ((start !== undefined && !(typeof start === "number" && start >= 0)) || (length !== undefined && !(typeof length === "number" && length > 0))) return;
+  const { mediaStart: _start, mediaDuration: _length, ...rest } = props;
+  operation.properties = rest;
+  const from = start ?? 0;
+  const added = [...(from > 0 ? [{ preset: "show", start: from }] : []), ...(length !== undefined ? [{ preset: "hide", start: Math.round((from + length) * 1000) / 1000 }] : [])];
+  operation.animations = [...(Array.isArray(operation.animations) ? operation.animations : []), ...added];
+  fixes.push(`mediaStart/mediaDuration → ${added.map((entry) => `${entry.preset} at ${entry.start} s`).join(", ")} (a ${operation.layerType} shows by Show and Hide; mediaStart times Play on media)`);
+}
+
 function checkLayerProperties(operation, fixes, resolver, document) {
   let properties = operation.properties;
   if (!LAYER_PROPERTY_OPS.has(operation.type) || !properties || typeof properties !== "object" || Array.isArray(properties)) return;
@@ -271,6 +290,7 @@ function checkLayerProperties(operation, fixes, resolver, document) {
   if (properties.outlineGlow !== undefined) properties = withOutlineGlow(properties, outlineGlowFontSize(operation, resolver, document));
   operation.properties = fixLayerProperties(properties, fixes, { ...layerContext(operation, resolver, document), known: LAYER_PROPERTIES,
     exampleOp: (changes) => sameOpWith(operation, changes) });
+  showWindowAsAnimations(operation, fixes);
   for (const alias of CORNER_ALIASES) {
     if (properties[alias] === undefined) continue;
     const field = Array.isArray(properties[alias]) ? "cornerRadii" : "radius";
@@ -809,7 +829,11 @@ function resolveReferences(operation, type, resolver, document) {
   // With no saved reference there is nothing to point at (the reference gate asks for them first).
   if (type === "waive_check" && TYPE_EVIDENCE_WAIVERS.has(operation.code) && resolver.seenRefs?.length) typeMomentProblem(operation, resolver.seenRefs);
   const targetsStar = operation.target === "*" || (Array.isArray(operation.target) && operation.target.includes("*"));
-  if (type === "waive_check" && VIEWER_WAIVERS.has(operation.code)) {
+  // A drawn hold (checks.mjs DRAWN_HOLD): the agent may keep it, on named layers; the waiver covers holds under 2 s.
+  const drawnHold = type === "waive_check" && !operation.quote && isDrawnHoldWaiver(operation);
+  if (drawnHold && targetsStar)
+    throw refusedWaiver(new Error(`waive_check frozen_picture names the layers whose drawn hold is meant, not target:"*".`), operation, resolver, document);
+  if (type === "waive_check" && VIEWER_WAIVERS.has(operation.code) && !drawnHold) {
     const quote = typeof operation.quote === "string" ? operation.quote.trim() : "";
     const own = PERSON_WORDS_ABOUT[operation.code];
     if (!quote || HANDED_OVER.test(quote) || quote.split(/\s+/).length < 4)

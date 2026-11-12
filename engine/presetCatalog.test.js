@@ -154,6 +154,13 @@ test("MCP add/update/multi-update use the same validated regeneration and reject
   assert.throws(() => presetAnimation("blur", card(), 0, null, { parameters: { blur: 3 } }), /Custom animations/);
 });
 
+test("preset-fade on a sound layer is a Volume fade; other presets there name the working call", () => {
+  const song = file(createLayer("audio", { id: "song", src: "/api/media/song.mp3", volume: 0.8 }));
+  const faded = stored(applyOperations(song, [{ type: "add_animation", sceneId: "main", layerId: "song", preset: "preset-fade", mode: "out", start: 4 }]));
+  assert.deepEqual([faded.kind, faded.from, faded.to], ["out", { volume: 0.8 }, { volume: 0 }]);
+  assert.throws(() => applyOperations(song, [{ type: "add_animation", sceneId: "main", layerId: "song", preset: "preset-slide", start: 4 }]), /only preset-fade works/);
+});
+
 test("Appear is instantaneous and Blink switches full opacity, including pre-start, final state and Out", () => {
   for (const mode of ["in", "out"]) {
     const appear = { ...presetAnimation("appear", card(), 1, null, { mode }), easing: "linear" };

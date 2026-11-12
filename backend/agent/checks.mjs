@@ -281,6 +281,15 @@ export function waiverNotes(waivers = [], { codes = null } = {}) {
       : `${code} is waived ${count} times here: likely a kino false positive, not taste. Tell the kino maintainers what it flagged and why it was right.`);
 }
 
+// frozen_picture on drawn animation: a cel held on purpose. The agent waives one by naming the
+// hold as drawn in its reason ("drawn hold", "held cel"); such a waiver covers only holds shorter
+// than DRAWN_HOLD_SECONDS (2 s is a guess: the study's held cels ran about 0.4 to 1.5 s). A longer
+// still stays the person's call (quote), like every other frozen picture.
+export const DRAWN_HOLD = /\b(?:drawn|cels?|hand[- ]drawn|animated)\b[^.]*\b(?:holds?|held)\b|\b(?:holds?|held)\b[^.]*\b(?:drawn|cels?)\b/i;
+export const DRAWN_HOLD_SECONDS = 2;
+/** True for a frozen_picture waiver the agent sent for a drawn hold (no person's quote in it). */
+export const isDrawnHoldWaiver = (waiver) => waiver?.code === "frozen_picture" && DRAWN_HOLD.test(String(waiver.reason ?? "")) && !String(waiver.reason ?? "").includes("(the person: ");
+
 // reference_range has a row per measure (engine/quality/rules/reference.js). A waiver keeps only
 // the rows its reason names by one of these words, so "kept dark on purpose" leaves the text row open.
 const RANGE_ROWS = { brightness: /\b(?:bright\w*|dark\w*)\b/i, contrast: /\bcontrast\w*\b/i, text: /\btexts?\b/i, voice: /\b(?:voice\w*|speech|spoken)\b/i };

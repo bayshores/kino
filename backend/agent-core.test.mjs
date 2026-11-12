@@ -301,6 +301,16 @@ test("waivers: crop and shape need the person's words on layers; face-cut codes 
     assert.deepEqual(kept.target, ["shot-1", "shot-2"]);
     assert.match(kept.reason, /the person: "keep the tight crop on the eyes"/);
   }
+  // frozen_picture: the agent keeps a drawn hold (named in its reason) on named layers; other reasons need the person.
+  assert.throws(() => send({ code: "frozen_picture", target: "shot-1", reason: "looks fine" }), /Only the person can keep it/);
+  assert.throws(() => send({ code: "frozen_picture", target: "*", reason: "drawn hold of 1.2 s" }), /not target:"\*"/);
+  assert.equal(send({ code: "frozen_picture", target: "shot-1", reason: "anime held cel, a drawn hold of 1.2 s" })[0].target, "shot-1");
+  // mediaStart and mediaDuration on a shape mean when it shows: a Show and a Hide, said in the fixes.
+  const bandResolver = createResolver(document, assignCodes(emptyCodes(), document));
+  const [band] = translateOperations([{ op: "add_layer", layerType: "rectangle", properties: { name: "band", mediaStart: 2, mediaDuration: 1.5 } }], bandResolver, document);
+  assert.equal(band.properties.mediaStart, undefined);
+  assert.deepEqual(band.animations, [{ preset: "show", start: 2 }, { preset: "hide", start: 3.5 }]);
+  assert.match(bandResolver.fixes.at(-1), /mediaStart\/mediaDuration → show at 2 s, hide at 3.5 s/);
   // head_cut_off and narrow_window: the agent may waive them, on one layer at a time.
   for (const code of ["head_cut_off", "narrow_window"]) {
     assert.throws(() => send({ code, target: "*" }), /not target:"\*"/);

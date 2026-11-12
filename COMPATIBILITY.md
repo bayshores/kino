@@ -1057,6 +1057,12 @@ How to read it:
 - **Frozen footage check** (`frozen_footage`): a large clip whose picture stops 0.3 s or more is a
   gate; one placed on a sound hit or a spoken line warns, unless it starts at the shot's own cut-in (`frozen_picture` too). Verified on
   hand-made scenes and a real trailer project. Evidence: `engine/qualityPolish.test.js`.
+- **Held pictures and timing**: a last frame held past Play gets a hide fix; motion on or over a
+  held picture keeps `frozen_picture` quiet, its fix is an eased push, a drawn hold under 2 s is
+  the agent's waiver; a late first entrance is never pulled earlier; shapes take mediaStart and
+  mediaDuration as Show and Hide; preset-fade on audio is a Volume fade; receipts name in/out/show/hide.
+  Evidence: `engine/qualityRules.test.js`, `engine/qualityPolish.test.js`, `engine/presetCatalog.test.js`,
+  `backend/agent-core.test.mjs`, probe log `.scratch/defaults/holds-motion/after.md`.
 - **Lone zoom check** (`lone_zoom`, gate): a clip or picture growing 12% in 0.5 s over a still shot.
   Found a real trailer's phone push. Evidence: `engine/qualityRules.test.js`.
 - **Edge linger check** (`edge_linger`, gate): a slow moving layer seen only as a sliver at the frame

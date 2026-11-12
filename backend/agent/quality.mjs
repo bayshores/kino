@@ -25,7 +25,7 @@ import { mediaIdFromSource } from "../../engine/replaceMedia.js";
 import { SCREEN_NAME } from "../../engine/movePicks.js";
 import { BACKGROUND_OWNER_ID } from "../../engine/sceneBackground.js";
 import { refName, sec } from "./describe.mjs";
-import { rangeRowOf, rangeRowsOf } from "./checks.mjs";
+import { DRAWN_HOLD_SECONDS, isDrawnHoldWaiver, rangeRowOf, rangeRowsOf } from "./checks.mjs";
 import { keyedProperties } from "./overridden-values.mjs";
 import { createFrameReuse } from "./frame-reuse.mjs";
 import { sceneKey } from "./look.mjs";
@@ -495,8 +495,10 @@ function waiverFor(finding, model, waivers) {
   const targets = waiverTargets(finding, model);
   // A reference_range waiver keeps only the rows its reason names (checks.mjs rangeRowsOf).
   const row = finding.rule === "reference_range" ? rangeRowOf(finding) : null;
+  // A drawn-hold waiver keeps only a hold shorter than DRAWN_HOLD_SECONDS.
+  const held = finding.until != null && finding.at != null ? finding.until - finding.at : Infinity;
   return waivers.find((waiver) => waiver.code === finding.rule && (waiver.target === "*" || targets.has(waiver.target))
-    && (!row || rangeRowsOf(waiver.reason).includes(row)));
+    && (!row || rangeRowsOf(waiver.reason).includes(row)) && (!isDrawnHoldWaiver(waiver) || held < DRAWN_HOLD_SECONDS));
 }
 
 const RULE_BY_CODE = new Map(RULES.map((entry) => [entry.code, entry]));

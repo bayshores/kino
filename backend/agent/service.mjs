@@ -2243,20 +2243,26 @@ export function createAgentService(deps) {
 
   // The start and end of each animation the edit made or retimed: at most TIMES_LIST, and
   // `more` counts the rest. An animation whose times did not change is left out.
+  const SHOW_HIDE_KINDS = new Set(["in", "out", "show", "hide"]);
   function animationTimes(before, after, ids, codes) {
     const wanted = new Set(ids);
     const key = (entry) => `${entry.scene.id}/${entry.id}`;
     const old = new Map(documentObjects(before).animations.map((entry) => [key(entry), animationSpan(entry.animation, entry.offset).join()]));
     const times = {};
+    // Which of them shows a layer (in, show) and which hides it (out, hide): study b/result.md 9
+    // moved a caption's hide thinking it was its show.
+    const kinds = {};
     let more = 0;
     for (const entry of documentObjects(after).animations) {
       if (!wanted.has(entry.id)) continue;
       const span = animationSpan(entry.animation, entry.offset);
       if (old.get(key(entry)) === span.join()) continue;
-      if (Object.keys(times).length < TIMES_LIST) times[refName(entry.id, codes)] = span;
-      else more += 1;
+      if (Object.keys(times).length < TIMES_LIST) {
+        times[refName(entry.id, codes)] = span;
+        if (SHOW_HIDE_KINDS.has(entry.animation.kind)) kinds[refName(entry.id, codes)] = entry.animation.kind;
+      } else more += 1;
     }
-    return { times, more };
+    return { times, kinds, more };
   }
 
   // How many keys each keyed animation the edit made or changed has: `keys: {A1: 4}`.
@@ -2494,6 +2500,7 @@ export function createAgentService(deps) {
         removed: changes.removed.slice(0, RECEIPT_LIST).map((id) => refName(id, codes)),
         ...listedMore("removed", changes),
         ...(Object.keys(timed.times).length ? { times: timed.times } : {}),
+        ...(Object.keys(timed.kinds).length ? { kinds: timed.kinds } : {}),
         ...(timed.more ? { timesMore: timed.more } : {}),
         ...animationKeyCounts(after, [...changes.created, ...changes.changed], afterCodes),
         ...(resolver.fixes.length ? { fixed: [...new Set(resolver.fixes)] } : {}),

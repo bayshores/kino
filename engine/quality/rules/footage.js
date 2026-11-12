@@ -29,7 +29,7 @@
 // from its library record) and ctx.scene (the raw scene). Without them the rules do not run
 // (jump_cut needs only ctx.scene).
 import { boxesAt, cropOnSource, insideShare } from "../../sourceView.js";
-import { mediaFrameState, mediaPlaybackRange } from "../../playback.js";
+import { effectiveMediaDuration, mediaFrameState, mediaPlaybackRange } from "../../playback.js";
 import { sec } from "../analysis.js";
 import { LOW_CONFIDENCE, lowRuns } from "../../pin.js";
 import { inPicture, positionAt } from "../../recording.js";
@@ -759,7 +759,13 @@ export function frozenFootage(model, ctx) {
       if (plannedFreeze(scene, layer.id, model.times[Math.max(0, from - back)], model.times[to])) continue;
       const start = Math.max(0, from - back);
       const onCut = model.times[start] - cutInOf(model, item, from) <= CUE_WINDOW;
-      findings.push(frozenFinding(ctx, item, start, to, model, "the clip stops: no new frames from its file", null, onCut));
+      // mediaFreeze "last" (or "both") keeps the last frame from where Play ends to the scene's end,
+      // under the shots after it (study b/result.md 5): the ready fix hides the clip where Play ends.
+      const playEnd = (layer.mediaStart ?? 0) + effectiveMediaDuration(layer);
+      const heldAfter = Number.isFinite(playEnd) && !mediaFrameState(layer, model.times[from]).playing && model.times[from] >= playEnd - 1e-6;
+      const finding = frozenFinding(ctx, item, start, to, model, heldAfter ? `the clip's last frame, held after its Play ends at ${sec(playEnd)} s (mediaFreeze ${layer.mediaFreeze ?? "both"} holds it to the scene's end)` : "the clip stops: no new frames from its file", null, onCut);
+      if (heldAfter) finding.fix = { kind: "retime", itemId: item.id, end: sec(playEnd) };
+      findings.push(finding);
     }
   }
   // A still in a clip's own place where the clip ends or starts: a freeze frame made of a picture.
