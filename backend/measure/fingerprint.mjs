@@ -347,17 +347,19 @@ export function revealOf(track) {
 /**
  * How far the video's text goes, for the taste rules that give way to a reference's own choice
  * (engine/quality/referenceChoices.js): `hold`, the shortest time a line stays on screen (seconds),
- * `height`, the smallest line height (share of the frame height), and `edge`, the closest a line
+ * `height`, the smallest line height (share of the frame's shorter side), and `edge`, the closest a line
  * sits to a frame edge (share of the frame side). Lines seen on 2 samples or more (a line read once
  * may be a misreading); each the 10th percentile over those lines, so one stray reading does not
  * set it. `spacing`: the seconds between text samples. null with no such line.
  */
-export function textLimits(tracks, spacing) {
+export function textLimits(tracks, spacing, { tall = 1 } = {}) {
   const seen = tracks.filter((track) => track.sightings.length >= 2);
   if (!seen.length) return null;
   const low = (values) => [...values].sort((a, b) => a - b)[Math.floor(0.1 * values.length)];
   const holds = seen.map((track) => track.sightings.at(-1).t - track.sightings[0].t + spacing);
-  const heights = seen.map((track) => median(track.sightings.map((sighting) => sighting.box[3])));
+  // Height as a share of the frame's shorter side (type_min's own measure), so a vertical
+  // reference compares with a landscape edit: `tall` is the frame height over its shorter side.
+  const heights = seen.map((track) => median(track.sightings.map((sighting) => sighting.box[3])) * tall);
   const edges = seen.map((track) => Math.min(...track.sightings.map(({ box: [x, y, w, h] }) => Math.max(0, Math.min(x, y, 1 - x - w, 1 - y - h)))));
   return { hold: round(low(holds), 2), height: round(low(heights), 3), edge: round(low(edges), 3), lines: seen.length };
 }
@@ -717,7 +719,7 @@ export function fingerprint(records, { width, height, seconds, cuts = [], dense 
       if (dense) {
         const tracks = trackText(samples);
         Object.assign(text, classifyReveals(tracks));
-        const limits = textLimits(tracks, 1 / Math.max(1e-6, text.perSecond));
+        const limits = textLimits(tracks, 1 / Math.max(1e-6, text.perSecond), { tall: width > 0 && height > 0 ? height / Math.min(width, height) : 1 });
         if (limits) text.limits = limits;
       }
     }

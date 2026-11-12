@@ -47,7 +47,8 @@ const MEASURES = {
     said: "their shortest text stays",
   },
   type_min: {
-    refs: (ctx, model) => (ctx.choiceRefs ?? []).map((ref) => ({ id: ref.id, value: limitsOf(ref)?.height * model.height })).filter((ref) => Number.isFinite(ref.value)),
+    // limits.height is a share of the reference's shorter side, as type_min's floor is of the edit's.
+    refs: (ctx, model) => (ctx.choiceRefs ?? []).map((ref) => ({ id: ref.id, value: limitsOf(ref)?.height * Math.min(model.width, model.height) })).filter((ref) => Number.isFinite(ref.value)),
     value: (finding) => Number(finding.measured),
     // A reference's line box height is taken as its font size (a guess: a mixed-case line box
     // spans about one em), within a pixel.

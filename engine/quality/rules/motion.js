@@ -123,7 +123,10 @@ export function isRunOutPush(model, item, tween) {
     const [a, b] = [boxAt(item, index - 1), boxAt(item, index)];
     fastest = Math.max(fastest, Math.abs(b.x0 - a.x0), Math.abs(b.y0 - a.y0), Math.abs(b.x1 - a.x1), Math.abs(b.y1 - a.y1));
   }
-  return fastest * model.fps <= 2 * SLOW_PUSH.speed * Math.hypot(model.width, model.height);
+  // A linear move keeps one speed, so its fastest step is its average: held to the slow push's
+  // average (4% of the diagonal a second), not the hold drift's eased-peak allowance of twice that.
+  // Both benchmark pushes sit far under it (about 1% a second).
+  return fastest * model.fps <= SLOW_PUSH.speed * Math.hypot(model.width, model.height);
 }
 
 // Motions the timing rules judge: not loops, masks, counters or instant changes, and not the
