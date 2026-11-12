@@ -72,6 +72,18 @@ test("scene operations accept gradient backgrounds and Color animations and refu
   assert.equal(document.scenes.length, 1);
 });
 
+test("update_scene sets finish (true is the starting point) and letterbox, removes them, and refuses a wrong value", () => {
+  const document = createDocument(), sceneId = document.scenes[0].id;
+  const set = applyOperations(document, [{ type: "update_scene", sceneId, properties: { finish: true, letterbox: 2.2 } }]).scenes[0];
+  assert.deepEqual([set.finish, set.letterbox], [{ grain: 0.15, blackLift: 0.04, halation: 0.2, vignette: 0.3 }, 2.2]);
+  const changed = applyOperations(document, [{ type: "update_scene", sceneId, properties: { finish: { vignette: 0.6 } } }]).scenes[0];
+  assert.deepEqual(changed.finish, { vignette: 0.6 });
+  const off = applyOperations(document, [{ type: "update_scene", sceneId, properties: { finish: false, letterbox: null } }]).scenes[0];
+  assert.deepEqual([off.finish, off.letterbox, "finish" in off], [undefined, undefined, false]);
+  assert.throws(() => applyOperations(document, [{ type: "update_scene", sceneId, properties: { letterbox: 12 } }]), /letterbox must be the picture's width : height/);
+  assert.throws(() => applyOperations(document, [{ type: "update_scene", sceneId, properties: { finish: { grain: -1 } } }]), /finish\.grain must be a number from 0 to 1/);
+});
+
 test("agent component operations preserve live references and detach their content",()=>{
   const source = createDocument(), scene=source.scenes[0];
   const result=applyOperations(source,[{type:"add_layer",sceneId:scene.id,layerType:"rectangle",properties:{id:"card"}},{type:"create_component",sceneId:scene.id},{type:"add_scene",properties:{id:"target"}},{type:"insert_component",sceneId:"target",componentSceneId:scene.id,properties:{id:"instance"}}]);

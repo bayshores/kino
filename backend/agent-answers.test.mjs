@@ -311,7 +311,7 @@ test("library effects lists the whole catalog small, with a name gives its field
   // "edges" and "corners" alone mean a vignette; inside other words they do not.
   for (const query of ["rounded corners", "jagged edges", "soft edges"]) assert.ok(!found(query, "vignette"), `${query}: ${searchGuide(query)}`);
   assert.match(searchGuide("brush"), /library \{topic:"fonts", search:"<the look: brush, handwritten, marker, stencil/);
-  assert.match(searchGuide("letterbox").split("\n")[0], /^no kino name for "letterbox" yet: build it from two black rectangle layers/);
+  assert.match(searchGuide("letterbox"), /update_scene/);
   assert.match(searchGuide("lightning").split("\n")[0], /^no kino name for "lightning" yet: build it from a jagged path layer/);
 });
 

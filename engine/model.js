@@ -1,6 +1,7 @@
 import { normalizeQualityDocumentFields, normalizeQualityLayerFields, normalizeQualitySceneFields } from "./qualityFields.js";
 import { normalizeBlockDocumentFields, normalizeBlockLayerFields, normalizeBlockSceneFields } from "./blockFields.js";
 import { normalizeDrift } from "./camera.js";
+import { normalizeLetterbox, normalizeSceneFinish } from "./sceneFinishFields.js";
 import { normalizeAskShows, normalizeSubjectBoxes } from "./sourceView.js";
 import { normalizePin, normalizeTracks } from "./pin.js";
 import { normalizeRecording } from "./recording.js";
@@ -1249,6 +1250,9 @@ function normalizeLayer(raw, path, animationIds, counters) {
   if (layer.maskMode == null) delete layer.maskMode;
   else if (!MASK_MODES.includes(layer.maskMode)) fail(`${path}.maskMode`, `must be ${MASK_MODES.map((mode) => `"${mode}"`).join(" or ")}`);
   layer.clipContent = requireBoolean(layer.clipContent, `${path}.clipContent`);
+  // A root layer drawn above the scene's letterbox bars (sceneFinish.js); absent is below them.
+  if (layer.aboveLetterbox == null) delete layer.aboveLetterbox;
+  else layer.aboveLetterbox = requireBoolean(layer.aboveLetterbox, `${path}.aboveLetterbox`);
   normalizeQualityLayerFields(layer, path);
   normalizeBlockLayerFields(layer, path);
   // Subject boxes an agent marked on a video's source frame (mark_subject, sourceView.js).
@@ -1566,6 +1570,11 @@ function normalizeScene(raw, index, counters) {
   normalizeQualitySceneFields(scene, path, MAX_TIME);
   scene.drift = normalizeDrift(scene.drift, `${path}.drift`, fail);
   if (scene.drift === undefined) delete scene.drift;
+  // The frame finish and bars drawn above the scene's layers (sceneFinish.js).
+  scene.finish = normalizeSceneFinish(scene.finish, `${path}.finish`, fail);
+  if (scene.finish === undefined) delete scene.finish;
+  scene.letterbox = normalizeLetterbox(scene.letterbox, `${path}.letterbox`, fail);
+  if (scene.letterbox === undefined) delete scene.letterbox;
   normalizeBlockSceneFields(scene, path, MAX_TIME);
   // Objects followed through a video layer (the track op, pin.js).
   if (scene.tracks == null) delete scene.tracks;

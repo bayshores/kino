@@ -177,6 +177,17 @@ test("Lottie exports a gradient background as a native bottom-layer gradient fil
   assert.equal(gradient.g.p, 2);
 });
 
+test("PNG export draws the scene letterbox bars and Lottie says it leaves them out", async () => {
+  // 40x20 at 2.0 leaves no bars; 40x20 at 4.0 leaves 5 px bars top and bottom.
+  const value = scene({ letterbox: 4, background: "#ffffff" });
+  const image = await readImage((await exportScene(value, { format: "png" })).buffer);
+  assert.ok(near(image.pixel(20, 2), [0, 0, 0, 255]) && near(image.pixel(20, 17), [0, 0, 0, 255]), "the bars are black");
+  assert.ok(near(image.pixel(20, 10), [255, 255, 255, 255]), "the middle keeps the picture");
+  const lottie = await exportScene(value, { format: "lottie", fps: 4 });
+  assert.deepEqual(lottie.warnings?.map(({ code }) => code), ["lottie-finish-omitted"]);
+  assert.equal((await exportScene(scene(), { format: "lottie", fps: 4 })).warnings, undefined, "no warning without a finish or letterbox");
+});
+
 test("a disabled Lottie background adds no background layer", async () => {
   const value = scene({ background: "#ff0000", backgroundEnabled: false, layers: [] });
   const data = JSON.parse((await exportScene(value, { format: "lottie", fps: 4 })).buffer.toString("utf8"));

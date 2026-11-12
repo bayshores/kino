@@ -1075,7 +1075,7 @@ function resolveCatalog(id) {
 
 // ---- other ops ------------------------------------------------------------------------------
 const SCENE_FIELDS = ["name", "width", "height", "duration", "background", "backgroundEnabled", "backgroundAnimations", "aspectLocked",
-  "canvasX", "canvasY", "componentPlayback", "rests", "drift"];
+  "canvasX", "canvasY", "componentPlayback", "rests", "drift", "finish", "letterbox"];
 const ANIMATION_PROPERTY_FIELDS = new Set(["type", "sceneId", "layerId", "animationId", "animationIds", "properties"]);
 // Ops that change one layer and need to know which.
 const NEEDS_LAYER = new Set(["update_layer", "delete_layer", "add_animation", "convert_to_shape", "outline_text", "ungroup_layer", "remove_mask", "reorder_layer",
