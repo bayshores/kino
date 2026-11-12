@@ -1134,7 +1134,10 @@ async function sendFileContents(req, res, handle, mime, immutable) {
 }
 
 const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url || "/", `http://${host}:${port}`);
+  // A request target such as "//" is not a URL: answering 400 here keeps it from becoming an
+  // unhandled rejection that stops the whole service.
+  let url;
+  try { url = new URL(req.url || "/", `http://${host}:${port}`); } catch { return json(res, 400, { error: "Invalid request URL." }); }
   const parts = url.pathname.split("/").filter(Boolean);
   let releaseFileMutation;
   try {
@@ -1994,6 +1997,9 @@ if (process.env.KINO_EXIT_WITH_PARENT === "1" || process.env.NODE_TEST_CONTEXT) 
   }, 1000).unref();
 }
 process.on("SIGTERM", async () => {
+  // The steps below wait for the crew file, running exports and a recording. If one of them never
+  // ends, the service still exits, so no kino server is left running after its app or test quit.
+  setTimeout(() => process.exit(0), 30_000).unref();
   clearInterval(presenceExpiry);
   // whisper and FFmpeg runs end now, not minutes after kino quit.
   stopChildren();

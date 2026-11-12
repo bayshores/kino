@@ -11,7 +11,7 @@ import { createAgentService } from "./agent/service.mjs";
 import { createAgentStateStore } from "./agent/state.mjs";
 import { openStore } from "./store.mjs";
 import { createDocument, createScene } from "../engine/model.js";
-import { answerText, callText, opWithName, originFootage, originFootageNext, unfilledSlot, withSuggestion } from "./agent/next-call.mjs";
+import { answerText, callText, missingFieldCall, opWithName, originFootage, originFootageNext, unfilledSlot, withSuggestion } from "./agent/next-call.mjs";
 import { originReferenceLine } from "./agent/seen-names.mjs";
 import { statusMove } from "./stops.test.support.mjs";
 import { withAsk } from "./agent-ask.test.support.mjs";
@@ -40,6 +40,11 @@ test("the fixed call for a refusal: the suggestion in place of the misspelled fi
   assert.deepEqual(unfilledSlot({ ops: [{ op: "compose", beats: [{ text: "<your headline>" }] }] }), { path: "ops[0].beats[0].text", value: "<your headline>" });
   assert.deepEqual(unfilledSlot({ fields: { "<the line they corrected>": "x" } }), { path: "fields.<the line they corrected>", value: "<the line they corrected>" });
   assert.equal(unfilledSlot({ ops: [{ op: "add_layer", properties: { text: "<3 kino" } }] }), null, "text that only starts with < is the agent's own");
+  // A call refused for a field it lacks: the same call with the missing fields as slots; the
+  // fields sent stay, and a call that lacks nothing gets none.
+  assert.equal(callText(missingFieldCall("notes", { action: "reply", text: "fixed", why: "done" })), 'notes {"action":"reply","text":"fixed","id":"<the note\'s id, such as N2>"}');
+  assert.ok(unfilledSlot(missingFieldCall("notes", { action: "set_plan" }).input), "its slots are ones kino refuses unfilled");
+  assert.equal(missingFieldCall("notes", { action: "reply", id: "N2", text: "x" }), null);
 });
 
 test("the direction's calls: a new video's brief with every line at once, the plan once it is settled, building is the service's, a waiting stop's answer", () => {

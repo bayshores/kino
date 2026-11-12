@@ -70,3 +70,28 @@ test("product code imports stay inside their layer", () => {
   }
   assert.deepEqual(found, [], `Imports across layers (see AGENTS.md, Structure):\n${found.join("\n")}`);
 });
+
+// The README states how much kino has; these numbers went stale once (43 moves written, 51 built).
+test("the README's counts are the code's counts", async () => {
+  const { RULES } = await import("../engine/quality/index.js");
+  const { RECIPES } = await import("../engine/blocks/recipes/index.js");
+  const { TRANSITIONS } = await import("../engine/blocks/recipes/transitions.js");
+  const { LOOKS } = await import("../engine/blocks/looks.js");
+  const { MOVE_NAMES } = await import("../engine/blocks/moves/index.js");
+  const { EFFECTS } = await import("../engine/effects/catalog.js");
+  const size = (value) => (Array.isArray(value) ? value.length : Object.keys(value).length);
+  const rules = Object.values(RULES);
+  const readme = readFileSync(path.join(ROOT, "README.md"), "utf8");
+  const counts = [
+    [/(\d+) errors that block/, rules.filter((rule) => rule.level === "error").length],
+    [/(\d+) warnings/, rules.filter((rule) => rule.level === "warn").length],
+    [/(\d+)\s+recipes/, size(RECIPES)],
+    [/(\d+) transitions/, size(TRANSITIONS)],
+    [/(\d+) looks/, size(LOOKS)],
+    [/one of (\d+) designed set pieces/, MOVE_NAMES.length],
+    [/(\d+) effects/, EFFECTS.length],
+  ];
+  for (const [pattern, actual] of counts) {
+    assert.equal(Number(pattern.exec(readme)?.[1]), actual, `README.md ${pattern} should say ${actual}`);
+  }
+});

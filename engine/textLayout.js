@@ -1,5 +1,5 @@
 import { defaultFonts } from "./fonts.js";
-import { parsePath, pathBounds, serializePath } from "./vectorPath.js";
+import { contourBounds, parsePath, pathBounds, serializePath } from "./vectorPath.js";
 import { colorGlyph } from "./colorGlyphs.js";
 import { layoutFontSize, letterSpacingPixels } from "./letterSpacing.js";
 import { lineHeightPixels } from "./lineHeight.js";
@@ -46,17 +46,27 @@ const frozenGlyphOutlines = new WeakMap(); // frozen glyph → { d, bounds }
 function placedOutline(glyph) {
   let outline = frozenGlyphOutlines.get(glyph);
   if (outline) return outline;
-  outline = { d: serializePath(glyphContours(glyph)), bounds: null };
+  const contours = glyphContours(glyph);
+  outline = { d: serializePath(contours), contours, bounds: null };
   if (typeof glyph === "object" && Object.isFrozen(glyph)) frozenGlyphOutlines.set(glyph, outline);
   return outline;
 }
 
 export function glyphPath(glyph) { return placedOutline(glyph).d; }
 
-/** The bounds of glyphPath(glyph). For a frozen glyph they are shared: read them, do not change them. */
+// The path data writes -0 as "0" (vectorPath.js serializePath), so the bounds read -0 as 0 too.
+const plainZero = (value) => (value === 0 ? 0 : value);
+const plainPoint = ([x, y]) => [plainZero(x), plainZero(y)];
+
+/**
+ * The bounds of glyphPath(glyph). For a frozen glyph they are shared: read them, do not change them.
+ * Measured on the contours the path data was written from, which hold the same numbers, rather
+ * than by parsing the path data back.
+ */
 export function glyphPathBounds(glyph) {
   const outline = placedOutline(glyph);
-  outline.bounds ??= Object.freeze(pathBounds(outline.d));
+  outline.bounds ??= Object.freeze(contourBounds(outline.contours.map((contour) => ({ start: plainPoint(contour.start),
+    segments: contour.segments.map((segment) => ({ c1: plainPoint(segment.c1), c2: plainPoint(segment.c2), end: plainPoint(segment.end) })) }))));
   return outline.bounds;
 }
 
@@ -381,7 +391,13 @@ function wrapParagraph(paragraph, width, layer, fonts, paragraphStart, runs, bid
 export function layoutText(layer, fonts = defaultFonts) {
   let entries = cache.get(fonts);
   if (!entries) { entries = new Map(); cache.set(fonts, entries); }
-  const key = JSON.stringify([fonts.version, layer.text, layer.width, layer.height, layer.fontFamily, layer.fontSource, layer.fontSize, layer.fontWeight, layer.axes, layer.fontStyle, layer.letterSpacing, layer.lineHeight, layer.textAlign, layer.verticalAlign, layer.textResize, layer.textCase, layer.kerning, layer.ligatures, layer.tabularNumbers === true, layer.textStyleRanges]);
+  // Text that sizes itself ignores the box size it is given (width and height for "width-height",
+  // height for "height"), so the key leaves it out: the layer and its resized copy
+  // (resizeTextLayer) then share one layout instead of shaping the same text twice.
+  const sizing = layer.textResize || "fixed";
+  const keyWidth = sizing === "width-height" ? null : layer.width;
+  const keyHeight = sizing === "fixed" ? layer.height : null;
+  const key = JSON.stringify([fonts.version, layer.text, keyWidth, keyHeight, layer.fontFamily, layer.fontSource, layer.fontSize, layer.fontWeight, layer.axes, layer.fontStyle, layer.letterSpacing, layer.lineHeight, layer.textAlign, layer.verticalAlign, layer.textResize, layer.textCase, layer.kerning, layer.ligatures, layer.tabularNumbers === true, layer.textStyleRanges]);
   if (entries.has(key)) return entries.get(key);
   // NFC, as shapeText shapes each line, so a line's `start` and its glyphs' `start` count the same text.
   const { text, runs } = textStyleRuns(layer);

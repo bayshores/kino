@@ -29,7 +29,7 @@ export function fromJudged(records) {
 }
 
 /** Owner picks {left, right, pick} as pair results with `weight`. */
-export function fromPicks(picks, weight) {
+function fromPicks(picks, weight) {
   return picks.map((pick) => ({ a: pick.left, b: pick.right, winner: pick.pick === "left" ? "a" : pick.pick === "right" ? "b" : "same", weight }));
 }
 

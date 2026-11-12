@@ -7,7 +7,7 @@ How kino is tested. Every feature and its evidence is in [COMPATIBILITY.md](../C
 ```sh
 npm test                           # every test, including the golden frames
 npm test -- backend/crew.test.mjs   # only the files named
-npm test -- --changed               # only the tests related to this branch's changes
+npm test -- --changed               # only the tests related to this branch's changes (12 or more run in groups side by side)
 npm run build
 ```
 
@@ -140,3 +140,20 @@ node scripts/desktop-shot.mjs --data <data folder> --out shot.png    # screensho
 node scripts/playback-perf.mjs --data <data folder>                  # dashboard playback frame times
 node --import ./scripts/test-fonts.mjs tests/polish-sweep.mjs         # every recipe, look and format
 ```
+
+Each of these says how to run it in the comment at its top:
+
+| Script | What it checks |
+|---|---|
+| `tests/format-sweep.mjs`, `tests/blocks-gate.mjs` | Every whole-video format, recipe and transition against the checks |
+| `tests/weak-agent-script.mjs` | What the fewest agent calls get for 10 briefs |
+| `tests/anime-proof.mjs` | A song and three clips through compose, check and render, 3 seeds |
+| `tests/tempo-eval.mjs`, `tests/song-shape-eval.mjs` | Beat and song-section analysis on real songs (downloads them) |
+| `scripts/effects-parity.mjs` | Effects drawn the same by the app's Chromium and the export |
+| `scripts/benchmark-render.mjs` | 1080p render time and exact frames, before and after a renderer change |
+| `scripts/background-timing.mjs` | Import time while a reference search measures in the background |
+| `scripts/footage-live.mjs` | The footage finder against real YouTube or Commons |
+| `scripts/speech-hear-check.mjs` | Transcription with the real whisper model |
+| `scripts/sound-library-measure.mjs` | The built-in music's measured drops |
+| `scripts/drawn-faces-measure.mjs` | Face detectors on drawn footage |
+| `scripts/house-backfill.mjs` | Builds the house memory for a data folder's saved projects |

@@ -489,7 +489,11 @@ function cubicExtrema(p0, p1, p2, p3) {
 
 /** Return the exact axis-aligned bounds of a path's cubic contours. */
 export function pathBounds(d) {
-  const contours = parsePath(d);
+  return contourBounds(parsePath(d));
+}
+
+/** The exact axis-aligned bounds of cubic contours, as parsePath returns them. */
+export function contourBounds(contours) {
   if (contours.length === 0) return { x: 0, y: 0, width: 0, height: 0 };
   let minX = Infinity;
   let minY = Infinity;

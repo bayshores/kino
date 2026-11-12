@@ -15,7 +15,7 @@
 // songVocals(file) finds where a voice sings or raps with whisper.cpp (it writes sung words too);
 // songShape's voiceGuess is the rougher fallback when whisper is not installed.
 import { readFile, writeFile } from "node:fs/promises";
-import { barIndexAt, barLines, barOf } from "../engine/songBars.js";
+import { barIndexAt, barLines } from "../engine/songBars.js";
 import { decodeMono } from "./audio-analysis.mjs";
 import { SAMPLE_RATE as SPEECH_RATE, whisperSegments, whisperSetup, whisperTurn } from "./speech/transcribe.mjs";
 

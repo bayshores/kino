@@ -134,6 +134,13 @@ test("input that breaks a tool's schema never reaches the client", async () => {
       refused = /mode/.test(error.message);
     }
     assert.ok(refused, "a bad look mode is refused with a message naming mode");
+    // A choice the value is one part of, or a word for it, beats the closest spelling; a list left
+    // out or empty gets a call to fill in.
+    const nextOfCall = async (name, args) => JSON.parse((await client.callTool({ name, arguments: args })).content[0].text).next;
+    assert.equal(await nextOfCall("notes", { action: "plan", steps: ["a"] }), 'notes {"action":"set_plan","steps":["a"]}');
+    assert.equal(await nextOfCall("library", { topic: "recipes" }), 'library {"topic":"blocks"}');
+    assert.equal(await nextOfCall("inspect", {}), 'inspect {"targets":["<a layer\'s name or code, such as L1>"]}');
+    assert.match(await nextOfCall("edit", { ops: [] }), /^library \{"topic":"op"/);
     assert.deepEqual(agent.calls, []);
     // Every notes action the service takes passes the schema (one list: actions.mjs).
     for (const action of NOTES_ACTIONS) assert.equal((await client.callTool({ name: "notes", arguments: { action } })).isError, undefined, action);

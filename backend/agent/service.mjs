@@ -152,7 +152,7 @@ import { suggestStyleLines } from "../measure/suggest.mjs";
 import { changedParts, RENDER } from "./crew-locks.mjs";
 import { CrewError } from "./crew.mjs";
 import { callDetails as answerDetails, takeSaid } from "./said.mjs";
-import { answerText, call as nextOf, callText, cleanInput, opWithName, originFootage, originFootageNext, STATUS_CALL, unfilledSlot, withSuggestion } from "./next-call.mjs";
+import { answerText, call as nextOf, callText, cleanInput, missingFieldCall, opWithName, originFootage, originFootageNext, STATUS_CALL, unfilledSlot, withSuggestion } from "./next-call.mjs";
 
 // Inbox lines kept for one agent (a helper's hand-back to its lead) until that agent calls.
 const INBOX_FOR_OTHERS_KEPT = 50;
@@ -2057,10 +2057,16 @@ export function createAgentService(deps) {
   function editOperations(input, projectId) {
     if (input.retry === undefined) {
       if (input.fix !== undefined) throw new AgentError("bad_input", "fix goes with retry, the code of a refused edit (such as E1).");
+      // operations is another name for ops; with neither, the edit was a crash ("Cannot read
+      // properties of undefined").
+      const alias = input.ops === undefined ? ["operations", "changes"].find((key) => input[key] !== undefined) : undefined;
+      const ops = alias ? input[alias] : input.ops;
+      if (ops === undefined || ops === null)
+        throw Object.assign(new AgentError("bad_input", "edit needs ops: a list of {op, …}, such as ops:[{op:\"update_layer\", layer:\"title\", properties:{x:200}}]. library {topic:\"op\", name} gives an op's fields."),
+          { nextCall: nextOf("library", { topic: "op", name: "<the op's name, such as add_layer>" }) });
       // One op sent on its own is a list of one (edit reports it in fixed).
-      const one = input.ops;
-      if (one && typeof one === "object" && !Array.isArray(one) && (one.op ?? one.type) !== undefined) return Object.assign([one], { wrapped: true });
-      return input.ops;
+      if (typeof ops === "object" && !Array.isArray(ops) && (ops.op ?? ops.type) !== undefined) return Object.assign([ops], { wrapped: true, alias });
+      return Array.isArray(ops) && alias ? Object.assign([...ops], { alias }) : ops;
     }
     const code = String(input.retry).toUpperCase();
     const saved = refused.get(code);
@@ -2375,6 +2381,7 @@ export function createAgentService(deps) {
       const before = record.document;
       const codes = await syncCodes(projectId, before);
       const resolver = await waiverReferences(createResolver(before, codes), before, ops);
+      if (ops.alias) resolver.fixes.push(`${ops.alias} → ops`);
       if (ops.wrapped) resolver.fixes.push("ops {…} → [{…}]");
       const stale = baseRevision !== undefined && baseRevision < record.revision;
       let after, work, translation;
@@ -7032,7 +7039,7 @@ export function createAgentService(deps) {
       out.push({ op: "set_cues", cues, ...(remove.length ? { remove } : {}) });
       if (!dryRun) await deps.inspire.setSaved(document.id, id, true).catch(() => {});
     }
-    return ops.wrapped ? Object.assign(out, { wrapped: true }) : out;
+    return Object.assign(out, ops.wrapped ? { wrapped: true } : {}, ops.alias ? { alias: ops.alias } : {});
   }
 
   // ---- project ----------------------------------------------------------------------------
@@ -7660,6 +7667,9 @@ export function createAgentService(deps) {
       if (fixed) return nextOf(verb, fixed);
     }
     if (verb === "edit" && data.type) return nextOf("library", { topic: "op", name: data.type });
+    // A call refused for a field it lacks: the same call with that field as a slot to fill.
+    const filled = data.error === "bad_input" ? missingFieldCall(verb, asked) : null;
+    if (filled) return filled;
     return projectId ? buildNext(projectId) : STATUS_CALL;
   }
 

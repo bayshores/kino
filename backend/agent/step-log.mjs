@@ -2,10 +2,7 @@
 // kino could not tell a person how long a step takes because nothing recorded it. The service
 // names the step open when each agent call arrives (stepNameOf, from the same `step:` line status
 // shows) and adds the call here (logCall); the log lives in the project's agent state
-// (state.stepLog). Pure functions, so tests call them directly. The one file read is
-// finishedLogs, which turns the logs of finished videos in the data folder into ranges.
-import { readdir, readFile } from "node:fs/promises";
-import path from "node:path";
+// (state.stepLog). Pure functions, so tests call them directly.
 
 // The steps, in the order a video meets them. These are the words of kino's own `step:` line:
 // brief, references (find and study), treatments (write and pick), signature (and spine), lock
@@ -164,25 +161,4 @@ export function stepRanges(logs) {
   const body = Object.entries(steps).map(([name, range]) => `${name} ${range.min} to ${range.max} min`).join(" · ");
   const text = enough ? `${body} (${basis})` : `${basis}, too few for a range (${MIN_RUNS} needed)${body ? `: ${body}` : ""}`;
   return { runs: finished.length, enough, steps, text };
-}
-
-/** The step logs of every project in a data folder (<data>/agent/projects/*.json); unreadable files are left out. */
-export async function readStepLogs(dataRoot) {
-  const directory = path.join(dataRoot, "agent", "projects");
-  let names;
-  try { names = (await readdir(directory)).filter((name) => name.endsWith(".json")); }
-  catch (error) { if (error.code === "ENOENT") return []; throw error; }
-  const logs = [];
-  for (const name of names) {
-    try {
-      const log = JSON.parse(await readFile(path.join(directory, name), "utf8")).stepLog;
-      if (log?.steps && Array.isArray(log.order)) logs.push(log);
-    } catch { /* a file that cannot be read is left out */ }
-  }
-  return logs;
-}
-
-/** The ranges of this data folder's finished videos (stepRanges over readStepLogs). */
-export async function dataRanges(dataRoot) {
-  return stepRanges(await readStepLogs(dataRoot));
 }

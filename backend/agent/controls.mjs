@@ -26,9 +26,6 @@ const EXAMPLE = { controls: { rough: "go", quote: "<their exact words>" } };
 const isRecord = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 const bad = (message) => new BriefError("bad_input", `${message} ${HOW}`, { example: EXAMPLE });
 
-/** An empty set of controls: every value takes the person's settings or kino's default. */
-export const emptyControls = () => ({ stops: {}, skipUnder: {}, quote: null });
-
 /**
  * The controls sent, merged over the saved ones (`current`, or null), as
  * {stops, skipUnder, quote}; throws BriefError when a value is not one kino takes, or when it asks

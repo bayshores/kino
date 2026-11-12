@@ -9,6 +9,7 @@ import { z } from "zod";
 import { ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { importedText } from "./client.mjs";
 import { closest } from "./refs.mjs";
+import { call, callText, missingFieldCall } from "./next-call.mjs";
 import { LIBRARY_TOPICS, NOTES_ACTIONS, SEARCH_KINDS } from "./actions.mjs";
 
 /**
@@ -80,6 +81,9 @@ export const AGENT_TOOLS = withSaid([
     title: "Edit the project",
     hints: WRITES, // every edit is a saved revision that history can revert or restore
     alwaysLoad: true,
+    // operations (another name for ops) must reach the service, which reads it as ops: dropped
+    // by the SDK, the edit had no ops at all.
+    keepUnknownKeys: true,
     description: [
       "Change the motion project (layers, animations, scenes) with a list of operations, saved as one revision. The receipt: new names, codes, changes, check counts.",
       "Each op is {op, ...fields}; refer to things by name, code (L3, s1, A2) or layer.kind (title.in); one scene needs no sceneId.",
@@ -361,11 +365,30 @@ export function schemaRefusal(result, { name, arguments: input = {} } = {}) {
     const field = choice[2];
     const path = field.split(".");
     const value = path.reduce((object, key) => (object == null ? undefined : object[key]), input);
-    const best = closest(String(value ?? ""), choices, 1)[0];
+    const best = closestChoice(String(value ?? ""), choices);
     reply.reason = `${field} ${JSON.stringify(value)} is not one of ${choices.join(", ")}.${best ? ` Did you mean ${best}?` : ""}`;
     if (best && path.length === 1) reply.next = `${name} ${JSON.stringify({ ...input, [field]: best })}`;
+  } else {
+    // A list left out or empty (inspect {}, edit {ops:[]}): the call with the list to fill in.
+    const filled = missingFieldCall(name, input);
+    if (filled) reply.next = callText(filled);
+    else if (name === "edit" && /\bat ops$/.test(said)) reply.next = callText(call("library", { topic: "op", name: "<the op's name, such as add_layer>" }));
   }
   return { content: [{ type: "text", text: JSON.stringify(reply) }], isError: true };
+}
+
+// Words agents use for a choice that spelling distance misses: plan was read as add (set_plan),
+// recipes as rules (blocks).
+const CHOICE_WORDS = { recipes: "blocks", recipe: "blocks", docs: "guide", help: "guide", fields: "op" };
+
+// The choice a wrong value most likely means: a word for it, a choice the value is one part of
+// (plan → set_plan), or the closest spelling.
+function closestChoice(value, choices) {
+  const word = value.trim().toLowerCase();
+  if (choices.includes(CHOICE_WORDS[word])) return CHOICE_WORDS[word];
+  const part = choices.filter((choice) => choice.split("_").includes(word));
+  if (part.length === 1) return part[0];
+  return closest(value, choices, 1)[0];
 }
 
 // An output folder must be absolute. A leading ~ is your home folder, as on the kino command

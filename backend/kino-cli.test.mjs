@@ -10,7 +10,7 @@ import { after, before, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { parseCommand, UsageError } from "../bin/kino.mjs";
+import { exitCodeFor, parseCommand, UsageError } from "../bin/kino.mjs";
 import { planSetup } from "../bin/setup.mjs";
 import { ffmpeg, run, skipWithoutMediaTools, startTestServer } from "./media.test.support.mjs";
 
@@ -118,6 +118,11 @@ describe("parseCommand", () => {
       assert.deepEqual(parsed.input, expected.input, argv.join(" "));
       if (expected.options) assert.deepEqual(parsed.options, expected.options, argv.join(" "));
     }
+    // A canceled render exits 1 like a failed one (it exited 0); the answer to cancel itself is 0.
+    const canceled = { text: "R1 draft canceled", data: { job: "R1", status: "canceled" } };
+    assert.equal(exitCodeFor("render", { action: "wait", job: "R1" }, canceled), 1);
+    assert.equal(exitCodeFor("render", { action: "cancel", job: "R1" }, canceled), 0);
+    assert.equal(exitCodeFor("render", { action: "wait", job: "R1" }, { text: "done", data: { status: "done" } }), 0);
   });
 
   test("edit reads operations inline, as an object with fields, or from a file", async () => {
@@ -280,6 +285,13 @@ describe("parseCommand", () => {
       { message: "Unknown option \"--fields\". kino takes fields as key=value: kino inspect 'fields=[\"x\"]' tagline (kino help)" });
     // A step is text and an op list is JSON, so any word after a comma goes on there.
     assert.deepEqual((await parseCommand(["notes", "action=set_plan", "steps=Draft the logo,", "Polish"])).input, { action: "set_plan", steps: "Draft the logo,Polish" });
+    // Unquoted steps: the words after steps= are more of it (only "Draft" was kept), and commas
+    // between words separate steps; a quoted step keeps its comma.
+    const steps = async (...words) => (await parseCommand(["notes", "set_plan", ...words])).input.steps;
+    assert.deepEqual(await steps("steps=Draft", "the", "logo,", "Polish", "timing"), ["Draft the logo", "Polish timing"]);
+    assert.deepEqual(await steps("Draft", "the", "logo,", "Polish"), ["Draft the logo", "Polish"]);
+    assert.deepEqual(await steps("a,b"), ["a", "b"]);
+    assert.deepEqual(await steps("Build, then check", "Render"), ["Build, then check", "Render"]);
     const ops = [{ op: "delete_layer", layer: "a" }, { op: "delete_layer", layer: "b" }];
     assert.deepEqual((await parseCommand(["edit", `ops=[${JSON.stringify(ops[0])},`, `${JSON.stringify(ops[1])}]`])).input, { ops });
   });

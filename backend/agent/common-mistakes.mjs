@@ -45,6 +45,7 @@ const OP_ALIASES = {
   add_group: ["add_layer", "group"], create_layer: ["add_layer"], new_layer: ["add_layer"],
   animate: ["add_animation"], add_anim: ["add_animation"], create_animation: ["add_animation"],
   edit_layer: ["update_layer"], modify_layer: ["update_layer"], change_layer: ["update_layer"], set_layer: ["update_layer"],
+  set_text: ["update_layer"], update_text: ["update_layer"], edit_text: ["update_layer"],
   remove_layer: ["delete_layer"], delete_layers: ["delete_layer"], remove_layers: ["delete_layer"],
   edit_animation: ["update_animation"], modify_animation: ["update_animation"], remove_animation: ["delete_animation"],
   create_scene: ["add_scene"], new_scene: ["add_scene"], remove_scene: ["delete_scene"], edit_scene: ["update_scene"],
@@ -218,6 +219,8 @@ const PROPERTY_ALIASES = [
   ["weight", "fontWeight", "text"], ["align", "textAlign", "text"], ["textAlignment", "textAlign", "text"], ["lineSpacing", "lineHeight", "text"],
   ["content", "text", "text"], ["value", "text", "text"], ["label", "text", "text"], ["string", "text", "text"],
   ["angle", "rotation", null], ["rotate", "rotation", null], ["alpha", "opacity", null],
+  // CSS and canvas words for the top-left corner (left 200 was "Did you mean text, log, axes?").
+  ["left", "x", null], ["top", "y", null],
   ["url", "src", "media"], ["source", "src", "media"], ["file", "src", "media"], ["image", "src", "media"],
   // Play, in other editors' words: where in the file it starts (mediaOffset, file seconds), when
   // in the scene it starts (mediaStart, scene seconds) and how long it plays (mediaDuration).
@@ -324,6 +327,14 @@ export function fixLayerProperties(properties, fixes, { layerType, scene, layerN
     next[field] = value;
     fixes.push(note);
   };
+  // CSS and snake_case spellings of a field: font-size, font_size, letter-spacing → fontSize, ….
+  for (const key of Object.keys(next)) {
+    if (!/[-_]/.test(key) || known?.has(key)) continue;
+    const camel = key.toLowerCase().replace(/[-_]+([a-z0-9])/g, (_, letter) => letter.toUpperCase());
+    if (camel === key || next[camel] !== undefined || !(known?.has(camel) || NUMBER_FIELDS.has(camel) || isLayerFieldAlias(camel))) continue;
+    set(camel, next[key], `${key} → ${camel}`);
+    delete next[key];
+  }
   // "logo.png." or "/api/media/….png," (a sentence's full stop or comma): the address without it.
   if (typeof next.src === "string") {
     const trimmed = next.src.trim().replace(/[.,;:!?]+$/, "");
