@@ -175,15 +175,15 @@ test("check warns deck_unused when the video uses under half the deck, and recor
   assert.match(plain, /^advice \(does not block\): .*deck_unused \(unused cards: [a-z-]+/m);
   // The advice names the unused cards and a ready call for the first.
   assert.match(plain, /^deck unused: [a-z0-9_-]+(, [a-z0-9_-]+)*; first: (library|edit) \{/m);
-  // And the plain facts beside the returns line: the share designed (a 96 px title is under 8% of the frame height) and the unused cards.
-  assert.match(plain, /^made: 0 of 20 moments \(0%\) carry a made element .* · deck: \d+ of \d+ cards unused \([a-z0-9_-]+/m);
+  // And the plain facts beside the returns line: the share made by time and area (the title shows from its fade's middle) and the unused cards.
+  assert.match(plain, /^made: 95% of the time, 1% of the frame area \(301 frames at 30 fps; .*by time: type 95%\) · deck: \d+ of \d+ cards unused \([a-z0-9_-]+/m);
   // Both lines count the same cards (deck_unused's own list).
   const advised = plain.match(/^deck unused: ([^;]+);/m)[1];
   assert.equal(plain.match(/^made: .* cards unused \(([^)]+)\)/m)[1], advised);
   // The same line where the agent decides: status, and the heads of look sheet and look review.
-  assert.match((await agent("status", { project: "deck-check" })).text, /^made: 0 of 20 moments \(0%\) carry a made element .* · deck: \d+ of \d+ cards unused/m);
-  assert.match((await agent("look", { project: "deck-check", mode: "sheet" })).text, /\nmade: 0 of 20 moments/);
-  assert.match((await agent("look", { project: "deck-check", mode: "review" })).text, /\nmade: 0 of 20 moments/);
+  assert.match((await agent("status", { project: "deck-check" })).text, /^made: 95% of the time, .* · deck: \d+ of \d+ cards unused/m);
+  assert.match((await agent("look", { project: "deck-check", mode: "sheet" })).text, /\nmade: 95% of the time/);
+  assert.match((await agent("look", { project: "deck-check", mode: "review" })).text, /\nmade: 95% of the time/);
   const checked = await agent("check", { project: "deck-check", rules: ["deck_unused"], pixels: false });
   const line = checked.text.split("\n").find((entry) => entry.startsWith("I deck_unused"));
   assert.ok(line, checked.text);

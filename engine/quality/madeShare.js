@@ -1,13 +1,16 @@
-// How much of a scene is designed: the share of its runtime that carries a made element, as a fact
-// beside the returns line (check). Never a rule, a warning or a target: the agent sees its own
-// number, and the saved references' stored one where they have it.
+// How much of a scene is designed, as a fact beside the returns line (check, status). Never a rule, a
+// warning or a target: the agent sees its own number, and the saved references' labels where they have them.
 //
-// A made element is a cut-out, a drawn graphic or shape (referenceKinds' "made"), a particle
-// overlay, or designed type: a reading text at 8% of the frame height or more that is not a
-// caption or a spoken line. Read at the same half-second moments reference_kinds uses.
+// madeTime (the printed line) reads every sampled frame: the share of the time and of the frame area
+// that the edit made. madeShare and madeMoments (match_references made) count half-second moments with a
+// made element: a cut-out, a drawn graphic or shape (referenceKinds' "made"), a particle overlay, or
+// designed type (a reading text at 8% of the frame height or more that is not a caption or a spoken line).
+// Until 2026-11-12 the line printed that moment count: one caption pill or one cut-out over its own clip
+// made a whole half second "made" (93% printed on a cut where 16% of the time was made).
 import { PARTICLE_LOOKS } from "../effects/particles.js";
-import { designedTexts, drawnSize } from "./analysis.js";
-import { frameAt } from "./model.js";
+import { designedTexts, drawnSize, speechTimed } from "./analysis.js";
+import { area, frameAt, intersection, visibleBoxAt } from "./model.js";
+import { turnedBox } from "./pixels.js";
 import { onscreenKinds } from "./rules/referenceKinds.js";
 
 const SHOWN = 0.5;
@@ -65,18 +68,144 @@ export function referenceMade(refs, { composite = false } = {}) {
 
 const percent = (made, total) => (total ? Math.round((made / total) * 100) : 0);
 
+// By screen time and frame area (madeTime). The frame is read on a grid of cells; a layer covers the
+// cells whose centers it holds (48 by 27 cells: 40 px at 1920 wide).
+const GRID_X = 48, GRID_Y = 27;
+// A guess, not measured: particles and drawn lines (speed lines, impact lines) ink about a quarter of the
+// layer box they are drawn over, and so does a look on a cut-out over its own clip (a rim, a glow, an
+// aura's tongues: the figure inside is the source's pixels). Their time counts in full; only their area
+// is weighed by this, and the line says so when it did.
+const SPARSE_INK = 0.25;
+// Effects that grade or clean a picture: a cut-out carrying only these still shows its source as it was.
+const CLEANUP = new Set(["deblock", "grain", "sharpen", "denoise", "curves", "lut", "color-grade", "color-look", "white-balance", "hue-saturation", "color-wheels", "exposure"]);
+const DRAWN = new Set(["speed-lines", "impact-lines", "film-burn", "lightning"]);
+const BAR_EDGE = 2;
+export const MADE_KINDS = Object.freeze(["type", "graphic", "cutout", "particle", "matte"]);
+
+// The ids of caption texts (add_captions, keep_line, a caption or speech role) and the painted
+// groups and plates around them (a caption pill counts as the caption, never as a made graphic).
+function captionIds(model) {
+  const ids = new Set(speechTimed(model));
+  const byId = new Map(model.items.map((item) => [item.id, item]));
+  for (const item of model.items) {
+    if (item.kind !== "text" || !SUBTITLE_ROLES.has(item.role)) continue;
+    for (let current = item; current && !ids.has(current.id); current = byId.get(current.parentId)) ids.add(current.id);
+    ids.add(item.id);
+  }
+  return ids;
+}
+
+const isBar = (model, box) => {
+  const wide = box.x1 - box.x0 >= 0.95 * model.width && (box.y0 <= BAR_EDGE || box.y1 >= model.height - BAR_EDGE);
+  const tall = box.y1 - box.y0 >= 0.95 * model.height && (box.x0 <= BAR_EDGE || box.x1 >= model.width - BAR_EDGE);
+  return wide || tall;
+};
+
+const subjectBoxAt = (item, index) => {
+  const subject = item.samples.subject;
+  return subject ? { x0: subject.x0[index], y0: subject.y0[index], x1: subject.x1[index], y1: subject.y1[index] } : null;
+};
+
 /**
- * One line: `made: 6 of 28 moments (21%) carry a made element (graphic 4, type 3) · deck: 6 of 8
- * cards unused (a, b, ...) · drawn graphic: yours 4 of 28 moments, your 2 references' made labels
- * 2 of 6, 5 of 6`. `deck` is {used, unused} (engine/deck.js deckUse), left out with none; `refs`
- * is referenceMade's list, set beside the edit's own graphic count (the same measure).
+ * The made share by screen time and frame area, read at every sampled frame: {frames, fps, time,
+ * area, kinds: {type, graphic, cutout, particle, matte} (shares of the time), caption: {time, area}}.
+ * Made: lettering that is not a caption, drawn shapes and paths (not a letterbox bar, not the
+ * background), every layer a move placed (an impact plate, a word panel, an aura's tongues), a
+ * cut-out on a new plate (its own clip hidden under it) or with a look on it, particles and drawn
+ * overlays, and footage shown only through lettering (a matte). Imported footage and found clips
+ * never count, whatever they show; a caption and its pill count under caption.
+ */
+export function madeTime(model) {
+  const frames = model.times?.length ?? 0;
+  const out = { frames, fps: model.fps, time: 0, area: 0, kinds: Object.fromEntries(MADE_KINDS.map((kind) => [kind, 0])), caption: { time: 0, area: 0 } };
+  if (!frames) return out;
+  const captions = captionIds(model);
+  const effects = model.effects ?? [];
+  const byId = new Map(model.items.map((item) => [item.id, item]));
+  const cellW = model.width / GRID_X, cellH = model.height / GRID_Y;
+  const made = new Float32Array(GRID_X * GRID_Y), said = new Float32Array(GRID_X * GRID_Y);
+  // A turned layer (a slanted word panel) covers the cells inside its own turned rectangle, not its
+  // upright bounding box: a band turned 12 degrees across the frame has a box several times its area.
+  const paint = (grid, box, weight, turn = 0) => {
+    if (!box) return;
+    const turned = turnedBox(box, turn);
+    const fromX = Math.max(0, Math.ceil(box.x0 / cellW - 0.5)), toX = Math.min(GRID_X - 1, Math.floor(box.x1 / cellW - 0.5));
+    const fromY = Math.max(0, Math.ceil(box.y0 / cellH - 0.5)), toY = Math.min(GRID_Y - 1, Math.floor(box.y1 / cellH - 0.5));
+    for (let y = fromY; y <= toY; y += 1) for (let x = fromX; x <= toX; x += 1) {
+      if (turned) {
+        const dx = (x + 0.5) * cellW - turned.cx, dy = (y + 0.5) * cellH - turned.cy;
+        if (Math.abs(dx * turned.cos + dy * turned.sin) > turned.w / 2 || Math.abs(dy * turned.cos - dx * turned.sin) > turned.h / 2) continue;
+      }
+      grid[y * GRID_X + x] = Math.max(grid[y * GRID_X + x], weight);
+    }
+  };
+  let guessed = false;
+  const sum = (grid) => grid.reduce((total, value) => total + value, 0) / grid.length;
+  const counts = Object.fromEntries(MADE_KINDS.map((kind) => [kind, 0]));
+  let madeFrames = 0, madeArea = 0, captionFrames = 0, captionArea = 0;
+  for (let index = 0; index < frames; index += 1) {
+    const time = model.times[index];
+    made.fill(0); said.fill(0);
+    const has = new Set();
+    let captioned = false;
+    const fxOn = (item) => effects.filter((entry) => entry.itemId === item.id && on(entry, time));
+    for (const item of model.items) {
+      if (item.isMask || item.sceneBackground || item.role === "background" || (item.samples.opacity[index] ?? 0) < SHOWN) continue;
+      const box = visibleBoxAt(model, item, index);
+      if (captions.has(item.id)) {
+        if (item.kind === "text" || item.painted) { captioned = true; paint(said, box, 1); }
+        continue;
+      }
+      const live = fxOn(item);
+      const sparse = live.find((entry) => PARTICLES.has(entry.effect)) ? "particle" : live.find((entry) => DRAWN.has(entry.effect)) ? "graphic" : null;
+      if (sparse) { has.add(sparse); paint(made, box, SPARSE_INK); guessed = true; }
+      const placed = item.move && item.role === "decor";
+      const turn = item.samples.turn?.[index] ?? 0;
+      let kind = null, own = box, weight = 1;
+      if (item.kind === "text") kind = "type";
+      else if (item.kind === "video" || item.kind === "image") {
+        if (item.cutoutOf) {
+          const source = byId.get(item.cutoutOf);
+          const newPlate = !source || (source.samples.opacity[index] ?? 0) <= 0.05;
+          if (placed || newPlate || live.some((entry) => !CLEANUP.has(entry.effect))) {
+            kind = "cutout"; own = subjectBoxAt(item, index) ?? box;
+            // Over its own clip the figure is the source's pixels: only its look (a rim, the tongues) is made.
+            if (!newPlate) { weight = SPARSE_INK; guessed = true; }
+          }
+        } else if (item.maskId && byId.get(item.maskId)?.kind === "text") kind = "matte";
+      } else if (item.painted && (placed || (area(intersection(box, { x0: 0, y0: 0, x1: model.width, y1: model.height })) < 0.9 * model.width * model.height && !isBar(model, box)))) kind = "graphic";
+      if (kind) { has.add(kind); paint(made, own, weight, turn); }
+    }
+    if (has.size) madeFrames += 1;
+    for (const kind of has) counts[kind] += 1;
+    madeArea += sum(made);
+    if (captioned) captionFrames += 1;
+    captionArea += sum(said);
+  }
+  out.time = madeFrames / frames;
+  out.area = madeArea / frames;
+  for (const kind of MADE_KINDS) out.kinds[kind] = counts[kind] / frames;
+  out.caption = { time: captionFrames / frames, area: captionArea / frames };
+  out.guessed = guessed;
+  return out;
+}
+
+const pct = (share) => `${Math.round(share * 100)}%`;
+
+/**
+ * One line: `made: 16% of the time, 4% of the frame area (420 frames at 30 fps; footage and found clips
+ * never count; by time: cutout 10%, type 5%) · captions (not made): 51% of the time, 3% of the area ·
+ * deck: 6 of 8 cards unused (a, b, ...) · your 2 references' made labels by eye: 2 of 6 moments (33%),
+ * 5 of 6 (83%) (a time share, no area)`. `own` is madeTime's; `deck` is {used, unused} (engine/deck.js
+ * deckUse), left out with none; `refs` is referenceMade's list.
  */
 export function madeLine(own, { refs = [], deck = null } = {}) {
-  if (!own?.moments) return "";
-  const kinds = Object.entries(own.parts).filter(([, count]) => count > 0).map(([kind, count]) => `${kind} ${count}`);
-  const head = `made: ${own.made} of ${own.moments} moments (${percent(own.made, own.moments)}%) carry a made element${kinds.length ? ` (${kinds.join(", ")})` : " (cut-out, drawn graphic, shape, particle or designed type)"}`;
+  if (!own?.frames) return "";
+  const kinds = MADE_KINDS.filter((kind) => own.kinds[kind] > 0).map((kind) => `${kind} ${pct(own.kinds[kind])}`);
+  const head = `made: ${pct(own.time)} of the time, ${pct(own.area)} of the frame area${own.guessed ? " (thin ink at a guessed quarter of its box)" : ""} (${own.frames} frames at ${own.fps} fps; footage and found clips never count; ${kinds.length ? `by time: ${kinds.join(", ")}` : "no lettering, drawn graphic, cut-out on a new plate, particle or matte"})`;
+  const said = own.caption.time > 0 ? ` · captions (not made): ${pct(own.caption.time)} of the time, ${pct(own.caption.area)} of the area` : "";
   const used = deck?.used ?? [], unused = deck?.unused ?? [];
   const cards = used.length + unused.length ? ` · deck: ${unused.length} of ${used.length + unused.length} cards unused${unused.length ? ` (${unused.slice(0, 8).join(", ")}${unused.length > 8 ? ", ..." : ""})` : ""}` : "";
-  const beside = refs.length ? ` · drawn graphic: yours ${own.parts.graphic} of ${own.moments} moments, your ${refs.length} reference${refs.length === 1 ? "'s" : "s'"} made label${refs.length === 1 ? "" : "s"} ${refs.map((ref) => `${ref.made} of ${ref.total}`).join(", ")}` : "";
-  return `${head}${cards}${beside}`;
+  const beside = refs.length ? ` · your ${refs.length} reference${refs.length === 1 ? "'s" : "s'"} made labels by eye: ${refs.map((ref, at) => `${ref.made} of ${ref.total}${at ? "" : " moments"} (${percent(ref.made, ref.total)}%)`).join(", ")} (a time share, no area)` : "";
+  return `${head}${said}${cards}${beside}`;
 }
