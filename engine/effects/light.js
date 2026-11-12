@@ -5,6 +5,7 @@
 import { MAX_GLOW_PASSES, GLOW_DEFAULTS, renderGlow } from "./glow.js";
 import { MAX_RAY_LENGTH, renderLightRays } from "./lightRays.js";
 import { FLARE_STYLES, renderLensFlare } from "./lensFlare.js";
+import { RIM_EDGES, RIM_OPEN_EDGES, RIM_STYLES, renderRimLight } from "./rimLight.js";
 
 const number = (label, value, min, max, step, unit = "", extra = {}) =>
   ({ type: "number", label, default: value, min, max, step, unit, ...extra });
@@ -25,6 +26,9 @@ export const LIGHT_EFFECTS = [
       radius: number("Radius", 24, 0, 400, 1, "px"),
       passes: number("Passes", 1, 1, MAX_GLOW_PASSES, 1, "", { integer: true }),
       ...brightParts(),
+      // "behind": a halo under the layer from its whole shape, so the fill keeps its own color.
+      // Optional, so glows saved before it stay the same.
+      mode: { ...choice("Mode", "add", [["add", "Add"], ["behind", "Behind"]]), optional: true },
     } },
   { key: "light-rays", label: "Light Rays", group: "Light", kind: "ranged", render: renderLightRays,
     parameters: {
@@ -46,6 +50,22 @@ export const LIGHT_EFFECTS = [
       size: number("Size", 1, 0.05, 4, 0.01),
       angle: number("Angle", 0, -360, 360, 1, "°"),
       color: color("Color", "#FFC890"),
+    } },
+  // Rim light from the layer's own alpha (rimLight.js says how, and where each default comes from).
+  { key: "rim-light", label: "Rim Light", group: "Light", kind: "ranged", render: renderRimLight,
+    parameters: {
+      color: { ...color("Color", "auto"), auto: true },
+      width: number("Width", 8, 0.5, 200, 0.5, "px"),
+      angle: number("Angle", "auto", -360, 360, 1, "°", { auto: true }),
+      spread: number("Spread", 20, 0, 400, 1, "px"),
+      intensity: number("Intensity", 1, 0, 4, 0.05),
+      edge: choice("Edge", "inside", RIM_EDGES.map((value) => [value, value[0].toUpperCase() + value.slice(1)])),
+      style: choice("Style", "even", RIM_STYLES.map((value) => [value, value[0].toUpperCase() + value.slice(1)])),
+      lobeSize: number("Lobe Size", 100, 8, 1000, 1, "px"),
+      crawl: number("Crawl", 40, -1000, 1000, 1, "px/s"),
+      seed: number("Seed", 0, 0, 1_000_000, 1, "", { integer: true, animatable: false, optional: true }),
+      lightOnly: { type: "boolean", label: "Light Only", default: false },
+      openEdges: choice("Open Edges", "frame", RIM_OPEN_EDGES.map((value) => [value, value[0].toUpperCase() + value.slice(1)])),
     } },
 ];
 

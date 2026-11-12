@@ -95,7 +95,11 @@ export function renderGlow(frame) {
   const colorMix = numberParameter(frame, "colorMix", 0, 0, 1);
   const passes = numberParameter(frame, "passes", 1, 1, MAX_GLOW_PASSES, { integer: true });
   const rgb = hexColor(frame, "color", "#FFFFFF");
-  const steps = brightPassSteps({ threshold, softness, rgb, colorMix, result: "glowSource", prefix: "glow" });
+  // Mode "behind": the halo comes from the whole layer (no threshold: an orange word glows
+  // orange) and is drawn under it, so the fill keeps its own color instead of washing toward
+  // white. Outside the layer's shape it adds the same light as "add".
+  const behind = frame?.parameters?.mode === "behind";
+  const steps = brightPassSteps({ threshold: behind ? 0 : threshold, softness: behind ? 0 : softness, rgb, colorMix, result: "glowSource", prefix: "glow" });
   const radii = radius > 0 ? glowRadii(radius, passes) : [0];
   // With several passes, strength goes into each pass's weight, so the sum is rounded to 8 bits
   // once at its final brightness (scaling an already rounded sum would widen its bands). Where
@@ -112,7 +116,12 @@ export function renderGlow(frame) {
       steps.push(`<feComposite in="glowSum" in2="glowPass" operator="arithmetic" k1="0" k2="1" k3="${fmt(weights[index])}" k4="0" result="glowSum"/>`);
     }
   });
-  steps.push(`<feComposite in="SourceGraphic" in2="glowSum" operator="arithmetic" k1="0" k2="1" k3="${fmt(several ? 1 : strength)}" k4="0"/>`);
+  if (behind) {
+    steps.push(`<feComposite in="glowSum" in2="glowSum" operator="arithmetic" k1="0" k2="${fmt(several ? 1 : strength)}" k3="0" k4="0" result="glowHalo"/>`,
+      `<feMerge><feMergeNode in="glowHalo"/><feMergeNode in="SourceGraphic"/></feMerge>`);
+  } else {
+    steps.push(`<feComposite in="SourceGraphic" in2="glowSum" operator="arithmetic" k1="0" k2="1" k3="${fmt(several ? 1 : strength)}" k4="0"/>`);
+  }
   // Three standard deviations of the widest blur hold all but a trace of the glow.
   return filterEffect(frame, steps, { padding: Math.ceil(1.5 * radii[radii.length - 1]) + 1 });
 }

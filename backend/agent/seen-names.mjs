@@ -31,7 +31,8 @@ const SEEN_AS = {
   grain: ["grain"], vignette: ["vignette"], blur: ["zoom-blur", "directional-blur"], "freeze frame": ["freeze-shutter"],
   // Type, color and composite looks (the on-screen kinds a reference shows besides cuts and sound).
   font: ["set_font"], fonts: ["set_font"], typeface: ["set_font"], lettering: ["set_font"], typography: ["set_font"],
-  outline: ["outline_text", "glow", "cut_out"], outlined: ["outline_text", "glow", "cut_out"], stroke: ["outline_text", "glow", "cut_out"],
+  rim: ["rim-light"], "rim light": ["rim-light"], electric: ["rim-light"], lightning: ["rim-light"],
+  outline: ["outline_text", "rim-light", "glow", "cut_out"], outlined: ["outline_text", "rim-light", "glow", "cut_out"], stroke: ["outline_text", "glow", "cut_out"],
   duotone: ["duotone"], tritone: ["tritone"],
   "text behind": ["masked-type", "cut_out"], "behind text": ["masked-type", "cut_out"],
   "3d": ["card-flip", "3d-orbit"], "3d text": ["card-flip", "3d-orbit"], "3d type": ["card-flip", "3d-orbit"],

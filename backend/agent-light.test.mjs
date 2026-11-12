@@ -100,7 +100,7 @@ async function recipes() {
 
 test("the guide's light recipes run as written and light the picture as their names say", { timeout: 300_000 }, async () => {
   const all = await recipes();
-  assert.deepEqual(Object.keys(all), ["bloom", "deep-glow", "neon", "halation", "beat-flash", "god-rays",
+  assert.deepEqual(Object.keys(all), ["bloom", "deep-glow", "neon", "subject-rim", "electric-outline", "halation", "beat-flash", "god-rays",
     "light-behind-title", "anamorphic-flare", "sun-flare", "flare-sweep"]);
 
   // The picture without light, drawn by the same renderer: a scene with any effect is drawn by
@@ -128,6 +128,12 @@ test("the guide's light recipes run as written and light the picture as their na
   // Just above the letters' tops: the glow is pink (red over blue over green).
   const pink = change(plain, neon, 120, 74);
   assert.ok(pink[0] > 30 && pink[0] > pink[1] + 20 && pink[2] > pink[1], `the neon glow is pink: ${pink}`);
+
+  // The electric outline: a purple ring just above the letters' tops.
+  await lit("light-electric-outline");
+  await edit("light-electric-outline", all["electric-outline"]);
+  const ring = change(plain, await frame("light-electric-outline"), 120, 74);
+  assert.ok(ring[2] > 10 && ring[2] > ring[1], `the outline is purple: ${ring}`);
 
   await lit("light-deep-glow");
   await edit("light-deep-glow", all["deep-glow"]);

@@ -78,6 +78,8 @@ function colorAt(from, to, progress) {
 function parametersAt(effect, from, to, progress) {
   return Object.fromEntries(Object.entries(effect.parameters).filter(([key, field]) => !field.optional || key in from || key in to).map(([key, field]) => {
     const a = from[key] ?? to[key] ?? field.default, b = to[key] ?? field.default;
+    // "auto" (fields marked auto) does not blend with a value: it switches halfway.
+    if (field.auto && (a === "auto" || b === "auto")) return [key, progress < 0.5 ? a : b];
     if (field.type === "number") {
       const value = clamp(a + (b - a) * progress, field.min, field.max);
       return [key, field.integer ? Math.round(value) : value];

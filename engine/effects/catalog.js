@@ -289,7 +289,10 @@ export function normalizeEffectParameters(key, values, { partial = false, path =
   for (const [name, value] of Object.entries(values)) {
     const field = parameters[name];
     const at = `${path}.${name}`;
-    if (field.type === "number") {
+    // A field marked auto also takes "auto": the effect works the value out from the layer.
+    if (field.auto && value === "auto") {
+      output[name] = value;
+    } else if (field.type === "number") {
       if (typeof value !== "number" || !Number.isFinite(value) || value < field.min || value > field.max || (field.integer && !Number.isInteger(value)))
         throw new RangeError(`${at} must be ${field.integer ? "an integer" : "a number"} from ${field.min} to ${field.max}`);
       output[name] = value;
@@ -337,7 +340,8 @@ export function effectMediaSources(animation) {
 
 // What values a parameter takes, after its type: " 0..1500 integer px/s", " area/bottom/…", and so on.
 function fieldRange(field) {
-  if (field.type === "number") return ` ${field.min}..${field.max}${field.integer ? " integer" : ""}${field.unit ? ` ${field.unit}` : ""}`;
+  if (field.type === "number") return ` ${field.min}..${field.max}${field.integer ? " integer" : ""}${field.unit ? ` ${field.unit}` : ""}${field.auto ? " or \"auto\"" : ""}`;
+  if (field.type === "color" && field.auto) return " hex or \"auto\"";
   if (field.type === "enum") return ` ${field.options.map(([value]) => value).join("/")}`;
   if (field.type === "curve") return ` [[in,out],…] 2..${MAX_CURVE_POINTS} points 0..1`;
   if (field.type === "lut") return " (an imported .cube file's src)";

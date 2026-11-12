@@ -628,6 +628,9 @@ How to read it:
 - **Glow, light rays, lens flare**: Verified. Ten recipes in `library {topic:"rules",
   name:"light"}`. Evidence: `engine/effects/light.test.js`, `backend/agent-light.test.mjs`, golden
   `light`. Gaps: a flare cannot follow another layer; no HDR bloom.
+- **Rim light and glow behind**: Test-verified. `rim-light` lights a layer's own alpha edge (lit side,
+  ring outline, no rim on the frame border, auto color); glow `mode:"behind"` keeps the fill color.
+  Evidence: `engine/effects/light.test.js`. Gap: one color per effect (a pale core needs a second one).
 - **Cost**: 26 to 201 ms a 1080p MP4 frame.
 - **Reduced motion**: Verified. Light bursts under 1 s are calmed in the live preview only.
   Evidence: `engine/effects/light.test.js`.
