@@ -484,13 +484,20 @@ test("frozen_picture: a small clip whose picture holds still is a freeze", { ski
   await mkdir(join(root, "media"));
   await makeVideo(join(root, "media", "still.mp4"), { fps: 30, frames: 60, frameColor: () => [128, 128, 128] });
   await makeVideo(join(root, "media", "moving.mp4"), { fps: 30, frames: 60, frameColor: (n) => [n * 4, n * 4, n * 4] });
-  const clip = (file) => scene({ background: "#202020", duration: 2, layers: [
-    { type: "video", id: "screen", name: "screen", x: 800, y: 300, width: 400, height: 300, src: `/api/media/${file}`, mediaFreeze: "none" },
+  const clip = (file, animations = []) => scene({ background: "#202020", duration: 2, layers: [
+    { type: "video", id: "screen", name: "screen", x: 800, y: 300, width: 400, height: 300, src: `/api/media/${file}`, mediaFreeze: "none", animations },
   ] });
   const [finding] = await fires("frozen_picture", clip("still.mp4"), join(root, "media"));
   assert.equal(finding.itemId, "screen");
   assert.ok(finding.until - finding.at >= 1.5, `${finding.at} to ${finding.until}`);
   assert.match(finding.message, /^"screen" shows a still picture from 0 to 2 s \(its file from 0 to 2 s\)/);
+  // Its ready fix, an eased push over the hold, leaves frozen_picture and linear_motion quiet.
+  const { fix } = finding;
+  assert.deepEqual([fix.kind, fix.technique], ["motion", "slow-push"]);
+  const pushed = clip("still.mp4", [{ id: "screen.hold", kind: "custom", name: "Slow push", start: fix.start, duration: fix.duration, easing: fix.easing,
+    from: { scaleX: 1, scaleY: 1 }, to: { scaleX: fix.scale, scaleY: fix.scale } }]);
+  await silent("frozen_picture", pushed, join(root, "media"));
+  await silent("linear_motion", pushed, join(root, "media"));
   assert.deepEqual(await check("frozen_footage", clip("still.mp4"), join(root, "media")), []);
   await silent("frozen_picture", clip("moving.mp4"), join(root, "media"));
 });

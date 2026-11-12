@@ -459,10 +459,15 @@ export function aliveDuring(model, item, from, to) {
 
 // The ready fix for a held picture: an eased slow push over the hold (passes linear_motion, and a
 // moving layer is alive for frozen_picture). 4% of the size a second, from SLOW_PUSH's full-frame
-// 1.0 to 1.12 over 3 s (rules/motion.js); at least 2% so a short hold still moves (a guess).
+// 1.0 to 1.12 over 3 s (rules/motion.js); at least 2% so a short hold still moves (a guess), at
+// most 12% so a long hold is not blown up (frozen_screen's push is 1.06 to 1.18). Its easing is
+// frozen_screen's gentle curve: its ends still move (study b/result.md 4: smooth's still ends
+// brought the freeze back; only a curve like this passed both rules).
+const HOLD_PUSH_EASING = [0.4, 0.2, 0.6, 0.8];
 function holdPush(item, from, to) {
   const duration = Math.max(FREEZE_MIN, to - from);
-  return { kind: "motion", technique: "slow-push", itemId: item.id, start: sec(from), duration: sec(duration), scale: Math.round((1 + Math.max(0.02, 0.04 * duration)) * 1000) / 1000, easing: "smooth" };
+  const grow = Math.min(0.12, Math.max(0.02, 0.04 * duration));
+  return { kind: "motion", technique: "slow-push", itemId: item.id, start: sec(from), duration: sec(duration), scale: Math.round((1 + grow) * 1000) / 1000, easing: HOLD_PUSH_EASING };
 }
 
 /** frozen_picture: the rendered picture inside a video layer's box stops changing for FREEZE_MIN or longer. */
