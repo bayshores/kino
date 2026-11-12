@@ -266,9 +266,21 @@ function lookOf(term) {
  * best fit first: [{id, family, weights}]. library {topic:"fonts", like} measures these.
  */
 export async function classFamilies(words, catalog) {
-  const wanted = lookOf(words.join(" "));
-  if (!wanted) return [];
-  return (await lookMatches(wanted, catalog)).matches;
+  // A shape word (dot-matrix, brush) is searched on its own: joined with "condensed" it would only
+  // keep dotted families with condensed in the name (measured: a dotted crop downloaded none). The
+  // other words search together. The lists take turns, the first word's list first.
+  const shaped = words.filter((word) => /dot|brush|pixel/.test(word));
+  const rest = words.filter((word) => !shaped.includes(word));
+  const queries = [...shaped, ...(rest.length ? [rest.join(" ")] : [])];
+  const lists = [];
+  for (const query of queries) {
+    const wanted = lookOf(query);
+    if (wanted) lists.push((await lookMatches(wanted, catalog)).matches);
+  }
+  const seen = new Set(), found = [];
+  for (let index = 0; lists.some((list) => index < list.length); index += 1)
+    for (const list of lists) if (index < list.length && !seen.has(list[index].id)) { seen.add(list[index].id); found.push(list[index]); }
+  return found;
 }
 
 // library {topic:"fonts", search:"condensed bold sans"}: catalog families of that kind, by their category, weights, style words and scripts.

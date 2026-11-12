@@ -20,6 +20,8 @@ export const SAMPLE_TEXT = "HAMBURGEFONS";
 // Catalog families downloaded per call at most (each is one small file, kept for later calls). GUESS.
 const MOST_DOWNLOADS = 12;
 const SHOWN = 8;
+// Raised whenever measureInk changes, so cached measures of an older version are measured again.
+const MEASURE_VERSION = 2;
 
 // How far apart two faces are on one measure before it counts as one step of difference. GUESS,
 // set from the spread of the bundled faces (Inter, Montserrat, Noto Serif at 400 and 700).
@@ -30,8 +32,16 @@ const MEASURES = {
   corners: { scale: 0.2, more: "squarer corners", less: "rounder corners" },
   contrast: { scale: 0.2, more: "more stroke contrast", less: "less stroke contrast" },
   rough: { scale: 0.06, more: "rougher edges", less: "cleaner edges" },
+  // Dots compare as a class (see differences): the share itself is unreliable on small frames.
   dots: { scale: 0.25, more: "more dotted", less: "solid strokes" },
 };
+// Steps between a dotted and a solid lettering. GUESS: measured on the product-film crop, its round
+// dots read 0.43 (JPEG blur joins some), Doto and Bitcount 1.0, solid faces 0 to 0.03; as a plain
+// measure that put solid condensed faces first, so the class decides and 4 steps puts dotted ahead.
+const DOT_CLASS_STEPS = 4;
+// The dot share from which a lettering counts as dotted. GUESS, from the product-film crop (0.43)
+// against solid faces (0 to 0.03).
+const DOTTED = 0.4;
 
 const median = (values) => {
   if (!values.length) return 0;
@@ -139,10 +149,12 @@ function pieces({ ink, width, height }) {
   return found;
 }
 
-// Letters as column runs: ink columns, joined across gaps under 0.1 of the height (the gaps
-// between the dots of one dotted letter); gaps over 0.25 of the height are word spaces. GUESS
-// thresholds, from dot pitch about 1/6 of the height on dot-matrix faces.
-function letterRuns({ ink, width, height }) {
+// Letters as column runs: ink columns, joined across gaps under `join` of the height (the gaps
+// between the dots of one dotted letter). GUESS: 0.1 for dotted lettering, from dot pitch about 1/6
+// of the height on dot-matrix faces; 0 otherwise, since tightly set solid capitals sit closer than
+// 0.1 of their height (measured on the film-trailer title: joining merged DANIELS into 4 runs and
+// read a condensed face as extended).
+function letterRuns({ ink, width, height }, join = 0) {
   const has = Array.from({ length: width }, (_, x) => { for (let y = 0; y < height; y += 1) if (ink[y * width + x]) return true; return false; });
   const runs = [];
   let x = 0;
@@ -153,7 +165,7 @@ function letterRuns({ ink, width, height }) {
       while (end + 1 < width && has[end + 1]) end += 1;
       let gap = end + 1;
       while (gap < width && !has[gap]) gap += 1;
-      if (gap < width && gap - end - 1 < 0.1 * height) { end = gap; continue; }
+      if (gap < width && gap - end - 1 < join * height) { end = gap; continue; }
       break;
     }
     runs.push([x, end]);
@@ -207,7 +219,7 @@ export function measureInk(mask, { letters, lines = 1 } = {}) {
   });
   const dots = dotPieces.reduce((sum, piece) => sum + piece.area, 0) / area;
   // Letters: given, else column runs. Width: the letters' ink width each, against the line height.
-  const columnRuns = letterRuns(mask);
+  const columnRuns = letterRuns(mask, dots >= DOTTED ? 0.1 : 0);
   const count = letters || columnRuns.length || 1;
   const inkWidth = columnRuns.reduce((sum, [a, b]) => sum + b - a + 1, 0);
   const widthRatio = inkWidth / lines / (count / lines) / lineHeight;
@@ -285,9 +297,13 @@ export function measureFace(font, text = SAMPLE_TEXT) {
 
 /** Each measure's difference in steps (candidate minus reference), largest first. */
 export function differences(reference, candidate) {
-  return Object.entries(MEASURES).map(([key, { scale }]) => {
+  // Dots make every edge look rough, so rough edges do not count when either side is dotted
+  // (measured on the product-film dot-matrix crop: JPEG round dots read rough 0.06, Doto drawn 0.23).
+  const dotted = reference.dots >= DOTTED || candidate.dots >= DOTTED;
+  return Object.entries(MEASURES).filter(([key]) => !(dotted && key === "rough")).map(([key, { scale }]) => {
     let step = (candidate[key] - reference[key]) / scale;
     if (key === "slant") step = (Math.abs(candidate[key]) - Math.abs(reference[key])) / scale;
+    if (key === "dots") step = ((candidate.dots >= DOTTED) - (reference.dots >= DOTTED)) * DOT_CLASS_STEPS;
     return { key, step };
   }).sort((a, b) => Math.abs(b.step) - Math.abs(a.step));
 }
@@ -307,7 +323,7 @@ export function differenceWords(reference, candidate, most = 2) {
 /** The plain words for a lettering's class, used to pick catalog families to measure. */
 export function classWords(measures) {
   const words = [];
-  if (measures.dots >= 0.4) words.push("dot-matrix");
+  if (measures.dots >= DOTTED) words.push("dot-matrix");
   if (measures.rough >= 0.12 || Math.abs(measures.slant) >= 12) words.push("brush");
   if (measures.width < 0.6) words.push("condensed");
   if (measures.width > 0.95) words.push("extended");
@@ -316,7 +332,7 @@ export function classWords(measures) {
   if (measures.weight >= 0.16 && !shaped) words.push("heavy");
   if (measures.weight <= 0.07 && !shaped) words.push("light");
   if (measures.contrast >= 0.45) words.push("serif");
-  if (measures.corners <= 0.25 && measures.dots < 0.4) words.push("rounded");
+  if (measures.corners <= 0.25 && measures.dots < DOTTED) words.push("rounded");
   return words;
 }
 
@@ -404,7 +420,8 @@ export async function fontsLikeText(input, { fonts, catalog, lookFamilies, refer
   }
   const ranked = [];
   for (const face of seen.values()) {
-    const cacheKey = `${face.src ?? face.id}|${face.weight}|${sample}`;
+    // The measure version leads the key, so a change to measureInk never reads older numbers.
+    const cacheKey = `${MEASURE_VERSION}|${face.src ?? face.id}|${face.weight}|${sample}`;
     let measures = cache[cacheKey];
     if (!measures) {
       try { measures = measureFace(face.font, sample); } catch { measures = null; }

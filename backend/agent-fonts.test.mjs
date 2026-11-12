@@ -306,6 +306,20 @@ test("fonts like: the lettering in a picture ranks the face it was set in first,
   assert.match(await (await import("node:fs/promises")).readFile(catalog.measuresFile, "utf8"), /Noto Serif|NotoSerif/, "measures are kept on disk");
 });
 
+// Measured on the benchmark crops: a dotted lettering read dots 0.43 and lost to solid condensed faces,
+// and its class search ANDed "condensed" into the dotted families so none was downloaded.
+test("fonts like: dotted and solid letterings compare as classes, and a dotted class fetches dotted families on their own", async () => {
+  const { distance } = await import("./font-like.mjs");
+  const { classFamilies } = await import("./agent/font-help.mjs");
+  const dotted = { weight: 0.085, width: 0.557, slant: 0, corners: 0.833, contrast: 0, rough: 0.058, dots: 0.431 };
+  const doto = { weight: 0.044, width: 0.616, slant: 0, corners: 0.763, contrast: 0, rough: 0.251, dots: 1 };
+  const solid = { weight: 0.065, width: 0.404, slant: 0, corners: 0.85, contrast: 0, rough: 0.034, dots: 0 };
+  assert.ok(distance(dotted, doto) < distance(dotted, solid), `${distance(dotted, doto)} vs ${distance(dotted, solid)}`);
+  const families = [{ id: "doto", family: "Doto", category: "sans-serif", weights: [100, 900] }, { id: "barlow-condensed", family: "Barlow Condensed", category: "sans-serif", weights: [100, 900] }];
+  const catalog = { list: async () => ({ families, total: families.length, offline: false }) };
+  assert.deepEqual((await classFamilies(["dot-matrix", "condensed"], catalog)).map((family) => family.family), ["Doto", "Barlow Condensed"]);
+});
+
 // The agent service. The server does not download; this fills its font cache first.
 async function startFontServer(t, { withSerif = false } = {}) {
   const server = await startTestServer({ env: { MOTION_FONT_DOWNLOADS: "off" } });
