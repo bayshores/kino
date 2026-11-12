@@ -322,6 +322,8 @@ test("waivers: crop and shape need the person's words on layers; face-cut codes 
   const [plain] = send({ code: "reference_kinds", target: "s1", quote: "keep it plain and simple", reason: "they want cuts only" });
   assert.equal(plain.reason, 'they want cuts only (the person: "keep it plain and simple")');
   assert.equal(send({ code: "reference_kinds", target: "s1", reason: 'they said "just cuts please"' })[0].reason, 'they said "just cuts please" (the person: "just cuts please")');
+  // A no-voice answer to the storyboard's Lines line keeps the song alone.
+  assert.equal(plainWordsProblem(brief, "keep it music only"), null);
   // A log reply is the agent's note of what they said, so it is not their words.
   assert.throws(() => send({ code: "reference_kinds", target: "s1", quote: "only hard cuts ok" }), /not in the person's stored words/);
   resolver.storedQuoteProblem = (quote) => storedQuoteProblem({}, quote);

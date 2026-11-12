@@ -14,7 +14,9 @@
 //   spoken     a clip at volume 0.05 or more with a heard word then (ctx.speech)
 //   plain      none of the picture kinds above
 // Spoken also counts the references' measured voice (ctx.seenRefs[].heard, as reference_range reads
-// it): most of them with a voice before their loudest change, and 2 or more, count as showing it.
+// it): most of them with a voice before their loudest change, and 2 or more, count as showing it, while
+// one of the edit's clips says a line keep_line can keep (ctx.clipLines, a full check).
+// Made also counts kino's drawn overlays (speed-lines, impact-lines, film-burn) while they play.
 // Error: 2 or more references show a kind at 2 or more moments and the edit shows it at none.
 // Warning: the edit shows a kind in under the lowest reference share by over 1/6, or plain
 // picture in more than the highest reference share by over 1/6. Pure data: no pixels.
@@ -44,6 +46,10 @@ export const MADE_MIN_SHARE = 0.01;
 const OVERLAY_EFFECTS = new Set([...Object.keys(PARTICLE_LOOKS), "glow", "light-rays", "lens-flare", "grain"]);
 const COLOR_EFFECTS = new Set(["curves", "lut", "hue-saturation", "white-balance", "color-wheels", "keep-color", "color-ranges", "color-look", "color-grade", "color-remover", "duotone", "tritone", "threshold-color"]);
 const SHAPES = new Set(["rectangle", "ellipse", "star", "path", "group"]);
+// kino's generated overlays (engine/effects/overlays.js, Post FX): drawn graphics, so they count as made.
+const DRAWN_OVERLAYS = new Set(["speed-lines", "impact-lines", "film-burn"]);
+// A drawn overlay at opacity or amount 0 draws nothing.
+const drawnShows = (entry) => [entry.to?.opacity, entry.to?.amount].every((value) => value === undefined || Number(value) > 0.01);
 const PICTURES = new Set(["video", "image"]);
 const LIGHT_BLENDS = new Set(["add", "screen"]);
 
@@ -155,7 +161,10 @@ export function onscreenKinds(model, ctx = {}) {
     const frame = frameBox(model);
     const made = shown.filter((item) => !item.sceneBackground && item.role !== "background" && partial(item)
       && ((SHAPES.has(item.kind) && item.painted && !isBar(model, boxAt(item, index)) && !backs(item, boxAt(item, index), reading)) || item.kind === "image"));
-    const madeShare = made.reduce((sum, item) => sum + area(intersection(visibleBoxAt(model, item, index), frame)), 0) / frameArea;
+    // kino's own drawn overlays (the made error's ready call) are made too, over the layer they are drawn on, while on.
+    const drawn = model.items.filter((item) => !made.includes(item) && shown.includes(item)
+      && effects.some((entry) => entry.itemId === item.id && DRAWN_OVERLAYS.has(entry.effect) && on(entry, time) && drawnShows(entry)));
+    const madeShare = [...made, ...drawn].reduce((sum, item) => sum + area(intersection(visibleBoxAt(model, item, index), frame)), 0) / frameArea;
     if (madeShare >= MADE_MIN_SHARE) kinds.add("made");
     const plain = !kinds.size;
     if (words.some(([from, to]) => from < time + STEP / 2 && to >= time - STEP / 2)) kinds.add("spoken");
@@ -212,19 +221,25 @@ const OVERLAY_WORDS = [
   ["film-burn", /burn|heat|hot|fire|flare|orange|leak|glow/i],
 ];
 
-// The generated overlay a made label's words point to (speed-lines when none does), as a ready edit call on the first picture shown.
+// The generated overlay a made label's words point to (speed-lines when none does), as a ready edit call on the
+// first picture shown: 1 s from when it shows (2 moments), not the whole shot, so it reads as an accent.
 function overlayFix(model, ctx, words) {
   const key = (OVERLAY_WORDS.find(([, pattern]) => pattern.test(String(words ?? ""))) ?? OVERLAY_WORDS[0])[0];
-  const shot = model.items.find((item) => PICTURES.has(item.kind) && !item.isMask);
-  if (!shot) return null; // no picture to lay it on: the library search stays the call
-  const ops = [{ op: "add_animation", layer: shot.name ?? shot.id, effect: key }];
+  const shots = model.items.filter((item) => PICTURES.has(item.kind) && !item.isMask)
+    .map((item) => ({ item, at: item.samples.opacity.findIndex((value) => value >= SHOWN) })).filter((entry) => entry.at >= 0);
+  const first = shots.sort((a, b) => a.at - b.at)[0];
+  if (!first) return null; // no picture to lay it on: the library search stays the call
+  const start = near(model.times[first.at] ?? 0);
+  const ops = [{ op: "add_animation", layer: first.item.name ?? first.item.id, effect: key, start, duration: near(Math.max(0.5, Math.min(1, model.duration - start))) }];
   return { text: `edit ${JSON.stringify({ ops })} lays kino's ${key} overlay on a shot`, call: { tool: "edit", input: { ops } } };
 }
 
 // keep_line on the first line a clip says, as the ready call (the clips' own lines, ctx.clipLines): a line cut short with "…" is kept by its scene seconds.
 // null when no clip says a line at speed 1 (keep_line needs it).
 function spokenFix(ctx) {
-  const lines = ctx.clipLines ?? [];
+  // A song's sung words are not a clip's line: the music layers' transcripts are left out.
+  const songs = new Set((ctx.speech ?? []).filter((entry) => entry.music).map((entry) => entry.layer?.id));
+  const lines = (ctx.clipLines ?? []).filter((entry) => !songs.has(entry.layerId));
   const line = lines.find((entry) => !entry.slowed);
   if (!line) return null;
   const what = line.text.endsWith("…") ? { from: line.from, to: line.to } : { line: line.text };
@@ -258,8 +273,10 @@ export function referenceKinds(model, ctx) {
     const have = mine(kind);
     const showers = shares.filter((share) => (share.count[kind] ?? 0) >= MIN_MOMENTS);
     const lowest = Math.min(...shares.map((share) => (share.count[kind] ?? 0) / share.total));
-    // Spoken: the labels first; with fewer than 2 labeled, the measured voice (2 of 2 with a voice) counts.
-    const byVoice = kind === "spoken" && voiced && showers.length < MIN_REFS;
+    // Spoken: the labels first; with fewer than 2 labeled, the measured voice (2 of 2 with a voice) counts, and
+    // only while a clip says a line keep_line can keep (else nothing in the edit fixes it: reference_range's
+    // advice row names the footage finder instead).
+    const byVoice = kind === "spoken" && voiced && showers.length < MIN_REFS && Boolean(spokenFix(ctx));
     const counted = byVoice ? voice.before : showers.length;
     const lines = byVoice ? `${voice.before} of ${voice.n} with a voice before their loudest change (${voice.example.id} @${near(voice.example.at)})`
       : showers.map((share) => `${showing(share, kind)} (${labelOf(share, kind).trim()})`).join(" and ");

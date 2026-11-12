@@ -1218,6 +1218,9 @@ test("default_font: the fix fills the fonts search with the first type label's w
   assert.deepEqual([unchosen.fix.kind, unchosen.fix.family, unchosen.fix.auto], ["font", "Space Mono", false]);
   const [chosen] = await fires("role_font_drift", captions, { savedRefCount: 2, savedRefIds: ["yt:AAAA"], styleSpec: { lines: [{ ref: "yt:AAAA", at: 3, text: "Space Mono captions, as in ref R1 at 3s" }] } });
   assert.equal(chosen.fix.auto, true);
+  // With no saved references it stays automatic, as before (default_font too says nothing of kino's own fonts then).
+  const [noRefs] = await fires("role_font_drift", captions, {});
+  assert.equal(noRefs.fix.auto, true);
 });
 
 test("default_font: a no, a never field, a guessed font or an unsaved reference does not choose kino's own font", async () => {
@@ -2044,8 +2047,12 @@ test("reference_kinds: an edit lacking a kind 2 references show at 2 moments is 
   assert.equal(bare.severity, "error");
   assert.match(bare.message, /^reference_kinds: your edit shows made at 0 of 8 moments; your references show it at 2 of 6 \(yt:AAAAAAAAAAA @1\.8 "green glowing outline traced on the figure"\) and 2 of 6 \(yt:BBBBBBBBBBB @1\.8 "neon stair edges"\)\.$/);
   // The made error's fix is a ready call: a generated overlay of kino's own for the label's words, then the search.
-  assert.match(bare.fix.text, /^edit \{"ops":\[\{"op":"add_animation","layer":"a","effect":"speed-lines"\}\]\} lays kino's speed-lines overlay on a shot, or library \{topic:"search", search:"made green glowing outline traced on"\} names kino's tools.*own version, not a copy.*waive_check \{code:"reference_kinds", target:"s1", reason:"<why>", quote:/);
-  assert.deepEqual(bare.fix.call, { tool: "edit", input: { ops: [{ op: "add_animation", layer: "a", effect: "speed-lines" }] } });
+  assert.match(bare.fix.text, /^edit \{"ops":\[\{"op":"add_animation","layer":"a","effect":"speed-lines","start":0,"duration":1\}\]\} lays kino's speed-lines overlay on a shot, or library \{topic:"search", search:"made green glowing outline traced on"\} names kino's tools.*own version, not a copy.*waive_check \{code:"reference_kinds", target:"s1", reason:"<why>", quote:/);
+  assert.deepEqual(bare.fix.call, { tool: "edit", input: { ops: [{ op: "add_animation", layer: "a", effect: "speed-lines", start: 0, duration: 1 }] } });
+  // That call clears the error: kino's drawn overlay counts as made while it plays (at opacity 0 it draws nothing).
+  const lines = (to) => footage("a", { animations: [{ kind: "effect", effect: "speed-lines", start: 0, duration: 1, easing: "linear", keepStill: "off", to }] });
+  await silent("reference_kinds", scene({ layers: [lines({ opacity: 0.85 })] }), { sceneName: "s1", seenRefs: MADE_REFS });
+  await fires("reference_kinds", scene({ layers: [lines({ opacity: 0 })] }), { sceneName: "s1", seenRefs: MADE_REFS });
   // Drawn layers a viewer cannot see do not count: a 2 px line is 0.2% of the frame, under the 1% made needs.
   const [thin] = await fires("reference_kinds", scene({ layers: [footage("a"), rect("streak", { x: 100, y: 100, width: 1920, height: 2 })] }), { sceneName: "s1", seenRefs: MADE_REFS });
   assert.match(thin.message, /^reference_kinds: made shows at 8 of 8 moments but covers 0\.2% of the frame \(under 1%\); your references show it at 2 of 6/);
@@ -2104,8 +2111,11 @@ test("reference_kinds: references with a measured voice and an edit with no hear
   // One reference with a voice is not two; a slowed clip's line is no call (keep_line needs speed 1).
   const lone = (await check("reference_kinds", scene({ layers: [footage("a")] }), { ...context, seenRefs: voiced.slice(0, 1) })).findings.filter((finding) => finding.severity === "error");
   assert.deepEqual(lone, []);
-  const [slowed] = (await check("reference_kinds", scene({ layers: [footage("a")] }), { ...context, clipLines: clipLines.map((line) => ({ ...line, slowed: true })) })).findings.filter((finding) => finding.severity === "error");
-  assert.equal(slowed.fix.call.tool, "library");
+  // No clip line keep_line can keep (slowed, none at all, or only the song's sung words): nothing in the edit fixes it, so no error.
+  for (const lines of [clipLines.map((line) => ({ ...line, slowed: true })), [], [{ layer: "song", layerId: "song", text: "la la", from: 1, to: 2 }]]) {
+    const errors = (await check("reference_kinds", scene({ layers: [footage("a")] }), { ...context, clipLines: lines, speech: [{ layer: { id: "song" }, music: true }] })).findings.filter((finding) => finding.severity === "error");
+    assert.deepEqual(errors, []);
+  }
 });
 
 test("reference_kinds: plain footage far over every reference's plain share warns", async () => {

@@ -228,12 +228,14 @@ export function storedQuoteProblem(brief, quote, extra = []) {
 }
 
 // Words that say what is plain or which kind of design is not wanted (reference_kinds waiver).
-const PLAIN_WORDS = /\b(plain|raw|simple|clean|minimal|as[- ]is|just cuts?|effects?|text|type|titles?|captions?|subtitles?|words|colou?r|graphics?|overlays?)\b/i;
+// The voice words answer a spoken finding ("music only", "no talking"), as the storyboard ask's Lines line invites.
+const PLAIN_WORDS = /\b(plain|raw|simple|clean|minimal|as[- ]is|just cuts?|effects?|text|type|titles?|captions?|subtitles?|words|colou?r|graphics?|overlays?|(?:music|song) only|(?:just|only) (?:the )?(?:music|song)|no (?:voices?|talking|dialog(?:ue)?|speech|lines)|muted?|silent)\b/i;
 
 /**
  * A reference_kinds waiver quote must also say what is plain: a kind (type, text, color, effects,
- * graphics, overlay, words, subtitles) or a plainness word (plain, raw, simple, clean, minimal, just
- * cuts, as is). Null when it does; else { closest } (the stored sentence of theirs that does, or "").
+ * graphics, overlay, words, subtitles), a plainness word (plain, raw, simple, clean, minimal, just
+ * cuts, as is) or no voice (music only, no talking, muted, silent). Null when it does; else { closest }
+ * (the stored sentence of theirs that does, or "").
  */
 export function plainWordsProblem(brief, quote) {
   if (PLAIN_WORDS.test(quote)) return null;

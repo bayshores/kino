@@ -161,8 +161,10 @@ export function roleFontDrift(model, ctx) {
       const off = items.filter((item) => familyKey(item.fontFamily) !== familyKey(keep));
       // A family of kino's own (a pair, a look, the bundled serif) that no reference and not the person chose is
       // never what a line is moved to on its own: the fix stays a call for the agent (default_font says the same).
+      // As there, it matters once the project saved references; a brand font is the brand's choice.
       const keepName = familyOf(keep);
-      const unchosen = KINO_OWN.includes(keepName) && !DEFAULT_FONTS.includes(keepName) && !chosenFamilies(ctx, { strict: true }).has(keepName);
+      const unchosen = ctx.savedRefCount > 0 && KINO_OWN.includes(keepName) && !DEFAULT_FONTS.includes(keepName)
+        && !brand.includes(familyKey(keep)) && !chosenFamilies(ctx, { strict: true }).has(keepName);
       findings.push({
         rule: "role_font_drift", severity, itemId: off[0].id, itemIds: off.map((item) => item.id), at: sec(firstShown(model, off[0])),
         measured: `${roleName} in ${[...families.values()].map((entry) => `${entry.family} ×${entry.items.length}`).join(", ")}`, required: `${bible ? `the style bible's ${bible.family}` : "one family"} for ${roleName} text`,

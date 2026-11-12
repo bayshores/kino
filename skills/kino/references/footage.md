@@ -106,11 +106,11 @@ Then ask what your edit shows that these do not: build toward the labels, not a 
 The check `reference_kinds` (an error) reads the labels: with 2 or more labeled references, a kind
 (type, overlay, composite, color, made, spoken) that 2 of them show at 2 or more moments must show
 somewhere in your edit, read every 0.5 s. Its fix (and `next`) is a ready call: `library {topic:"search",
-search:"<label words>"}`, a kino overlay for made (made must cover 1% of the frame at opacity 0.5+, a guess),
-or `keep_line` for spoken (also judged by the references' measured voice, after the clips are transcribed:
-`check {pixels:true}`). Make your own version, not a copy.
+search:"<label words>"}`, a kino overlay for made (1% of the frame at opacity 0.5+; overlays count),
+or `keep_line` for spoken (also required by the references' measured voice when a clip says a line,
+after `check {pixels:true}` transcribes it). Make your own version, not a copy.
 Plain on purpose needs `waive_check {code:"reference_kinds", target:"<scene>", reason, quote}` with
-`quote` in words the person typed that say what is plain (plain, raw, just cuts...); "your call" is refused.
+`quote` in words the person typed that say what is plain (plain, just cuts, music only...); "your call" is refused.
 Only references with most moments labeled count; no-op color, letterbox bars and backing boxes do not.
 The search maps look words to kino names: font, outline, duotone, split screen, text behind, 3d,
 code rain, zoom burst. A look kino cannot make answers `no kino name for ... yet`.
