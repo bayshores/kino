@@ -45,6 +45,15 @@ The title goes between the clip and its cut-out (`type-behind`: keep it for 1 to
 `behind:"title"` does this in one call (the text moves right above the clip). The clip's people
 scan picks the engine: few people, subject; else person, then subject; `engine` overrides it.
 
+Type that must read whole goes beside the subject: `place {layers:["word"], around:"<cut-out>"}`
+(or a shot, or `"subject"`: the marked subject of the shot under the text) sets it in the free
+room, shrunk to fit; `side` is left, right, above, below or split. With no `side` it keeps the type
+largest, then moves it least: text already clear stays put. `split` sets one line in two parts at
+a word gap, the second a new layer `<name> 2`. A face mark, or a face kino found, counts as a
+person down to the picture's bottom, so no text goes below it. The receipt prints the share of
+letter area inside the subject box before and after, and the room on each side; `type_covered`
+lists that room and the `place {around}` call to send.
+
 ### Outline or glow
 
 A grown silhouette under the subject is an outline; a grown, feathered one is a glow:

@@ -4,7 +4,7 @@ A move is a set piece built in one op from your layers.
 Most shots need none. Pick one or two as the signature, spend them
 on the hook, reveal and payoff.
 
-Contents: The move op · The moves · Moves example · Trim paths and dashes
+Contents: The move op · The moves · Moves example (trim paths and dashes: behaviors reference)
 
 ## The move op
 
@@ -79,7 +79,11 @@ What each is for; fields from `library {topic:"moves", name}`.
 - **backdrop-flash**: a color field flashes behind the subject (cut out for you).
 - **impact-accent** `kind:"hit"`: the recolor splits its tones near the shot's own luma thirds
   (the receipt says where); the shake starts on the cue's frame at rest; `effect_fit` reads a
-  beat cue the hit names (`at:"cue:beat-8"`).
+  beat cue the hit names (`at:"cue:beat-8"`). With `at` in seconds it sits on the measured
+  reason within 3 frames and the receipt names it and how far it moved; with none near it is a
+  small accent (weight 0.3) and the receipt gives the distance to the nearest reason. An accent
+  snapped to a footage moment no cue marks: the receipt gives the `set_cues` call that lets
+  `effect_fit` read it.
 - **energy-aura**: flame, smoke or electric aura off the subject.
 
 Launch-video type (words arrive faint, then darken): **headline-write** (writes on, centered),
@@ -106,19 +110,4 @@ Zoom shot-a into shot-b at 1 s, then karaoke captions.
 {"op":"add_layer","layerType":"rectangle","name":"shot-a","properties":{"x":0,"y":0,"width":1920,"height":1080,"fill":"#E76F51"}}
 {"op":"move","name":"zoom-through","from":"shot-a","to":"shot-b","at":1,"point":[62,40]}
 {"op":"move","name":"caption-words","highlight":"active","entrance":"pop","words":[{"text":"so","at":2.2},{"text":"we gave","at":2.8},{"text":"it eyes.","at":3.5,"end":4.6}]}
-```
-
-## Trim paths and dashes
-
-Shapes, paths: `strokeStart`, `strokeEnd` (0-1 a contour), `strokeOffset` (turns), `dash`
-([on, off, …] px), `dashOffset` (px); modifiers `roundCorners`, `bloatAmount`, `twistAngle`,
-`zigzagSize` (`zigzagCount`, `zigzagPoints`), `offsetAmount` (`offsetJoin`), `roughenSize` (brush edge); animate.
-`trim` (or `draw-on`) draws `strokeEnd` from 0.
-
-```json
-{"op":"add_layer","layerType":"path","name":"underline","properties":{"x":560,"y":700,"width":800,"height":40,"path":"M0 20 C260 0 540 40 800 20","fillEnabled":false,"stroke":"#FFD166","strokeWidth":10}}
-{"op":"add_layer","layerType":"rectangle","name":"frame","properties":{"x":460,"y":240,"width":1000,"height":400,"radius":24,"fillEnabled":false,"stroke":"#FFFFFF","strokeWidth":4,"dash":[18,12]}}
-{"op":"move","name":"draw-on","layer":"underline","at":0.5}
-{"op":"add_animation","layer":"frame","preset":"trim","start":0.2,"duration":1}
-{"op":"add_animation","layer":"frame","animation":{"kind":"custom","start":1.2,"duration":2,"easing":"linear","from":{"dashOffset":0},"to":{"dashOffset":60}}}
 ```

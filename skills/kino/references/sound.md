@@ -3,13 +3,13 @@
 Import a file first: `project {action:"import", file:"/absolute/path.m4a"}` answers its `src`
 and duration.
 
-Contents: Sound effects · Volume, fades and ducking · Music as structure · A clip's own line over music · Separating voice from background · Cleaning a voiceover
+Contents: Sound effects · Volume, fades and ducking · The mix line and its fix · Music as structure · Cleaning a voiceover
 
 ## Sound effects: finding and placing them
 
-- Sources: the person's files first, else kino's CC0 effects:
-  `library {topic:"sounds", search:"whoosh"}`, then `project {action:"import", file:"sfx:<id>"}`
-  (web sounds, music: sound-library guide). No ding or beep on nothing.
+- Sources: the person's files first, else kino's CC0 effects (sound-library guide):
+  `library {topic:"sounds", search:"whoosh"}`, then `project {action:"import", file:"sfx:<id>"}`.
+  No ding or beep on nothing.
 - Search the on-screen action ("swish", "click"), never a mood ("epic whoosh").
 - Length fits the action: a tap or click 0.05-0.5 s, a slam 0.3-1 s, a whoosh under 1 s.
 - Place each one on an action the picture shows (a tap, a message arriving, a cut),
@@ -28,12 +28,16 @@ Contents: Sound effects · Volume, fades and ducking · Music as structure · A 
   with `from`/`to` `{volume}`: fade in `kind:"in"` from 0, fade out `kind:"out"` to 0. A `linear`
   fade from or to 0 is equal power, so a crossfade holds its level.
 - `duck_audio` dips music under the `under` layers (voices): by default 9 LU under the voice
-  as measured, a transcribed voice for its words. List every voice-over in one `under` (a
-  second run replaces the dips) and rerun after moving one; the receipt's `duck.summary` says
-  where it dips. Several layers in one edit: `duck` is a list of reports (`duck[0].summary`). Depth, fades and section cues: `library {topic:"op", name:"duck_audio"}`.
-  Without `to` a dip over 2 s stays within 8 dB (`held`) unless a line needs it deeper to stay
-  6 LU over the music (`deeper`), down to 0.1 (`quiet` names lines still under); dips keep apart
-  at a section cue (`sections`).
+  as measured, a transcribed voice for its words. List every voice-over in one `under`. A later
+  `duck_audio` or `keep_line` adds its dips to the earlier ones (the summary lists all, earlier
+  ones as `(earlier)`); after moving a voice-over, send `replace:true`, which removes them first.
+  The receipt's `duck.summary` says where it dips. Several layers in one edit: `duck` is a list of reports (`duck[0].summary`). Depth, fades and section cues: `library {topic:"op", name:"duck_audio"}`.
+  Without `to` each dip gets its own depth, from its voices and the music under it: a dip over
+  2 s stays within 8 dB (`held`) unless a line needs it deeper to stay 6 LU over the music
+  (`deeper`), down to 0.1 (`quiet` names lines still under); dips keep apart at a section cue
+  (`sections`). The music comes back up between two lines when both fades fit in a gap that
+  leaves it up 0.3 s or more. A dip that would cross the song's drop ends on it; the receipt's
+  `payoff` gives the line's level over the song there and the volume that lifts it 6 LU over.
 - Fade out after the last dip: an animation starting inside a dip takes over from it.
 - Muffled until the drop: animate `lowpass` (Hz, 20-20000; none is off) 400 to 20000 over the
   bar before it, `kind:"in"`, `ease-in`.
@@ -47,13 +51,31 @@ Contents: Sound effects · Volume, fades and ducking · Music as structure · A 
 {"op":"duck_audio","layer":"music","under":["voice"]}
 ```
 
+## Sound: the mix line and its fix
+
+- `check {fix:"auto"}` applies each limiter place's `xN` from the `mix:` line to the layers
+  playing there, in one edit: a short clip (a hit, a footstep) is turned down whole, a long one
+  dips only over the place, with 0.05 s Peak down / Peak up ramps. The `mix fix:` line gives
+  the places, LUFS and true peak before and after.
+- Left alone: a layer whose volume moves at the place (named under not applied, with its `xN`
+  to apply by hand); a song whose dips would turn its level 3 times in 10 s (`volume_churn`),
+  though the other sounds there come down; every place when `mix:` says loudness `"auto"`
+  adds a gain so the limiter never works (the `xN` are for loudness `"off"`).
+
 ## Sound: music as structure
 
 - Place a song with `fit_music {layer}`, not a typed offset: it plays one unbroken stretch of
   the song, its heaviest drop on the spine's payoff (or `payoff`) and sets the rhythm from a
   steady beat. A payoff that leaves the drop under 4 bars is kept, with a note. Time the picture
   to it; its notes say where the turn and end fit. Then `duck_audio`. `recut:true` re-arranges
-  in 4-bar groups; the song's own ending counts within 2 bars of `end`, else a fade.
+  in 4-bar groups.
+- With no `end` the song's ending sets the video's: a phrase end up to 0.25 s before the scene
+  end is taken (the scene end moves there, cue `song-end-<n>`), else the song's last hit (a bar
+  line 0.3 to 1.2 s before the end, else a beat) rings out to the end (cue `song-ring-<n>`), no
+  fade through a phrase. The receipt's `ending` gives the video time, song second, kind (phrase
+  end, phrase line, bar line, beat) and the frames the scene end moved or would need to;
+  `board {music}` notes end with the same `; ending: ...`. With `end` the scene end stays: the
+  song's own ending counts within 2 bars of it, else a 1 to 2 bar fade.
 - fit_music with no payoff puts the drop where it plays the most whole 4-bar groups its section
   holds, 45% or more in; too short for a group, the receipt names the payoff that gives one.
 - `music.sections` lists sections and seams, weight 0 to 1 ("8.01 s drop, weight 0.8
@@ -63,38 +85,6 @@ Contents: Sound effects · Volume, fades and ducking · Music as structure · A 
 ```json
 {"op":"add_layer","layerType":"audio","name":"song","properties":{"src":"/api/media/<song>.m4a"}}
 {"op":"fit_music","layer":"song","payoff":8}
-```
-
-## Sound: a clip's own line over music
-
-- `look source {layer}` and a found-clip import give each clip's sound: `-23.4 LUFS · voice
-  heard 2.8-3.0 s, words not read` (file seconds) is voice whisper could not read; keep it with
-  `keep_line {layer:"shot-3", from:5.4, to:7.3}` (`from`/`to` are scene seconds).
-- `keep_line` levels a clip line 6 LU over the song (never under -16 LUFS), up to +12 dB, and
-  holds the mix; a line still short of the music gets the music out, and the note gives the LU
-  short and a dip: that keeps the music in. Receipt: the mix vs the 2 s around.
-- Music out for a line: `{op:"keep_line", layer:"clip", from:5.5, to:7.2, dropout:true}` (and
-  `wait`): the music hits back on the downbeat within wait (default half a bar), else on the next
-  beat; the receipt states the gap and the wait that reaches the downbeat. `dip` (0 to 1) sets a
-  fixed dip instead (not both).
-- A clip sound that is not a line (a laugh, a door): {op:"keep_line", layer:"<clip>",
-  sound:"laughter"} (sound-library reference).
-- With ggml-small.bin in ~/.kino/models/ (kino fetches it once, 488 MB), look source reads other
-  languages: `heard in Japanese (ja, p 0.86): "..." [gloss (machine, unverified): "..."] 1.9-2.9 s`.
-  A gloss is whisper's English and can reverse the meaning.
-- Keep it as said: keep_line {layer, line:"<as printed>"} (subtitles show the words as said unless `text` is sent); show English: keep_line {layer, from, to, text:"<gloss>"}.
-
-## Sound: separating voice from background
-
-- `isolate_voice` splits a layer's sound locally (nothing is uploaded). `keep:"voice"`
-  (default), `"background"`, or `"both"`: the voice plus an audio layer `<layer>-background`
-  you can turn down. A video keeps its picture. `amount` 0–1 keeps some background.
-- It does not duck music: send `duck_audio` in the same edit (`duck[n].summary` when it ducks several layers).
-
-```json
-{"op":"add_layer","layerType":"video","name":"interview","properties":{"src":"/api/media/<interview>.mp4"}}
-{"op":"isolate_voice","layer":"interview","keep":"both"}
-{"op":"update_layer","layer":"interview-background","properties":{"volume":0.3}}
 ```
 
 ## Cleaning a voiceover

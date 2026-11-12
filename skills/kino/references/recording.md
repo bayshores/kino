@@ -4,7 +4,7 @@ kino records the screen on this Mac while you (the agent) use an app, then edits
 from its own pointer and click data: zooms that follow each click, kino's smooth pointer, click
 rings. Nothing is guessed: every zoom and pointer place comes from what was recorded.
 
-Contents: Recording · Steps and marks · Editing a recording · Privacy and permissions
+Contents: Recording · Steps and marks · Editing a recording · Privacy and permissions · Syncing two clips
 
 ## Recording
 
@@ -68,3 +68,26 @@ Contents: Recording · Steps and marks · Editing a recording · Privacy and per
 - Typed text is never kept, even with `keys:"characters"` the edit keeps only key kinds.
   Recordings stay on this Mac. The dashboard shows a red `rec` button while one runs; the person
   can stop it at any time.
+
+## Syncing two clips of the same moment
+
+- Two recordings of one moment (a phone filming someone use an app and the app's own screen
+  recording; two cameras): show both at once, side by side or one small in a corner, and play
+  them in step. One of them alone loses what the other shows.
+- `sync_clips {layer, to}` matches the two files' sound (taps, beeps, words, steps) and moves
+  `layer`'s Play (`mediaStart`, `mediaOffset`) so it plays in step with `to`, wherever `to` is.
+  The receipt's `sync` gives `same` (one shared moment, as seconds into each file),
+  `confidence` (0–1), `overlap` (seconds) and `inStep` (where both play). `search: 2` looks
+  only within 2 s of how they line up now.
+- Below 0.4 confidence, or with a file with no sound track, it changes nothing. Then tell the
+  person the clips could not be matched by sound and ask for a sync point; or find one moment
+  in both with `look {mode:"source", layer, t}` (a tap, a screen change) and send
+  `at: {layer: <seconds into its file>, to: <seconds into to's file>}`. Never guess an offset.
+- Before rendering, `look {mode:"sheet", from, to}` over `inStep`: each frame must show the
+  same action in both clips.
+- The link is kept by file (`clipLinks`), and files made by `isolate_voice` and `cut_out` inherit it: any later layer of either file is held to it by `out_of_sync`.
+
+```json
+{"tool":"edit","ops":[{"op":"add_layer","layerType":"video","name":"screen","properties":{"src":"/api/media/<screen>.mp4","x":420,"y":0,"width":500,"height":1080,"mediaSourceDuration":20}},{"op":"add_layer","layerType":"video","name":"phone","properties":{"src":"/api/media/<phone>.mp4","x":940,"y":0,"width":608,"height":1080,"mediaSourceDuration":12}},{"op":"sync_clips","layer":"phone","to":"screen"}]}
+{"tool":"look","mode":"sheet","from":3,"to":15}
+```

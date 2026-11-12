@@ -17,9 +17,8 @@ an absolute folder (the `kino` command resolves a relative one or `~` for you).
   caption sidecars start at zero. Final renders and non-video formats reject ranges.
 - Excerpts skip rendering the rest of the movie. Repeating an unchanged excerpt reuses its
   checked export. A changed scene invalidates that file cache, including edits outside the range.
-  Separately, dashboard playback already caches two-second silent picture segments and reuses
-  unaffected segments. This change does not concatenate those into a final movie. Export the
-  complete ordinary draft/final after approving excerpts, to check joins and continuous audio.
+  Dashboard playback's cached two-second picture segments are not joined into a final movie.
+  Export the complete draft or final after approving excerpts, to check joins and audio.
 
 - `render {action:"start", quality:"final", out, wait:true}` once `check` shows 0 errors (a real edit: 0 defect warnings) and
   `look {mode:"review"}` has shown every moment. Its receipt ends with Open notes (taste warnings, moments not reviewed, critic lines), never a refusal for them. With `wait:true` it
@@ -31,8 +30,12 @@ an absolute folder (the `kino` command resolves a relative one or `~` for you).
   and a refused final names every gate still open. Plan them all at once, in that order
   (stops, intents, fixes, check, review, versus): a fix redoes what comes after. The viewer
   and critic are advice: their lines come on the receipt.
-- `quality:"draft"` uses half each scene dimension at 30fps (even video sizes); `fps` sets another
-  rate up to 30 (the footage's 24 or 25). Use this to judge motion fidelity.
+- `quality:"draft"` is half each scene dimension by default (even video sizes) at 30fps; `fps`
+  sets another rate up to 30 (the footage's 24 or 25). `width` and `height` (a box the picture
+  fits) or `size:"720p"` draw it at that size, up to the scene's, and it stays a draft (30fps or
+  less, no blur or dither, `-draft-` file name); `size` wins over `width`. They work in `options`
+  or beside quality: `kino render quality=draft width=1920 height=1080`. The queued and
+  done receipts name the size (`R1 queued: draft mp4 1920x1080`).
   `quality:"final"` uses full dimensions and `fps` (default 30; 23.976, 29.97 and 59.94 for
   editing apps and broadcast, or `options:{fps:"30000/1001"}`), `motionBlur:0.5` (two shutter
   samples) and `dither:true`. Override with `motionBlur:0`, `dither:false` for the original
@@ -42,8 +45,7 @@ an absolute folder (the `kino` command resolves a relative one or `~` for you).
 - Motion blur comes from how layers move while the shutter is open. By default each frame
   draws as many samples as its fastest move needs for the copies to sit at most 8 px apart
   (2 to 16), so a fast move smears evenly; `motionSamples:2..16` fixes the count (2 shows a
-  fast move as two copies). Each sample is one more drawing of a moving frame (8 samples: about
-  8 times the render time there; still frames are drawn once). Footage (blend and flow clips
+  fast move as two copies). 8 samples take about 8 times the render time of a moving frame. Footage (blend and flow clips
   too) keeps the picture of the frame's own time, as `look` shows it. The dashboard, its cached
   playback and `look` show a preview of the blur; a final png shows the real one:
 
@@ -80,8 +82,7 @@ an absolute folder (the `kino` command resolves a relative one or `~` for you).
 ```
 
 - The graphics card, frames at once and memory to leave free are the person's dashboard
-  settings (rendering); you cannot change them. `wait` says what drew each file and what
-  encoded it, such as `drawn on Apple M3 Pro (Metal) (graphics card), 1 frame at once; encoded
+  settings; you cannot change them. `wait` says what drew each file and what encoded it, such as `drawn on Apple M3 Pro (Metal) (graphics card), 1 frame at once; encoded
   with h264_videotoolbox, standard quality` (frames at once: the most workers that drew at the
   same time; one started in place of a crashed worker does not add). A `graphics-card-not-used`
   warning means the processor drew although this computer has a card: tell the person
@@ -95,27 +96,25 @@ an absolute folder (the `kino` command resolves a relative one or `~` for you).
   `wait` shows `sound: -14 LUFS (target -14 web), range 4.2 LU, true peak -1.1 dBTP`. Without a
   target, a mix that would have clipped gets a warning naming the moment and the sounds playing
   then: lower those volumes and render again. To find every clipping place in one call, read
-  `check`'s `mix:` line instead of rendering again: multiply the volumes playing at a place by
-  its xN to clear it (with `loudness:"off"`).
+  `check`'s `mix:` line instead (its xN clears a place with `loudness:"off"`; sound reference).
 - Drafts and finals (mp4, webm, mov) list each cut's brightness and hue jump and each section's
-  brightness range, read from the rendered file, beside your measured references'; references
-  measured before these facts are counted (`library {topic:"inspire", name:"measure <id>"}`
-  reads one again); facts only.
+  brightness range, read from the rendered file, beside your measured references' (older ones:
+  `library {topic:"inspire", name:"measure <id>"}`); facts only.
 - Final video audits compare each decoded frame with its renderer frame and measure audio;
   unsupported checks are explicit. GIF can merge frames; PNG ZIPs have no timing metadata.
   Details: `library {topic:"rules",name:"render"}`.
 - It also compares each decoded frame with the renderer frames just before and after it.
   When 8 or more frames in a row look like a neighbour, the file runs a frame early or late
   (a frame was dropped or repeated) and the render fails, naming the first and last frame.
-  A picture that does not change cannot show a shift. That is an encoding fault, not your scene: render again; if it fails again,
-  report it with the error message and the scene. When the message says the encoder may have
-  dropped detail, render again with the `videoQuality` or `videoEncoder` it names.
+  A picture that does not change cannot show a shift. That is an encoding fault, not your scene:
+  render again; if it fails again, report the message and the scene. If the message says the
+  encoder may have dropped detail, render again with the `videoQuality` or `videoEncoder` it names.
 
 ## Exports through the workspace
 
 - `project {action:"manage", id, options:{resource:"exports", action:"start", quality:"draft",
   options:{format:"png", time:1}}}`, then `wait {batch}`, adds ZIPs and cancel/resume of a
-  batch. A draft export is half size at 30fps (fps up to 30); `quality:"final"` uses the size and fps in
+  batch. A draft export is half size by default at 30fps (fps up to 30; size as above); `quality:"final"` uses the size and fps in
   `options`. Its `out` must be an absolute folder.
 - A png-sequence never replaces a file it did not write: it takes the next free name.
 - Big final exports may answer `awaiting_approval`, as `render` does.

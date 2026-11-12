@@ -34,6 +34,15 @@ Contents: Color grading · Frame finish and letterbox · Filters · Changing an 
   to that shot (effects "Color match" and "Color match saturation"; again replaces them).
 - Dark footage: `match_references` lifts each shot darker than your saved references into their range
   (exposure only, `<layer>.match-ref`; compose does it unless `match:false`); by hand, lift `gamma` first.
+- One dark shot in one call: `lift_dark {layer, target?}` lifts it with a curve from its own
+  tones, not a gamma wash: the black point stays, the mids rise to `target` (mean luma 0 to 255;
+  left out, the median of the scene's other pictures that cover a fifth of the frame or more)
+  and the highlights roll off. It measures each picture inside its own box, so 9:16 letterbox
+  bars do not count; on drawn footage a flat dark fill rises with the lift, only true black (16
+  or less) stays. From a 1 stop lift it adds a small matched grain `<layer>.lift-grain`
+  (`grain:false` leaves it off); the curve is `<layer>.lift`, and `remove:true` takes both off.
+  The receipt prints mean, contrast (p90-p10) and black before and after, beside a plain gamma
+  to the same mean.
 - A teal-orange grade, then a full hue turn starting on a cue:
 
 ```json

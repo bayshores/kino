@@ -2,6 +2,8 @@
 
 What the checks measure, and how to keep a video small.
 
+Contents: Taste · Basics and style · Keep it small · Polish (what a viewer calls sloppy)
+
 ## Taste
 
 - One hero per scene; it moves most. Supporting layers move less and follow it.
@@ -82,3 +84,26 @@ What the checks measure, and how to keep a video small.
   save references, unless a style line at a saved reference's moment names the font).
 - A card used several times is a component: build it once, insert copies (the building blocks
   reference has the example).
+
+## Polish
+
+What a viewer calls sloppy though gates pass: fix it. Each has an automatic fix
+(`check {fix:"auto"}`) but render_artifact.
+
+- Type: `font_fallback` (gate, face not loaded), `text_collision` and `text_ghost`
+  (gates: texts touch or mix), `text_wrap` (a lone word or punctuation on a line),
+  `type_min` (gate: body 3%, headline 4% of the short side; a URL is body), `off_brand_font`,
+  `role_font_drift` (one family per role, one caption size per voice; never a font nobody chose).
+- Framing: `cut_off_at_rest` (inside the 5% margin), `judder` (a big layer panning fast
+  unblurred: motion blur).
+- `held_static`: nothing moves for 1.5 s+. Fix: one slow move per hold. An end card still over
+  4.5 s is an error. A planned still (end mark, black): `update_scene {rests:[{at, until}]}` (4 s in all).
+- Warned: vocabulary_budget, brand_consistency, story_stall, hook_readable, ending_count,
+  accent_budget, `text_only_open`, `pacing_jump` (cut rate 3x, unless a cue, sound or spine edge
+  explains it).
+- Rendered (`check` only): `text_on_busy` (words over busy detail), `small_on_empty` (a small
+  picture on a flat frame), `render_artifact` (an RGB split drawing flat slabs).
+- The fixes: a missing face takes the nearest loaded weight, else the brand font; the lesser
+  text (a caption, else the later) moves to a free safe place; a wrap gets a width that fits or
+  balances; a cut-off picture scales inside the margin; busy text moves to a calm place, else
+  gets a plate; a small picture grows and crops; an RGB split softens to 40%.

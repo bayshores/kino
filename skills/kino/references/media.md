@@ -1,11 +1,11 @@
 # Media
 
 Images, video, audio and GIFs: importing and swapping a file, playing it faster, slower or
-backwards, syncing two clips, and B-roll on the spoken word. Sound levels, ducking and voice
-separation are in the sound reference.
+backwards, and B-roll on the spoken word. Syncing two clips is in the recording reference;
+sound levels, ducking and voice separation in the sound references.
 
 Contents: Importing and replacing files · Cutting and skipping inside a clip · Clip speed ·
-Syncing two clips · B-roll on the spoken word
+B-roll on the spoken word
 
 ## Importing and replacing files
 
@@ -29,6 +29,10 @@ Syncing two clips · B-roll on the spoken word
 - A video's import answer also lists its shots in file seconds (`shots: 3: 1) 0–1.25 s …`),
   found with FFmpeg's scdet filter; a flash of a few frames is not a cut. If kino's FFmpeg is
   older than 5.1 or lacks the scdet or signalstats filter, it refuses the video and saves nothing.
+- Importing a video also measures held frames, saved as `record.holds`: `repeated` (share of
+  repeated frames), `frames` (the usual hold, 3 on 3s), `fps` and `stills` (the file's own held
+  poses of 0.3 s or more). Drawn footage shows `drawn on 3s (...)` in its shots line. Slowed, keep
+  `mediaInterpolation` `nearest` (whole drawings); `blend` lays two drawings over each other.
 - `library {topic:"media", search?, page?}` lists imported files, 30 a page.
 - Play: `mediaStart` (scene seconds it starts), `mediaOffset` (file seconds it starts from),
   `mediaDuration`. edit and inspect read trimStart or inPoint as mediaOffset, startTime as mediaStart.
@@ -54,6 +58,11 @@ Syncing two clips · B-roll on the spoken word
   (a fade-out still ends with the clip); other layers stay where they are.
 - Later ops of the same edit can name the new piece, like a copy from `duplicate_layers`
   ("<name> copy", or "<name> 2" with count).
+- A receipt line `plays across a cut of its file` gives the cut's file second, the scene second
+  it lands on and the trim (`mediaDuration`, or `mediaOffset`, `mediaStart` and `mediaDuration`)
+  that ends the span before it: send that trim to drop the leaked frames. If both sides of the
+  cut show for 0.25 s or more, it adds `, or in X s begins after it (...)`: pick the trim that
+  keeps the shot you planned.
 
 - Skip 0.3 s of dark frames at 1.2 s, then turn the rest down:
 
@@ -87,29 +96,6 @@ Syncing two clips · B-roll on the spoken word
 {"op":"add_layer","layerType":"video","name":"clip","properties":{"src":"/api/media/<clip>.mp4","mediaSourceDuration":4,"mediaInterpolation":"blend"}}
 {"op":"add_animation","layer":"clip","animation":{"kind":"custom","start":1,"duration":0.5,"easing":"smooth","from":{"speed":1},"to":{"speed":0.25}}}
 {"op":"add_animation","layer":"clip","animation":{"kind":"custom","start":2.5,"duration":0.5,"easing":"smooth","from":{"speed":0.25},"to":{"speed":1}}}
-```
-
-## Syncing two clips of the same moment
-
-- Two recordings of one moment (a phone filming someone use an app and the app's own screen
-  recording; two cameras): show both at once, side by side or one small in a corner, and play
-  them in step. One of them alone loses what the other shows.
-- `sync_clips {layer, to}` matches the two files' sound (taps, beeps, words, steps) and moves
-  `layer`'s Play (`mediaStart`, `mediaOffset`) so it plays in step with `to`, wherever `to` is.
-  The receipt's `sync` gives `same` (one shared moment, as seconds into each file),
-  `confidence` (0–1), `overlap` (seconds) and `inStep` (where both play). `search: 2` looks
-  only within 2 s of how they line up now.
-- Below 0.4 confidence, or with a file with no sound track, it changes nothing. Then tell the
-  person the clips could not be matched by sound and ask for a sync point; or find one moment
-  in both with `look {mode:"source", layer, t}` (a tap, a screen change) and send
-  `at: {layer: <seconds into its file>, to: <seconds into to's file>}`. Never guess an offset.
-- Before rendering, `look {mode:"sheet", from, to}` over `inStep`: each frame must show the
-  same action in both clips.
-- The link is kept by file (`clipLinks`), and files made by `isolate_voice` and `cut_out` inherit it: any later layer of either file is held to it by `out_of_sync`.
-
-```json
-{"tool":"edit","ops":[{"op":"add_layer","layerType":"video","name":"screen","properties":{"src":"/api/media/<screen>.mp4","x":420,"y":0,"width":500,"height":1080,"mediaSourceDuration":20}},{"op":"add_layer","layerType":"video","name":"phone","properties":{"src":"/api/media/<phone>.mp4","x":940,"y":0,"width":608,"height":1080,"mediaSourceDuration":12}},{"op":"sync_clips","layer":"phone","to":"screen"}]}
-{"tool":"look","mode":"sheet","from":3,"to":15}
 ```
 
 ## B-roll on the spoken word

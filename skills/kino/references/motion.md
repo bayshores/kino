@@ -88,5 +88,10 @@ Camera rules read the model at 30 samples a second (no render).
 - `dark_under_title`: a display or headline title over a clip that is near black or flat for
   60% of its time. Pick a stronger part of the file, or put the title on a plain card on purpose.
 - `low_fps_motion`: a large clip under 12 new frames a second (mediaFrameRate, or slowed with
-  nearest frames) while it or its footage moves. Raise mediaFrameRate, or keep it still.
+  nearest frames) while it or its footage moves. Raise mediaFrameRate, or keep it still. On
+  drawn footage it counts the file's own drawings a second (fps / hold frames x speed).
+- `frozen_footage` on a drawn clip's stop over one of the file's own still poses says so
+  (native) and names the pose's length. Keep it with `waive_check {code:"frozen_footage"}`
+  whose reason names the drawn hold, under 2 s on screen. A live clip's stop, or a stop the
+  edit made (past the file's pose), is not kept this way.
 - `jump_cut` with pixels also needs the two pictures alike in framing and light.

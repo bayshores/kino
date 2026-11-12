@@ -85,10 +85,10 @@ send it as is; put your words where it has `<angle brackets>`. A new video, idea
 - [fields](references/fields.md): op fields.
 - [building-blocks](references/building-blocks.md): compose, recipes, formats; [moves](references/moves.md).
 - [captions-beats-sequences](references/captions-beats-sequences.md): captions, beats, cues.
-- [media](references/media.md): imports, cuts, speed, B-roll; [recording](references/recording.md).
+- [media](references/media.md): imports, cuts, speed, B-roll; [recording](references/recording.md): sync.
 - [framing](references/framing.md): crops; [screens](references/screens.md): UI; [tilt](references/tilt.md): 3D; [behaviors](references/behaviors.md).
 - [storyboard](references/storyboard.md): `look board`.
-- [sound](references/sound.md): ducking, voice, clip lines, fit_music; [library](references/sound-library.md): SFX, music.
+- [sound](references/sound.md): ducking, voiceover, fit_music; [library](references/sound-library.md): SFX, music, lines.
 - [color](references/color.md): grades; [cutout](references/cutout.md): cut-outs, track, pin.
 - [blur](references/blur.md), [light](references/light.md), [particles](references/particles.md): glow, sparks, fog.
 - [check-and-look](references/check-and-look.md): findings, looks; [motion](references/motion.md).

@@ -36,6 +36,11 @@ first import, into kino's data folder and is checked against the catalog (SHA-25
   stays with the file.
 - A track with a drop: put the video's key moment on it (`fit_music`), or start the track so
   the drop lands there. Without one, build energy with cuts and type instead.
+- `look {mode:"board"}` page 1 prints the pace on each side of the song's turn beside your
+  references', and the song's beat times after it; facts only. To put the cuts after the
+  drop on those beats: edit {ops:[{op:"board", snap:"beats"}]}. Cut times only, song stays; a move
+  over 6 frames lapses an approval. It keeps (and names) a cut that would run a shot past
+  its file's end.
 - `fit_music` alone after a board, under a late payoff, gives the same payoff-shot offer as
   `board {music}`: shot cues plus the `fit_music` payoff edit.
 
@@ -53,12 +58,45 @@ first import, into kino's data folder and is checked against the catalog (SHA-25
   either side of the action.
 - At volume 2 and still short of its aim, the receipt's `sounds.louder` gives the next louder
   library sound of the same kind and one edit call that swaps it (it keeps your `under`).
+- `what:"footstep"` and `what:"cloth"` are sounds kino makes in code (0.3 s, no download), so
+  they work with no import. `what:` first takes an imported sound of 10 s or less whose name or
+  credit has every word (never one the scene already plays), then the library. When neither
+  matches, the refusal names the nearest library kinds and the call
+  `library {topic:"inspire", search:"<same word>", kind:"sounds"}`: import the find, then
+  `place_sounds {at, sound:"<its name>"}`.
 
 ## A clip's own sounds
 
+- `look source {layer}` and a found-clip import give each clip's sound: `-23.4 LUFS · voice
+  heard 2.8-3.0 s, words not read` (file seconds) is voice whisper could not read; keep it with
+  `keep_line {layer:"shot-3", from:5.4, to:7.3}` (`from`/`to` are scene seconds).
+- `keep_line` levels a clip line 6 LU over the song (never under -16 LUFS), up to +12 dB, and
+  holds the mix; a line still short of the music gets the music out, and the note gives the LU
+  short and a dip: that keeps the music in. Receipt: the mix vs the 2 s around.
+- Music out for a line: `{op:"keep_line", layer:"clip", from:5.5, to:7.2, dropout:true}` (and
+  `wait`): the music hits back on the downbeat within wait (default half a bar), else on the next
+  beat; the receipt states the gap and the wait that reaches the downbeat. `dip` (0 to 1) sets a
+  fixed dip instead (not both).
+- With ggml-small.bin in ~/.kino/models/ (kino fetches it once, 488 MB), look source reads other
+  languages: `heard in Japanese (ja, p 0.86): "..." [gloss (machine, unverified): "..."] 1.9-2.9 s`.
+  A gloss is whisper's English and can reverse the meaning.
+- Keep it as said: keep_line {layer, line:"<as printed>"} (subtitles show the words as said unless `text` is sent); show English: keep_line {layer, from, to, text:"<gloss>"}.
 - A clip sound that is not a line (a laugh, a door, steps): `keep_line {layer:"<clip>",
   sound:"laughter"}` keeps its own level; the music dips only if it would mask it.
 - The clip readout lists the surest sound under 0.5 as `maybe laughter (0.43) 1.0-2.0 s`;
   `keep_line {layer, sound:"laughter"}` keeps it, with a note.
 - A layer can keep a line and a sound: the line is leveled (`voiceLevel`), the sound plays at
   its own level (`Sound up` / `Sound down`).
+
+## Sound: separating voice from background
+
+- `isolate_voice` splits a layer's sound locally (nothing is uploaded). `keep:"voice"`
+  (default), `"background"`, or `"both"`: the voice plus an audio layer `<layer>-background`
+  you can turn down. A video keeps its picture. `amount` 0–1 keeps some background.
+- It does not duck music: send `duck_audio` in the same edit (`duck[n].summary` when it ducks several layers).
+
+```json
+{"op":"add_layer","layerType":"video","name":"interview","properties":{"src":"/api/media/<interview>.mp4"}}
+{"op":"isolate_voice","layer":"interview","keep":"both"}
+{"op":"update_layer","layer":"interview-background","properties":{"volume":0.3}}
+```

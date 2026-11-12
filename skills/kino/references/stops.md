@@ -49,6 +49,15 @@ revision with 0 errors, and your own `look`. "It looks right" is not a check.
   the 10 replies (direction reference). Refused: an answer under 5 s after the ask
   (`too_fast`), one for an unseen revision (`stale_rev`: ask again).
 
+## Fresh-eyes check before the storyboard ask
+
+Before you ask, if your app can start a second agent, give it only the brief's lines, the
+project id and this: "Read the storyboard with look {project, mode:"board", page} (every page;
+change nothing). List where you would have to guess, and the top 3 problems you can see." Fix
+the small ones yourself and add each to `calls` (edit `board`; they show as "my calls"). Only
+questions for the person go out, in one message. At most 2 rounds. Then ask with
+`fresh:"ran"`, or `fresh:"skipped"` when your app cannot start one. (After superpowers' builder-check prompt, obra/superpowers, MIT.)
+
 ## Finishing
 
 End every turn with one of: `Done: <file>`, `Done, with open questions: …` or

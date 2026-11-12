@@ -66,3 +66,18 @@ A badge that spins forever, a floating card, and a row of dots that pop in one a
 {"op":"add_layer","layerType":"ellipse","name":"dot","properties":{"x":700,"y":860,"width":40,"height":40,"fill":"#7cf0c8"},"animations":[{"preset":"preset-grow","start":0.4,"duration":0.4,"easing":"overshoot"},{"preset":"preset-fade","start":0.4,"duration":0.4}]}
 {"op":"duplicate_layers","layers":["dot"],"count":7,"layout":"line","spacing":{"x":72,"y":0},"stagger":0.08}
 ```
+
+## Trim paths and dashes
+
+Shapes, paths: `strokeStart`, `strokeEnd` (0-1 a contour), `strokeOffset` (turns), `dash`
+([on, off, …] px), `dashOffset` (px); modifiers `roundCorners`, `bloatAmount`, `twistAngle`,
+`zigzagSize` (`zigzagCount`, `zigzagPoints`), `offsetAmount` (`offsetJoin`), `roughenSize` (brush edge); animate.
+`trim` (or `draw-on`) draws `strokeEnd` from 0.
+
+```json
+{"op":"add_layer","layerType":"path","name":"underline","properties":{"x":560,"y":700,"width":800,"height":40,"path":"M0 20 C260 0 540 40 800 20","fillEnabled":false,"stroke":"#FFD166","strokeWidth":10}}
+{"op":"add_layer","layerType":"rectangle","name":"frame","properties":{"x":460,"y":240,"width":1000,"height":400,"radius":24,"fillEnabled":false,"stroke":"#FFFFFF","strokeWidth":4,"dash":[18,12]}}
+{"op":"move","name":"draw-on","layer":"underline","at":0.5}
+{"op":"add_animation","layer":"frame","preset":"trim","start":0.2,"duration":1}
+{"op":"add_animation","layer":"frame","animation":{"kind":"custom","start":1.2,"duration":2,"easing":"linear","from":{"dashOffset":0},"to":{"dashOffset":60}}}
+```

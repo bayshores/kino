@@ -2,12 +2,15 @@
 
 `check` measures; `look` shows. Both read the saved project.
 
-Contents: Check · Polish · Looking · Review before final · Building in order
+Polish (what a viewer calls sloppy though gates pass): taste reference.
+
+Contents: Check · Looking · Review before final · Building in order
 
 ## Check
 
 - Each finding says what it measured, what is required and a fix op. A rule's exact limits:
-  `library {topic:"rules", name:"quality", search:"<code>"}`.
+  `library {topic:"rules", name:"quality", search:"<code>"}`. A topic too long for one answer
+  comes back cut with the lines left: `search` reads the lines that mention a word.
 - `check {fix:"auto"}` applies the `(auto)` fixes in one edit (skipping one that adds an error
   or keeps its finding), re-checks, up to 3 rounds: call it once. A warning's fix skips layers
   your last edit moved, a waiver names or a spine beat uses.
@@ -28,7 +31,14 @@ Contents: Check · Polish · Looking · Review before final · Building in order
 - With sound in the scene, `check` adds a `mix:` line: every place the mix passes the master
   limiter at render loudness `"off"` (time, dB over, layers at their volume, xN to clear it),
   then what the default `"auto"` gain does to the same peaks; `look {mode:"motion",
-  ref:"sound"}` lists them (worst 6). No render needed.
+  ref:"sound"}` lists them (worst 6). No render needed. `check {fix:"auto"}` applies those xN
+  (sound reference); a layer whose volume moves at a place is named under `not applied`, with
+  its xN to apply by hand.
+- The counts line of `status` and receipts reads `err, warn` then the open finding names, and
+  `N waived` then the waived ones, by rule then ref; check's `waived:` line lists the same.
+- Footage whose cover would hide a text with a longer span: the receipt notes name the footage,
+  the seconds and the call `move_layers {layers:[text], position:"above", referenceId:<topmost
+  footage>}`; nothing is reordered. A blend mode other than normal, or an alpha channel, gets none.
 - `default_font` fix: `library {topic:"fonts", search:"<first type label's words>"}`.
 - `check {rules:["missing_glyphs"], fix:"auto"}` applies the glyph-range fix (a
   `textStyleRanges` range in a font that has the characters); when no font has them, the
@@ -50,29 +60,6 @@ Contents: Check · Polish · Looking · Review before final · Building in order
 - luma_jump, reading_time, type_min, safe_zone turn to advice when 2+ saved, measured references go as far (flashes, shortest text hold, smallest line, edge); past them they say by how much.
 - A slow linear move (under 4% of the frame diagonal a second) still running when its layer leaves (cut, hide, fade out, scene end) passes linear_motion, text too: no waiver.
 
-## Polish
-
-What a viewer calls sloppy though gates pass: fix it. Each has an automatic fix
-(`check {fix:"auto"}`) but render_artifact.
-
-- Type: `font_fallback` (gate, face not loaded), `text_collision` and `text_ghost`
-  (gates: texts touch or mix), `text_wrap` (a lone word or punctuation on a line),
-  `type_min` (gate: body 3%, headline 4% of the short side; a URL is body), `off_brand_font`,
-  `role_font_drift` (one family per role, one caption size per voice; never a font nobody chose).
-- Framing: `cut_off_at_rest` (inside the 5% margin), `judder` (a big layer panning fast
-  unblurred: motion blur).
-- `held_static`: nothing moves for 1.5 s+. Fix: one slow move per hold. An end card still over
-  4.5 s is an error. A planned still (end mark, black): `update_scene {rests:[{at, until}]}` (4 s in all).
-- Warned: vocabulary_budget, brand_consistency, story_stall, hook_readable, ending_count,
-  accent_budget, `text_only_open`, `pacing_jump` (cut rate 3x, unless a cue, sound or spine edge
-  explains it).
-- Rendered (`check` only): `text_on_busy` (words over busy detail), `small_on_empty` (a small
-  picture on a flat frame), `render_artifact` (an RGB split drawing flat slabs).
-- The fixes: a missing face takes the nearest loaded weight, else the brand font; the lesser
-  text (a caption, else the later) moves to a free safe place; a wrap gets a width that fits or
-  balances; a cut-off picture scales inside the margin; busy text moves to a calm place, else
-  gets a plate; a small picture grows and crops; an RGB split softens to 40%.
-
 ## Looking
 
 - CLI: `kino look frame t=3 width=720`; a list is one word (`fields=x,width`).
@@ -83,7 +70,12 @@ What a viewer calls sloppy though gates pass: fix it. Each has an automatic fix
   `sheet {from, to}`: one stretch.
 - look sheet, look review and check print `returns: <thing> at <times> (what changes)`: each made
   layer, word, image, move or shot shown at 2+ places, and what the first second and last frame
-  share. A fact.
+  share. A fact. A group of layers, or layers named by number (tread-1 to tread-4), counts as
+  one device with its count: `tread (4 layers) at 1 2 3 ×3`.
+- `check` prints `made:` after `returns:`: the share of half-second moments with a cut-out, a
+  drawn graphic or shape, a particle overlay, or type at 8% of frame height or more that is not
+  a caption. Beside it: `deck: N of M cards unused (names)` (the `deck_unused` cards) and
+  `drawn graphic: yours X of N moments, your references' made labels a of b`. Facts, no target.
 - `frame {t, width?}` (up to 1280 px; `zoom` for detail), `zoom {layer, t?}`, `strip {anim}`
   (`every:true`: each frame), `compare {rev}`, `changed`, `variants`.
 - `motion {from?, to?}` (graph and trace, no render), `frames {from, to?}` (each 30 fps frame):

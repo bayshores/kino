@@ -1,6 +1,6 @@
 # Storyboard
 
-Contents: Build it · Look at it · Fresh-eyes check · Ask · After the approval · Examples · Storyboard: a board from footage
+Contents: Build it · Look at it · Ask · After the approval · Examples · Storyboard: a board from footage
 
 Read before building from footage (the `board` stop), or to plan any video shot by shot.
 
@@ -12,7 +12,10 @@ Read before building from footage (the `board` stop), or to plan any video shot 
   no overlap: the music layer's span, or the whole video when `music` is `"none"`.
   `music:"<imported sound's src or id>"` adds the song's audio layer itself (0 s to the shots'
   end), so the board carries the song's cues before anything is built (`fit_music` after a board:
-  sound-library reference).
+  sound-library reference). It saves on a briefed video even when `fit_music` fades the song.
+- A shot whose span of its file crosses a cut of that file by under 0.25 s is slid off it (`in`
+  moves; cue, length and speed stay): the answer says `in a to b`. A longer crossing, or a shot
+  sent exactly as the saved board has it, is only stated: the cut's file second, scene second, trim.
 - A shot needing more clip than the file has is refused with fixes and numbers:
   speed S (the retry's fix: the clip plays slower), in I when the file is
   long enough, or dur D with the next shot starting earlier and running longer.
@@ -29,10 +32,17 @@ Read before building from footage (the `board` stop), or to plan any video shot 
   clip's own sound `{keep:"all"}` or `{keep:[from, to]}` (file seconds). A shot with
   `"sound":{"keep":[1.5,2.5]}`: placing its layer, even at volume 0, runs `keep_line` on that
   stretch and dips the board's music.
+- `text` may take `until`: the id of the shot the words stay until, or a second of the video;
+  `compose {from:"board"}` adds such words last, so they stay above later footage. An earlier
+  or unknown id, or a second past the video, is refused with the valid ids.
+- `lift: true` (or a mean luma 1 to 255) runs `lift_dark` on that shot when it is built.
 - `pacing`: `beat_cut`, `phrase_flow` or `free`. `calls` (at most 6): your own choices, so an
   approval covers them. `open` (at most 3): questions only the person can answer.
 - `move`: `{kind, name, ref}`, `ref` the reference moment copied (`"<key>@<seconds>"`; `look
-  versus` pairs it). Else `{none:"cut"}`: a plain cut, right for most shots.
+  versus` pairs it). Else `{none:"cut"}`: a plain cut, right for most shots. Names slow-push,
+  push-in and zoom-in are saved as `push` (the receipt says so): a frame op from the crop to
+  90% of it, toward the subject box, over the shot. `impact-accent` lands on the song seam
+  (flash), a rest (dip) or a top accent (flash) within 0.1 s of the cue, else a hit there.
 - Send the whole board again to change it, each shot with its `look board` `id`.
   Refusals (`op_failed`, `boardError`) name the shot and every bad field.
 
@@ -44,24 +54,12 @@ the move and your reason; its text, each shot's number, id and `look:` flags. Fi
 before asking: the subject whole and 5%+ from the crop edge, eyes 20–45% from the
 top, nothing under the app's captions.
 
-look {mode:"board"} page 1 prints the pace on each side of the song's turn beside your
-references', and the song's beat times after it; facts only. To put the cuts after the
-drop on those beats: edit {ops:[{op:"board", snap:"beats"}]}. Cut times only, song stays; a move
-over 6 frames lapses an approval. It keeps (and names) a cut that would run a shot past
-its file's end.
-
-## Fresh-eyes check
-
-Before you ask, if your app can start a second agent, give it only the brief's lines, the
-project id and this: "Read the storyboard with look {project, mode:"board", page} (every page;
-change nothing). List where you would have to guess, and the top 3 problems you can see." Fix
-the small ones yourself and add each to `calls` (edit `board`; they show as "my calls"). Only
-questions for the person go out, in one message. At most 2 rounds. Then ask with
-`fresh:"ran"`, or `fresh:"skipped"` when your app cannot start one. (After superpowers' builder-check prompt, obra/superpowers, MIT.)
+Page 1 also prints the pace each side of the song's turn and its beat times (sound-library
+reference snaps cuts to them).
 
 ## Ask
 
-- No `check` first. Open items: ask them in one message, log each reply word for word
+- Fresh-eyes check first (stops reference). No `check`. Open items: ask them in one message, log each reply word for word
   (`notes {action:"brief", log}`), fold the answers into the board, empty `open`. If they say
   "your call", send their words: `notes {action:"checkpoint", id:"board", words:"<their reply>"}`.
   It answers `your_call`: decide each item, write your decisions in `calls` and empty `open`
@@ -90,14 +88,10 @@ kino keeps a copy of the approved board: build to it. These lapse the approval: 
 sound, pacing, follow, move, music (or its file), shot order, a shot added or removed, a new open
 item; a cut, in-point or end moved over 6 frames; a crop changed over 5% of the frame width.
 `board.lapsed` and `status` say so: ask again (only changed shots show). A gap lapses it until
-covered. Smaller changes are logged (`board.revisions`). "Approve with notes": make the changes.
+covered. Smaller changes are logged (`board.revisions`), as is adding or changing a text's `until` ('shot 3 words held until 5.5 s'); the words, font, size, y or fill still lapse. "Approve with notes": make the changes.
 After the person answers rough,
 color or sound, only another song, media or shot list lapses it. Approved with only "your
 call": fix what a viewer finds (cut a repeat), never waive it.
-
-A shot as one video layer (W × H the video, `[x, y, w, h]` the crop): `height` = H × 100 / h,
-`width` = `height` × the source's width / height, `x` = −x / 100 × `width`, `y` = −y / 100 ×
-`height`, `mediaStart` = `cue`, `mediaOffset` = `in`, `mediaDuration` = `dur`, `mediaSpeed` = `speed`.
 
 ## Examples
 

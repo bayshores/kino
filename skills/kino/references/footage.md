@@ -46,13 +46,16 @@ did not run), and shots rank on motion, faces and clean frames.
 
 ## Reading a scan
 
-`F1.37 3:17.2-3:19.0 1.8s motion 82 face 40 match +3.1`: shot 37 of F1, its time in the video,
-length, motion and face (0 to 100), match (how far above the others it fits `want`). Shots full
-of text, `subtitles` shots and shots under 0.4 s go last; `logo` marks a logo fixed for a while;
-a dark shot keeps its rank (`dark, mean 13 of 255`). A burned-in mark is said once; such videos
+`F1.37 3:17.2-3:19.0 1.8s motion 82 light 13 dark face 40 (upper left, 9% of frame) match +3.1`:
+shot 37 of F1, its time in the video, length, motion (0 to 100), `light` (mean of 255; under 31
+is tagged `dark`, and keeps its rank), `face P (where, S% of frame)` or, where no face was read,
+`salient (where, S% of frame)`, and match (how far above the others it fits `want`). Salient
+says where the eye goes, not that something is there: a near-black frame gets a box of about
+30%. Shots full of text, `subtitles` shots and shots under 0.4 s go last; `logo` marks a logo
+fixed for a while. A burned-in mark is said once; such videos
 list after clean ones. Import offers a clean clip or a crop; `frame_shot` keeps the mark out;
 `burned_in_mark` names a layer still showing it (past 1.35x: a shift or a cover). Drawn footage
-has no face number. With a song, the answer says how many shots it needs (a cut every 2 beats
+has no face tag. Narrow a scan in one call: `library {topic:"footage", scan:"F8", filter:{face:true, brighter:60, longer:2}, sort:"length"}`; the import call then names only those shots. Filter keys: `face`, `speech` (true or false), `brighter`, `darker` (light of 255), `longer`, `shorter` (seconds), `bigger` (box, % of frame). Sort: light, dark, length, size, motion, time. A fact the scan never measured (speech with no captions or listening, faces on drawn footage) is named in `Not measured, left out` and not applied. With a song, the answer says how many shots it needs (a cut every 2 beats
 on the drop, 4 on builds); its `next:` imports up to 1.5 times that: change the shots after looking.
 
 ## What is said

@@ -14,6 +14,10 @@
   A listed end is the next shot's first frame.
 - Eyes near the top third; faces out of the bottom 707 and right 120 px of 1080×1920.
 
+A board shot as one video layer (W × H the video, `[x, y, w, h]` the crop): `height` = H × 100 / h,
+`width` = `height` × the source's width / height, `x` = −x / 100 × `width`, `y` = −y / 100 ×
+`height`, `mediaStart` = `cue`, `mediaOffset` = `in`, `mediaDuration` = `dur`, `mediaSpeed` = `speed`.
+
 ## Framing: crop footage to 9:16
 
 One layer per shot; 1080×1920, 384×216 clip: `width` 3413 (`frame_shot` places it).

@@ -21,15 +21,14 @@ Contents: Ops and names · Refusals and fixes · Examples · Animations · Fonts
 - Colors are hex (`#00000000` transparent); color words, `rgba()`, `hsl()` and CSS gradients
   convert. Corners: `radius` or `cornerRadii` (four). A property no layer has is refused with
   the closest names; a field an op does not have is ignored, and the receipt's notes give the
-  closest field and the op's field line (`duplicate_layers` `times:[4,8]` makes one copy: Did
-  you mean `at`?).
+  closest field and the op's field line (`duplicate_layers` `times:[4,8]`: Did you mean `at`?).
 - `rev` (optional): the revision you read; a changed project takes the edit when it still fits
   (`rebased:true`), else refuses it.
 - `set_font` over shapes sets only the text layers. Leave out fields at their defaults (text:
   weight 400, line height 1.2, left aligned); set the font.
 - style_text_range {layer, text:"P", style:{scaleX:-1}} mirrors one letter in place (scaleX/scaleY -10..10, not 0). A scale or turn's receipt names its pivot: anchor is [x%, y%] of the box.
 - import_svg {name:"logo", svg} names its top-level layers "logo", "logo 2"; a receipt note lists them. One duplicate_layers copy is "<name> copy" (id "<name>-copy").
-- A note that a full-frame clip covers layers gives one move_layers call; kino does not reorder. set_font on a face missing a glyph sets it, the glyph in a fallback.
+- set_font on a face missing a glyph sets it, the glyph in a fallback.
 - Drawn prop, logo or brush word in footage? Trace it into vector shapes: {op:"trace_image", layer:"<clip layer>", time:2.6, region:[x,y,w,h], name:"logo"}
 
 ## Refusals and fixes
@@ -38,12 +37,13 @@ Contents: Ops and names · Refusals and fixes · Examples · Animations · Fonts
   `rules` and an `example` op that works, then up to 4 more in `alsoRefused`); `missing` lists
   every name not found. Its code is such as `E2`. Send only the fixes:
   `edit {retry:"E2", fix:{"3":{"easing":"smooth", "pacing":null}, "7":null}}` changes op 3,
-  removes its pacing and drops op 7; a fix with `op` replaces the op.
+  removes its pacing and drops op 7; a fix with `op` replaces the op. Op numbers and fix keys
+  count from 0; a key from the op count up adds an op, or a list of ops, after the refused ones.
 - A shape with one meaning is fixed and listed in `fixed` (`add_text`, `"48px"`, `"500ms"`,
   `fontWeight:"bold"`, `ease`, a preset sent with values, timed `keyframes`).
-- Refused: a percent `x` or `y` (`place` centers), a field the animation lacks
-  (`repeat`: a `behavior` loop), `from`/`to` with a preset change, a field given
-  two values (`size`, `width`) and a `src` file path (import it first).
+- Refused: a percent `x` or `y` (`place` centers), a field the animation lacks (`repeat`: a
+  `behavior` loop), `from`/`to` with a preset change, a field given two values (`size`,
+  `width`), a `src` file path (import first).
 - notMade names layers a refused edit did not make. Its `next:` is `edit {retry:"E1", fix:{...}}` with known fixes filled in; send it as given.
 
 ## Examples
@@ -91,8 +91,7 @@ A second scene (from then on every op names its `scene`):
 - Easing (`library {topic:"easings"}`): `smooth` (long settle), `expo-out` or `snap` (fast in),
   `overshoot`, `steps-4` (4 held poses), `linear`, `[x1,y1,x2,y2]`, …. Presets: smooth, fades linear.
 - 3+ steps: `keys:[{t, value, ease?}]` for from/to (behaviors.md).
-- An effect's settings are in `to` (and `from`): `update_animation {animation:"plate.effect",
-  properties:{to:{gamma:0.6}}}` changes gamma and keeps the others.
+- An effect's settings are in `to` (and `from`): color reference, "Changing an effect".
 - slide, grow, rotate, blur, blur-slide never fade; check's auto fix adds a fade, and makes a
   blur entrance a plain fade (blur+fade in is the AI tell). An entrance holds its first frame
   until it starts.
@@ -100,6 +99,9 @@ A second scene (from then on every op names its `scene`):
   `properties:{visible:false}`, not `opacity:0`.
 - Moving a layer moves its presets too; for custom x and y, starts away from where a layer is
   drawn, or ends using an old value, the receipt gives the `update_animation` ops that fix them.
+- `preset` also takes `{id, mode, parameters}`, the shape a layer's animation keeps. Animation
+  codes (A12) stay the same between reads: deleting one and then `match_references` in the same
+  edit no longer renumbers the deleted ones.
 
 ## Fonts
 
@@ -111,7 +113,7 @@ A second scene (from then on every op names its `scene`):
 - Variable fonts: text `axes:{wght, wdth, slnt, opsz}` (merged per axis, `{wdth:null}` drops
   one), animated by `animation:{kind:"custom", from:{axes:{wght:100}}, to:{axes:{wght:900}}}`.
 - `outline_text {layer}`: letters become path layers in a group; the text is hidden.
-- `library {topic:"fonts"}` lists faces measured from your saved type labels first (whole frame; a label may be at any second). To measure just the letters: `like:"yt:X"` or `like:"/abs/frame.png"`, `t`, `region:[x,y,w,h]`, `text:"THE WORDS"`; each face comes with a set_font call, and `text` makes width reliable. `like` without `region` finds the lettering box (taste reference).
+- `library {topic:"fonts"}` lists faces measured from your saved type labels first (whole frame, any second). To measure just the letters: `like:"yt:X"` or `like:"/abs/frame.png"`, `t`, `region:[x,y,w,h]`, `text:"THE WORDS"`; each face comes with a set_font call, and `text` makes width reliable. Without `region`, `like` finds the lettering box.
 
 ## Rebuilding
 
