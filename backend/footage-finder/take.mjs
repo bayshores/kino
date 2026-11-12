@@ -19,7 +19,7 @@ import { cropPast, markSpan } from "../../engine/footage/burned.js";
 import { readTime } from "./scan.mjs";
 import { scanCall } from "./step.mjs";
 import { SAYS_MIN_SECONDS, saysOf, saysText } from "./words.mjs";
-import { clipSoundText } from "../../engine/speech.js";
+import { clipSoundText, GLOSS_LABEL } from "../../engine/speech.js";
 import { clipSoundsText } from "../../engine/speech.js";
 
 /** Seconds kept before and after each shot in its download. */
@@ -363,8 +363,8 @@ export function takeText(candidate, { media, failed, captions = null, heard = nu
   const burned = markLine(media.find((item) => item.footage?.marks?.length), frame);
   if (burned) lines.push(burned);
   if (heardAny) lines.push(`heard: lines whisper read from each clip's own sound; "voice heard ..., words not read" is voice it could not read (another language, a laugh), file seconds. Keep one: edit {ops:[{op:"keep_line", layer, line, duck:"<song layer>"}]}, or by time: keep_line {layer, from, to} (scene seconds).`);
-  // Another language (transcribe.mjs heard): (en: "...") is whisper's English; with no multilingual model yet, its one fetch.
-  if (media.some((item) => heard?.byId?.[item.id]?.language)) lines.push(`(en: "...") is whisper's English for a line in another language; keep_line {layer, line} keeps it as said, or {from, to, text} with the words to show.`);
+  // Another language (transcribe.mjs heard): the gloss is whisper's English, a machine guess; with no multilingual model yet, its one fetch.
+  if (media.some((item) => heard?.byId?.[item.id]?.language)) lines.push(`[${GLOSS_LABEL}: "..."] is whisper's English for a line in another language and can reverse its meaning; keep_line {layer, line} keeps it as said, or {from, to, text} with the words to show.`);
   if (heard?.fetching) lines.push("Voice in another language: kino is fetching ggml-small.bin (488 MB, once); look source {layer} reads its lines after.");
   else if (!heardAny && heard?.missing) lines.push(`heard: not read (${heard.missing}; inspect {targets:["speech:<layer>"]} says how to install).`);
   if (soundAny) lines.push(`sounds: what the macOS sound classifier heard besides words (file seconds, loudest first). Keep one with no subtitle: edit {ops:[{op:"keep_line", layer, sound:"<label>"}]}.`);

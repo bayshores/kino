@@ -9,10 +9,31 @@ import test from "node:test";
 import { toneWords, writeFakeWhisper } from "../tests/fake-whisper-cli.mjs";
 import { projectNames, speechNamesFor } from "./speech/name-hint.mjs";
 import {
-  betterReadings, createTranscriptCache, detectLanguage, markLoops, mergePasses, TRANSCRIPT_VERSION, transcribeFile, unsureSentences, whisperPrompt,
+  betterReadings, createTranscriptCache, detectLanguage, hearInOwnLanguage, markLoops, mergePasses, TRANSCRIPT_VERSION, transcribeFile, unsureSentences, whisperPrompt,
   saidToEnd, withCuts, withUnclear, withoutSlips, wordsFromWhisper,
 } from "./speech/transcribe.mjs";
 import { readClipSound } from "../engine/speech.js";
+
+test("hearInOwnLanguage listens again in the clip's own language, and only when it could matter", async () => {
+  const voice = { words: [{ text: "Esta", start: 0.2, end: 0.5, p: 0.9 }, { text: "aplica", start: 0.5, end: 0.9, p: 0.9 }] };
+  const silent = { words: [] };
+  const found = { modelName: "small" };
+  let asked = 0;
+  const detect = (language) => async () => { asked += 1; return { language, p: 0.9 }; };
+  const transcribe = async (_file, _found, { language }) => ({ words: [{ text: language, start: 0, end: 1 }] });
+  // No multilingual model: the English read stays as it is.
+  assert.equal(await hearInOwnLanguage("a.mp4", voice, { languages: () => null }), voice);
+  // Nothing was heard: the language pass is not even looked up.
+  assert.equal(await hearInOwnLanguage("a.mp4", silent, { languages: () => { throw new Error("not asked"); } }), silent);
+  // English: unchanged.
+  assert.equal(await hearInOwnLanguage("a.mp4", voice, { languages: () => found, detect: detect("en"), transcribe }), voice);
+  // Another language: read again in it, with the language and its chance on the result.
+  const again = await hearInOwnLanguage("a.mp4", voice, { languages: () => found, detect: detect("es"), transcribe });
+  assert.equal(again.language, "es");
+  assert.equal(again.languageP, 0.9);
+  assert.equal(again.words[0].text, "es");
+  assert.equal(asked, 2);
+});
 
 test("wordsFromWhisper joins word pieces and punctuation, skips special tokens and prefers DTW times", () => {
   const words = wordsFromWhisper({ transcription: [{ tokens: [

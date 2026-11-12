@@ -770,6 +770,13 @@ export const SOUND_TAG = /[[\]()♪]/;
 
 export const LINE_SURE = 0.5; // a line's mean word probability must reach this (a guess over loud music is under it)
 const LINE_TEXT_MOST = 60;
+/**
+ * What the readout calls whisper's English for a line heard in another language. It is a machine
+ * translation that can reverse the meaning (measured: "sin internet" came out as "on the Internet"),
+ * so it is named as one wherever it is shown, and it is never used as subtitle text: keep_line and
+ * add_captions show the words as said, or the `text` the agent sends.
+ */
+export const GLOSS_LABEL = "gloss (machine, unverified)";
 // A tag glued to a word ("see.(laughs)") goes; a whole tag word ("(Door", "creaks)", "Sigh*") is not a word said.
 const GLUED_TAG = /\([^)]*\)|\[[^\]]*\]/g;
 const isTagWord = (text) => SOUND_TAG.test(text) || /^\*|\*$/.test(text);
@@ -1022,10 +1029,10 @@ export function clipLinesText(lines = [], most = 2) {
 export function clipSoundText({ lufs = null, lines = [], voice = [], language = null, p = null, sounds = null } = {}, most = 2) {
   const level = Number.isFinite(lufs) ? `${lufs.toFixed(1)} LUFS` : "";
   const parts = [];
-  // Another language: `heard in Japanese (ja, p 0.76): "<as said>" (en: "<whisper's English>") 0.0-6.1 s`.
+  // Another language: `heard in Japanese (ja, p 0.76): "<as said>" [gloss (machine, unverified): "<whisper's English>"] 0.0-6.1 s`.
   if (lines.length && language && language !== "en") {
     const quote = (text) => `"${String(text).replaceAll('"', "'")}"`;
-    const shown = lines.slice(0, most).map((line) => `${quote(line.text)}${line.english ? ` (en: ${quote(line.english)})` : ""} ${line.start.toFixed(1)}-${line.end.toFixed(1)} s`);
+    const shown = lines.slice(0, most).map((line) => `${quote(line.text)}${line.english ? ` [${GLOSS_LABEL}: ${quote(line.english)}]` : ""} ${line.start.toFixed(1)}-${line.end.toFixed(1)} s`);
     parts.push(`heard in ${languageName(language)} (${language}${Number.isFinite(p) ? `, p ${p.toFixed(2)}` : ""}): ${shown.join(", ")}${lines.length > most ? ", …" : ""}`);
   } else if (lines.length) parts.push(clipLinesText(lines, most));
   if (voice.length) parts.push(`voice heard ${voice.slice(0, most).map((span) => `${span.start.toFixed(1)}-${span.end.toFixed(1)}`).join(", ")}${voice.length > most ? ", …" : ""} s, words not read`);

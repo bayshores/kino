@@ -140,8 +140,18 @@ export function withCharactersInFont(layer, characters, font) {
 // so no textStyleRanges range can hold them.
 const NOT_IN_TEXT = "They come from an animation's text (Change text or Counter), which a range cannot hold: choose one of these fonts for the layer, or change that text.";
 
+// "noto-sans-sc" -> "Noto Sans SC", "noto-sans-arabic" -> "Noto Sans Arabic".
+const fontNameOfId = (id) => id.split("-").map((part) => (part.length <= 2 ? part.toUpperCase() : part[0].toUpperCase() + part.slice(1))).join(" ");
+
+// The font file to import for characters no font on this computer has: the Noto family for their
+// script (open license), named with its usual file name. Empty for characters with no single script.
+function fileToImport(characters) {
+  const id = characters.map((character) => fallbackCatalogIds(character)[0]).find((value) => value && value !== "noto-sans" && !value.startsWith("noto-sans-symbols") && value !== "noto-color-emoji");
+  return id ? ` A free one is ${fontNameOfId(id)} (a file named like ${fontNameOfId(id).replace(/ /g, "")}-Regular.ttf).` : "";
+}
+
 function nothingFound(characters, catalogError) {
-  return `No installed font and no catalog font kino looked at has ${quoted(characters)}${catalogError ? ` (the catalog could not be searched: ${catalogError})` : ""}. Change the text, or project import a font file that has ${characters.length === 1 ? "it" : "them"}.`;
+  return `No installed font and no catalog font kino looked at has ${quoted(characters)}${catalogError ? ` (the catalog could not be searched: ${catalogError})` : ""}. Change the text, or project import a font file that has ${characters.length === 1 ? "it" : "them"}.${fileToImport(characters)}`;
 }
 
 /**

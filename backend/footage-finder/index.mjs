@@ -48,7 +48,12 @@ export function createFootageFinder(deps) {
     dataRoot = null, youtube = null, embed = null, commons = null, keep = () => [], modelReady = () => true, addMedia = null, takeTools,
     languages = defaultLanguages(), runtime = null,
     // Listens to a stretch of sound on this computer (spoken above): kino's own speech code, loaded when first asked.
-    transcribe = async (file) => { const speech = await import("../speech/transcribe.mjs"); return speech.transcribeFile(file, speech.whisperSetup()); } } = deps;
+    // Then, when the multilingual model is already in ~/.kino/models, in the clip's own language (never fetched here).
+    transcribe = async (file) => {
+      const speech = await import("../speech/transcribe.mjs");
+      const english = await speech.transcribeFile(file, speech.whisperSetup());
+      return speech.hearInOwnLanguage(file, english).catch(() => english);
+    } } = deps;
   if (!directory) throw new Error("createFootageFinder needs a directory.");
   const { cached } = createWebCache({ directory: path.join(directory, "cache"), ttlMs: FOOTAGE_CACHE_MS, now });
   // The same search running twice at once (two agents) asks YouTube once. The shared job has its

@@ -347,6 +347,12 @@ test("keep_line keeps the named words audible, silences the rest, subtitles the 
   const reportsSame = new Map();
   applyOperations(document, [sameWords], { reports: reportsSame, fonts: defaultFonts });
   assert.ok(!(reportsSame.get(sameWords).notes ?? []).some((note) => /kino heard/.test(note)));
+  // A clip heard in another language: the subtitle is the words as said, never whisper's English gloss.
+  const foreign = { language: "ja", words: [{ text: "殺してやる。", start: 1.3, end: 2.2, p: 0.9 }], english: [{ start: 1.2, end: 2.3, text: "I'll kill you." }] };
+  const foreignDoc = parseDocument(applyOperations(document, [{ type: "keep_line", sceneId: "s", layerId: "clip", from: 2.3, to: 3.2, transcript: foreign }], { fonts: defaultFonts }));
+  const captions = foreignDoc.scenes[0].layers.filter((layer) => layer.role === "caption").map((layer) => layer.text).join(" ");
+  assert.match(captions, /殺してやる/);
+  assert.doesNotMatch(captions, /kill/);
 });
 
 test("keep_line on a voice cut into pieces silences every piece but the part that plays the line, and a quiet bed dips to 0.7 of itself", () => {
@@ -513,7 +519,13 @@ test("readClipSound reads a clip whisper tagged as another language as voice, ne
     english: [{ start: 7.7, end: 9.3, text: "I'll kill you, for sure." }] };
   const said = readClipSound(japanese);
   assert.deepEqual(said.lines, [{ text: "殺してやる絶対に。", start: 7.8, end: 9.2, english: "I'll kill you, for sure." }]);
-  assert.equal(clipSoundText({ lufs: -23.4, ...said }), '-23.4 LUFS · heard in Japanese (ja, p 0.90): "殺してやる絶対に。" (en: "I\'ll kill you, for sure.") 7.8-9.2 s');
+  // The English is marked as a machine gloss wherever it is shown (it can reverse the meaning).
+  assert.equal(clipSoundText({ lufs: -23.4, ...said }), '-23.4 LUFS · heard in Japanese (ja, p 0.90): "殺してやる絶対に。" [gloss (machine, unverified): "I\'ll kill you, for sure."] 7.8-9.2 s');
+  // A phrase that outlasts its gloss segment (6.2 s against 5.68 s) keeps its own end and its gloss; a
+  // segment that runs on past the phrase goes to the line it overlaps most, never to both.
+  const long = readClipSound({ language: "ja", words: [word("離線。", 1, 6.2), word("好的。", 6.4, 7.4)],
+    english: [{ start: 0.9, end: 5.68, text: "from the line" }, { start: 5.9, end: 7.5, text: "okay" }] });
+  assert.deepEqual(long.lines.map((line) => [line.text, line.end, line.english]), [["離線。", 6.2, "from the line"], ["好的。", 7.4, "okay"]]);
   assert.deepEqual(findLine(japanese.words.slice(1), "殺してやる絶対に。")?.words.map((each) => each.at), [7.8, 8.5]);
   // An unsure line in its own language stays voice, as the English pass read it (run 8's F4.3).
   assert.deepEqual(readClipSound({ language: "ja", words: [word("殺してやる。", 1.9, 2.27, 0.43)] }).voice, [{ start: 1.9, end: 2.27 }]);

@@ -114,8 +114,12 @@ export function checkDocument(document, { fonts, mediaRoot, codes, sceneId } = {
  * those characters in the first of them. This looks fonts up and may download a catalog
  * subset, so check runs it after the findings are made. Changes `findings` in place.
  */
+// Findings already explained (check {fix:"auto"} explains them before fixing, then again after):
+// kept here, not as a field, so the check answer's findings carry nothing new.
+const explained = new WeakSet();
+
 export async function explainMissingGlyphs(findings, document, { fonts, catalog, codes } = {}) {
-  const wanted = findings.filter((finding) => finding.rule === "missing_glyphs" && !finding.waived).slice(0, MAX_FINDINGS);
+  const wanted = findings.filter((finding) => finding.rule === "missing_glyphs" && !finding.waived && !explained.has(finding)).slice(0, MAX_FINDINGS);
   if (!wanted.length) return;
   const layers = documentTextLayers(document);
   for (const finding of wanted) {
@@ -125,6 +129,9 @@ export async function explainMissingGlyphs(findings, document, { fonts, catalog,
     const help = await missingGlyphsHelp({ layer, layerRef: finding.ref, characters, fonts, catalog });
     if (help.message) finding.message = `${finding.message} ${help.message}`;
     finding.fix = help.fix;
+    explained.add(finding);
+    // The fix is an op when a font that has the characters was found: check {fix:"auto"} applies it.
+    if (help.fix && typeof help.fix === "object") finding.auto = true;
   }
 }
 

@@ -11,8 +11,11 @@ test("emoji presentation recognizes whole sequences without treating ordinary di
 test("script fallback candidates retain graphemes and use nearby Kana to choose Han forms", () => {
   assert.deepEqual(fallbackCatalogIds("مَ"), ["noto-sans-arabic", "noto-sans"]);
   assert.deepEqual(fallbackCatalogIds("क्ष"), ["noto-sans-devanagari", "noto-sans"]);
-  assert.deepEqual(fallbackCatalogIds("文"), ["noto-sans-sc"]);
-  assert.deepEqual(fallbackCatalogIds("文", "かな文"), ["noto-sans-jp"]);
+  // Han: the line's other script picks the family tried first; the other CJK families follow.
+  assert.deepEqual(fallbackCatalogIds("文"), ["noto-sans-sc", "noto-sans-tc", "noto-sans-hk", "noto-sans-jp", "noto-sans-kr"]);
+  assert.equal(fallbackCatalogIds("文", "かな文")[0], "noto-sans-jp");
+  assert.equal(fallbackCatalogIds("文", "한글 文")[0], "noto-sans-kr");
+  assert.ok(fallbackCatalogIds("文", "かな文").includes("noto-sans-sc"));
   assert.deepEqual(fallbackCatalogIds("😀"), ["noto-color-emoji"]);
   assert.deepEqual(fallbackCatalogIds("\n"), []);
 });
@@ -21,6 +24,13 @@ test("fallback discovery never borrows an unrelated private upload", () => {
   const publicFace = { id: "public", src: "/api/fonts/fs-noto-color-emoji--5.3.2--400-normal.ttf", weight: 400, style: "normal" };
   const privateFace = { ...publicFace, id: "private", src: "/api/media/11111111-1111-4111-8111-111111111111.ttf" };
   assert.deepEqual(fallbackFaces([privateFace, publicFace], "😀"), [publicFace]);
+});
+
+test("a Chinese character falls back to an installed Japanese face when no Chinese one is", () => {
+  const jp = { id: "jp", src: "/api/fonts/fs-noto-sans-jp--5.3.0--400-normal.ttf", weight: 400, style: "normal" };
+  const kr = { id: "kr", src: "/api/fonts/fs-noto-sans-kr--5.3.0--400-normal.ttf", weight: 400, style: "normal" };
+  assert.deepEqual(fallbackFaces([kr, jp], "离"), [jp, kr]);
+  assert.deepEqual(fallbackFaces([jp, kr], "离", "한 离"), [kr, jp]);
 });
 
 test("repeated variable-face resolution reuses a bounded set of actual instances", async () => {

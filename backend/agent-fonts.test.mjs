@@ -171,6 +171,12 @@ test("a character no font has says so and suggests importing a font or changing 
   assert.match(help.fix, /^No installed font and no catalog font kino looked at has "ᚠ"\. Change the text, or project import a font file that has it\.$/);
 });
 
+test("a Chinese character no font has names the font file to import", async (t) => {
+  const { catalog, fonts } = await freshCatalog(t);
+  const help = await missingGlyphsHelp({ layer: textLayer("zh", "离线"), layerRef: "zh", characters: ["离", "线"], fonts, catalog });
+  assert.match(help.fix, /project import a font file that has them\. A free one is Noto Sans SC \(a file named like NotoSansSC-Regular\.ttf\)\.$/);
+});
+
 test("∞ shown only by a Change text animation gets fonts named but no range, since a range cannot hold it", async (t) => {
   const { catalog, fonts } = await freshCatalog(t);
   const layer = textLayer("count", "Soon", { animations: [{ id: "swap", name: "Change text", kind: "change-text", start: 1, text: "∞", overlap: false, out: null, in: null }] });
@@ -447,10 +453,15 @@ test("agent service: set_font on a face that lacks a glyph sets it, draws that g
   const checked = await agent("check", { project: "glyphs", rules: ["missing_glyphs"] });
   assert.deepEqual(checked.data.findings.map((finding) => finding.ref), ["line"], "title draws every character now; line still lacks ∞");
   const [finding] = checked.data.findings;
+  assert.deepEqual(Object.keys(finding).filter((key) => key === "explained"), [], "the answer's finding carries no bookkeeping field");
   assert.ok(finding.message.includes(`Roboto 400 (fontSource ${source("roboto")}) has them (glyphs checked)`), finding.message);
   assert.deepEqual(finding.fix, { op: "update_layer", layerId: "line", properties: { textStyleRanges: [{ start: 3, end: 4, style: { fontFamily: "Roboto", fontWeight: 400, fontSource: source("roboto") } }] } });
-  await agent("edit", { project: "glyphs", ops: [finding.fix] });
-  assert.equal((await agent("check", { project: "glyphs", rules: ["missing_glyphs"] })).data.findings.length, 0);
+  assert.match(checked.text, /fix\(auto\): /, "the fix is marked auto");
+  const fixed = await agent("check", { project: "glyphs", rules: ["missing_glyphs"], fix: "auto" });
+  assert.equal(fixed.data.applied.ops, 1, fixed.text);
+  assert.equal(fixed.data.findings.length, 0, "check fix:auto draws the missing character in a font that has it");
+  const line = (await (await server.api("/api/projects/glyphs")).json()).document.scenes[0].layers.find((layer) => layer.id === "line");
+  assert.deepEqual(line.textStyleRanges, finding.fix.properties.textStyleRanges);
 
   const byQuery = await agent("library", { topic: "fonts", query: "Roboto" });
   assert.match(byQuery.text, /^installed: Roboto\ncatalog: Roboto 400\n/, "query works like search");

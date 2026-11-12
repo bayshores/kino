@@ -6,8 +6,10 @@
 // Bounded: only the stretches the scan already looked at, at most SPOKEN_MAX_SECONDS of them in
 // one call, one audio-only download of those stretches, and every listened stretch is kept
 // (<footage>/spoken/<video id>.json) so a second ask for it costs nothing.
-// The speech model is English only (speech/transcribe.mjs): other languages come out as
-// sound-alike words, and a single word is no line (clipLines wants two words and a sure reading).
+// The English model reads other languages as sound-alike words, so index.mjs hears each stretch
+// once more in its own language when the multilingual model file is already in ~/.kino/models
+// (hearInOwnLanguage, the pass the clip readout uses; never fetched here). Without that file a
+// stretch in another language gives no lines (clipLines wants two words and a sure reading).
 import { readdir } from "node:fs/promises";
 import path from "node:path";
 import { clipLines } from "../../engine/speech.js";
@@ -49,16 +51,21 @@ export function spokenBudget(windows = [], most = SPOKEN_MAX_SECONDS) {
   return { listen, left: Math.round(left) };
 }
 
-/** A transcript's lines as captions give them: [{start, end, text}] in the video's seconds (offset: where the stretch starts). */
+/**
+ * A transcript's lines as captions give them: [{start, end, text}] in the video's seconds (offset:
+ * where the stretch starts). A stretch heard in another language (hearInOwnLanguage) gives the
+ * words as said, and `gloss`: whisper's English for the line, a machine guess the readout marks.
+ */
 export function spokenLines(transcript, offset = 0) {
   return clipLines(transcript, { most: Infinity })
-    .map((line) => ({ start: round1(line.start + offset), end: round1(line.end + offset), text: line.text }))
+    .map((line) => ({ start: round1(line.start + offset), end: round1(line.end + offset), text: line.text, ...(line.english ? { gloss: line.english } : {}) }))
     .sort((a, b) => a.start - b.start);
 }
 
 /**
- * Listens to `windows` ([{start, end}] of the video, seconds) of one YouTube video. Answers {lang:
- * "en", auto: true, local: true, lines, listened: seconds, left: seconds not listened to}, or
+ * Listens to `windows` ([{start, end}] of the video, seconds) of one YouTube video. Answers {lang
+ * ("en", or the first other language a stretch was heard in), auto: true, local: true, lines,
+ * listened: seconds, left: seconds not listened to}, or
  * {none: true, why} when it could not (no speech model, no yt-dlp, a download that failed). Never
  * throws except for a cancel. options: transcribe(file) → a speech transcript (required), kept
  * (stretches already listened to: [{start, end, lines}]), save(stretch) (called with each new one),
@@ -98,7 +105,7 @@ export async function listenToVideo(videoId, windows, { transcribe, kept = [], s
           // No speech model or no whisper: said once, with how to fix it (the error's own words).
           return { none: true, why: String(error?.message ?? error).replace(/\s+/g, " ").trim().slice(0, 160) };
         }
-        const stretch = { start: window.start, end: window.end, lines: spokenLines(transcript, window.start) };
+        const stretch = { start: window.start, end: window.end, lines: spokenLines(transcript, window.start), ...(transcript?.language && transcript.language !== "en" ? { language: transcript.language } : {}) };
         done.push(stretch);
         await save?.(stretch);
       }
@@ -107,5 +114,7 @@ export async function listenToVideo(videoId, windows, { transcribe, kept = [], s
     }
   }
   const lines = done.flatMap((stretch) => stretch.lines).sort((a, b) => a.start - b.start);
-  return { lang: "en", auto: true, local: true, lines, listened, left };
+  // The language of the stretches heard in another one (the first), else English.
+  const lang = done.find((stretch) => stretch.language)?.language ?? "en";
+  return { lang, auto: true, local: true, lines, listened, left };
 }

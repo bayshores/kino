@@ -3206,6 +3206,8 @@ export function createAgentService(deps) {
     let applied = null;
     if (input.fix === "auto") {
       const keep = placedByYou(await agentState.read(projectId), codes, record.document);
+      // The missing_glyphs fix (a range in a font that has the characters) is worked out first so it can be applied.
+      await explainMissingGlyphs(result.findings, record.document, { fonts, catalog: fontCatalog, codes });
       const outcome = await autoFix(record.document, result.findings, { ...options, fonts, keep });
       if (outcome.ops.length) {
         let receipt;
