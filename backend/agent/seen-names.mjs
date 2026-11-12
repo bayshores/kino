@@ -8,7 +8,7 @@ import { MOVE_NAMES } from "../../engine/blocks/moves/index.js";
 // one space. A key of several words matches where the query holds those words in a row; a key of
 // one word matches the whole query or one of its words, except a LOOSE word.
 const SEEN_AS = {
-  glow: ["glow", "accent-hit"], bloom: ["glow"], halo: ["glow"], neon: ["glow", "outline_text"], halation: ["glow"],
+  glow: ["glow", "accent-hit"], bloom: ["glow"], halo: ["glow"], neon: ["glow", "outline_text", "rim-light"], halation: ["glow"],
   particles: ["embers", "sparks", "dust"], particle: ["embers", "sparks", "dust"], sparkles: ["sparks", "embers"],
   ash: ["embers", "dust"], fire: ["embers", "sparks"], smoke: ["fog"], haze: ["fog"],
   subtitles: ["add_captions", "caption-words"], subtitle: ["add_captions", "caption-words"], captions: ["add_captions", "caption-words"],
@@ -43,7 +43,8 @@ const SEEN_AS = {
   highlight: ["accent-hit", "luma-highlight"], highlighter: ["accent-hit", "luma-highlight"],
   // Type, color and composite looks (the on-screen kinds a reference shows besides cuts and sound).
   font: ["set_font"], fonts: ["set_font"], typeface: ["set_font"], lettering: ["set_font"], typography: ["set_font"],
-  outline: ["outline_text", "glow", "cut_out"], outlined: ["outline_text", "glow", "cut_out"], stroke: ["outline_text", "glow", "cut_out"],
+  rim: ["rim-light"], "rim light": ["rim-light"], electric: ["rim-light"], lightning: ["rim-light"],
+  outline: ["outline_text", "rim-light", "glow", "cut_out"], outlined: ["outline_text", "rim-light", "glow", "cut_out"], stroke: ["outline_text", "glow", "cut_out"],
   duotone: ["duotone"], tritone: ["tritone"],
   "text behind": ["masked-type", "cut_out"], "behind text": ["masked-type", "cut_out"],
   "3d": ["card-flip", "3d-orbit"], "3d text": ["card-flip", "3d-orbit"], "3d type": ["card-flip", "3d-orbit"],

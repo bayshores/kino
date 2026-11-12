@@ -13,6 +13,7 @@ import { glowRadii, glowWeights, renderGlow, thresholdTable } from "./glow.js";
 import { MAX_RAY_COPIES_PER_STAGE, MAX_RAY_STAGES, rayFade, rayStages, renderLightRays, sceneBoxInLayer } from "./lightRays.js";
 import { flareVisibility, renderLensFlare } from "./lensFlare.js";
 import { calmLightAnimations } from "./light.js";
+import { renderRimLight } from "./rimLight.js";
 import { createLayer, createScene } from "../model.js";
 import { renderSceneSvg } from "../render.js";
 import { CPU_RASTER } from "../../tests/golden/raster.mjs";
@@ -31,11 +32,11 @@ after(async () => {
  * Draws `render` with `parameters` over `content` (a width × height layer at `layer` in a scene
  * of the same size, unless `scene` says otherwise) and returns a pixel reader.
  */
-async function draw(render, parameters, { width, height, content, under = "", layer = { x: 0, y: 0 }, scene = { width, height } }) {
+async function draw(render, parameters, { width, height, content, under = "", layer = { x: 0, y: 0 }, scene = { width, height }, layerType }) {
   const defs = [];
   let sequence = 0;
   const output = render({ content, bounds: { x: 0, y: 0, width, height }, parameters: { ...parameters }, time: 0, progress: 1,
-    helpers: { id: (kind) => `${kind}-${++sequence}`, defs, includeBounds: () => {},
+    helpers: { id: (kind) => `${kind}-${++sequence}`, defs, includeBounds: () => {}, layerType,
       scene: { ...scene, matrix: [1, 0, 0, 1, layer.x, layer.y] } } });
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${scene.width}" height="${scene.height}" viewBox="0 0 ${scene.width} ${scene.height}"><defs>${defs.join("")}</defs>${under}<g transform="translate(${layer.x} ${layer.y})">${output}</g></svg>`;
   const image = await loadImage((await chromium.render(svg, scene.width, scene.height)).buffer);
@@ -97,6 +98,49 @@ test("glow: color tints the glow, deep passes reach further, and on a transparen
   const alone = await draw(renderGlow, { ...effectDefaults("glow"), radius: 8 }, { width: size, height: size, content: SQUARE("#FFF") });
   const [, , , alpha] = alone.pixel(73, 60);
   assert.ok(alpha > 40 && alpha < 255, `the glow is see-through over nothing: alpha ${alpha}`);
+});
+
+test("glow mode behind: an orange square keeps its orange and gets an orange halo", async () => {
+  const size = 120;
+  const behind = await draw(renderGlow, { ...effectDefaults("glow"), radius: 8, mode: "behind" }, { width: size, height: size, under: BLACK(size, size), content: SQUARE("#FF8000") });
+  assert.deepEqual(behind.pixel(60, 60).slice(0, 3), [255, 128, 0], "the fill keeps its color");
+  const [r, g, b] = behind.pixel(73, 60);
+  assert.ok(r > 40 && g > 10 && g < r * 0.7 && b === 0, `the halo is orange: ${[r, g, b]}`);
+  const added = await draw(renderGlow, { ...effectDefaults("glow"), radius: 8, threshold: 0 }, { width: size, height: size, content: BLACK(size, size) + SQUARE("#FF8000") });
+  assert.ok(added.pixel(60, 60)[1] > 150, `add mode lifts the fill toward yellow: ${added.pixel(60, 60)}`);
+});
+
+test("rim light: a band on the lit side, a ring alone outside, and no rim along the frame border", async () => {
+  const size = 120;
+  const rim = (parameters, content = SQUARE("#404040")) => draw(renderRimLight,
+    { ...effectDefaults("rim-light"), spread: 0, ...parameters }, { width: size, height: size, content });
+  const right = await rim({ angle: 90, color: "#00FF00" });
+  assert.ok(right.pixel(68, 60)[1] > 150, `inside the right edge it is lit: ${right.pixel(68, 60)}`);
+  assert.deepEqual(right.pixel(52, 60).slice(0, 3), [64, 64, 64], "the left edge stays as it was");
+  const ring = await rim({ edge: "outside", color: "#00FF00", lightOnly: true });
+  assert.equal(ring.pixel(60, 60)[3], 0, "the ring leaves the inside empty");
+  assert.ok(ring.pixel(73, 60)[1] > 100 && ring.pixel(46, 60)[1] > 100, `the ring sits outside on both sides: ${ring.pixel(73, 60)} ${ring.pixel(46, 60)}`);
+  // A shape that runs off the bottom of the frame: its bottom edge is the frame border, not an edge.
+  const offFrame = `<rect x="50" y="50" width="20" height="70" fill="#404040"/>`;
+  const open = await rim({ color: "#00FF00", width: 4 }, offFrame);
+  assert.ok(open.pixel(51, 90)[1] > 100, `the side edge is lit: ${open.pixel(51, 90)}`);
+  assert.deepEqual(open.pixel(60, 118).slice(0, 3), [64, 64, 64], "no rim along the frame border");
+  const auto = await rim({ width: 4, angle: "auto", color: "auto" }, `<rect x="50" y="50" width="20" height="20" fill="#C0F040"/>`);
+  const [r, g, b] = auto.pixel(51, 60);
+  assert.ok(g >= 240 && b < g * 0.6 && r > b, `auto color takes the layer's own hue, brighter: ${[r, g, b]}`);
+});
+
+test("rim light on a video matte: stair steps are smoothed, the frame border stays dark", async () => {
+  const size = 120;
+  // A staircase that runs off the left and bottom of the frame, 20 px steps.
+  const stairs = `<path d="M0 120 V30 H30 V50 H50 V70 H70 V90 H90 V120 Z" fill="#404040"/>`;
+  const ring = (layerType) => draw(renderRimLight, { ...effectDefaults("rim-light"), edge: "outside", color: "#00FF00", width: 6, spread: 0, core: 0, lightOnly: true },
+    { width: size, height: size, content: stairs, layerType });
+  const drawn = await ring("text"), matte = await ring("video");
+  assert.ok(drawn.pixel(32, 48)[3] > 100, `a drawn layer's ring follows the step into its corner: ${drawn.pixel(32, 48)}`);
+  assert.ok(matte.pixel(32, 48)[3] < 60, `a matte's corner is rounded off: ${matte.pixel(32, 48)}`);
+  assert.ok(matte.pixel(40, 46)[1] > 100, `the ring still runs along the step: ${matte.pixel(40, 46)}`);
+  for (const [x, y] of [[100, 2], [118, 60], [60, 118], [2, 60]]) assert.equal(matte.pixel(x, y)[3], 0, `no ring along the frame border at ${x},${y}`);
 });
 
 test("light rays: the copy plan, the fade along a streak and the scene box", () => {
