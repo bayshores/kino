@@ -328,11 +328,14 @@ How to read it:
   use; a style moment leaves out only its own use. Gap: not yet run on a real edit. Evidence:
   `engine/qualityStyle.test.js`, `engine/moves.test.js`.
 - **Word on a made panel (word-panel)**: Partial. One move sets a text layer on a box, bordered
-  sign or strip sized from its laid-out box plus a printed pad, turned with it as one group, colored
-  from the shot's measured hue (else the look's accent, printed); with subject it goes under the
-  cut-out and prints each letter's covered share; rendered stills show no letter pixel where the
-  cut-out covers it. Gap: no tracked surface with rotation; no follow of the subject box; coverage
-  is by the subject box, not the matte. Evidence: `engine/moves.test.js`,
+  sign or strip sized from the word's drawn box plus a printed pad, the word fitted and centered,
+  turned with it as one group, colored from the shot's measured hue (else the look's accent,
+  printed); the source text shows only with the panel (hidden from 0 s; group delete takes the
+  hide away; old saves settled on read); each placement gets its own seed turn and the notes count
+  placements sharing turn, size and side, and the face or head box share the panel covers; with
+  subject it goes under the cut-out and prints each letter's covered share. Proven on a replay of a
+  real project (frames 11.8 to 12.8 s). Gap: the turn is not measured from the shot; no tracked
+  surface; coverage is by boxes, not the matte. Evidence: `engine/moves.test.js`,
   `backend/subject-room-render.test.mjs`.
 - **Repeated endings**: Partial. A house-memory hit in the last 15% or the end beat of the video's
   scene is `ending_seen`, keeps one of the 3 slots and is waived only with the person's quote; type

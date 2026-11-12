@@ -47,6 +47,7 @@ import { RESIZE_ANCHORS } from "./resizeAnchor.js";
 import { refreshBehaviorLinks } from "./behaviorLinks.js";
 import { frameShot } from "./footage/layout.js";
 import { normalizeLetterbox, normalizeSceneFinish } from "./sceneFinishFields.js";
+import { settleDeletedMoves } from "./moveLeftovers.js";
 import { BOARD_FOLLOW, boardSpanBefore, followBoardLength, followLastLayers, followSceneLength } from "./sceneLength.js";
 
 // A Color animation (`fill` in from or to) only draws on a layer that has a Fill (paints.js).
@@ -405,6 +406,8 @@ export function applyOperations(source, operations, {fonts, mediaBySrc, mediaByI
       // A move whose last layer or animation went with them leaves the scene too (its record
       // would still count its techniques in check).
       if (scene.moves?.length) {
+        // A move whose made layers all went also takes its show and hide steps off your layers (moveLeftovers.js).
+        settleDeletedMoves(scene, gone);
         const holds = (l, id) => l.move?.instance === id || animationTreeEntries(l.animations).some(({ animation }) => String(animation.id ?? "").startsWith(`${id}.`));
         scene.moves = scene.moves.filter((entry) => !gone.some((l) => holds(l, entry.id)) || scene.layers.some((l) => holds(l, entry.id)));
       }
