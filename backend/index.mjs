@@ -332,6 +332,7 @@ const agentService = createAgentService({
     } finally { release(); }
   },
   listMedia: () => readMediaRecords(),
+  noteMediaUse: (projectId, ids) => noteMediaUse(projectId, ids),
   commentsChanged: broadcastComments,
   origin: () => `http://127.0.0.1:${server.address().port}`,
   async mediaPeaks(id) {
@@ -592,7 +593,11 @@ async function rememberMediaUse(projectId, documents, access) {
   // Use the same font selection as rendering. Shared edits can only resolve
   // fonts already allowed in their file, so this cannot grant foreign uploads.
   const fonts = await loadProjectFonts({catalog: fontCatalog,  mediaRoot, allowedIds: await allowedMedia(access) });
-  const ids = new Set(documents.flatMap((document) => [...mediaIds(document, { fonts })]));
+  await noteMediaUse(projectId, new Set(documents.flatMap((document) => [...mediaIds(document, { fonts })])));
+}
+// Notes on each media record that `projectId` uses it (one write per record at a time). Also for a
+// found clip another project cut that this project imports again (footage reuse, before any layer).
+async function noteMediaUse(projectId, ids) {
   await Promise.all([...ids].map((id) => {
     const write = (mediaRecordWrites.get(id) ?? Promise.resolve())
       .then(() => recordMediaUse(projectId, id))

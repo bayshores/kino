@@ -17,9 +17,9 @@ import { uptime } from "node:os";
 import { EASINGS, lowpassSampler, PRESETS, speedAnimations } from "../../engine/animation.js";
 import { addNeeds, answerNeed, emptyNeeds, finishNeed, needsCall, needsLine, needState, NEEDS_WAIVER, openNeeds, parseNeedItems } from "./needs.mjs";
 import { LIBRARY_TOPICS, NOTES_ACTIONS } from "./actions.mjs";
-import { createFootageActions, FootageError, FOOTAGE_RESULT_KEEP_MS, FOOTAGE_TOPIC_LINE, FOOTAGE_WAIT_MS, isFoundClip, parseRef as parseFootageRef, personClipCount, personClipsLine, scanIdOf } from "../footage-finder/actions.mjs";
+import { addCandidates, createFootageActions, FootageError, FOOTAGE_RESULT_KEEP_MS, FOOTAGE_TOPIC_LINE, isFoundClip, markPlaces, parseRef as parseFootageRef, personClipCount, personClipsLine, scanIdOf } from "../footage-finder/actions.mjs";
 import { elsewhereLine, knownEdits, withStudies } from "../footage-finder/search.mjs";
-import { importedSeconds, planTake, takeText } from "../footage-finder/take.mjs";
+import { findCutClips, importedSeconds, planTake, takeText } from "../footage-finder/take.mjs";
 import { footageSheet, foundClipTag, groupClips, groupLine, GROUP_TILES_MOST } from "../footage-finder/sheet.mjs";
 import { FOOTAGE_WAIVER, footageLed, footageStepOn } from "../footage-finder/step.mjs";
 import { shotsNeeded } from "../footage-finder/needs.mjs";
@@ -6882,6 +6882,13 @@ export function createAgentService(deps) {
   // Found-footage imports running now, by project, candidate and the shots or stretch asked (like
   // a footage scan): a repeated call joins the running one or collects its finished result.
   const footageTakes = new Map();
+  // A project's imports run one after another (each is a download, then cuts under the heavy decode
+  // slot): a call sent while one runs is queued behind it and answers when its own import is done.
+  // projectId → {tail (the last queued job's promise), jobs (queued or running, in order)}.
+  const footageQueues = new Map();
+  // How long an import call waits (queue time and its own run) before it answers "queued/running".
+  // 60 s is the brief's number (found-shared); a guess that it stays inside an agent client's tool timeout.
+  const FOOTAGE_IMPORT_WAIT_MS = 60_000;
 
   // The lines each imported clip says in its own sound, for a clip of SAYS_MIN_SECONDS or more
   // that has sound (over -55 LUFS) and that the video's captions say nothing about: whisper reads
@@ -6915,14 +6922,47 @@ export function createAgentService(deps) {
     const footageError = (error) => Object.assign(new AgentError(error.code, error.message), error.nextCall ? { nextCall: error.nextCall } : {});
     const record = await projectFor(input);
     const projectId = record.document.id;
-    const state = await agentState.read(projectId);
+    let state = await agentState.read(projectId);
     const file = input.file.trim();
-    const asked = parseFootageRef(file);
-    const candidate = asked && !asked.top ? (state.footage?.candidates ?? []).find((entry) => (asked.code ? entry.code === asked.code : entry.id === asked.id)) : null;
+    let asked = parseFootageRef(file);
+    const listed = () => (asked && !asked.top ? (state.footage?.candidates ?? []).find((entry) => (asked.code ? entry.code === asked.code : entry.id === asked.id)) : null);
+    let candidate = listed();
+    // An F code this project does not have is most likely another project's (a/result.md friction 1:
+    // F5 sent from the earlier project's answers). The found clips in the media library remember
+    // which video each code named: one video → it joins here below, under this project's own code;
+    // several → their ids are listed in the not_found answer.
+    let otherCode = null;
+    let otherIds = [];
+    if (!candidate && asked?.code) {
+      const library = (await deps.listMedia?.().catch(() => [])) ?? [];
+      otherIds = [...new Set(library.filter((item) => item?.footage?.code === asked.code && item.projectId !== projectId && /^clip:yt-/.test(String(item.footage.candidate ?? "")))
+        .map((item) => item.footage.candidate))];
+      if (otherIds.length === 1) { otherCode = asked.code; asked = { id: otherIds[0] }; }
+    }
+    // A video another project scanned (its scan is in the data folder, keyed by the video's id) joins
+    // this project's list under a new code of its own, so clip:yt-<id> imports at once (found-shared).
+    if (!candidate && asked?.id?.startsWith("clip:yt-")) {
+      const id = scanIdOf({ id: asked.id });
+      const have = await deps.footage.readScan?.(id).catch(() => null);
+      if (have?.shots?.length) {
+        const videoId = id.slice("yt-".length);
+        await agentState.update(projectId, (draft) => {
+          const order = draft.footage?.order ?? [];
+          draft.footage = addCandidates(draft.footage ?? null, [{ id: asked.id, source: "youtube", videoId, title: have.title ?? "", page: `https://www.youtube.com/watch?v=${videoId}`, license: "unknown",
+            scan: { id, shots: have.shots.length, at: have.scannedAt ?? null, ...(have.marks?.length ? { logo: markPlaces(have.marks) } : {}) } }]);
+          draft.footage.order = order;
+        });
+        state = await agentState.read(projectId);
+        candidate = listed();
+      }
+    }
     if (!candidate) {
-      throw Object.assign(new AgentError("not_found", `${file} is not one of this video's found videos: search and scan first, then import the scan's shots.`),
+      const others = otherIds.length > 1 ? ` Other projects used ${asked.code} for ${otherIds.slice(0, 4).join(", ")}: import one of them by that id (file:"clip:yt-<id>").` : "";
+      throw Object.assign(new AgentError("not_found", `${file} is not one of this video's found videos: search and scan first, then import the scan's shots.${asked?.code ? ` F codes belong to one project; a video scanned on this computer imports here by its id (file:"clip:yt-<id>"), at once.${others}` : ""}`),
         { nextCall: asked?.id ? nextOf("library", { topic: "footage", scan: file }) : nextOf("library", { topic: "footage" }) });
     }
+    // Said first in the answer when another project's code was sent.
+    const joinedLine = otherCode ? `${otherCode} is another project's code: its video joined this one as ${candidate.code}.` : "";
     const options = input.options && typeof input.options === "object" ? input.options : {};
     const from = input.from ?? options.from;
     const to = input.to ?? options.to;
@@ -6933,41 +6973,74 @@ export function createAgentService(deps) {
     let job = footageTakes.get(key);
     if (!job) {
       const scan = candidate.scan ? await deps.footage.readScan(scanIdOf(candidate)).catch(() => null) : null;
+      const queue = footageQueues.get(projectId) ?? { tail: Promise.resolve(), jobs: [] };
+      footageQueues.set(projectId, queue);
       let pieces;
-      try { pieces = planTake(candidate, scan, { file, shots: options.shots, from, to, used: importedSeconds(state.footage) }); }
+      // Seconds already queued count toward the project's cap, as they will be imported before this one.
+      try { pieces = planTake(candidate, scan, { file, shots: options.shots, from, to, used: importedSeconds(state.footage) + queue.jobs.reduce((sum, each) => sum + each.seconds, 0) }); }
       catch (error) { if (error instanceof FootageError) throw footageError(error); throw error; }
-      job = { pieces: pieces.length };
+      job = { pieces: pieces.length, code: candidate.code, seconds: pieces.reduce((sum, piece) => sum + piece.end - piece.start, 0), running: false };
       // The job saves what it imported itself, so the 15 min cap counts it even when no call
       // collects the answer.
       // The scan's burned-in marks go on each clip's record (the burned_in_mark check reads them).
-      job.promise = deps.footage.take(candidate, pieces, { projectId, marks: scan?.marks ?? [] }).then(async (result) => {
-        const seconds = result.media.reduce((sum, item) => sum + (Number(item.duration) || 0), 0);
-        const shots = result.media.map((item) => item.footage?.shot).filter((n) => n !== null && n !== undefined);
-        if (result.media.length) {
-          await agentState.update(projectId, (draft) => {
-            const entry = draft.footage?.candidates?.find((each) => each.id === candidate.id);
-            if (!entry) return;
-            entry.imported = { shots: [...new Set([...(entry.imported?.shots ?? []), ...shots])], seconds: Math.round(((Number(entry.imported?.seconds) || 0) + seconds) * 100) / 100 };
-          });
-        }
-        // What the clips say: the video's captions (kept since the scan, so usually no new request).
-        // Only for a clip long enough to carry a line; no captions, or a failure, adds nothing.
-        const captions = result.media.some((item) => Number(item.duration) >= SAYS_MIN_SECONDS)
-          ? await deps.footage.captions?.(candidate).catch(() => null) : null;
-        // And, for a clip the captions say nothing about, what its own sound says (whisper).
-        const heard = await hearClips(result.media, captions, record.document);
-        return { value: { ...result, ...(captions?.lines ? { captions } : {}), ...(heard ? { heard } : {}) } };
-      }).catch((error) => ({ error }));
-      job.promise.finally(() => { setTimeout(() => { if (footageTakes.get(key) === job) footageTakes.delete(key); }, FOOTAGE_RESULT_KEEP_MS).unref?.(); });
+      const mine = job;
+      const run = async () => {
+        mine.running = true;
+        try {
+          // Pieces a clip in the library already holds (cut from this same video by any project) are
+          // reused: only the others are downloaded. The media library is the download cache.
+          const library = (await deps.listMedia?.().catch(() => [])) ?? [];
+          const { have, missing } = findCutClips(library, candidate, pieces, (item) => Boolean(deps.mediaRoot) && existsSync(path.join(deps.mediaRoot, item.id)));
+          // A reused clip another project cut is noted as used here too, so this project's clip sheet,
+          // shape and sharing links see it before any layer holds it, and deleting that project keeps it.
+          const foreign = have.map((each) => each.item).filter((item) => !mediaAllowedIn(item, projectId));
+          if (foreign.length) await Promise.resolve(deps.noteMediaUse?.(projectId, foreign.map((item) => item.id))).catch(() => {});
+          const taken = missing.length ? await deps.footage.take(candidate, missing, { projectId, marks: scan?.marks ?? [] }) : { media: [], failed: [] };
+          const result = { ...taken, media: [...have.map((each) => each.item), ...taken.media].sort((a, b) => (Number(a.footage?.start) || 0) - (Number(b.footage?.start) || 0)), reused: have.length };
+          const seconds = result.media.reduce((sum, item) => sum + (Number(item.duration) || 0), 0);
+          const shots = result.media.map((item) => item.footage?.shot).filter((n) => n !== null && n !== undefined);
+          if (result.media.length) {
+            await agentState.update(projectId, (draft) => {
+              const entry = draft.footage?.candidates?.find((each) => each.id === candidate.id);
+              if (!entry) return;
+              // A shot this project already counted is not counted again (a repeat call reuses its clip).
+              const counted = new Set(entry.imported?.shots ?? []);
+              const fresh = result.media.filter((item) => item.footage?.shot === null || item.footage?.shot === undefined || !counted.has(item.footage.shot));
+              const added = fresh.reduce((sum, item) => sum + (Number(item.duration) || 0), 0);
+              entry.imported = { shots: [...new Set([...counted, ...shots])], seconds: Math.round(((Number(entry.imported?.seconds) || 0) + added) * 100) / 100 };
+            });
+          }
+          // What the clips say: the video's captions (kept since the scan, so usually no new request).
+          // Only for a clip long enough to carry a line; no captions, or a failure, adds nothing.
+          const captions = result.media.some((item) => Number(item.duration) >= SAYS_MIN_SECONDS)
+            ? await deps.footage.captions?.(candidate).catch(() => null) : null;
+          // And, for a clip the captions say nothing about, what its own sound says (whisper; kept beside the file, so a reused clip is not read twice).
+          const heard = await hearClips(result.media, captions, record.document);
+          return { value: { ...result, ...(captions?.lines ? { captions } : {}), ...(heard ? { heard } : {}) } };
+        } catch (error) { return { error }; }
+      };
+      job.promise = queue.tail.then(run);
+      queue.tail = job.promise;
+      queue.jobs.push(job);
+      job.promise.finally(() => {
+        queue.jobs = queue.jobs.filter((each) => each !== mine);
+        if (!queue.jobs.length && footageQueues.get(projectId) === queue) footageQueues.delete(projectId);
+        setTimeout(() => { if (footageTakes.get(key) === mine) footageTakes.delete(key); }, FOOTAGE_RESULT_KEEP_MS).unref?.();
+      });
       footageTakes.set(key, job);
     }
     let timer;
-    const waited = await Promise.race([job.promise, new Promise((resolve) => { timer = setTimeout(() => resolve(null), deps.footageWaitMs ?? FOOTAGE_WAIT_MS); })]);
+    const waited = await Promise.race([job.promise, new Promise((resolve) => { timer = setTimeout(() => resolve(null), deps.footageWaitMs ?? FOOTAGE_IMPORT_WAIT_MS); })]);
     clearTimeout(timer);
     const repeat = nextOf("project", { action: "import", file, ...(input.options !== undefined ? { options: input.options } : {}), ...(input.from !== undefined ? { from: input.from } : {}), ...(input.to !== undefined ? { to: input.to } : {}) });
     if (!waited) {
-      return done(projectId, { text: `${candidate.code} is still importing ${job.pieces} piece${job.pieces === 1 ? "" : "s"} (download, then an exact cut and encode each). Send the same call again: it joins this import and waits for it.`,
-        data: { importing: candidate.code }, nextCall: repeat });
+      // Not a refusal and not a blind resend: the import keeps going by itself. Said: where it stands,
+      // and how to read its result (the same call returns the finished answer at once, nothing twice).
+      const jobs = footageQueues.get(projectId)?.jobs ?? [];
+      const ahead = Math.max(0, jobs.indexOf(job));
+      const where = job.running ? `running now (${job.pieces} piece${job.pieces === 1 ? "" : "s"}: download, then an exact cut and encode each)` : `queued, ${ahead} import${ahead === 1 ? "" : "s"} of this project ahead of it (${job.pieces} piece${job.pieces === 1 ? "" : "s"})`;
+      return done(projectId, { text: `${candidate.code} import ${where}. It keeps going by itself and the clips join the media list when it ends. Read its result with this same call: it returns the finished answer at once and downloads nothing twice; look {mode:"source"} shows the clips.`,
+        data: { importing: candidate.code, queued: !job.running, ahead }, nextCall: repeat });
     }
     // The answer is told once: the next same call imports again.
     if (footageTakes.get(key) === job) footageTakes.delete(key);
@@ -6986,7 +7059,7 @@ export function createAgentService(deps) {
     const marked = result.media.find((item) => item.footage?.marks?.length);
     const frameScene = marked ? videoScene((await store.getProject(projectId).catch(() => null))?.document ?? record.document) : null;
     const frame = frameScene ? { width: frameScene.width, height: frameScene.height } : null;
-    const answer = { text: [lead, takeText(candidate, { ...result, frame }), elsewhereLine(candidate, await withStudies(await footageKnown(projectId), [candidate])), shaped].filter(Boolean).join("\n"),
+    const answer = { text: [lead, joinedLine, takeText(candidate, { ...result, frame }), elsewhereLine(candidate, await withStudies(await footageKnown(projectId), [candidate])), shaped].filter(Boolean).join("\n"),
       data: { code: candidate.code, media: result.media.map(({ id, src, name, duration, width, height, footage }) => ({ id, src, name, duration, width, height, shot: footage?.shot ?? null })), failed: result.failed,
         ...(marked ? { marks: marked.footage.marks } : {}) },
       nextCall: nextOf("look", { mode: "source" }) };

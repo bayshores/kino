@@ -14,11 +14,11 @@ import { call } from "../agent/next-call.mjs";
 import { jsRuntime, NO_JS_RUNTIME, runYtDlp, ytDlpCommand } from "../inspire.mjs";
 import { botCheckError, heavyDecodeSlot } from "../process-slots.mjs";
 import { makeTempFolder, removeTempFolder } from "../temp-folders.mjs";
-import { burnedInto, FootageError, stamp } from "./actions.mjs";
+import { burnedInto, FootageError, REUSED_LINE, stamp } from "./actions.mjs";
 import { cropPast, markSpan } from "../../engine/footage/burned.js";
 import { readTime } from "./scan.mjs";
 import { scanCall } from "./step.mjs";
-import { saysOf, saysText } from "./words.mjs";
+import { SAYS_MIN_SECONDS, saysOf, saysText } from "./words.mjs";
 import { clipLinesText } from "../../engine/speech.js";
 
 /** Seconds kept before and after each shot in its download. */
@@ -115,6 +115,25 @@ export function planTake(candidate, scan, { file, shots, from, to, used = 0 } = 
     throw new FootageError("limit", `This video has ${clockOf(used)} of found footage; ${PROJECT_MOST_SECONDS / 60} min is the most a project takes. Import ${used >= PROJECT_MOST_SECONDS ? "no more" : `at most ${clockOf(PROJECT_MOST_SECONDS - used)} more`}.`, null);
   }
   return pieces;
+}
+
+/**
+ * Splits `pieces` (planTake) into those a clip in the media library already holds and the rest:
+ * {have: [{piece, item}], missing: [piece]}. A clip matches when it was cut from the same video
+ * (footage.candidate, the video's id, the same in every project) over the same start and end.
+ * `usable(item)` says whether its file is still there. So a second project (or a second call)
+ * that wants a shot kino already cut downloads nothing (found-shared).
+ */
+export function findCutClips(media, candidate, pieces, usable = () => true) {
+  const have = [];
+  const missing = [];
+  const same = (a, b) => Math.abs(Number(a) - Number(b)) < 0.05;
+  for (const piece of pieces) {
+    const item = media.find((each) => each?.footage?.candidate === candidate.id && same(each.footage.start, piece.start) && same(each.footage.end, piece.end)
+      && /^video\//.test(each.mime ?? "video/mp4") && usable(each));
+    if (item) have.push({ piece, item }); else missing.push(piece);
+  }
+  return { have, missing };
 }
 
 /**
@@ -310,9 +329,9 @@ function markLine(clip, frame = null) {
  * code: F1; candidate: its footage entry; result: takeFootage's answer; frame: the video's
  * {width, height} (the burned-in mark line's crop numbers), else a frame shaped like the clip.
  */
-export function takeText(candidate, { media, failed, captions = null, heard = null, frame = null }) {
+export function takeText(candidate, { media, failed, captions = null, heard = null, frame = null, reused = 0 }) {
   const total = media.reduce((sum, item) => sum + (Number(item.duration) || 0), 0);
-  const lines = [`Imported ${media.length} clip${media.length === 1 ? "" : "s"} of ${candidate.code} "${short(oneLine(candidate.title) || candidate.id, 60)}" (${round2(total)} s in all, H.264) for this video:`];
+  const lines = [`Imported ${media.length} clip${media.length === 1 ? "" : "s"} of ${candidate.code} "${short(oneLine(candidate.title) || candidate.id, 60)}" (${round2(total)} s in all, H.264) for this video${reused ? `; ${reused === media.length ? "all" : reused} ${REUSED_LINE}, nothing downloaded` : ""}:`];
   let heardAny = false;
   for (const item of media) {
     const label = item.footage?.shot === null || item.footage?.shot === undefined ? `${candidate.code} ${stamp(item.footage?.start)}` : `${candidate.code}.${item.footage.shot}`;
@@ -322,8 +341,10 @@ export function takeText(candidate, { media, failed, captions = null, heard = nu
     const captioned = captions?.lines ? saysText(saysOf(captions.lines, Number(item.footage?.cutAt ?? item.footage?.start) || 0, duration)) : "";
     const aloud = captioned ? "" : clipLinesText(heard?.byId?.[item.id]);
     if (aloud) heardAny = true;
-    const says = captioned || aloud;
-    lines.push(`${label} ${round2(duration)}s ${item.width}×${item.height} ${item.src}${says ? ` ${says}` : ""}`);
+    // One line a clip: its layer-ready file (add_layer src) and what it says. A clip that says nothing
+    // says why, so the agent never needs a second call to learn it (found-shared; a/result.md 2).
+    const quiet = duration < SAYS_MIN_SECONDS ? `no line (under ${SAYS_MIN_SECONDS} s)` : item.hasAudio === false ? "no sound" : !heard?.missing && (captions?.lines || heard) ? "no speech heard" : "speech not read";
+    lines.push(`${label} ${round2(duration)}s ${item.width}×${item.height} ${item.src} ${captioned || aloud || quiet}`);
   }
   if (failed.length) lines.push(`Not imported: ${failed.slice(0, 5).map((each) => `${each.label ?? each.n} (${each.why})`).join("; ")}.`);
   const [first] = media;

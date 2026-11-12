@@ -30,11 +30,18 @@ Contents: Three calls · Visual words, not names · Reading a scan · What is sa
 3. `import`: the shots you pick become H.264 clips (1080p at most), each with its credit, ready
    for `compose {footage:[...]}` or `add_layer`. `F1.37` alone imports one shot; `from`/`to` a
    stretch of 60 s at most. Only scanned videos import; 5 min a call, 15 min a project.
+   Imports queue: a second waits behind the running one and answers when done (60 s, else
+   "queued": repeat the call to read it). One line per clip: its `clip:` reference, then what it
+   `says` or `heard`, or why none.
 
-The `kino` command sends `project import file=F1`, `file=F1.15` and `clip:` ids as typed.
+Scans and cut clips are kept by video id: ones another project made are reused ("already on this
+computer: reused"), nothing downloaded. Another project's F code or `clip:yt-<id>` imports
+that video under this project's own code.
 
-`library {topic:"footage"}` lists this video's found videos again. `look {mode:"source",
-ref:"F1"}` shows a scan's stills labeled `F1.<shot>`; look at them before you pick.
+The `kino` command sends `file=F1`, `file=F1.15` and `clip:` ids as typed.
+
+`library {topic:"footage"}` lists the found videos again. `look {mode:"source", ref:"F1"}`
+shows a scan's stills (`F1.<shot>`); look before you pick.
 
 ## Visual words, not names
 
@@ -77,11 +84,9 @@ captions):` and `0:41 "..." (F1.12-F1.13)` rows. Auto captions are a guess (time
   A line the trim cuts off is named `plays 5.3-7.4, line at 7.1-9.2` (file seconds); its call
   moves mediaOffset first.
 - An import of a clip of 1.5 s or more adds `says "..." 0.3-2.1 s` (seconds in the clip).
-- A line said in a clip can open or set up a moment. Keep it with
-  `keep_line {layer:"clip", line:"the words said", duck:"music"}`: the rest of that
-  clip's sound goes silent (every piece of a cut voice), a small subtitle shows the line, and the
-  music dips to half its own volume (`dip` sets the volume) under it. Speech whisper cannot read: `from`, `to` (scene seconds) and `text`
-  (a `text` unlike what kino heard shows `heard`).
+- Keep a said line with `keep_line {layer:"clip", line:"the words said", duck:"music"}`: the rest
+  of that clip's sound goes silent, a small subtitle shows the line, and the music dips to half
+  (`dip` sets it). Speech whisper cannot read: `from`, `to` (scene seconds) and `text`.
 
 ## Note a video
 
@@ -94,15 +99,14 @@ imported videos are never dropped from the list (24 kept).
 
 ## Label a reference
 
-Numbers cannot see design: a reference's type family, overlays, composites, color work and made
-graphics are only seen. `library {topic:"inspire", name:"yt:X"}` ends its fingerprint with `on screen to label`: 6
-moments. Look at each with `look {mode:"reference", ref:"yt:X", t}`, then say what you see in your
-own words (a moment you did not look at is refused), such as
+Numbers cannot see design (type family, overlays, composites, color, made graphics).
+`library {topic:"inspire", name:"yt:X"}` ends with `on screen to label`: 6 moments. Look at each
+with `look {mode:"reference", ref:"yt:X", t}`, then say what you see (an unlooked moment is refused), such as
 `library {topic:"inspire", name:"seen yt:X @1.8 overlay, made: green outline traced on the figure"}`.
 Kinds: type, overlay, composite, color, made, frame, spoken, plain (one or more, commas fine).
 The time is one of the 6 (0.5 s off is fine); a label at the same time replaces the old one.
 The order opens `label yt:X on screen (seen)` for each of the first 2 saved, studied references
-until all its moments are labeled (one with no frame strips has none); each label reply names the next look.
+until all its moments are labeled; each label reply names the next look.
 Then ask what your edit shows that these do not: build toward the labels, not a template.
 
 The check `reference_kinds` (an error) reads the labels: with 2 or more labeled references, a kind
@@ -112,8 +116,7 @@ search:"<label words>"}`, a kino overlay for made (1% of the frame at opacity 0.
 or `keep_line` for spoken (also required by the references' measured voice when a clip says a line,
 after `check {pixels:true}` transcribes it). Make your own version, not a copy.
 Plain on purpose needs `waive_check {code:"reference_kinds", target:"<scene>", reason, quote}` with
-`quote` in words the person typed that say what is plain (plain, just cuts, music only...); "your call" is refused.
-Only references with most moments labeled count; no-op color, letterbox bars and backing boxes do not.
+`quote` in words the person typed that say what is plain (just cuts, music only...); "your call" is refused.
 The search maps look words to kino names: font, outline, duotone, split screen, text behind, 3d,
 code rain, zoom burst. A look kino cannot make answers `no kino name for ... yet`.
 
@@ -128,5 +131,5 @@ code rain, zoom burst. A look kino cannot make answers `no kino name for ... yet
 - No cookies are ever sent. When YouTube asks for a bot check, kino pauses YouTube for 15
   minutes: use the person's clips or Commons meanwhile.
 - A video that cannot play here (region, members only, age) is dropped.
-- Nothing for the words: try the English title, a character name or `source:"commons"`.
+- Nothing for the words: try the English title or `source:"commons"`.
 - Found clips never stand in for a real moment of the person's story (needs reference: ask).
