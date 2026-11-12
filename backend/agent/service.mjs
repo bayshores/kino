@@ -132,6 +132,7 @@ import { drawnSeconds, estimateWords, renderEstimate } from "./render-estimate.m
 import { blockRules, blocksLibraryText, createBlockRunner, isBlockOperation, movesLibraryText, variantSet } from "./blocks.mjs";
 import { matchReferences } from "./exposure-match.mjs";
 import { noMakerLine, originReferenceLine, REFERENCE_LOOKUP, seenNames } from "./seen-names.mjs";
+import { shutterNote } from "./shutter-notes.mjs";
 import { spokenLine } from "../../engine/blocks/moves/footage.js";
 import { VIDEO_FORMAT_NAMES, videoFormatsText } from "../../engine/blocks/videoFormats.js";
 import { existsSync } from "node:fs";
@@ -2538,6 +2539,9 @@ export function createAgentService(deps) {
       // Spoken lines of the footage that no layer plays: named once, here or in status (linesToName).
       const lineNote = await linesToName(after, afterCodes, await agentState.read(projectId));
       if (lineNote) work.notes.push(lineNote.text);
+      // Motion blur: what the project's shutter does once set, or one line on a fast move while it is off.
+      const shutter = shutterNote(before, after, translation.operations, changes.created);
+      if (shutter) work.notes.push(shutter);
       const receipt = {
         ...(input.dry_run ? { dryRun: true, wouldBeRev: record.revision + 1 } : {}),
         created: created.named,

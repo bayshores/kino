@@ -37,8 +37,10 @@ const SEEN_AS = {
   "green tint": ["white-balance", "color_filter", "color-wheels"], green: ["white-balance", "color-wheels", "hue-saturation"], desaturated: ["hue-saturation", "keep-color"], "black and white": ["hue-saturation", "keep-color"],
   repeat: ["beat-repeat"], stutter: ["beat-repeat"], "replay on beats": ["beat-repeat"], "repeat on beats": ["beat-repeat"], echo: ["beat-repeat", "inward-echoes"],
   glitch: ["glitch", "smear", "rgb-split-hit", "rgb-shift"], "glitch transition": ["smear", "glitch", "shatter"],
-  smear: ["smear", "whip-pan"], "quick smear": ["whip-pan", "directional-blur"], "one frame whip": ["whip-pan"], "frame smear": ["whip-pan", "directional-blur"],
+  smear: ["smear", "whip-pan", "update_project"], "quick smear": ["whip-pan", "directional-blur"], "one frame whip": ["whip-pan"], "frame smear": ["whip-pan", "directional-blur"],
   "short blur": ["directional-blur", "zoom-blur", "spin-blur"], "quick blur": ["directional-blur", "zoom-blur", "spin-blur"], "blur flash": ["directional-blur", "zoom-blur"], "one frame blur": ["directional-blur"], "blur pulse": ["directional-blur", "zoom-blur"], drag: ["smear"], "pixel drag": ["smear"], datamosh: ["smear"], mosh: ["smear"],
+  // The project's shutter (update_project {shutterAngle}) smears every move in look and drafts.
+  "motion blur": ["update_project", "directional-blur"], motionblur: ["update_project", "directional-blur"], shutter: ["update_project"], "shutter angle": ["update_project"],
   shatter: ["shatter"], shattered: ["shatter"], glass: ["shatter", "fluted-glass"], "broken glass": ["shatter"], break: ["shatter"], shards: ["shatter"],
   "rgb split": ["rgb-split-hit", "rgb-shift"], "chromatic aberration": ["rgb-shift"],
   "split screen": ["split-screen"], splitscreen: ["split-screen"], "side by side": ["split-screen"], panes: ["split-screen"], composite: ["split-screen", "picture-in-picture"],
@@ -136,7 +138,7 @@ const TOPICS = { "clip-speed": "layer properties mediaSpeed and speed animations
   "layer-style": "layer properties fill, strokes, shadows and outlineGlow (hollow letters with a glowing outline)",
   "scene-background": 'the whole frame in one op: {op:"update_scene", properties:{finish:true, letterbox:2.35}} (grain, lifted blacks, halation, vignette, bars)' };
 // An op whose call needs a lookup first: a font is picked by its look.
-const OP_USE = { set_font: 'library {topic:"fonts", search:"<the look: brush, handwritten, marker, stencil, slab, blackletter, condensed bold sans, a script such as japanese>"} (or like:"<picture path>", region:[x,y,w,h]: faces measured like its letters) then set_font {layerIds, family, weight}' };
+const OP_USE = { update_project: 'update_project {properties:{shutterAngle:180}} (motion blur on every move in look, sheets and drafts)', set_font:'library {topic:"fonts", search:"<the look: brush, handwritten, marker, stencil, slab, blackletter, condensed bold sans, a script such as japanese>"} (or like:"<picture path>", region:[x,y,w,h]: faces measured like its letters) then set_font {layerIds, family, weight}' };
 
 /** The line for a look kino has no maker for yet ("speed lines"), else "". */
 export function noMakerLine(query) {

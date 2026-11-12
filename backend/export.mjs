@@ -19,7 +19,7 @@ import { defaultRenderPool, MAX_SVG_BYTES } from "./render-pool.mjs";
 import { renderFrameCache } from "./render-frame-cache.mjs";
 import { renderRange } from "./render-range.mjs";
 import { normalizeRenderQuality, motionSampleTimes, createSampleBlend, MAX_MOTION_SAMPLES } from "./render-quality.mjs";
-import { shutterSampleCount } from "../engine/previewBlur.js";
+import { shutterFps, shutterSampleCount } from "../engine/previewBlur.js";
 import { frameReference, inspectRenderedOutput } from "./render-output-audit.mjs";
 import { fitLoudness, loudMixWarning, masterLimiter, measureMixLevels } from "./audio-levels.mjs";
 import { encodeRenderPng } from "./render-png.mjs";
@@ -1623,8 +1623,9 @@ function straightAlpha(pixels) {
 // otherwise as many as its fastest layer needs for an even smear (previewBlur.js shutterSampleCount).
 function frameMotionSamples(scene, time, options, dimensions, fonts) {
   if (!options.autoMotionSamples) return options.motionSamples ?? 2;
+  // maxMotionSamples (look frames and drafts with the project's shutter) bounds it to keep them fast.
   return shutterSampleCount(scene.layers, time, options.motionBlur / (options.fps ?? 30), {
-    scale: dimensions.width / finite(scene.width, dimensions.width), duration: options.duration ?? scene.duration, fonts, max: MAX_MOTION_SAMPLES });
+    scale: dimensions.width / finite(scene.width, dimensions.width), duration: options.duration ?? scene.duration, fonts, max: options.maxMotionSamples ?? MAX_MOTION_SAMPLES });
 }
 
 // One output frame with motion blur (options.motionSamples moments of the open shutter, averaged)
@@ -2990,7 +2991,9 @@ export async function renderStills(scene, times, context = {}) {
   try { return await renderStillsNow(scene, times, context); } finally { ended?.(); }
 }
 
-async function renderStillsNow(given, times, { width, height, mediaRoot, fonts: providedFonts, render, signal, previewBlur = false } = {}) {
+// `shutter` ({shutterAngle, maxMotionSamples}, previewBlur.js sceneShutterOptions) draws the real
+// shutter in place of the preview smear.
+async function renderStillsNow(given, times, { width, height, mediaRoot, fonts: providedFonts, render, signal, previewBlur = false, shutter = {} } = {}) {
   // Look draws a morph cut as the live preview does: a dissolve, without the flow (morphCut.js).
   const scene = morphDissolveScene(given, speechPieces);
   checkScene(scene);
@@ -2998,7 +3001,8 @@ async function renderStillsNow(given, times, { width, height, mediaRoot, fonts: 
   if (!Array.isArray(times) || !times.length || times.length > 600) throw new Error("Give 1 to 600 still times.");
   for (const time of times) assertStillFrameTime(time, duration);
   const fps = 30;
-  const options = { format: "png", width, ...(height ? { height } : {}), ...normalizeRenderQuality({}), fps, duration: Math.max(1 / fps, finite(duration, 1)) };
+  const quality = shutter.shutterAngle > 0 ? { ...normalizeRenderQuality({ shutterAngle: shutter.shutterAngle }), autoMotionSamples: true, maxMotionSamples: shutter.maxMotionSamples } : normalizeRenderQuality({});
+  const options = { format: "png", width, ...(height ? { height } : {}), ...quality, fps: shutter.shutterAngle > 0 ? shutterFps(scene) : fps, duration: Math.max(1 / fps, finite(duration, 1)) };
   const fonts = providedFonts || await loadBundledFonts();
   const dimensions = outputDimensions(scene, options);
   let rasterizer, starting;

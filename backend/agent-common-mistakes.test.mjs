@@ -217,7 +217,7 @@ const REFUSED = [
   ["a catalog preset with to", { op: "add_animation", layer: "box", preset: "preset-fade", start: 0, duration: 1, to: { opacity: 0.5 } }, "takes parameters, not from/to"],
   ["an unknown add_animation field", { op: "add_animation", layer: "box", preset: "preset-fade", start: 0, duration: 1, speed: 2 }, '"speed" is not a field'],
   ["an add_layer with no type", { op: "add_layer", name: "thing", properties: { x: 10 } }, "layerType"],
-  ["motion-blur as an effect", { op: "add_animation", layer: "box", effect: "motion-blur" }, "render option"],
+  ["motion-blur as an effect", { op: "add_animation", layer: "box", effect: "motion-blur" }, "shutterAngle:180"],
   ["radial-blur as an effect", { op: "add_animation", layer: "box", effect: "radial blur" }, "zoom-blur"],
   ["an unknown effect", { op: "add_animation", layer: "box", effect: "sparkle" }, 'unknown effect "sparkle". Did you mean sparks'],
   // Effect names guessed from plain words lead to the real grading effects (ceiling study a, FRICTION 5).

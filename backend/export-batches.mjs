@@ -15,6 +15,7 @@ import { graphicsCacheInput } from "./render-devices.mjs";
 import { validateRenderFile } from "./render-validation.mjs";
 import { LOUDNESS_OPTIONS, LOUDNESS_TARGETS } from "./audio-levels.mjs";
 import { normalizeRenderQuality } from "./render-quality.mjs";
+import { LOOK_MOTION_SAMPLES } from "../engine/previewBlur.js";
 import { renderRange } from "./render-range.mjs";
 import { makeTempFolder, removeTempFolder } from "./temp-folders.mjs";
 
@@ -157,9 +158,14 @@ export function sceneOptions(options, scene) {
 
   const draft = options.renderQuality === "draft";
   const defaults = draft ? { motionBlur: 0, dither: false } : { motionBlur: 0.5, dither: true };
+  // The project's shutter (update_project {shutterAngle}, on the drawn scene) replaces the default
+  // shutter of drafts and finals; a draft bounds its moments as look does (LOOK_MOTION_SAMPLES).
+  const projectShutter = options.motionBlur === undefined && options.shutterAngle === undefined && typeof scene.shutterAngle === "number";
+  const draftBound = projectShutter && draft && scene.shutterAngle > 0 && options.motionSamples === undefined;
   // An explicit shutterAngle or motionBlur replaces the default shutter; motionSamples is kept.
   const quality = normalizeRenderQuality({
-    ...(options.motionBlur === undefined && options.shutterAngle === undefined ? { motionBlur: defaults.motionBlur } : {}),
+    ...(projectShutter ? { shutterAngle: scene.shutterAngle } : {}),
+    ...(options.motionBlur === undefined && options.shutterAngle === undefined && !projectShutter ? { motionBlur: defaults.motionBlur } : {}),
     ...(options.motionBlur !== undefined ? { motionBlur: options.motionBlur } : {}),
     ...(options.shutterAngle !== undefined ? { shutterAngle: options.shutterAngle } : {}),
     ...(options.motionSamples !== undefined ? { motionSamples: options.motionSamples } : {}),
@@ -191,6 +197,7 @@ export function sceneOptions(options, scene) {
   // Without motionSamples each frame draws as many as its fastest move needs (export.mjs
   // frameMotionSamples); normalizeRenderQuality's default of 2 would turn that off.
   if (options.motionSamples === undefined) delete result.motionSamples;
+  if (draftBound) result.maxMotionSamples = LOOK_MOTION_SAMPLES;
   renderRange(scene, result);
   return result;
 }

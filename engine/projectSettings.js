@@ -4,13 +4,27 @@ import { MAX_WAIVERS } from "./qualityFields.js";
 import { onFrame, readFps } from "./frameRate.js";
 
 // What update_project may change. checkWaivers has its own operations.
-const PROJECT_PROPERTIES = new Set(["name", "videoType", "rhythm", "fps"]);
+const PROJECT_PROPERTIES = new Set(["name", "videoType", "rhythm", "fps", "shutterAngle"]);
 
-/** update_project {properties}: sets the name, videoType, rhythm or fps. null removes videoType, rhythm or fps. */
+/**
+ * The project's shutter in degrees (update_project {shutterAngle}): 0 to 360, 180 is half a frame
+ * open. Missing means off for look and drafts, as before it existed; finals keep their own 180.
+ * Checked by parseDocument; null removes it. A scene may hold its own (update_scene), which wins.
+ */
+export function normalizeShutterAngle(holder) {
+  if (holder.shutterAngle === undefined || holder.shutterAngle === null) { delete holder.shutterAngle; return; }
+  const angle = holder.shutterAngle;
+  if (typeof angle !== "number" || !Number.isFinite(angle) || angle < 0 || angle > 360)
+    throw new Error("shutterAngle must be a number of degrees from 0 to 360 (180 is the film look, 0 is off).");
+}
+
+/** update_project {properties}: sets the name, videoType, rhythm, fps or shutterAngle. null removes all but name. */
 export function applyProjectUpdate(document, properties) {
   if (!properties || typeof properties !== "object" || Array.isArray(properties) || !Object.keys(properties).length)
     throw new Error("update_project needs properties, such as {videoType:\"promo\"} or {rhythm:{bpm:120, offset:0}}.");
   for (const [key, value] of Object.entries(properties)) {
+    // A guess at the shutter's name (motionBlur:true, shutter:180) gets the call that works.
+    if (/^(motion_?blur|shutter|motionsamples)$/i.test(key)) throw new Error(`update_project has no ${key}: motion blur is {shutterAngle:180} (degrees, 0 to 360; 0 is off).`);
     if (!PROJECT_PROPERTIES.has(key)) throw new Error(`update_project can change ${[...PROJECT_PROPERTIES].join(", ")}; not ${key}.`);
     if (value === null && key !== "name") delete document[key];
     // The project's frame rate (frameRate.js): 20, 23.976, "24000/1001" are kept as frames a second.

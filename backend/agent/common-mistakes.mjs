@@ -773,7 +773,7 @@ const EFFECT_ALIASES = { bloom: "glow", halation: "glow", flare: "lens-flare", g
 // Names that could mean more than one thing, refused with what to use instead.
 const BLURS = ["directional-blur", "zoom-blur", "spin-blur"];
 const EFFECT_CHOICES = {
-  motionblur: { suggestions: ["directional-blur"], message: "\"motion-blur\" is not an effect: blur from movement is a render option (shutterAngle, motionSamples; library {topic:\"rules\", name:\"blur\"}), and directional-blur smears a layer one way." },
+  motionblur: { suggestions: ["directional-blur"], message: "\"motion-blur\" is not an effect: blur from movement is the shutter, update_project {properties:{shutterAngle:180}}; directional-blur smears a layer one way." },
   radialblur: { suggestions: ["zoom-blur", "spin-blur"], message: "\"radial-blur\" is zoom-blur (out from a centre) or spin-blur (around a centre)." },
   blur: { suggestions: BLURS, message: "\"blur\" is not an effect: a plain blur is the layer's blur property (update_layer properties {blur:8}, or a custom animation of blur); the blur effects are directional-blur, zoom-blur and spin-blur." },
   gaussianblur: { suggestions: BLURS, message: "\"gaussian-blur\" is not an effect: a plain blur is the layer's blur property (update_layer properties {blur:8}, or a custom animation of blur)." },
