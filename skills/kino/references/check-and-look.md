@@ -11,6 +11,8 @@ Contents: Check · Polish · Looking · Review before final · Building in order
   re-checks, up to 3 rounds: call it once. A warning's fix skips layers your last
   edit moved, a waiver names or a spine beat uses.
 - First `check` ends with `Rules:`; a same-rev repeat is 1 line (`{rules:true}`: all).
+- The first 8 lines of `check`, `look` versus and review, and `status` lead with what decides your
+  next call (errors, advice, drift, `whole scene:`, inbox); the rest is detail.
 - `speech_cut` (gate, a voice cut mid-word): the sound reference.
 - `soft_upscale`: a picture drawn bigger than its file (over 1.3x warns, over 2x a gate).
   `crop_no_subject`: footage cropped over 8%, no subject marked, warns; a marked subject
@@ -55,7 +57,7 @@ Each has an automatic fix (`check {fix:"auto"}`) but render_artifact:
   or less). Fix (auto): motion blur while fast.
 - `text_wrap`: punctuation alone on a line or a one-word title broken (errors); a 2 or 3 word
   title stacked by the wrap, or one short word under a long line (warnings). Fix: a width that
-  fits one line or balances the lines, or for 1 to 3 words a smaller size (not under type_min's floor).
+  fits one line or balances the lines, or for 1 to 3 words a smaller size (at least type_min).
 - `cut_off_at_rest`: a picture, clip or phone at rest inside the 5% margin or cut by the edge.
   Fix: scaled about its middle inside the margin.
 - `held_static`: nothing moves for over 1.5 s (1% of the diagonal a second, 0.4% for a picture
@@ -65,7 +67,7 @@ Each has an automatic fix (`check {fix:"auto"}`) but render_artifact:
   A planned still (end mark, black): `update_scene {rests:[{at, until}]}` (4 s in all).
 - `off_brand_font`: text outside the brand's fonts (`set_brand {fonts}`, or a family the brief
   names); with no brand, a third type family. Fix (with a brand): `set_font` to the brand font
-  at the nearest weight it has, headlines to the first.
+  (nearest weight), headlines to the first.
 - `role_font_drift`: one family per role (display, stat, speech, caption), one caption size
   per voice (caption track or color), warns; `fix:"auto"` never picks a font nobody chose. Warned: vocabulary_budget, brand_consistency, story_stall,
   hook_readable, ending_count, accent_budget, `text_only_open` (3 s+ of text before any
@@ -84,13 +86,13 @@ Each has an automatic fix (`check {fix:"auto"}`) but render_artifact:
 - CLI: `kino look frame t=3 width=720`; a list is one word (`fields=x,width`).
 - `inspect {targets, fields}`: `color` answers with `fill`,
   `size`: `width`, `height`.
-- `sheet` (default): a scene in about 12 tiles; with cuts, one or more a shot, labeled
-  `2 · 1.42s` (at most 24 shots; `from` shows the rest). With several
-  scenes and none named, one frame a scene. `sheet {from:60, to:120}`: one stretch.
+- `sheet` (default): about 12 tiles a scene; with cuts, a tile or more a shot, labeled
+  `2 · 1.42s` (24 shots at most; `from` shows the rest); several scenes: one frame each.
+  `sheet {from, to}`: one stretch.
 - `frame {t, width?}` (up to 1280 px; `zoom` for detail), `zoom {layer, t?}`, `strip {anim}`
   (`every:true`: each frame), `compare {rev}`, `changed`, `variants`.
-- `motion {from?, to?}` (a graph and trace, no render) and `frames {from, to?}` (each 30 fps
-  frame): the motion reference.
+- `motion {from?, to?}` (graph and trace, no render), `frames {from, to?}` (each 30 fps frame):
+  motion reference.
 - `source {layer, t?}`: a video layer's whole source frame at scene time t (default: the middle
   of its time on screen), a 10% grid, the crop as a dashed box, the subject boxes (`agent`:
   yours, from `mark_subject`; `vision`: Apple Vision, Mac only) and the result. The text gives
@@ -102,14 +104,13 @@ Each has an automatic fix (`check {fix:"auto"}`) but render_artifact:
 
 `check` misses what only eyes catch (a subject cut off). The QC loop:
 
-1. `edit`, then read the receipt. `newFindings` names the findings that edit brought into the
-   stretch it changed (codes and times, at most 5): fix them in the next edit.
+1. `edit`, then read the receipt: `newFindings` (at most 5, codes and times) are what it
+   brought in; fix them next.
 2. `look {mode:"review"}` (a scene; `from`/`to` for a stretch) picks the moments that matter
    (cuts, effects, moves, set pieces, text landing, quiet stretches),
-   ranks them by risk (risky ones full size, 2 across; the rest compact, 4 across). Each tile is the whole frame with its time, what
-   happens and findings in yellow. Cuts add seam rows (the motion reference).
-3. Study every frame for type, wrapping and orphans, overlaps, framing, empty space and
-   artifacts. Fix them all in one `edit`.
+   ranks them by risk (risky: full size, 2 across; the rest 4 across). Each tile: the
+   whole frame, its time, what happens, findings in yellow. Cuts add seam rows (motion reference).
+3. Study every frame for type, wrapping, overlaps, framing, empty space and artifacts. Fix them all in one `edit`.
 4. `look {mode:"review"}` again shows only the moments whose picture changed.
 5. `render {quality:"final"}` of the whole video is refused (`review_needed`) until every moment
    is reviewed as it is now. Drafts, stills (png) and scenes under 5 s are not gated. A
@@ -122,8 +123,8 @@ Each has an automatic fix (`check {fix:"auto"}`) but render_artifact:
 ## Building in order
 
 Get a rough whole scene first (layout, background and the main subject, often one
-`compose`), then build it up in at most 3 sections, in the order a designer would: 1
+`compose`), then build in at most 3 sections, a designer's order: 1
 supporting parts, 2 motion and timing, 3 polish (color, type, sound). Each section is one
 `edit`, then `look {mode:"sheet", from, to}` at the time it covers before the next one;
-those looks are your pass. With the fixes in one more `edit` that is at most 5 edits to build
-it; the storyboard, a redo the person asks for at a stop and a retry come on top.
+those looks are your pass. With the fixes in one more `edit` that is
+at most 5 edits to build it; the storyboard, a redo the person asks for at a stop and a retry come on top.

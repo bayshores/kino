@@ -166,7 +166,8 @@ test("check warns deck_unused when the video uses under half the deck, and recor
   assert.equal(edited.isError, undefined, edited.text);
   // deck_unused is advice: one line in a plain check, the finding itself when check names it.
   const plain = (await agent("check", { project: "deck-check", pixels: false })).text;
-  assert.match(plain, /^advice \(does not block\): .*deck_unused/m);
+  // The advice line names the unused cards, so a reader of the first lines can act on it.
+  assert.match(plain, /^advice \(does not block\): .*deck_unused \(unused cards: [a-z-]+/m);
   // The advice names the unused cards and a ready call for the first.
   assert.match(plain, /^deck unused: [a-z0-9_-]+(, [a-z0-9_-]+)*; first: (library|edit) \{/m);
   const checked = await agent("check", { project: "deck-check", rules: ["deck_unused"], pixels: false });

@@ -244,19 +244,29 @@ export function triageFindings(shown, limit = MAX_FINDINGS) {
 }
 
 // "rule xN" by rule, the most first: "busy_edit x3, pacing_jump".
-const byRuleLine = (list, { first = false } = {}) => {
+const byRuleLine = (list, { first = false, detail = null } = {}) => {
   const rows = new Map();
   for (const finding of list) {
-    const row = rows.get(finding.rule) ?? { count: 0, ref: finding.ref };
+    const row = rows.get(finding.rule) ?? { count: 0, ref: finding.ref, found: [] };
     row.count += 1;
+    row.found.push(finding);
     rows.set(finding.rule, row);
   }
   return [...rows].sort((a, b) => b[1].count - a[1].count)
-    .map(([rule, { count, ref }]) => `${rule}${count > 1 ? ` x${count}` : ""}${first && ref != null ? ` (${ref})` : ""}`);
+    .map(([rule, { count, ref, found }]) => `${rule}${count > 1 ? ` x${count}` : ""}${first && ref != null ? ` (${ref})` : ""}${detail?.(rule, found) ?? ""}`);
 };
 
-/** Advice (info findings, not waived) in one line, or "": "busy_edit x2, pacing_jump". */
-export const adviceLine = (findings) => byRuleLine(findings.filter((finding) => !finding.waived && finding.severity === "info")).join(", ");
+// The deck cards the video leaves unused, named in the advice line: run 6 read only the first
+// lines of a check and saw "deck_unused" with no card names (trace-code section 2 and 5).
+const SHOWN_CARDS = 6;
+const adviceDetail = (rule, found) => {
+  if (rule !== "deck_unused") return "";
+  const cards = [...new Set(found.flatMap((finding) => finding.unused ?? []))];
+  return cards.length ? ` (unused cards: ${cards.slice(0, SHOWN_CARDS).join(", ")}${cards.length > SHOWN_CARDS ? ", …" : ""})` : "";
+};
+
+/** Advice (info findings, not waived) in one line, or "": "busy_edit x2, pacing_jump, deck_unused (unused cards: drift)". */
+export const adviceLine = (findings) => byRuleLine(findings.filter((finding) => !finding.waived && finding.severity === "info"), { detail: adviceDetail }).join(", ");
 
 /**
  * What still holds a final render: one line per rule with its count and first target

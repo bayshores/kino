@@ -72,12 +72,23 @@ function layerRow(layer, depth, codes) {
  *   header so a new chat or a compacted one starts from what is saved, not from memory.
  * Returns { text, shown } where shown is the new `seen` map to remember.
  */
-export function projectOutline(record, { codes, focus, page = 1, seen = {}, full = false, plan, inbox = [], checks, pointing, direction } = {}) {
+export function projectOutline(record, { codes, focus, page = 1, seen = {}, full = false, plan, inbox = [], checks, pointing, direction, notices = [] } = {}) {
   const { document } = record;
   const layerTotal = document.scenes.reduce((sum, scene) => sum + scene.layers.length, 0);
   const animationTotal = document.scenes.reduce((sum, scene) => sum + countAnimations(scene), 0);
   const lines = [`${document.name} (${document.id}) rev ${record.revision} · ${count(document.scenes.length, "scene")} · ${count(layerTotal, "layer")} · ${count(animationTotal, "anim")}`];
   if (direction) lines.push(...direction);
+  // What decides the next call comes before the plan and the layer rows (an agent that reads
+  // only the first 8 lines of a status with many layers used to miss the checks and the inbox:
+  // trace-code section 5). `at` is the line where the answer's inbox goes (service.mjs).
+  if (pointing) lines.push(`pointing ${pointing}`);
+  if (checks) lines.push(`checks ${checks}`);
+  lines.push(...notices);
+  if (inbox.length) {
+    lines.push(`inbox ◆${inbox.length}`);
+    for (const item of inbox) lines.push(`  ${item}`);
+  }
+  const at = lines.length;
 
   if (plan?.steps?.length) {
     const done = plan.steps.filter((step) => step.done).length;
@@ -121,11 +132,5 @@ export function projectOutline(record, { codes, focus, page = 1, seen = {}, full
   }
 
   if (document.scenes.length > 1) lines.push(`status {scene} lists another scene's layers`);
-  if (inbox.length) {
-    lines.push(`inbox ◆${inbox.length}`);
-    for (const item of inbox) lines.push(`  ${item}`);
-  }
-  if (pointing) lines.push(`pointing ${pointing}`);
-  if (checks) lines.push(`checks ${checks}`);
-  return { text: lines.join("\n"), shown };
+  return { text: lines.join("\n"), shown, at };
 }

@@ -919,6 +919,8 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
           ...(finding.at != null ? { at: sec(finding.at) } : {}), ...(finding.until != null ? { until: sec(finding.until) } : {}),
           message: finding.message,
           ...(finding.measured != null ? { measured: finding.measured } : {}), ...(finding.required != null ? { required: finding.required } : {}),
+          // deck_unused: the cards left unused, named in check's advice line.
+          ...(finding.unused ? { unused: finding.unused } : {}),
           ...(finding.bbox ? { bbox: finding.bbox } : {}),
           ...(fix !== undefined ? { fix } : {}), ...(call ? { call } : {}), ...(auto ? { auto: true, ...(finding.fix?.why ? { why: finding.fix.why } : {}), ...(finding.fix?.push ? { push: true } : {}) } : {}),
           ...(waiver ? { waived: waiver.reason } : {}),

@@ -14,6 +14,17 @@ export const call = (tool, input = {}) => ({ tool, input });
 /** `look {"mode":"review"}`: a call as the agent types it. */
 export const callText = (next) => `${next.tool} ${JSON.stringify(next.input ?? {})}`;
 
+// A next call longer than this is not printed twice: the early line names the tool and points to
+// the last line (a guess at the size: check {fix:"auto"} and render {...final} are well under it,
+// an edit with ops is well over).
+const EARLY_NEXT_MAX = 90;
+
+/** The next call as an early line (a short form): whole when short, else the tool and where the call is. */
+export const earlyNextLine = (next) => {
+  const full = callText(next);
+  return `next: ${full.length <= EARLY_NEXT_MAX ? full : `${next.tool} (the exact call is on the last line)`}`;
+};
+
 /** Every answer can always fall back to this: read the project. */
 export const STATUS_CALL = call("status");
 
@@ -42,7 +53,15 @@ const compact = (value) => JSON.stringify(value, (key, entry) =>
  * `next: …` end the text. A refused edit whose next call resends it fixed drops its prose about
  * retry and the example the call already carries: they would say the same thing twice.
  */
-export function answerText({ text, data, json }, next, inbox = []) {
+export function answerText({ text, data, json, early }, next, inbox = []) {
+  if (!json && early && Number.isInteger(early.at)) {
+    // An early place: the inbox (and, when asked, a short next) sit at line `at`, so an agent that
+    // reads only the first 8 lines still gets them. The full next call still ends the answer.
+    const lines = String(text).split("\n");
+    const block = [...(inbox.length ? [`inbox ◆${inbox.length}`, ...inbox.map((line) => `  ${line}`)] : []), ...(early.next ? [earlyNextLine(next)] : [])];
+    lines.splice(Math.min(early.at, lines.length), 0, ...block);
+    return `${lines.join("\n")}\nnext: ${callText(next)}`;
+  }
   if (json) {
     let fields = data;
     if (fields?.retry && next.tool === "edit" && next.input?.retry === fields.retry) {

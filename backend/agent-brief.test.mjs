@@ -129,10 +129,12 @@ test("a brief with a you line and a guessed line reads back, and status shows di
   assert.equal(Object.hasOwn(stored, "log"), false, "the reply log stays out of the answer");
   assert.deepEqual({ ...(await savedState("brief-read")).brief.log[0], at: "…" }, { ...FIRST_QUESTION, kind: "question", rev: 0, client: "claude-code", at: "…" }, "a reply is logged at the revision it answered");
 
-  // The two lines come right after the header, before the plan.
+  // The two lines come right after the header, then the checks line, then the plan.
   await agent("notes", { project: "brief-read", action: "set_plan", steps: ["Brief", "Build", "Render"] });
   const lines = await statusLines("brief-read");
-  assert.deepEqual(lines.slice(1, 4), ["direction: brief r1 (1 guessed), unconfirmed · replies 1/10", "step: ask about look_sound, or guess it", "plan ▸ Brief (0/3)"]);
+  assert.deepEqual(lines.slice(1, 3), ["direction: brief r1 (1 guessed), unconfirmed · replies 1/10", "step: ask about look_sound, or guess it"]);
+  assert.match(lines[3], /^checks /);
+  assert.equal(lines[4], "plan ▸ Brief (0/3)");
 });
 
 test("a you line needs a quote, a guessed line has none, and a refused save keeps nothing", async () => {

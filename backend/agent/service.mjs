@@ -198,6 +198,8 @@ const SHEET_GAP_HINT = 6;
 // library {topic:"rules", name:"render"}.
 // Characters of each saved reference's take that status shows (the study and look versus show it whole).
 const TAKE_SHOWN = 70;
+// Agents pipe answers through `head -8` (trace-run6 section 3): what decides the next call sits in these lines.
+const FIRST_LINES = 8;
 const RENDER_RULES = 'render start defaults to draft: half each scene dimension at 30fps (or your fps up to 30, such as 24 or 25 to match the footage), the long side at most the person\'s draft size setting (960 by default). The person\'s export settings fill in format, fps and output folder when you leave them out. A final render over their frame limit, or one that would overwrite a file, answers awaiting_approval {id, rev}: the person answers it in the app, or tells you in the chat (then record their words: notes {action:"answer", id, words, read_as:"approve" or "deny"}), so tell them and do not poll; render {action:"wait", job:id} blocks until they answer (up to 55 s) and {action:"cancel", job:id} withdraws it. Allowing it renders that rev; an edit first makes it ask again, and the same start after an edit replaces the waiting request (replaced:id). final uses full scene dimensions and requested fps (default 30; 23.976, 29.97, 59.94, "30000/1001" or {num, den} too), motionBlur:0.5 and dither:true; override motionBlur:0..1 or dither:false. Motion blur comes from layer movement while the shutter is open: options {shutterAngle:0..360 (180 = motionBlur 0.5), motionSamples:2..16 (default: as many as the fastest move in each frame needs for copies at most 8 px apart)}; 2 samples show a fast move as two copies. Each sample draws a moving frame once more (frames that do not move are drawn once); footage keeps one picture per frame. The dashboard (cached playback too) and look show a preview of it (each fast-moving layer smeared along its path); a final png (options {time}) shows the real one. Unwaived check errors (and signature_missing, a warning while editing) block final, and so do open stops (stops_open; drafts render) moments of the whole video not yet seen in look {mode:\"review\"} (review_needed; waive_check {code:\"review\"} skips it), a video of 5 s or more with no saved reference (find 2 with library inspire; with them, a final render with no look {mode:\"versus\"} in 10 revisions runs it and answers its rows) or a rev judged blind with the references winning (reference_needed; waive_check {code:\"reference\"} skips it), and a whole video of 15 s or more with footage or speech without a fresh viewer report (look {mode:\"viewer\"}, notes viewer) on a recent revision with no open story bugs, or an edit after round 2 found them (viewer_needed; waive_check {code:\"viewer\"} skips it), and a need not answered and done (needs_open) or such a video with a brief whose material was never checked (needs_unchecked; notes needs; waive_check {code:\"needs\"} skips both). preview:"fast" caps drafts at 640px/15fps without blur or dither. from/to select one draft video excerpt, snapped outward to frames; sound and captions stay aligned. Replies give actual range. scene:"all" renders up to 20 scenes as separate files; unchanged scenes reuse checked segments, including after restart. Formats: mp4, webm, mov, gif, png, apng, png-sequence (ZIP), lottie (native vector canvas; no blur/dither). queue lists recent jobs; wait returns paths, cachedScenes/redrawnScenes and file checks. options passes existing export settings (transparent, profile, loop, GIF quality, PNG time, imageDPIRatio); the quality rung determines dimensions. Two exports run concurrently. Cancel stops workers/encoders; start again to reuse completed segments. A job whose scenes all finished is saved instead: cancel answers Nothing to cancel with its files. Output checks verify dimensions, codec, frame count, duration and audio start offset where the format supports them; unsupported checks are explicit. Final mp4, webm, mov and apng files are also compared frame by frame with the renderer; a file that runs a frame early or late fails with the frames where it slips: render again, and report it with the message if it fails again. Exported sound goes through a master limiter that keeps the encoded file\'s true peak at or under -1 dBTP: the sound is encoded and measured first, and the ceiling drops when AAC or Opus push peaks back up. Before it, every mp4, webm or mov (drafts too) brings the whole mix (after ducking) to a loudness target: options {loudness:"web" (-14 LUFS, the default)|"podcast" (-16)|"broadcast" (-23)|"off"}. It is one plain gain, so the balance never shifts; where the limiter would take peaks down more than 6 dB the gain holds and the file is quieter (the reply names that peak). Unleveled mixes well under -1 dBTP pass unchanged. wait gives each file\'s sound as integrated loudness (LUFS) with its target, loudness range (LU) and true peak (dBTP); audioPeak warns over -1 dBTP, audioLoudness over 2 LU off target. Without a loudness target, a mix that would have clipped by more than 0.5 dB gets a warning with the loudest moment and the sounds playing then: lower those volumes. Rendered scene caches are bounded by the person\'s render cache setting (512MiB by default). They include media/font bytes, renderer, graphics and quality settings. A new revision alone does not invalidate unchanged scenes. mp4 only: options {videoEncoder:"auto"|"software"|"videotoolbox"|"nvenc"|"qsv"|"amf"|"vaapi", videoQuality:"small"|"standard"|"high"} replace the person\'s defaults for this render (standard is 24 Mbps at 720p and up, high twice, small half); a named encoder that does not work on this computer is an error naming those that do. The graphics card, frames at once and memory to leave free are the person\'s dashboard settings; you cannot change them. wait says what drew each file (graphics card or processor) and which encoder wrote it.';
 
 // library op and rules: at most this many names in one call.
@@ -2597,20 +2599,21 @@ export function createAgentService(deps) {
     const prebuild = waitingStop(state) || openStops(state, await directionFacts(document), stopRulesNow()).some((stop) => stop.kind === "board");
     const toFinal = hasLayers(document) && state.checked && !prebuild ? await finalGates(record).then(toFinalLine, () => "") : "";
     const takes = await takesLine(projectId);
-    const outline = projectOutline(record, {
-      codes, focus: focus.id, page: input.page ?? 1, seen: state.seen ?? {}, full: input.full === true,
-      plan: state.plan, checks: checkSummary(findings, { unchecked }), pointing, direction: [...statusLines(state, await directionFacts(document), stopRulesNow()), ...(controlsLine(state.brief?.controls) ? [controlsLine(state.brief.controls)] : []), ...(takes ? [takes] : []), ...(toFinal ? [toFinal] : []), ...(deckLine ? [deckLine] : []), ...(always ? [always] : []), ...(needs ? [needs] : []), ...(lineNote ? [lineNote.text] : [])],
-    });
     // What waits for the person: approvals, and a hold on agent writes.
     const waiting = deps.approvals?.pending?.(projectId) ?? [];
     const extra = [
       waiting.length ? `awaiting the person's approval: ${waiting.slice(0, 5).map((entry) => `${entry.id} ${entry.summary}`).join("; ")}` : "",
       deps.hold?.().on ? "HOLD: the person paused agent writes; reads still work." : "",
     ].filter(Boolean);
-    if (extra.length) outline.text = `${outline.text}\n${extra.join("\n")}`;
+    // The checks, what waits and the inbox (added by the entry point at `early.at`) come right
+    // after the direction block, before the plan and the layer rows.
+    const outline = projectOutline(record, {
+      codes, focus: focus.id, page: input.page ?? 1, seen: state.seen ?? {}, full: input.full === true, notices: extra,
+      plan: state.plan, checks: checkSummary(findings, { unchecked }), pointing, direction: [...statusLines(state, await directionFacts(document), stopRulesNow()), ...(controlsLine(state.brief?.controls) ? [controlsLine(state.brief.controls)] : []), ...(takes ? [takes] : []), ...(toFinal ? [toFinal] : []), ...(deckLine ? [deckLine] : []), ...(always ? [always] : []), ...(needs ? [needs] : []), ...(lineNote ? [lineNote.text] : [])],
+    });
     const stop = waitingStop(state);
     noteLive({ sceneId: focus.id });
-    return done(projectId, { text: outline.text, data: { project: projectId, rev: record.revision, focus: refName(focus.id, codes), ...(stop ? { waiting: stop.id } : {}) } },
+    return done(projectId, { text: outline.text, early: { at: outline.at }, data: { project: projectId, rev: record.revision, focus: refName(focus.id, codes), ...(stop ? { waiting: stop.id } : {}) } },
       { change(draft) { draft.seen = outline.shown; draft.focus = focus.id; } });
   }
 
@@ -2679,23 +2682,33 @@ export function createAgentService(deps) {
     for (const note of waiverNotes(liveWaivers(record.document.checkWaivers, result.stale))) lines.push(`note: ${note}`);
     const staleLine = staleWaiverLine(result.stale, (id) => (id === "*" ? "*" : refName(id, codes)));
     if (staleLine) lines.push(staleLine);
-    if (applied) {
-      lines.push(applied.ops ? `applied ${applied.fixed.length} auto ${applied.fixed.length === 1 ? "fix" : "fixes"} in one edit (now rev ${applied.rev}); history can undo it.` : "No auto fixes to apply.");
-      for (const line of applied.fixed) lines.push(`  fixed ${line}`);
-      for (const line of groupFixLines(applied.dropped)) lines.push(`  not applied ${line}`);
-    }
-    for (const finding of report.findings)
-      lines.push(`${finding.severity === "error" ? "E" : finding.severity === "info" ? "I" : "W"} ${finding.rule} ${finding.ref}${finding.at != null ? ` @${sec(finding.at)}` : ""}: ${finding.message}${finding.fix ? ` fix${finding.auto ? "(auto)" : ""}: ${typeof finding.fix === "string" ? finding.fix : compact(finding.fix)}` : ""}`);
-    if (report.more) lines.push(`+${report.more} more: ${report.moreByRule}. Fix these first, or check {scene} or {rules}.`);
-    if (report.waivedFindings.length) lines.push(`waived: ${report.waivedFindings.slice(0, 5).map((entry) => `${entry.rule} ${entry.ref}`).join(", ")}${report.waivedFindings.length > 5 ? ", …" : ""}`);
+    if (applied) lines.push(applied.ops ? `applied ${applied.fixed.length} auto ${applied.fixed.length === 1 ? "fix" : "fixes"} in one edit (now rev ${applied.rev}); history can undo it.` : "No auto fixes to apply.");
+    // Why an auto fix was not applied explains the error still open, so it stays under the applied
+    // line (the probe on the run 6 copy had it at line 15, past the first 8, before this); the
+    // fixed lines go to the tail.
+    if (applied) for (const line of groupFixLines(applied.dropped)) lines.push(`  not applied ${line}`);
+    // Order (trace-code section 5: agents read the first 8 lines): the counts, the errors, then
+    // what decides the next call (advice with the unused deck cards, the fix hint, a short next),
+    // then the other findings, the long tail last. Same wording as before; only the order moved.
+    const findingLines = report.findings.map((finding) => `${finding.severity === "error" ? "E" : finding.severity === "info" ? "I" : "W"} ${finding.rule} ${finding.ref}${finding.at != null ? ` @${sec(finding.at)}` : ""}: ${finding.message}${finding.fix ? ` fix${finding.auto ? "(auto)" : ""}: ${typeof finding.fix === "string" ? finding.fix : compact(finding.fix)}` : ""}`);
+    const summary = [];
     // Advice (info): taste notes in one line; they never block a render.
-    if (report.advice) lines.push(`advice (does not block): ${report.advice}. check {rules:[code]} lists one.`);
+    if (report.advice) summary.push(`advice (does not block): ${report.advice}. check {rules:[code]} lists one.`);
     // The deck's unused cards by name, with one ready call for the first (trace-code.md section 2:
     // the advice line named only the rule, so run 6 never saw which cards were left).
     const unusedDeck = result.findings.find((finding) => finding.rule === "deck_unused" && !finding.waived && finding.unused?.length);
-    if (unusedDeck && report.advice) lines.push(`deck unused: ${unusedDeck.unused.join(", ")}; first: ${cardCall(unusedDeck.unused[0], await loadMoves(), dealt?.deck?.facts?.slots)}`);
-    if (!report.errors && !report.warnings) lines.push("Nothing to fix.");
-    else if (!applied && report.autoFixes) lines.push(`check {fix:"auto"} applies the ${report.autoFixes} ${report.autoFixes === 1 ? "fix" : "fixes"} marked auto.`);
+    if (unusedDeck && report.advice) summary.push(`deck unused: ${unusedDeck.unused.join(", ")}; first: ${cardCall(unusedDeck.unused[0], await loadMoves(), dealt?.deck?.facts?.slots)}`);
+    if (!report.errors && !report.warnings) summary.push("Nothing to fix.");
+    else if (!applied && report.autoFixes) summary.push(`check {fix:"auto"} applies the ${report.autoFixes} ${report.autoFixes === 1 ? "fix" : "fixes"} marked auto.`);
+    const errorCount = report.findings.filter((finding) => finding.severity === "error").length;
+    // One slot of the first 8 lines is kept for the short next line.
+    const beforeSummary = Math.min(errorCount, Math.max(1, FIRST_LINES - lines.length - summary.length - 1));
+    lines.push(...findingLines.slice(0, beforeSummary));
+    const earlyAt = lines.length + summary.length;
+    lines.push(...summary, ...findingLines.slice(beforeSummary));
+    if (report.more) lines.push(`+${report.more} more: ${report.moreByRule}. Fix these first, or check {scene} or {rules}.`);
+    if (report.waivedFindings.length) lines.push(`waived: ${report.waivedFindings.slice(0, 5).map((entry) => `${entry.rule} ${entry.ref}`).join(", ")}${report.waivedFindings.length > 5 ? ", …" : ""}`);
+    if (applied) for (const line of applied.fixed) lines.push(`  fixed ${line}`);
     // What the video uses (engine/quality/techniques.js), and whose style the style rules follow.
     lines.push(`techniques: ${techniquesLine(result.techniques, 8)} · style: ${result.styleSpec ? "spec" : "kino default"}`);
     for (const note of result.notes) lines.push(`note: ${note}`);
@@ -2720,7 +2733,7 @@ export function createAgentService(deps) {
     const data = { rev: record.revision, ...report, notes: result.notes, ms: result.ms, techniques: result.techniques, ...(applied ? { applied } : {}) };
     const repeat = applied ? null : repeatedCheck(projectId, input, record.revision, lines);
     return done(projectId, repeat ? { text: `${lines[0]}\n${repeat}`, data: { rev: record.revision, errors: report.errors, warnings: report.warnings, unchanged: true } }
-      : { text: lines.join("\n"), data }, full ? { change: saveChecked } : undefined);
+      : { text: lines.join("\n"), data, ...(lines.length >= FIRST_LINES ? { early: { at: earlyAt, next: true } } : {}) }, full ? { change: saveChecked } : undefined);
   }
 
   // The same check again from the same agent session, on the same revision, with the same
@@ -4178,19 +4191,24 @@ export function createAgentService(deps) {
     }
     const softLines = softAccentLines(softStats, pool.map((ref) => ref.moments.map((moment) => moment.stats)));
     const same = pairs.filter((pair) => pair.still && pair.same).length, other = pairs.filter((pair) => pair.still && !pair.same).length;
+    // Where the edit is outside its references comes before the per-row detail (an agent that
+    // reads the first 8 lines sees it: trace-run6 section 3, `look versus | head -8`).
+    const decides = [
+      ...(drift.length ? drift : ["reference_drift: near the references in the craft measured."]),
+      ...range,
+      ...softLines,
+      judgeLine(state, record.revision),
+      ...(pinned.missing.length ? [`not pinned, no saved reference by that key: ${pinned.missing.join(", ")} (library inspire name:"save yt:<id> as <key>", take:"<what this edit takes>").`] : []),
+      ...(pinned.waiting.length ? [`not pinned yet, that reference is saved but not measured yet: ${pinned.waiting.join(", ")} (look {mode:"versus"} again in a minute).`] : []),
+    ];
     const lines = [
       `versus rev ${record.revision}: ${pairs.length} rows, yours (left) beside a saved reference (right) at the same place (${peak === null ? "opening, ending" : "opening, loudest change, ending"}, the rest by position): ${same} of the same kind of shot${other ? `, ${other} of another kind` : ""}${pairs.length - same - other ? `, ${pairs.length - same - other} with no reference still` : ""}. Compare craft (hero size, type, overlays, graphics, motion, holds, contrast), not content or footage colors.`,
+      ...decides,
       // What each save said this edit takes from it: the rows are read against that.
       ...Object.entries((await deps.inspire.savedTakes?.(projectId).catch(() => null)) ?? {}).map(([id, take]) => `you take from ${id} (${name(id)}): ${take}. Is it on screen?`),
       ...pairs.flatMap((pair) => [`row ${pair.n} ${pair.shot ? `shot ${pair.shot} ` : ""}@${pair.at}s: ${why(pair)}${pair.still ? ` (${name(pair.ref)} @${pair.refAt}s)` : ""}${pair.gaps?.length ? `; ${pair.gaps.join("; ")}` : ""}${pair.far ? `; ${pair.far}` : ""}${pair.full ? `; ${pair.full}` : ""}.`,
         ...(pair.seen ? [`  theirs on screen @${pair.refAt}s: ${pair.seen}`] : [])]),
       ...(notShown.length ? [`not shown (rows full, pin fewer shots to compare each): ${notShown.join(", ")}.`] : []),
-      ...(pinned.missing.length ? [`not pinned, no saved reference by that key: ${pinned.missing.join(", ")} (library inspire name:"save yt:<id> as <key>", take:"<what this edit takes>").`] : []),
-      ...(pinned.waiting.length ? [`not pinned yet, that reference is saved but not measured yet: ${pinned.waiting.join(", ")} (look {mode:"versus"} again in a minute).`] : []),
-      ...(drift.length ? drift : ["reference_drift: near the references in the craft measured."]),
-      ...range,
-      ...softLines,
-      judgeLine(state, record.revision),
       `image ${file}`,
     ];
     // Run by the final render (refuseWithoutReference): it records the comparison and the render's
@@ -4199,7 +4217,7 @@ export function createAgentService(deps) {
       await agentState.update(projectId, (draft) => { draft.versus = { rev: record.revision }; });
       return { text: lines.join("\n") };
     }
-    return done(projectId, { text: lines.join("\n"), images: [{ path: file, mime: "image/png", data: input.inline === false ? undefined : image.png.toString("base64") }],
+    return done(projectId, { text: lines.join("\n"), ...(lines.length >= FIRST_LINES ? { early: { at: 1 + decides.length, next: true } } : {}), images: [{ path: file, mime: "image/png", data: input.inline === false ? undefined : image.png.toString("base64") }],
       data: { rev: record.revision, mode: "versus", path: file, rows: pairs.map((pair) => ({ n: pair.n, at: pair.at, ref: pair.ref, refAt: pair.refAt, match: pair.match, role: pair.role,
         ...(pair.kind ? { kind: pair.kind } : {}), ...(pair.seen ? { seen: pair.seen } : {}), ...(pair.shot ? { shot: pair.shot } : {}), ...(pair.pinned ? { pinned: pair.pinned } : {}), ...(pair.gaps?.length ? { gaps: pair.gaps } : {}), ...(pair.far ? { far: pair.far } : {}) })) } },
     { change(draft) { draft.versus = { rev: record.revision }; } });
@@ -4515,11 +4533,15 @@ export function createAgentService(deps) {
     const left = fresh.length - covered.length;
     const head = `review ${where} rev ${record.revision}: ${covered.length} of ${plural(fresh.length, "unreviewed moment")} (${events.length} in all): ${picked.full.length} at full size, ${picked.compact.length} compact${same.length ? `, ${same.length} unchanged` : ""}. Each tile is the whole frame (gray outline), not a crop. Look at each frame closely: type, wrapping, overlaps, framing, empty space, artifacts.`;
     const wide = shown.filter((finding) => finding.at == null).slice(0, 3);
-    if (wide.length) lines.push(`whole scene: ${wide.map(findingWords).join(", ")}`);
-    lines.push(left ? `${left} more moments to review.` : "Every moment is reviewed. Fix what you saw in one edit; the next review shows only what it changed.");
+    // The findings of the whole scene, and what is left to review, come before the per-page lines
+    // (an agent that reads the first 8 lines of a review sees them: trace-code section 5).
+    const first = [
+      ...(wide.length ? [`whole scene: ${wide.map(findingWords).join(", ")}`] : []),
+      left ? `${left} more moments to review.` : "Every moment is reviewed. Fix what you saw in one edit; the next review shows only what it changed.",
+    ];
     const keys = covered.map((event) => event.key);
     const nextCall = left ? { tool: "look", input: { mode: "review", ...sceneField, ...rangeFields } } : null;
-    return done(projectId, { text: [head, ...lines].join("\n"), images, ...(nextCall ? { nextCall } : {}),
+    return done(projectId, { text: [head, ...first, ...lines].join("\n"), ...(1 + first.length + lines.length >= FIRST_LINES ? { early: { at: 1 + first.length, next: true } } : {}), images, ...(nextCall ? { nextCall } : {}),
       data: { rev: record.revision, mode: "review", events: events.length, shown: ordered.length, same: same.length, full: picked.full.length, compact: picked.compact.length, left, pages: images.map((entry) => entry.path), times: covered.map((event) => event.time).sort((a, b) => a - b) } },
     { change(draft) {
       draft.reviews ??= {};
@@ -8312,8 +8334,10 @@ export function createAgentService(deps) {
     // A JSON answer (a receipt, a refusal, a held write) keeps its next in its JSON.
     const json = Boolean(reply.receipt) || Boolean(reply.data && reply.text === compact(reply.data));
     const inbox = !reply.receipt && finish?.inbox?.length ? finish.inbox : [];
+    // early: where the inbox (and a short next) go in a text answer, so the first 8 lines hold them.
+    const early = reply.early;
     reply = { text: reply.receipt ? compact(reply.data) : reply.text, ...(reply.data ? { data: reply.data } : {}), ...(reply.images?.length ? { images: reply.images } : {}), ...(reply.isError ? { isError: true } : {}) };
-    reply = { ...reply, text: answerText({ text: reply.text, data: reply.data, json }, next, inbox) };
+    reply = { ...reply, text: answerText({ text: reply.text, data: reply.data, json, early: reply.isError ? null : early }, next, inbox) };
     reply = await capAnswer(reply, verb, projectId, next);
     // meta.quiet: the dashboard's own background reads (checks) stay out of the agent's log.
     if (known && !meta.quiet) {
