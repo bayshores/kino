@@ -152,6 +152,7 @@ export function renderRimLight(frame) {
   const smooth = smoothRadius(frame);
   const core = numberParameter(frame, "core", 0.3, 0, 1);
   const region = openRegion(frame, openEdges);
+  const rimPadding = Math.ceil(width + 1.5 * Math.max(spread, haze > 0 && hazeSpread > 0 ? hazeSpread : 0)) + 2;
   const area = region ? ` x="${fmt(region.x)}" y="${fmt(region.y)}" width="${fmt(region.width)}" height="${fmt(region.height)}"` : "";
   const steps = [`<feFlood flood-color="#fff" flood-opacity="1"${area} result="rimRegion"/>`];
   // 0. Shape: the layer's alpha, with stair-stepped matte edges rounded off (blur, then cut back
@@ -220,7 +221,11 @@ export function renderRimLight(frame) {
     // The slide wraps every 4000 px (at 40 px/s, once in 100 s); each step also jumps by up to
     // flicker x lobeSize, so the lobes flicker as they crawl.
     const jump = lobeRate > 0 ? flicker * lobeSize * stepHash(step, seed) : 0;
-    const shift = ((crawl * time + jump) % 4000 + 4000) % 4000;
+    // The noise is made inside the filter region and then slid by `shift`, so a slide wider than
+    // the filter's padding left the band with no noise at all: a negative crawl (wrapped to near
+    // 4000) or a long crawl drew no rim (energy-aura skeptic run, crawl -60: no light). The slide
+    // now wraps within the padding; below it nothing changes.
+    const shift = ((crawl * time + jump) % rimPadding + rimPadding) % rimPadding;
     const reach = frame.paintBounds ?? frame.bounds;
     const pad = Math.max(spread, haze > 0 ? hazeSpread : 0) * 2 + width;
     steps.push(`<feTurbulence type="fractalNoise" baseFrequency="${fmt(1 / lobeSize)}" numOctaves="2" seed="${seed}" x="${fmt(reach.x - pad - shift)}" y="${fmt(reach.y - pad - shift)}" width="${fmt(reach.width + 2 * pad + shift)}" height="${fmt(reach.height + 2 * pad + shift)}" result="rimNoise"/>`,
@@ -273,5 +278,5 @@ export function renderRimLight(frame) {
   // 8. Added on top of the layer, or alone (lightOnly; a parameter named fill would read as a Fill animation).
   steps.push(fill ? `<feComposite in="SourceGraphic" in2="rimPaint" operator="arithmetic" k1="0" k2="1" k3="1" k4="0"/>`
     : `<feMerge><feMergeNode in="rimPaint"/></feMerge>`);
-  return filterEffect(frame, steps, { padding: Math.ceil(width + 1.5 * Math.max(spread, hazed ? hazeSpread : 0)) + 2 });
+  return filterEffect(frame, steps, { padding: rimPadding });
 }

@@ -64,35 +64,33 @@ Contents: The move op · The moves · Moves example · Trim paths and dashes
   `into:{layer, rect?}` (a phone's screen, %) as the phone fades in (`device:"there"`: on
   already). `streaks` 0-1.
 - **carry**: one thing becomes the next shot, no cut: `{from, to, at}` (dur 0.5, expo-out).
-  Box, radius, fill and turn travel into `to`'s; contents crossfade in the middle third.
+  Box, radius, fill and turn travel into `to`'s; contents crossfade midway.
   `toRect`/`fromRect` [x, y, w, h] % carry into or out of a part (a phone's screen). `to` can be
   a split_image piece.
 - **cursor**: clicks or drags a split_image piece (screens).
-- **freeze-shutter**: footage stops on the beat with a one-frame `shutter` (white, black or
-  `kick`), holds `hold` 0.6-1.5 s leaning in, optional `label`, then `release` (ramp or
-  cut).
+- **freeze-shutter**: footage stops on the beat, a one-frame `shutter` (white, black, `kick`),
+  holds `hold` 0.6-1.5 s, optional `label`, then `release` (ramp, cut).
 - **speed-ramp**, **beat-repeat**: footage time on a cue (media.md).
 - **masked-type**: one big word made of the footage as the shot falls away around it; `subject`
   (the clip, cut out for you) stands it behind the person; `reveal`: `rise` (default) or `cut`.
 - **perceive-insert**: `layer` (a clip), `at`, `region` [x,y,w,h] % (default: marked subject)
-  fills the frame 1s (`dur` 0.6-1.4), hard cuts, muted; `entry:"push"`.
+  fills the frame 1s (`dur` 0.6-1.4), muted; `entry:"push"`.
 - **voice-type**: a spoken line set big word by word; `speech`+`line` or `words`.
 - **split-screen**, **picture-in-picture**: panes, a corner inset (cutout.md).
 - **type-on**: your text `layer` (left-aligned, `role:"ui"`) types at `cps` 12, `wordPause` 0.08;
-  a caret trails the last letter; `field` (the box under it) grows. Cues `<id>.1` per word,
-  `<id>.typed`.
+  a caret trails; `field` (the box under it) grows. Cues `<id>.1` per word, `<id>.typed`.
 - **stream** (any text `layer`): words arrive `rate` 4/s (`unit:"letters"` 30), the newest two
   in `from` (accent, #hex), then settle. **rewrite**: the layer, once read, blurs out; `new`
   streams in its place (`old` first).
   **decode**: random same-case letters settle in left to right. **assemble**: letters fly
   together from a seeded `spread` {x, y, angle, scale}. `mode:"out"` reverses either.
 - **draw-on**: a line, outline or route (`layer`: a stroked rectangle, ellipse, star or path)
-  draws on, 0.4-1.2 s by length; a fill fades in last.
+  draws on, 0.4-1.2 s by length; fill fades in last.
 - **punch-in**: the frame snaps closer on a `point` (`scale`, `hold`, `out`). **shake**: a
-  random shake that dies down, `at` a cue in a music edit.
-  Both refuse a layer that moves itself.
-- **overexpose**: a soft wash out and back, faces kept; `into` cuts on the peak.
+  shake that dies down, `at` a cue in a music edit. Both refuse a self-moving layer.
+- **overexpose**: a soft wash out and back, faces kept; `into` cuts at the peak.
 - **backdrop-flash** `{layer, at}`: a color field flashes behind the subject (cut out for you).
+- **energy-aura** `{layer, at}`: flame, smoke or electric aura rises off the subject.
 
 Launch-video type (words arrive faint, then darken):
 

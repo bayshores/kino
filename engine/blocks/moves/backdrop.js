@@ -53,7 +53,7 @@ export function hslToHex({ h, s, l }) {
 }
 
 /** The hue the field turns from: the layer's own grade (tritone midtone, duotone highlight), else its measured picture. */
-function shotHue(ctx, layer) {
+export function shotHue(ctx, layer) {
   for (const animation of [...(layer.animations ?? [])].reverse()) {
     if (animation?.kind !== "effect" || animation.enabled === false) continue;
     const values = { ...(animation.from ?? {}), ...(animation.to ?? {}), ...(animation.parameters ?? {}) };
