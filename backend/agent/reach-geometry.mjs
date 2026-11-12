@@ -166,7 +166,7 @@ function importSvgOperation(document, operation) {
   const y = finiteNumber(operation.y, "y", 0);
   const name = operation.name === undefined ? "Imported SVG" : operation.name;
   if (typeof name !== "string") throw new Error("name must be text.");
-  const imported = importSvg(operation.svg, { name, DOMParser });
+  const imported = importSvg(operation.svg, { name, explicit: operation.name !== undefined, DOMParser });
   const layers = moveRootLayers(imported.layers, x, y);
   const nextScene = { ...scene, layers: [...scene.layers, ...layers] };
   return {

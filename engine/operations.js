@@ -408,6 +408,8 @@ export function applyOperations(source, operations, {fonts, mediaBySrc, mediaByI
       const added = { ...animation, id: operation.id || animation.id || uid() };
       if (operation.easing !== undefined) added.easing = operation.easing;
       if (operation.intensity !== undefined) added.intensity = operation.intensity;
+      // A name the caller gave the animation (preset, effect and flat forms) is kept on it.
+      if (typeof operation.name === "string" && operation.name && !operation.animation) added.name = operation.name;
       // unit, stagger and order space a text animation's letters, words or lines (smoothing and
       // smoothingIntensity ease that spacing), so a word-by-word reveal is one add_animation.
       const unitFields = ["unit", "stagger", "order", "orderSeed", "smoothing", "smoothingIntensity", "range"].filter((field) => operation[field] !== undefined);

@@ -113,7 +113,7 @@ test("server SVG import applies finite offsets, returns fidelity warnings, and r
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="240" viewBox="0 0 320 240">
     <path id="green-mark" d="M 20 20 h 48 v 36 h -48 Z" fill="#00cc66" fill-rule="unsupported" />
   </svg>`;
-  const imported = importSvg(svg, { name: "Green mark", DOMParser });
+  const imported = importSvg(svg, { name: "Green mark", explicit: true, DOMParser });
   const moved = imported.layers.map((layer) => layer.parentId ? layer : { ...layer, x: layer.x + 36, y: layer.y + 14 });
   const scene = before.scenes[0];
   let expected = parseDocument({ ...before, scenes: [{ ...scene, layers: [...scene.layers, ...moved] }] });

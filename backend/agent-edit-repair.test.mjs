@@ -496,3 +496,24 @@ test("a scene may last ten minutes; a longer scene or an animation ending later 
   const removed = await agent("edit", { ops: [{ op: "delete_scene", scene: "song" }] });
   assert.equal(removed.isError, undefined, removed.text);
 });
+
+test("a name given to add_animation and import_svg is kept and found later; a preset on a repeater is said in the receipt", async () => {
+  const made = await agent("edit", { ops: [{ op: "add_scene", name: "naming", properties: { duration: 3 } }, { op: "add_layer", scene: "naming", layerType: "rectangle", name: "tile", properties: { x: 10, y: 10, width: 100, height: 100 } }] });
+  assert.equal(made.isError, undefined, made.text);
+  const named = await agent("edit", { ops: [{ op: "add_animation", layer: "tile", preset: "preset-fade", name: "intro", start: 0, duration: 0.5 }] });
+  assert.equal(named.isError, undefined, named.text);
+  assert.ok(findLayer(await saved(), "tile").animations.some((animation) => animation.name === "intro"), "the animation keeps its name");
+
+  const svg = "<svg xmlns='http://www.w3.org/2000/svg' width='64' height='64'><rect id='a' width='30' height='30' fill='#FF6B4A'/><circle id='b' cx='45' cy='45' r='10' fill='#00f'/></svg>";
+  const imported = await agent("edit", { ops: [{ op: "import_svg", scene: "naming", name: "logo", svg }] });
+  assert.equal(imported.isError, undefined, imported.text);
+  assert.match((imported.data.notes ?? []).join(" "), /import_svg made "logo" \(.+\), "logo 2" \(.+\)/);
+  const used = await agent("edit", { ops: [{ op: "update_layer", layer: "logo 2", properties: { x: 50 } }, { op: "update_layer", layer: "logo", properties: { x: 40 } }] });
+  assert.equal(used.isError, undefined, `the names logo and logo 2 are found: ${used.text}`);
+
+  const repeater = await agent("edit", { ops: [
+    { op: "add_layer", scene: "naming", layerType: "rectangle", name: "dot", properties: { x: 300, y: 100, width: 20, height: 20, repeatCopies: 8, repeatX: 30 } },
+    { op: "add_animation", layer: "dot", preset: "preset-pixel", start: 0.2, duration: 1 },
+  ] });
+  assert.match((repeater.data.warnings ?? []).join(" "), /preset-pixel on dot showed no visible state on a repeater/);
+});
