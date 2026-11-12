@@ -94,7 +94,7 @@ test("a limiter place turns the layers playing there down by its factor: a long 
   "voice", { kind: "custom", start: 1.9, duration: 0.5, easing: "linear", from: { volume: 0 }, to: { volume: 1 } });
   const scene = document.scenes[0];
   const playing = ["song", "hit", "voice"].map((layerId) => ({ layerId, name: layerId }));
-  const trim = peakTrims(scene, [{ at: 2, from: 2, to: 2.2, overDb: 4.6, factor: 0.58, playing }]);
+  const trim = peakTrims(scene, [{ at: 2, from: 2, to: 2.2, overDb: 4.6, factor: 0.58, playing }], { bed: (layer) => layer.id === "song" });
   const after = applyOperations(document, trim.ops.map(({ op, ...rest }) => ({ type: op, ...rest })));
   const [song, hit, voice] = after.scenes[0].layers;
   assert.equal(hit.volume, 0.58);
@@ -107,17 +107,26 @@ test("a limiter place turns the layers playing there down by its factor: a long 
   assert.deepEqual(trim.fixed, ["mix 2 s (2-2.2 s, 4.6 dB over) x0.58: song 0.8->0.464, hit 0.58"]);
 });
 
-test("a song whose limiter dips would churn its level keeps it; the hit at a place still comes down", () => {
+test("a song whose limiter dips would churn its level comes down whole by its worst place's factor; the hit still comes down", () => {
   const document = parseDocument({ ...createDocument(), scenes: [createScene({ id: "s", duration: 10, layers: [
-    createLayer("audio", { id: "song", name: "song", src: "/api/media/a.wav", volume: 1, mediaSourceDuration: 10 }),
+    createLayer("audio", { id: "song", name: "song", src: "/api/media/a.wav", volume: 1, mediaSourceDuration: 10,
+      animations: [{ id: "in", name: "Fade in", kind: "custom", easing: "linear", start: 0, duration: 1, from: { volume: 0 }, to: { volume: 1 } }] }),
     createLayer("audio", { id: "step", name: "step", src: "/api/media/b.wav", volume: 1, mediaStart: 4, mediaSourceDuration: 0.2 })] })] });
-  const place = (at, factor, ids) => ({ at, from: at, to: at + 0.2, overDb: 3, factor, playing: ids.map((layerId) => ({ layerId, name: layerId })) });
+  const place = (at, factor, ids) => ({ at, from: at, to: at + 0.2, peakDbtp: 1.5, overDb: 3, factor, playing: ids.map((layerId) => ({ layerId, name: layerId })) });
   const trim = peakTrims(document.scenes[0], [place(2, 0.7, ["song"]), place(4, 0.58, ["song", "step"]), place(6, 0.7, ["song"])]);
-  assert.deepEqual(trim.ops.map((op) => [op.op, op.layerId]), [["update_layer", "step"]]);
-  assert.deepEqual(trim.fixed, ["mix 4 s (4-4.2 s, 3 dB over) x0.58: step 0.58"]);
-  assert.match(trim.dropped[0], /^mix 2 s x0\.7, 4 s x0\.58, 6 s x0\.7 song: 3 dips would turn its level 5 times in 4 s \(volume_churn\), so it keeps its level$/);
-  // One dip turns it twice: no churn, so it is applied.
+  assert.deepEqual(trim.ops, [{ op: "update_layer", sceneId: "s", layerId: "step", properties: { volume: 0.58 } }, { op: "update_layer", sceneId: "s", layerId: "song", properties: { volume: 0.58 } }]);
+  assert.deepEqual(trim.dropped, []);
+  assert.equal(trim.fixed[0], "mix song x0.58 whole 1->0.58: one constant gain, sized from the 4 s place (the lowest factor of 3, +1.5 dBTP); place by place, 3 dips would turn its level 5 times in 4 s (volume_churn)");
+  assert.deepEqual(trim.fixed.slice(1), ["mix 2 s (2-2.2 s, 3 dB over): song x0.58 whole 1->0.58", "mix 4 s (4-4.2 s, 3 dB over) x0.58: step 0.58, song x0.58 whole 1->0.58", "mix 6 s (6-6.2 s, 3 dB over): song x0.58 whole 1->0.58"]);
+  assert.deepEqual(trim.trimmed.map((entry) => entry.layers.map((layer) => [layer.name, layer.factor, layer.whole ?? false])), [[["song", 0.58, true]], [["step", 0.58, false], ["song", 0.58, true]], [["song", 0.58, true]]]);
+  // Applied, the fade in keeps its shape at the new level: a constant gain.
+  const after = applyOperations(document, trim.ops.map(({ op, ...rest }) => ({ type: op, ...rest })));
+  assert.deepEqual(after.scenes[0].layers[0].animations.map((animation) => [animation.from.volume, animation.to.volume]), [[0, 0.58]]);
+  // One dip turns it twice: no churn, so it dips there.
   assert.equal(peakTrims(document.scenes[0], [place(2, 0.7, ["song"])]).ops.length, 2);
+  // A song whose Volume animations never meet its volume cannot take one constant gain this way: named with its factor.
+  const own = parseDocument({ ...document, scenes: [{ ...document.scenes[0], layers: [{ ...document.scenes[0].layers[0], animations: [{ ...document.scenes[0].layers[0].animations[0], to: { volume: 0.8 } }] }, document.scenes[0].layers[1]] }] });
+  assert.match(peakTrims(own.scenes[0], [place(2, 0.7, ["song"]), place(4, 0.58, ["song", "step"]), place(6, 0.7, ["song"])]).dropped[0], /^mix 2 s x0\.7, 4 s x0\.58, 6 s x0\.7 song: 3 dips would turn .*do not start or end at its volume 1: lower it by hand x0\.58$/);
 });
 
 test("measured alone, the layer that makes a place's peak comes down by its own factor; the others keep their level", () => {
@@ -127,11 +136,17 @@ test("measured alone, the layer that makes a place's peak comes down by its own 
   // A footstep at 0 dBFS over a song at -8 dBFS: the mix +3.1 dBTP, x0.58 to reach the ceiling.
   const place = (stepPeak, songPeak) => ({ at: 9.6, from: 9.6, to: 9.8, peakDbtp: 3.1, overDb: 4.6, factor: 0.58,
     playing: [{ layerId: "song", name: "song", peakDbfs: songPeak }, { layerId: "step", name: "step", peakDbfs: stepPeak }] });
-  assert.deepEqual([...peakCauses(place(0, -8))], [["step", 0.43]], "(0.84 - 0.4 song) / 1.0");
+  // Its share of the measured peak: (ceiling 0.83 - song 0.4) / (mix 1.43 - song 0.4).
+  assert.deepEqual([...peakCauses(place(0, -8))], [["step", 0.41]]);
   const trim = peakTrims(document.scenes[0], [place(0, -8)]);
-  assert.deepEqual(trim.ops, [{ op: "update_layer", sceneId: "s", layerId: "step", properties: { volume: 0.43 } }]);
-  assert.deepEqual(trim.fixed, ["mix 9.6 s (9.6-9.8 s, 4.6 dB over): step x0.43 1->0.43 (alone 0 dBFS); kept song (alone -8 dBFS)"]);
-  assert.deepEqual(trim.trimmed, [{ at: 9.6, from: 9.6, to: 9.8, peakDbtp: 3.1, layers: [{ name: "step", factor: 0.43 }] }]);
+  assert.deepEqual(trim.ops, [{ op: "update_layer", sceneId: "s", layerId: "step", properties: { volume: 0.41 } }]);
+  assert.deepEqual(trim.fixed, ["mix 9.6 s (9.6-9.8 s, 4.6 dB over): step x0.41 1->0.41 (alone 0 dBFS); kept song (alone -8 dBFS)"]);
+  assert.deepEqual(trim.trimmed, [{ at: 9.6, from: 9.6, to: 9.8, peakDbtp: 3.1, layers: [{ name: "step", factor: 0.41 }] }]);
+  // Three layers: the rest without the step is measured (-2.5 dBFS), not the song and hit summed in
+  // phase (+0.9 dBFS, which left no layer able to clear it: every layer x0.58). The step alone would
+  // need x0.11, so the hit shares the cut over the song alone.
+  const three = { ...place(0, -8), playing: [...place(0, -8).playing, { layerId: "hit", name: "hit", peakDbfs: -3 }], restDbfs: [-2.5] };
+  assert.deepEqual([...peakCauses(three)], [["step", 0.41], ["hit", 0.41]]);
   // Both near the ceiling alone: no one layer can clear it, so both take the place's x0.58.
   assert.equal(peakCauses(place(-2, -2.5)), null);
   assert.deepEqual(peakTrims(document.scenes[0], [place(-2, -2.5)]).fixed, ["mix 9.6 s (9.6-9.8 s, 4.6 dB over) x0.58: song 1->0.58, step 0.58"]);

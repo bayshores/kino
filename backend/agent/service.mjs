@@ -162,7 +162,7 @@ import { spokenLine } from "../../engine/blocks/moves/footage.js";
 import { VIDEO_FORMAT_NAMES, videoFormatsText } from "../../engine/blocks/videoFormats.js";
 import { existsSync } from "node:fs";
 import { avOffsetFinding } from "./av-offset.mjs";
-import { LIMITER_CEILING_DB, describeLevels, describeMixFix, describeMixPeaks, measureFileLevels, peakOver } from "../audio-levels.mjs";
+import { LIMITER_CEILING_DB, describeLevels, describeMixFix, describeMixPeaks, measureFileLevels, peakOver, restCallFor } from "../audio-levels.mjs";
 import { peakTrims } from "../../engine/peakTrim.js";
 import { mediaIdFromSource } from "../../engine/replaceMedia.js";
 import { createBeatAnalysisCache, isSoundEffect, soundIsMusic, steadyBeat } from "../audio-analysis.mjs";
@@ -3511,8 +3511,7 @@ export function createAgentService(deps) {
       if (mixBefore?.places.length && autoClears)
         outcome.dropped.push(`mix: loudness "auto" (the render default) adds ${mixBefore.auto.gainDb} dB first, so the limiter never works; the xN on the "mix:" line are for loudness "off"`);
       else if (mixBefore?.places.length) {
-        const kinds = await savedSoundKinds(mixScene, record.document);
-        const trim = peakTrims(mixScene, mixBefore.places, { bed: (layer) => isMusicLayer(layer, mixScene, kinds.find((entry) => entry.layer.id === layer.id)) });
+        const trim = await mixPlan(mixScene, record.document, mixBefore.places);
         const touched = new Set(outcome.ops.flatMap((op) => [op.layerId, op.layer, ...(op.layerIds ?? [])]).filter(Boolean));
         const names = (id) => [id, mixScene.layers.find((layer) => layer.id === id)?.name];
         if (trim.ops.some((op) => names(op.layerId).some((ref) => touched.has(ref)))) outcome.dropped.push("mix: another fix changes those layers; check {fix:\"auto\"} again turns the peaks down");
@@ -3534,8 +3533,11 @@ export function createAgentService(deps) {
         fonts = await fontsFor(record.document);
         result = await findingsFor(record.document, { ...options, codes, fonts });
         // The mix measured again (kept for the "mix:" line below): the places before and after.
-        const mixAfter = mixTrimmed ? await mixPeaksOf(scene ? record.document.scenes.find((item) => item.id === scene.id) : videoScene(record.document)) : null;
-        if (mixAfter) applied.mix = describeMixFix(mixBefore, mixAfter, mixTrimmed);
+        const afterScene = scene ? record.document.scenes.find((item) => item.id === scene.id) : videoScene(record.document);
+        const mixAfter = mixTrimmed ? await mixPeaksOf(afterScene) : null;
+        // The places left, and the one call that clears them (another check {fix:"auto"}, or one edit).
+        const restCall = mixAfter?.places.length ? restCallFor(mixAfter.places, await mixPlan(afterScene, record.document, mixAfter.places), afterScene.layers) : "";
+        if (mixAfter) applied.mix = describeMixFix(mixBefore, mixAfter, mixTrimmed, { restCall });
       } else applied = { ops: 0, fixed: [], dropped: outcome.dropped };
       // Whether the last fix:"auto" applied anything: next: names a plain check after one that
       // applied nothing (GAPS Friction 5: one rebuild was sent check fix:"auto" 30 times).
@@ -3594,7 +3596,17 @@ export function createAgentService(deps) {
     if (returnsScene) lines.push(...await sceneCueLinesFor(record.document, returnsScene).catch(() => []));
     // Where the mix passes the limiter, measured without a render: a fact line when the scene has sound.
     const mix = returnsScene && options.listen ? await mixPeaksOf(returnsScene) : null;
-    if (mix) lines.push(describeMixPeaks(mix, { tail: "; all of them: look {mode:\"motion\", ref:\"sound\"}" }) + (mix.places.length && !(mix.auto && !mix.auto.places && !mix.auto.held) ? "; check {fix:\"auto\"} applies each xN over its place" : ""));
+    // What check {fix:"auto"} would turn down (peakTrims planned on the places as measured; its own
+    // run measures each layer alone first, so it may pick fewer layers at a place and other factors:
+    // a whole-song factor is named only by the fix, never guessed here).
+    let mixTail = "";
+    if (mix?.places.length && !(mix.auto && !mix.auto.places && !mix.auto.held)) {
+      const plan = await mixPlan(returnsScene, record.document, mix.places);
+      const wholes = [...new Set(plan.trimmed.flatMap((place) => place.layers.filter((layer) => layer.whole).map((layer) => String(layer.name).slice(0, 24))))];
+      mixTail = `; check {fix:"auto"} turns down ${plan.trimmed.length} of ${mix.places.length} ${mix.places.length === 1 ? "place" : "places"}` +
+        (wholes.length ? ` (${wholes.map((name) => `${name} whole`).join(", ")}: its dips would churn or meet a fade; the fix sizes it from each layer measured alone)` : "");
+    }
+    if (mix) lines.push(describeMixPeaks(mix, { tail: "; all of them: look {mode:\"motion\", ref:\"sound\"}" }) + mixTail);
     for (const note of result.notes) lines.push(`note: ${note}`);
     // The rules line comes with the agent's first check of a project since kino started, and
     // with {rules:true}. The dashboard's own checks (by you) do not count.
@@ -5558,6 +5570,12 @@ export function createAgentService(deps) {
   }
   // Each audio layer's kind as far as kino knows it without new work: {layer, music: true} for a
   // song (a beat was found), {layer, transcript} for a voice with a saved transcript.
+  // peakTrims over a scene's limiter places, with songs and beds told apart by their saved kinds.
+  async function mixPlan(scene, document, places) {
+    const kinds = await savedSoundKinds(scene, document);
+    return peakTrims(scene, places, { bed: (layer) => isMusicLayer(layer, scene, kinds.find((entry) => entry.layer.id === layer.id)) });
+  }
+
   async function savedSoundKinds(scene, document) {
     const speech = [];
     for (const layer of scene.layers) {

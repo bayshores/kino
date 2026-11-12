@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createLayer, createScene } from "../engine/model.js";
 import { createAgentClient } from "./agent/client.mjs";
-import { describeLevels, describeMixPeaks, limiterPlaces, loudMixWarning, loudnessGain, mixLead, readLevels, readPeakWindows } from "./audio-levels.mjs";
+import { describeLevels, describeMixFix, describeMixPeaks, limiterPlaces, restCallFor, loudMixWarning, loudnessGain, mixLead, readLevels, readPeakWindows } from "./audio-levels.mjs";
 import { createLoudnessCurves, measureLoudnessCurve, readMomentary, savedWordsOf } from "./loudness-curve.mjs";
 import { exportScene, measureMixPeaks, sceneSoundClips } from "./export.mjs";
 import { ffmpeg, makeToneAfterSilence, run, skipWithoutMediaTools, startTestServer } from "./media.test.support.mjs";
@@ -278,6 +278,24 @@ test("the limiter places: each 0.1 s peak over the ceiling, near ones joined, ti
   assert.match(describeMixPeaks({ ...mix, places: [], auto }), /never works; loudness "auto" \(the render default, target -14 web\) adds \+8 dB first \(held by the peaks\), then the limiter works at 1 place, most 6 dB at 2 s$/);
 });
 
+test("the mix fix line says which places were turned down, which were not, what is left and the one call that clears it", () => {
+  const song = { layerId: "song", name: "Song", volume: 1 };
+  const place = (at, peakDbtp, factor) => ({ at, from: at, to: at + 0.2, peakDbtp, overDb: Math.round(10 * (peakDbtp + 1.5)) / 10, factor, playing: [song] });
+  const before = { integratedLufs: -8.7, truePeakDbtp: 3.1, places: [place(1.7, 0, 0.84), place(9.6, 3.1, 0.58)] };
+  const after = { integratedLufs: -9.5, truePeakDbtp: -1.2, places: [place(6.4, -1.2, 0.96)], windows: [{ t: 9.6, peak: -1.8 }, { t: 6.4, peak: -1.2 }] };
+  const trimmed = [{ at: 9.6, from: 9.6, to: 9.8, peakDbtp: 3.1, layers: [{ name: "Song", factor: 0.58, whole: true }] }];
+  const layers = [{ id: "song", name: "Song", volume: 0.58 }];
+  const edit = restCallFor(after.places, { ops: [] }, layers);
+  assert.equal(edit, 'edit {ops:[{op:"update_layer", layer:"Song", properties:{volume:0.557}}]}');
+  assert.equal(restCallFor(after.places, { ops: [{}] }, layers), 'check {fix:"auto"}');
+  assert.equal(restCallFor([], null, layers), "");
+  // A name with a quote mark stays one string in the call.
+  assert.equal(restCallFor(after.places, { ops: [] }, [{ id: "song", name: 'the "big" one', volume: 1 }]), 'edit {ops:[{op:"update_layer", layer:"the \\"big\\" one", properties:{volume:0.96}}]}');
+  const line = describeMixFix(before, after, trimmed, { restCall: edit });
+  assert.match(line, /; places: 9\.6 s Song x0\.58 whole: \+3\.1 -> -1\.8 dBFS; turned down at 1 of 2 places \(not at 1\.7 s: see not applied\); left: 1 place, worst 6\.4 s -1\.2 dBTP, 0\.3 dB over \(Song 1\) x0\.96; clears the rest: edit \{ops:\[\{op:"update_layer", layer:"Song", properties:\{volume:0\.557\}\}\]\}$/);
+  assert.match(describeMixFix(before, { ...after, places: [] }, trimmed), /; left: none$/);
+});
+
 test("measuring the mix finds every limiter place, and the loudest matches the render's own warning", { skip: skipWithoutMediaTools }, async (t) => {
   const { root, mediaRoot } = await setup(t);
   // Three tones at 0.5-1.5 s (+3.3 dBTP), then two at 2.5-3.5 s (-0.2 dBTP, under the render's
@@ -287,8 +305,14 @@ test("measuring the mix finds every limiter place, and the loudest matches the r
   scene.layers.forEach((layer, index) => Object.assign(layer, { mediaSourceDuration: 1.5, mediaStart: index < 3 ? 0 : 2 }));
   const directory = join(root, "clips");
   await mkdir(directory);
-  const mix = await measureMixPeaks(await sceneSoundClips(scene, { mediaRoot, directory, duration: 4 }), 4);
+  const mix = await measureMixPeaks(await sceneSoundClips(scene, { mediaRoot, directory, duration: 4 }), 4, undefined, { perLayer: true });
   assert.deepEqual(mix.places.map((place) => [place.at, place.peakDbtp, place.playing.length]), [[0.5, 3.3, 3], [2.5, -0.2, 2]]);
+  // perLayer: each layer alone, and the mix without the loudest of three (two tones in phase, +6 dB
+  // over one); with two layers the one left alone is the rest, so nothing more is measured.
+  const [three, two] = mix.places;
+  assert.equal(three.restDbfs.length, 1);
+  assert.ok(Math.abs(three.restDbfs[0] - (three.playing[0].peakDbfs + 6)) <= 0.3, `${three.restDbfs[0]} vs ${three.playing[0].peakDbfs}`);
+  assert.equal(two.restDbfs, undefined);
   const result = await exportScene(scene, { profile: "mp4.alt", fps: 10 }, { mediaRoot, outputPath: join(root, "loud.mp4") });
   const [, peak, at] = result.warnings.find((entry) => entry.code === "audio-limited").message.match(/peaked at \+([\d.]+) dBTP at ([\d.]+) s/);
   assert.ok(Math.abs(Number(at) - mix.places[0].at) <= 0.1 && Math.abs(Number(peak) - mix.places[0].peakDbtp) <= 0.5, `render ${peak} at ${at}`);
@@ -495,11 +519,11 @@ test("check fix:auto turns the layer that makes each limiter place's peak down o
   const mixLine = (reply) => reply.text.split("\n").find((line) => line.startsWith("mix: "));
   const before = mixLine(await agent("check", { project, pixels: false }));
   t.diagnostic(before);
-  assert.match(before, /works at 1 place: 2 s \+[\d.]+ dBTP, [\d.]+ dB over \(Song 1, Voice 1\) x0\.\d+.*; check \{fix:"auto"\} applies each xN over its place$/);
+  assert.match(before, /works at 1 place: 2 s \+[\d.]+ dBTP, [\d.]+ dB over \(Song 1, Voice 1\) x0\.\d+.*; check \{fix:"auto"\} turns down 1 of 1 place$/);
   const fixed = await agent("check", { project, pixels: false, fix: "auto" });
   const receipt = fixed.text.split("\n").find((line) => line.startsWith("mix fix: "));
   t.diagnostic(receipt);
-  assert.match(receipt, /^mix fix: the limiter works at 1 -> 0 places \(most [\d.]+ -> 0 dB over\); -[\d.]+ -> -[\d.]+ LUFS, true peak \+[\d.]+ -> -[12]\.\d dBTP with loudness "off".*; places: 2 s Voice x0\.\d+: \+[\d.]+ -> -[\d.]+ dBFS$/);
+  assert.match(receipt, /^mix fix: the limiter works at 1 -> 0 places \(most [\d.]+ -> 0 dB over\); -[\d.]+ -> -[\d.]+ LUFS, true peak \+[\d.]+ -> -[12]\.\d dBTP with loudness "off".*; places: 2 s Voice x0\.\d+: \+[\d.]+ -> -[\d.]+ dBFS; turned down at 1 of 1 place; left: none$/);
   // Measured alone, the burst (Voice, about -3 dBFS) makes the peak, not the song (about -9 dBFS): only the voice comes down.
   assert.match(fixed.text, /fixed mix 2 s \(2-2\.2 s, [\d.]+ dB over\): Voice x0\.\d+ 1->0\.\d+ \(alone -[\d.]+ dBFS\); kept Song \(alone -[\d.]+ dBFS\)/);
   assert.match(mixLine(fixed), /the limiter \(ceiling -1\.5 dBFS\) never works/);

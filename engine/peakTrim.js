@@ -10,8 +10,10 @@
 // layers that can clear it come down, each by its own factor (peakCauses); the others keep their level.
 // A layer whose volume moves around the place (a fade or a duck ramp there) is left alone, with the
 // reason, since a fixed level would flatten that move; so is one where another Volume animation
-// would take over from the dip. A song or bed (`bed`) whose dips would make its level turn 3 times
-// in 10 s (the volume_churn warning) keeps its level: the other sounds at those places still come down.
+// would take over from the dip. A song or bed (`bed`) that cannot dip there (its volume moves, or
+// its dips would make its level turn 3 times in 10 s: the volume_churn warning) comes down whole
+// instead, by the lowest factor its places need: one constant gain, which neither churns nor
+// flattens a fade (update_layer volume scales its Volume animations with it).
 import { animatesVolume, volumeAt } from "./animation.js";
 import { churnRun, isMusicLayer } from "./quality/rules/sound.js";
 import { uid } from "./model.js";
@@ -52,8 +54,11 @@ const linear = (db) => 10 ** (db / 20);
 
 /**
  * Which layers make a place's peak, from each one's own peak there (playing[].peakDbfs, measured
- * alone): the loudest ones, as few as can clear the place, each by its own factor. The others are
- * counted at their own peak (all summed in phase), so the place clears whatever they do there.
+ * alone): the loudest ones, as few as can clear the place, each by its own factor. The factor is
+ * their measured share of the place's peak, (ceiling - rest) / (mix - rest), where rest is the mix
+ * without them: measured with them left out (place.restDbfs[count - 1], measureMixPeaks perLayer),
+ * or the one layer left, alone. Only without either are the others counted at their own peak, all
+ * summed in phase (the worst case: the cut layer comes down more than needed over real music).
  * Returns Map layerId -> factor, or null (no per-layer peaks, or every layer is needed: the place's
  * xN on all of them).
  */
@@ -61,12 +66,23 @@ export function peakCauses(place) {
   const own = new Map();
   for (const clip of place.playing ?? []) if (clip.layerId && !own.has(clip.layerId)) own.set(clip.layerId, clip.peakDbfs);
   if (own.size < 2 || [...own.values()].some((peak) => !Number.isFinite(peak)) || !Number.isFinite(place.peakDbtp)) return null;
-  const target = linear(place.peakDbtp) * place.factor;
+  const mix = linear(place.peakDbtp);
+  const target = mix * place.factor;
   const sorted = [...own].sort((a, b) => b[1] - a[1]);
   for (let count = 1; count < sorted.length; count += 1) {
-    const cut = sorted.slice(0, count).reduce((sum, [, peak]) => sum + linear(peak), 0);
-    const rest = sorted.slice(count).reduce((sum, [, peak]) => sum + linear(peak), 0);
-    const factor = Math.floor(100 * (target - rest) / cut) / 100;
+    const measured = count === sorted.length - 1 ? sorted.at(-1)[1] : place.restDbfs?.[count - 1];
+    let factor;
+    if (measured === null || Number.isFinite(measured)) {
+      // null: the rest is silent there.
+      const rest = measured === null ? 0 : linear(measured);
+      if (!(mix - rest > 0)) continue;
+      factor = (target - rest) / (mix - rest);
+    } else {
+      const cut = sorted.slice(0, count).reduce((sum, [, peak]) => sum + linear(peak), 0);
+      const rest = sorted.slice(count).reduce((sum, [, peak]) => sum + linear(peak), 0);
+      factor = (target - rest) / cut;
+    }
+    factor = Math.floor(100 * factor) / 100;
     if (factor >= MIN_CAUSE_FACTOR) return new Map(sorted.slice(0, count).map(([id]) => [id, Math.min(factor, 1)]));
   }
   return null;
@@ -87,6 +103,15 @@ export function peakTrims(scene, places, { bed = (layer) => isMusicLayer(layer, 
   const changes = [];
   const fixed = [];
   const dropped = [];
+  // Songs and beds that come down whole instead of dipping: id -> {places: [{place, factor}], why: [text]}.
+  const wholeNeeds = new Map();
+  const wholeFixed = [];
+  const needWhole = (id, place, factor, why) => {
+    if (!wholeNeeds.has(id)) wholeNeeds.set(id, { places: [], why: [] });
+    const need = wholeNeeds.get(id);
+    if (place) need.places.push({ place, factor });
+    if (!need.why.includes(why)) need.why.push(why);
+  };
   const copyOf = (layer) => {
     if (!layers.has(layer.id)) layers.set(layer.id, { ...layer, animations: [...(layer.animations ?? [])] });
     return layers.get(layer.id);
@@ -121,7 +146,12 @@ export function peakTrims(scene, places, { bed = (layer) => isMusicLayer(layer, 
       const end = round(Math.min(scene.duration, place.to + PEAK_RAMP));
       const level = volumeAt(layer, start);
       if (!(level > 0)) continue;
-      if (!steady(layer, start, end, level)) { dropped.push(`mix ${place.at} s ${layer.name ?? id}: its volume moves there (a fade or a dip): lower it by hand x${factor}`); continue; }
+      if (!steady(layer, start, end, level)) {
+        // A song or bed comes down whole instead (below): a constant gain keeps the fade's shape.
+        if (bed(original)) needWhole(id, place, factor, `its volume moves at ${place.at} s`);
+        else dropped.push(`mix ${place.at} s ${layer.name ?? id}: its volume moves there (a fade or a dip): lower it by hand x${factor}`);
+        continue;
+      }
       const low = round(level * factor);
       const from = round(level);
       const dip = [{ id: uid(), name: PEAK_NAMES.down, kind: "custom", easing: "smooth", start, duration: Math.max(0.001, round(place.from - start)), from: { volume: from }, to: { volume: low } }];
@@ -130,33 +160,79 @@ export function peakTrims(scene, places, { bed = (layer) => isMusicLayer(layer, 
       layer.animations = [...before, ...dip];
       // Another Volume animation that would take over inside the dip (or hold a value before it starts) leaves it alone.
       const holds = Math.abs(volumeAt(layer, place.at) - low) <= 0.002 && (end >= scene.duration - 0.001 || Math.abs(volumeAt(layer, end + STEP) - volumeAt({ ...layer, animations: before }, end + STEP)) <= 0.002);
-      if (!holds) { layer.animations = before; dropped.push(`mix ${place.at} s ${layer.name ?? id}: another Volume animation takes over there: lower it by hand x${factor}`); continue; }
+      if (!holds) {
+        layer.animations = before;
+        if (bed(original)) needWhole(id, place, factor, `another Volume animation takes over at ${place.at} s`);
+        else dropped.push(`mix ${place.at} s ${layer.name ?? id}: another Volume animation takes over there: lower it by hand x${factor}`);
+        continue;
+      }
       if (!added.has(id)) added.set(id, []);
       added.get(id).push(...dip);
       changed.push([id, `${layer.name ?? id}${tag} ${from}->${low}${alone}`, factor]);
     }
     changes.push({ place, changed, kept, causes });
   }
-  // A song or bed that did not churn before but would with its dips keeps its level.
+  // A song or bed that did not churn before but would with its dips does not dip either.
   for (const id of [...added.keys()]) {
     const original = scene.layers.find((layer) => layer.id === id);
     if (!bed(original) || churnRun(original, scene)) continue;
     const turns = churnRun(layers.get(id), scene);
     if (!turns) continue;
-    added.delete(id);
-    const at = changes.flatMap(({ place, changed }) => changed.filter(([layerId]) => layerId === id).map(([, , factor]) => `${place.at} s x${factor}`));
-    for (const entry of changes) entry.changed = entry.changed.filter(([layerId]) => layerId !== id);
-    dropped.push(`mix ${at.join(", ")} ${original.name ?? id}: ${at.length} dips would turn its level ${turns.length} times in ${round(turns.at(-1).time - turns[0].time)} s (volume_churn), so it keeps its level`);
+    const dips = changes.filter(({ changed }) => changed.some(([layerId]) => layerId === id)).length;
+    needWhole(id, null, null, `${dips} dips would turn its level ${turns.length} times in ${round(turns.at(-1).time - turns[0].time)} s (volume_churn)`);
   }
+  // Each song or bed that cannot dip place by place comes down whole: one constant gain (no churn,
+  // and its fades and ducks keep their shape), the lowest factor any of its places needs, so every
+  // place it plays in clears as far as it can. Its dips at the other places are taken back.
+  for (const [id, need] of wholeNeeds) {
+    const original = scene.layers.find((layer) => layer.id === id);
+    const name = original.name ?? id;
+    const dipped = changes.flatMap(({ place, changed }) => changed.filter(([layerId]) => layerId === id).map(([, , factor]) => ({ place, factor })));
+    const all = [...dipped, ...need.places];
+    const worst = all.reduce((low, entry) => (!low || entry.factor < low.factor ? entry : low), null);
+    const from = original.volume ?? 1;
+    // A constant gain through update_layer volume scales its Volume animations only when one goes
+    // to or from its volume (engine/operations.js carryVolume); otherwise it is lowered by hand.
+    const scales = !animatesVolume(original) || (original.animations ?? []).some((animation) =>
+      ["from", "to"].some((side) => typeof animation?.[side]?.volume === "number" && Math.abs(animation[side].volume - from) < 1e-3));
+    const at = all.map(({ place, factor }) => `${place.at} s x${factor}`).join(", ");
+    if (!scales) {
+      added.delete(id);
+      for (const entry of changes) entry.changed = entry.changed.filter(([layerId]) => layerId !== id);
+      dropped.push(`mix ${at} ${name}: ${need.why.join("; ")}, and its Volume animations do not start or end at its volume ${round(from)}: lower it by hand x${worst.factor}`);
+      continue;
+    }
+    added.delete(id);
+    const layer = copyOf(original);
+    layer.volume = round(from * worst.factor);
+    layer.animations = (original.animations ?? []).map((animation) => {
+      const copy = { ...animation };
+      for (const side of ["from", "to"]) if (typeof animation?.[side]?.volume === "number") copy[side] = { ...animation[side], volume: round(animation[side].volume * worst.factor) };
+      return copy;
+    });
+    whole.set(id, layer.volume);
+    const text = `${name} x${worst.factor} whole ${round(from)}->${layer.volume}`;
+    for (const entry of changes) entry.changed = entry.changed.filter(([layerId]) => layerId !== id);
+    for (const { place } of all) {
+      let entry = changes.find((item) => item.place === place);
+      if (!entry) changes.push(entry = { place, changed: [], kept: [], causes: null });
+      entry.changed.push([id, text, worst.factor, true]);
+    }
+    const peak = Number.isFinite(worst.place.peakDbtp) ? `, ${worst.place.peakDbtp >= 0 ? "+" : ""}${worst.place.peakDbtp} dBTP` : "";
+    wholeFixed.push(`mix ${name} x${worst.factor} whole ${round(from)}->${layer.volume}: one constant gain, sized from the ${worst.place.at} s place (the lowest factor of ${all.length}${peak}); place by place, ${need.why.join("; ")}`);
+  }
+  changes.sort((a, b) => a.place.at - b.place.at);
   // Per place changed: its span, peak and the layers turned down with their factor (describeMixFix).
   const trimmed = [];
+  fixed.push(...wholeFixed);
   for (const { place, changed, kept, causes } of changes) {
     if (!changed.length) continue;
     const head = `mix ${place.at} s (${place.from}-${place.to} s, ${place.overDb} dB over)`;
     fixed.push(causes ? `${head}: ${changed.map(([, text]) => text).join(", ")}${kept.length ? `; kept ${kept.join(", ")}` : ""}`
-      : `${head} x${place.factor}: ${changed.map(([, text]) => text).join(", ")}`);
+      // The place's xN only when a layer took it (a whole song names its own factor).
+      : `${head}${changed.some(([, , , isWhole]) => !isWhole) ? ` x${place.factor}` : ""}: ${changed.map(([, text]) => text).join(", ")}`);
     trimmed.push({ at: place.at, from: place.from, to: place.to, peakDbtp: place.peakDbtp,
-      layers: changed.map(([id, , factor]) => ({ name: scene.layers.find((layer) => layer.id === id)?.name ?? id, factor })) });
+      layers: changed.map(([id, , factor, isWhole]) => ({ name: scene.layers.find((layer) => layer.id === id)?.name ?? id, factor, ...(isWhole ? { whole: true } : {}) })) });
   }
   const ops = [];
   for (const [id, volume] of whole) ops.push({ op: "update_layer", sceneId: scene.id, layerId: id, properties: { volume } });
