@@ -22,7 +22,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { removeLeftoverWork } from "../leftover-work.mjs";
-import { dirname, extname, join } from "node:path";
+import { basename, dirname, extname, join } from "node:path";
 import { runMediaTool } from "../media-probe.mjs";
 import { isolateVoice, voiceEngines } from "./isolate.mjs";
 
@@ -104,7 +104,10 @@ export function createVoiceMedia({ mediaRoot, cacheDir, modelDir, addMedia, down
         // track (not a cover picture).
         : ["-i", file, "-i", stemFile, "-map", "0:V:0", "-map", "1:a:0", "-c:v", "copy", "-map_metadata", "0"];
       await runMediaTool("ffmpeg", ["-hide_banner", "-nostdin", "-v", "error", ...inputs, ...delay, ...sound, ...muxer, target], { signal });
-      const record = await addMedia(target, { name: `${mediaBaseName(name)} (${stem}).${form}`, mime });
+      // What kino knows of the source that still holds (derived-media.mjs): a video keeps its
+      // picture; both stems keep the clip's language; the voice keeps its words and their times.
+      const holds = { picture: form !== "m4a", language: true, words: stem === "voice" };
+      const record = await addMedia(target, { name: `${mediaBaseName(name)} (${stem}).${form}`, mime, from: { id: basename(file), holds } });
       // Read again just before writing: another stem of this folder may have been added meanwhile.
       const list = { ...(await remembered(folder)), [slot]: record.id };
       // Its own temporary name: the voice and background stems of one file can finish at once.
@@ -136,14 +139,15 @@ export function createVoiceMedia({ mediaRoot, cacheDir, modelDir, addMedia, down
     const own = mime === "video/mp4" ? "mp4" : mime === "video/webm" ? "webm" : "m4a";
     const wanted = keep === "both" ? [["voice", own], ["background", "m4a"]] : [[keep, own]];
     const found = {};
-    let made = false;
+    const madeIds = [];
     for (const [stem, form] of wanted) {
       const job = await once(`${folder}/${stem}.${form}`, () => output({ folder, stem, form, file, name, signal }));
       found[stem] = job.record;
-      made ||= job.made;
+      if (job.made) madeIds.push(job.record.id);
     }
+    // stems: the voice and background stem files (FLAC in the stem cache), for measuring.
     return { ...found, engine: result.engine, seconds: (performance.now() - started) / 1000,
-      cached: result.cached && !made, note: result.note };
+      cached: result.cached && !madeIds.length, note: result.note, madeIds, stems: { voice: result.voice, background: result.background } };
   }
 
   // engines(): which engines this computer can use (for the next step a refusal suggests).

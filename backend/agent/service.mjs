@@ -43,6 +43,7 @@ import { ensureDocumentFonts, prepareFontPatches } from "../font-selection.mjs";
 import { faceAtCallNotes } from "./face-at-call.mjs";
 import { OPERATION_TYPES, SERVICE_OPERATION_TYPES, describeOperation, guideTopics, linesMentioning } from "../operation-guide.mjs";
 import { runIsolateVoice } from "./voice-operation.mjs";
+import { dropMadeMedia } from "../derived-media.mjs";
 import { runCutOut } from "./cutout-operation.mjs";
 import { runMatchColor } from "./color-operation.mjs";
 import { runPin, runTrack } from "./track-operation.mjs";
@@ -849,7 +850,14 @@ export function createAgentService(deps) {
 
   // outputFps defaults to the project's own rate (30 without one), so the edit receipt's check
   // counts, review and check all judge judder on the same grid.
-  async function findingsFor(document, { fonts, codes, sceneId = null, pixels = false, rules = null, outputFps = projectFps(document), listen = true } = {}) {
+  // lookMoves: [{layerId, from, to}] an unsaved edit's files made with the same picture (isolate_voice), read as saved.
+  function movedLooks(looks, moves) {
+    if (!moves?.length) return looks;
+    const next = { ...looks };
+    for (const move of moves) if (next[move.layerId]?.src === move.from) next[move.layerId] = { ...next[move.layerId], also: [...(next[move.layerId].also ?? []), move.to] };
+    return next;
+  }
+  async function findingsFor(document, { fonts, codes, sceneId = null, pixels = false, rules = null, outputFps = projectFps(document), listen = true, lookMoves = [] } = {}) {
     const basic = checkDocument(document, { fonts, mediaRoot: deps.mediaRoot, codes, sceneId });
     // The brief's style spec (notes brief fields.style) sets the style rules; none is kino's default style.
     const saved = await agentState.read(document.id).catch(() => null);
@@ -908,7 +916,7 @@ export function createAgentService(deps) {
     const clipLinesOf = async (doc, scene, options) => (await sceneLines(scene, doc, codes, options)).map(({ layer, layerId, text, from, to, slowed, how, speedAnimations: speeds, partial }) => ({ layer, layerId, text, from, to, ...(slowed ? { slowed, how, speedAnimations: speeds } : {}), ...(partial ? { partial } : {}) }));
     const asks = askedItems(saved);
     // listen:false (the dashboard's own check) never starts a reference's voice measure either.
-    const checked = await quality.check(document, { fonts, codes, sceneId, pixels, listen, outputFps, styleSpec, deck, briefFonts, length, asks, transcriptOf, loudnessOf, levelsOf: levelsOfLayer, songOf, clipLines: clipLinesOf, peopleOf, soundSearch: songSearchOn(), origin: saved?.origin ?? null, playsOn: saved?.brief?.fields?.plays_on ?? null, sourceLooks: saved?.sourceLooks ?? {} });
+    const checked = await quality.check(document, { fonts, codes, sceneId, pixels, listen, outputFps, styleSpec, deck, briefFonts, length, asks, transcriptOf, loudnessOf, levelsOf: levelsOfLayer, songOf, clipLines: clipLinesOf, peopleOf, soundSearch: songSearchOn(), origin: saved?.origin ?? null, playsOn: saved?.brief?.fields?.plays_on ?? null, sourceLooks: movedLooks(saved?.sourceLooks ?? {}, lookMoves) });
     const findings = mergeFindings(basic, checked.findings, { document, codes });
     const missed = checked.unchecked ?? [];
     const unchecked = missed.length && missed.length === checked.scenes ? "all" : missed.map((id) => refName(id, codes));
@@ -1504,7 +1512,7 @@ export function createAgentService(deps) {
     }
   }
   const lockData = (wait) => ({ crew: "waiting", ...wait,
-    next: `Nothing was saved: ${wait.holder} is changing ${wait.parts.join(", ")}. Work on another part, or try again in a while (a part is free when its holder releases it or has been quiet 2 minutes).` });
+    next: `Nothing was saved: ${wait.holder} is changing ${wait.parts.join(", ")}. Work on another part, or try again in a while (a part is free when its holder releases it or has been quiet 2 minutes). If ${wait.holder} is you from an earlier command, give your kino commands one name: KINO_AGENT_SESSION=<name> kino ...` });
 
   // The answer to a call the crew refused (crew.mjs gate, or a held part): nothing changed, and
   // the call counts in the turn. "stopped" and "denied" are errors the agent must not repeat.
@@ -1862,7 +1870,7 @@ export function createAgentService(deps) {
       // the operations before it left it.
       if (first.operation.type === "isolate_voice") {
         if (!dependsOnFailure(first)) {
-          try { next = await runIsolateVoice(next, first.operation, { mediaRoot: deps.mediaRoot, voiceMedia: deps.voiceMedia, operationContext, reports: fontsCache.reports }); }
+          try { next = await runIsolateVoice(next, first.operation, { mediaRoot: deps.mediaRoot, voiceMedia: deps.voiceMedia, operationContext, reports: fontsCache.reports, madeMedia: fontsCache.madeMedia, pictureMoves: fontsCache.pictureMoves }); }
           catch (error) { refuse(first, operationFailed(first.index, raw[first.index], "isolate_voice", error)); }
         }
         position += 1;
@@ -3404,7 +3412,15 @@ export function createAgentService(deps) {
     return lines;
   }
 
+  // An edit that is not saved (refused, a dry run, waiting) leaves no library file it made
+  // (isolate_voice's stems; the stem cache in <data>/voice stays, so a resend is quick).
   async function edit(input) {
+    const made = { ids: [], saved: false };
+    try { return await editOnce(input, made); }
+    finally { if (!made.saved && made.ids.length) await dropMadeMedia(deps.mediaRoot, made.ids); }
+  }
+
+  async function editOnce(input, made) {
     let record = await projectFor(input);
     const projectId = record.document.id;
     const ops = await withBorrowedRhythm(editOperations(input, projectId), record.document, { dryRun: input.dry_run === true });
@@ -3444,7 +3460,7 @@ export function createAgentService(deps) {
         catch (error) { throw new AgentError("bad_input", error.message, { safeToRetry: true }); }
         const problems = translation.problems.map(translationProblem);
         // `work` is shared by set_font, the block ops, detect_beats, isolate_voice and cut_out: fonts, media, notes, reports, the names and the cut_outs' deadline.
-        work = { resolver, notes: [...typeLines], reports: editBag.reports, labelSkips: [...(typeLines.said ?? [])] };
+        work = { resolver, notes: [...typeLines], reports: editBag.reports, labelSkips: [...(typeLines.said ?? [])], madeMedia: made.ids, pictureMoves: [] };
         after = await applyAll(before, translation.operations, ops, work, problems, translation.blocked);
         if (problems.length) throw refusal(projectId, ops, problems, translation.blocked, await waiverFixCall(before, problems, codes));
         // compose {footage}: check fixes the new edit before it is saved, in this same revision.
@@ -3538,7 +3554,7 @@ export function createAgentService(deps) {
       const namedFaces = (after.scenes ?? []).flatMap((scene) => scene.layers ?? []).filter((layer) => layer.type === "text"
         && fontWas.get(layer.id) !== ["fontFamily", "fontWeight", "fontStyle", "fontSource"].map((field) => layer[field] ?? "").join("|"));
       work.notes.push(...await faceAtCallNotes(namedFaces, { fonts, catalog: fontCatalog, nameOf: (layer) => refName(layer.id, afterCodes) }));
-      const { findings, unchecked, stale: staleWaivers } = await findingsFor(after, { fonts, codes: afterCodes });
+      const { findings, unchecked, stale: staleWaivers } = await findingsFor(after, { fonts, codes: afterCodes, lookMoves: work.pictureMoves });
       // mark_subject: whether crop_no_subject still holds for each layer this edit marked, and what it needs.
       for (const [layerId, mark] of work.marks ?? []) {
         const open = findings.find((finding) => finding.rule === "crop_no_subject" && !finding.waived && finding.ref === refName(layerId, afterCodes));
@@ -3642,6 +3658,7 @@ export function createAgentService(deps) {
       let updated;
       try {
         updated = await saveDocument(projectId, before, after, record.revision, { request, actor, resultMetadata: { changes, agentReceipt: { rev: record.revision + 1, ...receipt } } });
+        made.saved = true;
       } catch (error) {
         // Someone saved between reading and saving: run the same operations on their version once.
         if (error instanceof ConflictError && attempt === 0) { record = await projectFor({ project: projectId }); continue; }
@@ -3656,6 +3673,11 @@ export function createAgentService(deps) {
         if (savedAtBuild && !state.firstBuild && hasBrief(state.brief)) state.firstBuild = { rev: updated.revision, saved: savedAtBuild, studied: [...(state.studied ?? [])] };
         state.codes = assignCodes(state.codes, updated.document, resolver.reserved);
         if (lineNote) state.linesNamed = lineNote.key;
+        // A file made with the same picture (isolate_voice on a video): the looks at the old file count for it.
+        for (const move of work.pictureMoves ?? []) {
+          const look = state.sourceLooks?.[move.layerId];
+          if (look?.src === move.from) look.also = [...new Set([...(look.also ?? []), move.to])].slice(-8);
+        }
         // The skipped type labels this saved edit said (unsaidSkips): not said again for this project.
         if (work.labelSkips?.length) state.labelSkipsSaid = [...new Set([...(state.labelSkipsSaid ?? []), ...work.labelSkips])].slice(-40);
         // The layers this edit moved (placedByYou); check's own auto-fix edit does not count.

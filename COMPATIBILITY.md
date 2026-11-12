@@ -1099,6 +1099,12 @@ How to read it:
   or RNNoise; `keep:"both"` adds a background layer. Evidence: `backend/agent-voice.test.mjs`,
   `backend/voice-media.test.mjs`, `tests/fixtures/voice`. Gaps: not by ear; RNNoise leaves most music;
   `backend/voice/isolate.mjs` uses the older sample-time filter.
+- **Derived files keep what holds (isolate_voice)**: Verified on a replay of a real Japanese-line edit.
+  The stem keeps the clip's language, transcripts, picture facts, subject mark and source looks; the
+  receipt prints gap and word levels before and after (the original read as the engines' mono
+  average, so a stereo clip's voice is not 3 dB off); an unsaved edit leaves no library file.
+  Evidence: `backend/voice-media.test.mjs`. Gaps: cut_out and lift_dark outputs do not carry yet;
+  keep_line, look lines and voice_under_bed do not print the clip's own bed yet.
 
 ### Screen recording
 

@@ -16,9 +16,15 @@ import { flattenAnimations } from "../../engine/animationTree.js";
 import { aliasClipLinks } from "../../engine/clipSync.js";
 import { parseDocument } from "../../engine/model.js";
 import { applyOperations } from "../../engine/operations.js";
-import { mediaPlaybackRange } from "../../engine/playback.js";
+import { mediaPlaybackRange, mediaSoundTime } from "../../engine/playback.js";
 import { mediaIdFromSource } from "../../engine/replaceMedia.js";
 import { hiddenSpans } from "../../engine/videoSound.js";
+import { decodeMono } from "../audio-analysis.mjs";
+import { stemLevels, stemLevelsLine } from "../voice/stem-levels.mjs";
+import { monoMix, probeSound } from "../voice/isolate.mjs";
+
+// The sample rate the receipt's levels are measured at (enough for 100 ms RMS windows).
+const LEVEL_RATE = 16000;
 
 // An animation that changes only the volume (a fade, a duck dip): the background layer gets a copy.
 function volumeOnly(animation) {
@@ -51,7 +57,19 @@ async function nextStep(error, { engine, voiceMedia }) {
  * receipt's `voice`). Refusals are thrown as errors; a voice error says what to send instead and
  * carries the engine's code as `voiceError`.
  */
-export async function runIsolateVoice(document, operation, { mediaRoot, voiceMedia, operationContext, reports }) {
+export async function runIsolateVoice(document, operation, { mediaRoot, voiceMedia, operationContext, reports, madeMedia = null, pictureMoves = null, decode = decodeMono }) {
+  // The original's and the voice stem's levels over the stretch the layer plays (stem-levels.mjs).
+  // The original is mixed to mono as the engines got it (the channels' average, monoMix), so a
+  // centered voice reads the same level in both; a sped or reversed clip is read over the file
+  // seconds it plays.
+  const measure = async (source, stem, layer, scene) => {
+    const range = mediaPlaybackRange(layer, scene.duration);
+    if (!stem || !range) return null;
+    const { channels } = await probeSound(source);
+    const [original, voice] = await Promise.all([decode(source, { sampleRate: LEVEL_RATE, mix: monoMix(channels) }), decode(stem, { sampleRate: LEVEL_RATE })]);
+    const ends = [range.offset, range.remapped ? mediaSoundTime(layer, range.end) : range.offset + range.duration];
+    return stemLevels({ original: original.samples, voice: voice.samples, rate: LEVEL_RATE, from: Math.min(...ends), to: Math.max(...ends) });
+  };
   const { sceneId, layerId } = operation;
   const keep = operation.keep ?? "voice", engine = operation.engine ?? "auto", amount = operation.amount ?? 1;
   const scene = document.scenes.find((item) => item.id === sceneId);
@@ -87,13 +105,20 @@ export async function runIsolateVoice(document, operation, { mediaRoot, voiceMed
     throw Object.assign(new Error(next ? `${said} ${next}` : said), error.code ? { voiceError: error.code } : {});
   }
 
+  // The library files this call made: an edit that is not saved removes them (service.mjs edit).
+  made.madeIds?.forEach((madeId) => madeMedia?.push(madeId));
   const notes = made.note ? [made.note] : [];
   const kept = keep === "background" ? made.background : made.voice;
   let next = parseDocument(applyOperations(document, [{ type: "replace_media", sceneId, layerId, mediaId: kept.id }],
     await operationContext(document, [{ type: "replace_media", sceneId, layerId, mediaId: kept.id }])));
   // The new files keep the original's timing, so they keep its sync links (out_of_sync).
-  const keptSrc = next.scenes.find((item) => item.id === sceneId)?.layers.find((item) => item.id === layerId)?.src;
+  const keptLayer = next.scenes.find((item) => item.id === sceneId)?.layers.find((item) => item.id === layerId);
+  const keptSrc = keptLayer?.src;
   aliasClipLinks(next, layer.src, keptSrc);
+  // A video stem has the same picture, so the subject marked on the old file is this file's subject.
+  // The looks at the old file saw this picture too (service.mjs moves them when the edit saves).
+  if (keptLayer?.type === "video" && keptLayer.subjectBoxes?.src === layer.src) keptLayer.subjectBoxes.src = keptSrc;
+  if (keptLayer?.type === "video" && keptSrc !== layer.src) pictureMoves?.push({ layerId, from: layer.src, to: keptSrc });
   if (keep === "both") aliasClipLinks(next, layer.src, made.background.src);
 
   if (keep === "both") {
@@ -121,7 +146,9 @@ export async function runIsolateVoice(document, operation, { mediaRoot, voiceMed
         notes.push(`${layer.name} is hidden for part of its Play range; ${background.properties.name} plays through it (audio layers have no Hide/Show)`);
     }
   }
+  const levels = await measure(file, made.stems?.voice, layer, scene).catch(() => null);
   reports?.set(operation, { engine: made.engine, seconds: Math.round(made.seconds * 10) / 10, cached: made.cached, keep,
+    ...(made.stems?.voice ? { measured: stemLevelsLine(levels) } : {}),
     ...(notes.length ? { note: notes.join("; ") } : {}) });
   return next;
 }

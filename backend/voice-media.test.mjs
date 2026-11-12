@@ -5,7 +5,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { carryKnowledge, dropMadeMedia } from "./derived-media.mjs";
+import { stemLevels, stemLevelsLine } from "./voice/stem-levels.mjs";
+import { decodeMono } from "./audio-analysis.mjs";
+import { monoMix, probeSound } from "./voice/isolate.mjs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { probeMedia } from "./media-probe.mjs";
@@ -45,6 +49,47 @@ async function videoPackets(file) {
 async function streams(file) {
   return JSON.parse(String(await run(ffprobe, ["-v", "error", "-show_entries", "stream=codec_type,codec_name,start_time", "-of", "json", file]))).streams;
 }
+
+test("a stem made from a clip keeps what still holds of it, and an unsaved edit's file can be removed", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "kino-derived-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  for (const [file, text] of [["a.mp4.json", JSON.stringify({ id: "a.mp4", busy: [1, 2], burnedText: { words: "x" }, duration: 4 })],
+    ["a.mp4.lang-small", '{"language":"ja","p":0.84}'], ["a.mp4.words-small-91c2bae3", "{}"], ["a.mp4.subjects-v1", "{}"], ["a.mp4.loudness-v1", "{}"]])
+    await writeFile(join(root, file), text);
+  const voice = await carryKnowledge(root, "a.mp4", "b.mp4", { picture: true, language: true, words: true });
+  assert.deepEqual(voice.sidecars.sort(), ["lang-small", "subjects-v1", "words-small-91c2bae3"]);
+  assert.deepEqual(voice.record, { busy: [1, 2], burnedText: { words: "x" } });
+  const sound = await carryKnowledge(root, "a.mp4", "c.m4a", { picture: false, language: true, words: false });
+  assert.deepEqual(sound.sidecars, ["lang-small"], "a sound-only background keeps the language only; sound measurements are made again");
+  await writeFile(join(root, "b.mp4"), "x");
+  assert.deepEqual(await dropMadeMedia(root, ["b.mp4"]), ["b.mp4"]);
+  assert.deepEqual((await readdir(root)).filter((name) => name.startsWith("b.mp4")), []);
+});
+
+test("isolate_voice's levels: the clip's sound in the gaps and the voice in the words, before and after", () => {
+  const rate = 1000;
+  // 1 s of a word (voice 0.5 over a bed 0.05), then 1 s of gap (bed only); the stem keeps the voice and 1% of the bed.
+  const original = new Float32Array(2000).map((_, index) => (index < 1000 ? 0.5 : 0) + 0.05);
+  const voice = new Float32Array(2000).map((_, index) => (index < 1000 ? 0.5 : 0) + 0.0005);
+  const levels = stemLevels({ original, voice, rate, from: 0, to: 2 });
+  assert.equal(levels.gapSeconds, 1);
+  assert.equal(levels.gaps.before, -26);
+  assert.equal(levels.gaps.after, -66);
+  assert.match(stemLevelsLine(levels), /^file 0-2 s: clip sound in the gaps -26 dBFS before, -66 after \(40 dB down, on 1 s of gaps\); voice in the words -5\.2 dBFS before, -6 after \(-0\.8 dB, on 1 s of words\)$/);
+  assert.match(stemLevelsLine(stemLevels({ original, voice, rate, from: 0, to: 1 })), /no gaps between words/);
+});
+
+test("the original is measured as the mono copy the engines get, so a centered stereo voice reads its own level", { skip: skipWithoutMediaTools }, async (t) => {
+  const root = await folder(t);
+  const file = join(root, "center.wav");
+  // The same tone in both channels at 0.5: each channel and their average sit at -9 dBFS RMS.
+  await run(ffmpeg, ["-v", "error", "-f", "lavfi", "-i", "aevalsrc=0.5*sin(2*PI*440*t):s=16000:d=0.5", "-af", "pan=stereo|c0=c0|c1=c0", file]);
+  const level = ({ samples }) => 10 * Math.log10(samples.reduce((sum, value) => sum + value * value, 0) / samples.length);
+  const { channels } = await probeSound(file);
+  assert.equal(channels, 2);
+  assert.ok(Math.abs(level(await decodeMono(file, { sampleRate: 16000, mix: monoMix(channels) })) + 9) < 0.3);
+  assert.ok(level(await decodeMono(file, { sampleRate: 16000 })) > -6.5, "FFmpeg's own mono mix reads 3 dB louder");
+});
 
 test("names drop the file extension", () => {
   assert.equal(mediaBaseName("Interview.mp4"), "Interview");

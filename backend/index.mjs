@@ -30,6 +30,7 @@ import { createOperationRequest } from "./operation-request.mjs";
 import { accessFor, openShareStore, sameSecret } from "./shares.mjs";
 import { probeMedia, runMediaTool, videoFrameFacts } from "./media-probe.mjs";
 import { burnedTextCurrent, readBurnedText } from "./footage/burned-text.mjs";
+import { carryKnowledge } from "./derived-media.mjs";
 import { REMUX_MIMES, alphaToWebm, probePicture, remuxToMp4 } from "./media-remux.mjs";
 import { createShotFinder, findShots, firstErrorLine, shotFilters } from "./shot-detection.mjs";
 import { createGifFrameCache } from "./gif-frame-cache.mjs";
@@ -720,7 +721,9 @@ async function measureMedia(filename, mime) {
 // the use (rememberMediaUse).
 // `extra` adds fields to the record (an Openverse sound's credit; a found clip's projectId, credit
 // and footage code). A video gets its shots found, as an upload does.
-async function addGeneratedMedia(file, { name, mime, extra = {} }) {
+// `from` {id, holds}: the library file this one is made from, and what of kino's knowledge of it
+// still holds for the new file (derived-media.mjs carryKnowledge).
+async function addGeneratedMedia(file, { name, mime, extra = {}, from = null }) {
   const extension = mediaTypes[mime];
   if (!extension || !(/^(?:audio|video)\//.test(mime) || mime === "image/png")) throw new Error(`kino does not keep made ${mime} files.`);
   const id = `${randomUUID()}.${extension}`;
@@ -735,7 +738,9 @@ async function addGeneratedMedia(file, { name, mime, extra = {} }) {
     if (measurements.measurementSucceeded !== true) throw new Error(`The made file ${name} could not be read back as ${mime}.`);
     const { size } = await stat(target);
     const shots = mime.startsWith("video/") && measurements.hasVideo !== false ? await uploadShots(target, measurements.duration) : {};
-    const metadata = { id, src: `/api/media/${id}`, name: String(name).slice(0, 200), mime, size, ...measurements, ...shots, ...extra };
+    const carried = from?.id ? await carryKnowledge(mediaRoot, from.id, id, from.holds) : null;
+    const metadata = { id, src: `/api/media/${id}`, name: String(name).slice(0, 200), mime, size, ...(carried?.record ?? {}), ...measurements, ...shots, ...extra,
+      ...(carried ? { madeFrom: { id: from.id, carried: [...carried.sidecars, ...carried.fields] } } : {}) };
     await writeMediaRecord(mediaRoot, id, metadata);
     return metadata;
   } catch (error) {
