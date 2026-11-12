@@ -163,11 +163,17 @@ export function pictureUnder(scene, box, time) {
  * picture measured behind the box at the text's time: the fill and edge are chosen against it
  * instead of the scene's background.
  */
-export function jobTreatment(job, { scene, labels = [], text, advance = null, face = null, follow = null, behind = null } = {}) {
+export function jobTreatment(job, { scene, labels = [], text, advance = null, face = null, follow = null, behind = null, largest = null } = {}) {
   const height = scene?.height ?? 1080;
   const width = scene?.width ?? 1920;
   const label = labelsByJob(labels)[job];
-  const share = label ? label.share / INK_TO_SIZE : SHARE[job];
+  // A payoff with no measured label takes the size of the project's largest text (`largest`: {size, name}),
+  // else the GUESS share, printed as a starting guess.
+  const byLargest = !label && job === "payoff" && Number(largest?.size) > 0;
+  const share = label ? label.share / INK_TO_SIZE : byLargest ? Number(largest.size) / height : SHARE[job];
+  const sizeNote = label || job !== "payoff" ? ""
+    : byLargest ? `; size from the project's largest text ${largest.name} (${Math.round(largest.size)} px, ${Math.round((largest.size / height) * 1000) / 10}% of the height)`
+      : `; size ${Math.round(SHARE.payoff * 100)}% of the height, a starting guess (no type label, no project text)`;
   const boxWidth = Math.round(width * (job === "subtitle" ? 0.84 : job === "payoff" ? 0.9 : 0.4));
   // The longest line the words make at the job's line count, in letters.
   const letters = String(text ?? "").trim().length;
@@ -220,7 +226,7 @@ export function jobTreatment(job, { scene, labels = [], text, advance = null, fa
   const from = (label ? `label ${label.ref} @${label.labelAt ?? label.at}${where} (${label.family} ${label.weight}, letters ${Math.round(label.share * 1000) / 10}% of the height${label.fill ? `, fill ${label.fill}` : ""})`
     : `${behindColor ? `the picture behind (${behindColor} measured from ${behind.from})` : `scene colors (background ${plainBackground ?? `${background}, not one plain color`}`}${job === "payoff" && accent ? `, accent ${accent}` : ""}; no measured type label for this job${behindColor ? "" : ")"}`)
     + (behindColor ? `; fill ${properties.fill} at ${Math.round(contrast(properties.fill, background) * 10) / 10}:1 on ${background}` : "")
-    + ownNote + (notes ? ` [${notes}]` : "");
+    + sizeNote + ownNote + (notes ? ` [${notes}]` : "");
   return { properties, from };
 }
 

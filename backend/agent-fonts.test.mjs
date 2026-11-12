@@ -528,6 +528,29 @@ test("type by job: the face follows the project's text, the fill the picture beh
   assert.deepEqual(freshSkips(found.skipped, found.skipped.slice(0, 3).map(skipKey)), found.skipped.slice(3));
 });
 
+test("face at the call: a face that is not loaded names the face drawn and the call that loads it; a bundled face its fontSource missed is set at once", async () => {
+  const { faceAtCallNotes, faceOff } = await import("./agent/face-at-call.mjs");
+  const { jobTreatment } = await import("../engine/typeRoles.js");
+  const fonts = await loadBundledFonts();
+  const text = (name, fields) => ({ type: "text", id: name, name, text: "STEP", ...fields });
+  assert.equal(faceOff({ fontFamily: "Inter", fontWeight: 700 }, fonts), null, "a bundled face draws as asked");
+  const catalog = { list: async ({ search }) => ({ families: [{ id: "round-display", family: "Round Display", weights: [400, 500, 600, 700, 800], styles: ["normal"] }].filter((family) => family.family === search) }) };
+  const pinned = text("pinned", { fontFamily: "Inter", fontWeight: 600, fontSource: "/api/fonts/Inter-700.ttf" });
+  const lines = await faceAtCallNotes([text("one", { fontFamily: "Round Display", fontWeight: 800 }), text("two", { fontFamily: "Round Display", fontWeight: 800 }), text("heavy", { fontFamily: "Inter", fontWeight: 900 }), pinned], { fonts, catalog });
+  assert.deepEqual(lines, [
+    "font: pinned Inter 600 loaded from kino's bundled fonts (its fontSource named another face, so it drew in Inter 700)",
+    `font: one, two ask Round Display 800, not loaded: drawn in Inter 700 now; set_font {layers:["one","two"], family:"Round Display", weight:800} loads it from kino's font catalog`,
+    `font: heavy asks Inter 900, not loaded: drawn in Inter 700 now (Inter loaded here: 400, 500, 600, 700); kino's font catalog lists no Inter 900: weight 700 draws as asked, or project {action:"import", file:"<a Inter 900 font file>"} loads it`,
+  ]);
+  assert.equal(pinned.fontSource, "/api/fonts/Inter-600.ttf");
+  // A payoff with no type label takes the project's largest text's size (printed), else the starting guess (printed as one).
+  const scene = { width: 1280, height: 720, background: "#fafaf7", layers: [] };
+  const big = jobTreatment("payoff", { scene, text: "KILL", largest: { size: 180, name: "title" } });
+  assert.equal(big.properties.fontSize, 180);
+  assert.match(big.from, /; size from the project's largest text title \(180 px, 25% of the height\)/);
+  assert.match(jobTreatment("payoff", { scene, text: "KILL" }).from, /; size 14% of the height, a starting guess/);
+});
+
 test("agent service: an add_layer text with a role and no face or fill gets its job's fields and, as a payoff, a letter entrance by its cue", async (t) => {
   const { server, agent } = await startFontServer(t);
   await agent("project", { action: "create", id: "jobs", name: "Jobs", width: 1280, height: 720, duration: 4 });
@@ -579,7 +602,14 @@ test("agent service: an add_layer text with a role and no face or fill gets its 
   const over = await agent("edit", { project: "jobs", ops: [{ op: "add_layer", layerType: "text", name: "over", properties: { text: "We walk on, into the night.", role: "caption" } }] });
   assert.match((over.data.notes ?? []).join("\n"), /type: over as subtitle from the picture behind \(#14161a measured from night at 0 s\); no measured type label for this job; fill #ffffff at 1\d\.\d:1 on #14161a; face from the project's text line \(Inter 600, role caption\): Inter 600, 32 px, fill #ffffff, edge 2 px/);
   // check: the payoff's Inter 700 needs no fallback; an agent-named Inter 900 (bundled Inter stops at 700) still does.
-  await agent("edit", { project: "jobs", ops: [{ op: "add_layer", layerType: "text", name: "heavy", properties: { text: "HEAVY", fontFamily: "Inter", fontWeight: 900, fontSize: 20, x: 10, y: 10, width: 200, height: 30 } }] });
+  // Board words over a shot's own dark picture: the fill is read on that picture (not a layer yet), not the white background.
+  const pictureShot = { cue: 2, dur: 2, pacing: "free", media: media.src ?? media.media?.src, in: "none", crop: "whole", subject: "none", follow: "none", text: { text: "We walk on, into the night." }, sound: "none", why: "the night" };
+  const night = await agent("edit", { project: "jobs", ops: [{ op: "board", music: "none", shots: [card(0, { text: "I will find you, I swear." }), pictureShot] }] });
+  assert.equal(night.isError, undefined, night.text);
+  assert.match(night.data.notes.join("\n"), /board shot 2 text as subtitle from the picture behind \(#14161a measured from night\.png, this shot's own picture\); no measured type label for this job; fill #ffffff at 1\d\.\d:1 on #14161a[^\n]*: family Inter, weight 600, size 32 px, fill #ffffff/);
+  // A face named at the call that is not loaded: the receipt names the face drawn now and the call that loads it.
+  const heavy = await agent("edit", { project: "jobs", ops: [{ op: "add_layer", layerType: "text", name: "heavy", properties: { text: "HEAVY", fontFamily: "Inter", fontWeight: 900, fontSize: 20, x: 10, y: 10, width: 200, height: 30 } }] });
+  assert.match((heavy.data.notes ?? []).join("\n"), /font: heavy asks Inter 900, not loaded: drawn in Inter 700 now \(Inter loaded here: 400, 500, 600, 700\); /);
   const checked = JSON.stringify((await agent("check", { project: "jobs", rules: ["font_fallback"], pixels: false })).data);
   assert.match(checked, /font_fallback[^\]]*heavy|heavy[^\]]*font_fallback/, checked);
   assert.doesNotMatch(checked, /\bword\b/, checked);

@@ -1669,8 +1669,13 @@ How to read it:
   family named with no weight takes its nearest installed weight; up to 6 labels are tried, each skipped one said once by a
   saved edit (kept in the project's agent state; a dry run or refused edit says it again).
   Evidence: `backend/agent-fonts.test.mjs`, `backend/agent-board.test.mjs`. Gap: only 640 px stills and 240 px strip frames are kept,
-  and on run b's 3 real labels the reader read none (all 3 left out); the reader is macOS only; board text and a picture added in
-  the same edit are not sampled for the fill.
+  and on run b's 3 real labels the reader read none (all 3 left out); the reader is macOS only; a picture added by add_layer in
+  the same edit is not sampled for the fill.
+- **Face at the call** (board, `add_layer`, `set_font`, compose): Test-verified. A face named but not loaded is said in that
+  edit's notes with the face drawn now and the one call that loads it (set_font from the catalog, else import); a local face the
+  layer's fontSource missed is set at once. Board text reads its fill on the shot's own picture; a board payoff takes the project's
+  largest text's size, else a printed starting guess. Evidence: `backend/agent-fonts.test.mjs`, `backend/agent-board.test.mjs`.
+  Gap: the board text has no edge field; nothing is downloaded at the call; not replayed on run a or b's project data.
 - **Text around a moving subject** (`place {around, follow?}`): Verified on rendered frames of a generated clip. The subject is
   measured over the whole hold; `follow:true` writes a path that keeps the text beside it. Evidence: `engine/subjectRoom.test.js`,
   `backend/subject-room-render.test.mjs`. check's type_covered and place read one cut-out subject box (same box at every sampled

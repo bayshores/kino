@@ -62,7 +62,8 @@ import { jobTreatment, textJob } from "../../engine/typeRoles.js";
 import { sec } from "./describe.mjs";
 import { slideOffCut, spanCutLine } from "../../engine/spanCuts.js";
 import { boardCueLines } from "./board-pace.mjs";
-import { BOARD_BUILD, BUILT_PREFIX, boardBuildOps } from "./board-build.mjs";
+import { BOARD_BUILD, BUILT_PREFIX, boardBuildOps, shotBox } from "./board-build.mjs";
+import { faceOff, loadCall, loadedWeights } from "./face-at-call.mjs";
 import { SOURCE_LIMITS } from "../../engine/sources.js";
 import { projectSeed } from "../../engine/deck.js";
 import { composeLenient, deckComposition, deckFinish } from "../../engine/blocks/deckVariant.js";
@@ -2560,7 +2561,8 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     const roles = type ? shotRoles(sentShots.map((shot) => (isRecord(shot) ? shot : {})), {}, type.spine) : [];
     // Only a timed payoff beat places the payoff (shotRoles); an untimed one leaves the last shot to its words.
     const spinePayoff = Array.isArray(type?.spine) && type.spine.some((beat) => beat?.role === "payoff" && Number.isFinite(beat.from) && Number.isFinite(beat.to) && beat.to > beat.from);
-    const jobOf = (shot, index) => (roles[index] === "payoff" && (spinePayoff || textJob(shot?.text?.text) === "payoff") ? "payoff" : "subtitle");
+    // A short line that reads as a payoff word (textJob: under 4 words, no sentence mark) is one on any shot.
+    const jobOf = (shot, index) => ((roles[index] === "payoff" && spinePayoff) || textJob(shot?.text?.text) === "payoff" ? "payoff" : "subtitle");
     const typed = [];
     for (const [index, shot] of sentShots.entries())
       shots.push(await boardShot(document, scene, shot, index + 1, { media, add, work, refHelp, last: index === sent.length - 1, type: type && { ...type, job: jobOf(shot, index), typed } }));
@@ -2841,7 +2843,7 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     if (footage.file?.kind === "image" && shot.in !== NONE) add("bad_shot", `shot ${n} is a picture: in is "none".`);
     if (footage.file && shot.crop === NONE) add("bad_shot", `shot ${n} shows ${footage.file.name}, so crop is [x, y, w, h] in % of the source, or "whole" when it shows whole.`);
     Object.assign(result, footage.fields, { follow: shot.follow });
-    result.text = await boardText(document, scene, shot.text, `shot ${n}`, { add, work, type });
+    result.text = await boardText(document, scene, shot.text, `shot ${n}`, { add, work, type, footage: { file: footage.file, crop: result.crop, in: result.in } });
     result.sound = boardSound(shot.sound, `shot ${n}`, { media, add, shot, speed, video: footage.file?.kind === "video" });
     if (move) result.move = move;
     result.why = why;
@@ -2919,7 +2921,7 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
   }
 
   // text: "none", or {text, family, weight, size, y, fill} with kino's defaults, in a font kino has.
-  async function boardText(document, scene, value, where, { add, work, type = null }) {
+  async function boardText(document, scene, value, where, { add, work, type = null, footage = null }) {
     if (value === NONE) return NONE;
     const keys = ["text", "family", "weight", "size", "y", "fill", "until"];
     // Too long is one problem among the rest: the other checks still run, so one refusal names all.
@@ -2931,13 +2933,29 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
       return NONE;
     }
     // Fields left out take the job's treatment (subtitle or payoff, engine/typeRoles.js), printed on the answer.
-    const job = type && TEXT_DEFAULTED.some((key) => value[key] === undefined)
-      ? jobTreatment(type.job, { scene, labels: type.labels, text: value.text.trim(), advance: type.advance, follow: type.follow?.(type.job, typeof value.family === "string" && value.weight === undefined ? value.family : null) ?? null,
-        face: { family: typeof value.family === "string" ? value.family.trim() : undefined, weight: Number.isInteger(value.weight) ? value.weight : undefined } }) : null;
-    const given = job?.properties;
+    const treat = type && TEXT_DEFAULTED.some((key) => value[key] === undefined)
+      ? { scene, labels: type.labels, text: value.text.trim(), advance: type.advance, follow: type.follow?.(type.job, typeof value.family === "string" && value.weight === undefined ? value.family : null) ?? null,
+        face: { family: typeof value.family === "string" ? value.family.trim() : undefined, weight: Number.isInteger(value.weight) ? value.weight : undefined }, largest: type.largest ?? null } : null;
+    let job = treat ? jobTreatment(type.job, treat) : null;
+    let given = job?.properties;
     const center = given ? Math.round(((given.y + given.height / 2) / scene.height) * 100) : 20;
     const text = { text: value.text.trim(), family: value.family?.trim() ?? given?.fontFamily ?? "Inter", weight: value.weight ?? given?.fontWeight ?? 700,
       size: value.size ?? given?.fontSize ?? Math.round(scene.height * 0.05), y: value.y ?? center, fill: value.fill ?? given?.fill ?? "#ffffff" };
+    // The fill against the shot's own picture behind the words' box (the box the build gives them), read
+    // at the shot's in-point: its clip is not a layer yet, so the scene's background would be read instead.
+    if (job && value.fill === undefined && footage?.file && type.behind && typeof text.size === "number" && typeof text.y === "number") {
+      const height = text.size * 1.3;
+      const box = { x: scene.width * 0.05, y: (text.y / 100) * scene.height - height / 2, width: scene.width * 0.9, height };
+      const video = footage.file.kind === "video";
+      const picture = { type: video ? "video" : "image", src: footage.file.src, name: footage.file.name, ...shotBox(Array.isArray(footage.crop) ? footage.crop : WHOLE, footage.file, scene),
+        ...(video ? { mediaStart: 0, mediaOffset: typeof footage.in === "number" ? footage.in : 0 } : {}) };
+      const color = await type.behind(picture, box).catch(() => null);
+      if (color) {
+        job = jobTreatment(type.job, { ...treat, behind: { color, from: `${footage.file.name}${video ? ` at file ${sec(picture.mediaOffset)} s` : ""}, this shot's own picture` } });
+        given = job.properties;
+        text.fill = given.fill;
+      }
+    }
     if (job) {
       const left = [...TEXT_DEFAULTED, "y"].filter((key) => value[key] === undefined);
       type.typed.push(`board ${where} text as ${type.job} from ${job.from}: ${left.map((key) => `${key} ${text[key]}${key === "size" ? " px" : key === "y" ? " %" : ""}`).join(", ")} (text.${left.join(", text.")} change them)`);
@@ -2947,8 +2965,13 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     if (typeof text.y !== "number" || !(text.y >= 0 && text.y <= 100)) add("bad_shot", `${where} text y is the text's center in % from the top (0 to 100).`);
     if (typeof text.fill !== "string" || !/^#(?:[\da-fA-F]{6}|[\da-fA-F]{8})$/.test(text.fill)) add("bad_shot", `${where} text fill is a hex color such as "#ffffff".`);
     const family = await boardFamily(document, text.family, work);
-    if (family.found) text.family = family.found;
-    else add("bad_shot", `${where} text family ${JSON.stringify(text.family)} is not a font kino has (library {topic:"fonts", search:${JSON.stringify(text.family)}}).`, family.suggestions);
+    if (family.found) {
+      text.family = family.found;
+      // A face kino has by name but has not loaded (a catalog family, or a weight the family lacks here):
+      // said now with the face the build would draw instead and the call that loads it (face-at-call.mjs).
+      const off = Number.isInteger(text.weight) ? faceOff({ fontFamily: text.family, fontWeight: text.weight }, await fontsOf(document, work)) : null;
+      if (off) work.notes.push(`board ${where} text asks ${off.asked}, not loaded: built now it draws in ${off.drawn}${loadedWeights(off)}; ${await loadCall(off, null, fontCatalog)}`);
+    } else add("bad_shot", `${where} text family ${JSON.stringify(text.family)} is not a font kino has (library {topic:"fonts", search:${JSON.stringify(text.family)}}).`, family.suggestions);
     if (typeof text.size === "number") text.size = Number(text.size.toFixed(1));
     if (typeof text.y === "number") text.y = Number(text.y.toFixed(1));
     // until: the id of the shot the words stay until, or a second of the video (checked against the shots in applyBoard).

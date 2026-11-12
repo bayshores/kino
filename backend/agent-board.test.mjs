@@ -337,8 +337,9 @@ test("the shots cover the music when there is a music layer, else the whole vide
   await project("board-voice", { layers: [audioLayer("voice")] });
   const voice = await editBoard("board-voice", [motion(0, 3), motion(3, 3, { text: { text: "Out now", family: "Inter", weight: 800, size: 120, y: 50, fill: "#ffd23f" } })]);
   assert.equal(voice.isError, undefined, voice.text);
-  // Shot 2 names every field, so only shot 1's words are filled and printed.
-  assert.deepEqual(voice.data.notes, ['board r1: 2 shots, 0–6 s, no music · look {mode:"board"} shows it', `board shot 1 text as subtitle ${typed}`]);
+  // Shot 2 names every field, so only shot 1's words are filled and printed; its Inter 800 is not loaded (bundled Inter stops at 700), said at the board.
+  assert.deepEqual(voice.data.notes, ['board shot 2 text asks Inter 800, not loaded: built now it draws in Inter 700 (Inter loaded here: 400, 500, 600, 700); kino\'s font catalog lists no Inter 800: weight 700 draws as asked, or project {action:"import", file:"<a Inter 800 font file>"} loads it',
+    'board r1: 2 shots, 0–6 s, no music · look {mode:"board"} shows it', `board shot 1 text as subtitle ${typed}`]);
   assert.equal((await record("board-voice")).document.board.music, "none");
 });
 
