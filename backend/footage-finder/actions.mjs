@@ -187,11 +187,14 @@ function skippedLine(skipped = {}) {
 /** Where a scan's marks sit ("top-left and bottom-right"), or "" when it has none. */
 export const markPlaces = (marks = []) => [...new Set(marks.map((mark) => mark.where))].join(" and ");
 
-// The scan's marks, said once: "Logo top-left on every shot: crop or cover it."
+/** "a mark is burned into this clip's top-left" for the places markPlaces gives. */
+export const burnedInto = (places) => `a mark is burned into this clip's ${places}`;
+
+// The scan's marks, said once: a mark is burned into this clip's top-left (on every shot): the two ways out.
 function marksLine(marks = []) {
   if (!marks.length) return "";
   const every = marks.every((mark) => mark.share >= 0.8);
-  return `Logo ${markPlaces(marks)} on ${every ? "every shot" : "most shots"}: crop or cover it.`;
+  return `Note: ${burnedInto(markPlaces(marks))} (on ${every ? "every shot" : "most shots"}). Pick a clean clip (marked ones list last), or crop it out; the import answer gives the numbers.`;
 }
 
 const signed = (value) => `${value >= 0 ? "+" : ""}${value.toFixed(1)}`;
@@ -236,7 +239,7 @@ function heardLines(candidate, shots, heard) {
 
 function candidateLabel(candidate, known = null) {
   const line = candidateLine({ ...candidate, title: short(oneLine(candidate.title), TITLE_SHOWN) }, candidate.code);
-  const status = candidate.imported ? "imported" : candidate.scan ? `scanned, ${candidate.scan.shots} shots${candidate.scan.logo ? `, logo ${candidate.scan.logo}` : ""}` : "";
+  const status = candidate.imported ? "imported" : candidate.scan ? `scanned, ${candidate.scan.shots} shots${candidate.scan.logo ? `, ${burnedInto(candidate.scan.logo)}` : ""}` : "";
   const note = candidate.note ? `${candidate.note.verdict}: ${short(candidate.note.why, 60)}` : "";
   const edit = someoneElses(candidate, known);
   return [line, edit ? `someone else's edit (${edit.why})` : "", status, note].filter(Boolean).join(" · ");
@@ -434,7 +437,7 @@ export function createFootageActions({ finder, waitMs = FOOTAGE_WAIT_MS, keepMs 
     const listed = (saved.order ?? []).map((code) => saved.candidates.find((entry) => entry.code === code)).filter(Boolean).map((entry) => entry.code === candidate.code ? { ...entry, scan: entry.scan ?? { id } } : entry);
     return { text: withLead(personClips, [scanText(candidate, result, need, heard), elsewhereLine(candidate, known), scannedLine(listed, known)]),
       data: { code: candidate.code, id, shots: (result.shots ?? []).slice(0, FOOTAGE_SHOTS_SHOWN).map(({ n, start, end, motion, face, match, flags, says, said: hit, hasSubs }) => ({ n, start, end, motion, face, match, flags, ...(says ? { says } : {}), ...(hit ? { said: true } : {}), ...(hasSubs ? { hasSubs: true } : {}) })), matchShown: Boolean(result.matchShown),
-        ...(result.marks?.length ? { logo: markPlaces(result.marks) } : {}), ...(result.drawn ? { drawn: true } : {}), ...(song ? { song } : {}),
+        ...(result.marks?.length ? { logo: markPlaces(result.marks), marks: result.marks.map(({ where, box }) => ({ where, box })) } : {}), ...(result.drawn ? { drawn: true } : {}), ...(song ? { song } : {}),
         ...(elsewhere ? { edit: true, ...(importNext ? { import: importNext } : {}) } : {}),
         ...(lines.length ? { captions: { lang: answer.lang, auto: Boolean(answer.auto), ...(said ? { said, hits: applied.hits } : {}) }, lines: spoken.map(({ start, end, text, hit, shots }) => ({ start, end, text, shots, ...(hit ? { said: true } : {}) })) } : {}) },
       nextCall: nextImport ?? (following ? scanCall(following.code) : searchCall()), update };

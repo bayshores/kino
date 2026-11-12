@@ -160,9 +160,9 @@ export function createFootageFinder(deps) {
    * `projectId`: one 1080p download through the gate, then each shot cut and re-encoded to H.264.
    * Answers {media, failed}.
    */
-  function take(candidate, pieces, { projectId, signal } = {}) {
+  function take(candidate, pieces, { projectId, marks, signal } = {}) {
     if (!addMedia) throw new Error("The footage finder cannot add clips here.");
-    return takeFootage(candidate, pieces, { addMedia, projectId, youtube, commons, run: ytDlp, tools: takeTools, signal });
+    return takeFootage(candidate, pieces, { addMedia, projectId, marks, youtube, commons, run: ytDlp, tools: takeTools, signal });
   }
 
   return {

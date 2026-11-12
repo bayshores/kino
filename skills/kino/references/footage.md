@@ -50,8 +50,9 @@ image model did not run), and shots rank on motion, faces and clean frames.
 `F1.37 3:17.2-3:19.0 1.8s motion 82 face 40 match +3.1`: shot 37 of F1, its time in the video,
 length, motion and face (0 to 100), match (how far above the others it fits `want`). Dark shots,
 shots full of text, `subtitles` shots and shots under 0.4 s go last; `logo` marks a logo fixed
-for a while. A small logo near an edge on most shots is said once ("Logo top-left on every
-shot: crop or cover it."), and such videos list after clean ones; subtitles and captions stay text. Drawn footage has no face number ("Faces: not read
+for a while. A mark burned into most shots is said once ("a mark is burned into this clip's
+top-left"), and such videos list after clean ones. The import answer offers a clean clip or a crop
+with numbers; check `burned_in_mark` names a layer still showing it. Drawn footage has no face number ("Faces: not read
 on drawn footage."). Skipped counts say what was left out. With a song in the video, the answer
 says how many shots it needs (a cut every 2 beats on the drop, 4 on builds) and the import call
 names up to 1.5 times that. The answer's `next:` is that import call: change the shots after looking.
@@ -59,10 +60,9 @@ names up to 1.5 times that. The answer's `next:` is that import call: change the
 ## What is said
 
 A scan reads the video's captions once (YouTube's own, your language first, then English; auto
-captions are marked `auto captions`; no captions is said once, and is normal). A shot line ends
+captions are marked `auto captions`; no captions is said once). A shot line ends
 `says: "..."` when a caption line overlaps it, and the answer ends with `Lines (en, auto
-captions):` and `0:41 "..." (F1.12-F1.13)` rows. Auto captions are a guess: times are good to
-half a second, words are probably right.
+captions):` and `0:41 "..." (F1.12-F1.13)` rows. Auto captions are a guess (times within 0.5 s).
 
 - `said:"words"` (with `search`, `scan` or alone; saved like `want`): shots whose lines say them
   go first, and a burned-in subtitle on such a shot is its line, so it reads `has subtitles`
@@ -77,7 +77,7 @@ half a second, words are probably right.
   A line the trim cuts off is named `plays 5.3-7.4, line at 7.1-9.2` (file seconds); its call
   moves mediaOffset first.
 - An import of a clip of 1.5 s or more adds `says "..." 0.3-2.1 s` (seconds in the clip).
-- Footage has its own sound, and a line said in a clip can open or set up a moment. Keep it with
+- A line said in a clip can open or set up a moment. Keep it with
   `keep_line {layer:"clip", line:"the words said", duck:"music"}`: the rest of that
   clip's sound goes silent (every piece of a cut voice), a small subtitle shows the line, and the
   music dips to half its own volume (`dip` sets the volume) under it. Speech whisper cannot read: `from`, `to` (scene seconds) and `text`
