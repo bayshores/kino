@@ -191,7 +191,7 @@ test("at puts each copy of a made element at its own time, footage included, and
   const devices = returningDevices(result.document.scenes[0]);
   assert.deepEqual(devices.map((device) => [device.label, device.places]), [["mark", [1, 3, 6, 9]]], "the shot inside the group is listed once, as the group");
   assert.deepEqual(devices[0].changes[0], { key: "scaleX", first: 0.5, last: 2 });
-  assert.match(returnsLine(devices), /^returns: mark at 1 3 6 9 \(scaleX 0\.5 to 2\)/);
+  assert.match(returnsLine(devices), /^returns: mark \(2 layers\) at 1 3 6 9 ×4 \(scaleX 0\.5 to 2\)/);
   assert.throws(() => duplicateRepeated(document, "main", ["mark"], { at: [3, 6], count: 3 }), /at lists 2 times, count says 3/);
   assert.throws(() => duplicateRepeated(document, "main", ["mark"], { at: [3], stagger: 1 }), /two timings/);
   assert.throws(() => duplicateRepeated(document, "main", ["mark"], { at: [3, 6], vary: { scaleX: [1, 2, 3, 4] } }), /or 3 values, one per place/);
@@ -212,6 +212,23 @@ test("returns: an image returns by its file, not its name, and a long run of pla
   assert.deepEqual(returningDevices({ layers: scene }).map((device) => [device.label, device.places]), [["image", [0.2, 8]]]);
   const many = { label: "dot", places: Array.from({ length: 12 }, (_, i) => i), changes: [] };
   assert.match(returnsLine([many]), /^returns: dot at 0 1 2 3 4 5 6 7 … \(12 places\) ·/);
+});
+
+test("returns: a group of 4 layers shown 3 times, and layers named tread-1 to tread-4, each count as one device", () => {
+  let n = 0;
+  const shown = (start) => [{ id: `show${n++}`, name: "Show", kind: "show", start }];
+  const tread = [1, 2, 3, 4].map((i) => createLayer("rectangle", { id: `t${i}`, name: `tread-${i}`, parentId: "tread", width: 40, height: 10, animations: shown(1) }));
+  const group = documentWith([createLayer("group", { id: "tread", name: "Tread" }), ...tread]);
+  const copies = duplicateRepeated(group, "main", ["tread"], { at: [2, 3] }).document;
+  const devices = returningDevices(copies.scenes[0]);
+  assert.deepEqual(devices.map((device) => [device.label, device.places, device.layers]), [["tread", [1, 2, 3], 4]], "one device: the 12 child layers are not 12 separate things");
+  assert.match(returnsLine(devices), /^returns: tread \(4 layers\) at 1 2 3 ×3 ·/);
+  // Loose layers that share a stem and show one after another are one device with four places.
+  const loose = [0.13, 3.5, 6, 10.95].map((start, i) => createLayer("rectangle", { id: `l${i}`, name: `tread-${i + 1}`, width: 40, height: 10, animations: shown(start) }));
+  assert.match(returnsLine(returningDevices({ layers: loose })), /^returns: tread at 0\.13 3\.5 6 10\.95 ×4 ·/);
+  // A line of many devices names the ones it leaves out, each with its count.
+  const six = Array.from({ length: 6 }, (_, i) => ({ label: `d${i}`, places: [1, 2, 3 + i], layers: 1, changes: [] }));
+  assert.match(returnsLine(six, {}, 4), /\+2 more \(d4 ×3, d5 ×3\)/);
 });
 
 test("vary rebases a grow, so each copy's grow ends at its own scale", () => {

@@ -175,6 +175,8 @@ test("check warns deck_unused when the video uses under half the deck, and recor
   assert.match(plain, /^advice \(does not block\): .*deck_unused \(unused cards: [a-z-]+/m);
   // The advice names the unused cards and a ready call for the first.
   assert.match(plain, /^deck unused: [a-z0-9_-]+(, [a-z0-9_-]+)*; first: (library|edit) \{/m);
+  // And the plain facts beside the returns line: the share designed (a 96 px title is under 8% of the frame height) and the unused cards.
+  assert.match(plain, /^made: 0 of 20 moments \(0%\) carry a made element .* · deck: \d+ of \d+ cards unused \([a-z0-9_-]+/m);
   const checked = await agent("check", { project: "deck-check", rules: ["deck_unused"], pixels: false });
   const line = checked.text.split("\n").find((entry) => entry.startsWith("I deck_unused"));
   assert.ok(line, checked.text);

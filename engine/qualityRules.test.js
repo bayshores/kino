@@ -18,6 +18,7 @@ import { askLine } from "./quality/rules/ask.js";
 import { judderBlurId } from "./quality/techniques.js";
 import { aliveDuring } from "./quality/motionPixels.js";
 import { onscreenKinds } from "./quality/rules/referenceKinds.js";
+import { madeLine, madeShare, referenceMade } from "./quality/madeShare.js";
 import { referenceChoices } from "./quality/referenceChoices.js";
 import { gradeFrame, gradeTable, matchShot, referenceLevels } from "./quality/exposureMatch.js";
 
@@ -2317,6 +2318,21 @@ test("reference_kinds: an edit lacking a kind 2 references show at 2 moments is 
   // One labeled moment is a share of 0 or 100%: no share warning from it.
   const once = await check("reference_kinds", scene({ layers: [footage("a")] }), { sceneName: "s1", seenRefs: MADE_REFS.map((ref) => ({ ...ref, seen: ref.seen.slice(0, 1) })) });
   assert.deepEqual(once.findings, []);
+});
+
+test("madeShare: the share of moments with a made element, big type but not a caption, the deck's unused cards and the references' own", () => {
+  const plain = madeShare(modelOf(scene({ layers: [footage("a"), text("sub", "she walks in", { role: "caption", fontSize: 120 })] })));
+  assert.deepEqual([plain.moments, plain.made], [8, 0], "footage and a caption are not made");
+  const designed = madeShare(modelOf(scene({ layers: [footage("a"),
+    rect("box", { x: 100, y: 100, width: 600, height: 400, animations: [show(0), hide(2)] }),
+    text("title", "Go", { fontSize: 120, animations: [show(2)] })] })));
+  assert.deepEqual([designed.moments, designed.made, designed.parts.graphic, designed.parts.type], [8, 8, 4, 4]);
+  const deck = { cards: [{ tag: "punch-in" }, { tag: "speed-lines" }, { tag: "grain" }] };
+  const refs = referenceMade([{ id: "r1", seen: [{ at: 1, kinds: ["made"] }, { at: 2, kinds: ["type"] }] }, { id: "r2", seen: [] }]);
+  assert.deepEqual(refs, [{ id: "r1", made: 1, total: 2 }], "only a reference with labels has a stored measure");
+  assert.equal(madeLine(designed, { refs, deck, counts: { "punch-in": 2 } }),
+    "made: 8 of 8 moments (100%) carry a made element (graphic 4, type 4) · deck: 2 of 3 cards unused (speed-lines, grain) · your 1 reference label made at 1 of 2 moments");
+  assert.equal(madeLine(plain), "made: 0 of 8 moments (0%) carry a made element (cut-out, drawn graphic, shape, particle or designed type)", "no reference and no deck: only its own number");
 });
 
 test("onscreenKinds: type, overlay, color, composite and plain are read from the layers; a gamma lift alone is no color look", () => {
