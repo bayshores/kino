@@ -927,6 +927,16 @@ test("end_on_fade: the video ends on a fade while the song is mid-phrase", async
   const ringContext = (cues) => ({ speechScene: rung.scenes[0], speech: [{ layer: rung.scenes[0].layers[0], music: true, loudness }], cues });
   assert.deepEqual((await check("end_on_fade", rung, ringContext([{ name: "song-ring-1", kind: "marker", time: 5 }]))).findings, []);
   assert.equal((await check("end_on_fade", rung, ringContext([]))).findings.length, 1);
+  // A hard stop (0.03 s at 5.95 s) within 0.1 s after a song onset is a cut on the hit, not a fade:
+  // the onset read from the song's own level (a generated tone that jumps 12 dB at 5.9 s), or a beat
+  // of a generated grid (every 0.5 s from 0.4 s). The same stop on a flat tone with no grid still fires.
+  const tone = (hit) => ({ version: 2, available: true, duration: 10, secondsPerPeak: 0.01, peaks: Array.from({ length: 1000 }, (_, index) => (hit && index >= 590 && index < 600 ? 0.8 : 0.2)) });
+  const stopped = scene({ duration: 6, layers: [song({ animations: [{ kind: "custom", start: 5.95, duration: 0.03, easing: "linear", from: { volume: 1 }, to: { volume: 0 } }] })] });
+  const stopContext = (hit, cues = []) => ({ speechScene: stopped.scenes[0], speech: [{ layer: stopped.scenes[0].layers[0], music: true, loudness: tone(hit) }], cues });
+  assert.deepEqual((await check("end_on_fade", stopped, stopContext(true))).findings, []);
+  const grid = Array.from({ length: 12 }, (_, index) => ({ name: `beat-${index + 1}`, kind: "beat", time: 0.4 + index * 0.5 }));
+  assert.deepEqual((await check("end_on_fade", stopped, stopContext(false, grid))).findings, []);
+  assert.equal((await check("end_on_fade", stopped, stopContext(false))).findings.length, 1);
 });
 
 test("no_music: a 10 s video with no song under it", async () => {

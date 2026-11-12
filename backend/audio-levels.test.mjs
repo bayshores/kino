@@ -12,11 +12,12 @@ import { createDocument, createLayer, createScene, parseDocument } from "../engi
 import { applyOperations } from "../engine/operations.js";
 import { applyKeepLine } from "../engine/keepLine.js";
 import { energyMean } from "../engine/mixLevels.js";
+import { cueRise, songEnding } from "../engine/mixReadout.js";
 import { applyLinePeak, capLinePeak } from "./line-peak.mjs";
 import { createAgentClient } from "./agent/client.mjs";
 import { askedLead, describeLevels, describeMixFix, describeMixPeaks, limiterPlaces, restCallFor, loudMixWarning, loudnessGain, loudnessOption, measureFileLevels, mixLead, readLevels, readPeakWindows, referenceLead } from "./audio-levels.mjs";
 import { createLoudnessCurves, measureLoudnessCurve, readMomentary, savedWordsOf } from "./loudness-curve.mjs";
-import { exportScene, measureMixPeaks, sceneSoundClips, soundMixArgs } from "./export.mjs";
+import { exportScene, measureMixPeaks, sceneSoundClips, soundCurve, soundMixArgs } from "./export.mjs";
 import { ffmpeg, makeToneAfterSilence, run, skipWithoutMediaTools, startTestServer } from "./media.test.support.mjs";
 import { validateRenderFile } from "./render-validation.mjs";
 
@@ -417,6 +418,33 @@ test("measuring the mix finds every limiter place, and the loudest matches the r
   assert.match(unheard.loudness.why, /no saved reference with measured loudness \(1 saved without it; library \{topic:"inspire", name:"measure yt:z"\} measures one\)$/);
   const withRefs = await measureMixPeaks(await sceneSoundClips(scene, { mediaRoot, directory, duration: 4 }), 4, undefined, { references });
   assert.deepEqual([withRefs.auto.target, withRefs.auto.targetLufs], ["references", -18], "check's auto reads the same references");
+});
+
+test("the mix line's readings carry the momentary loudness that reads a drop's rise and where the sound ends (mixReadout)", { skip: skipWithoutMediaTools }, async (t) => {
+  const { root, mediaRoot } = await setup(t);
+  // A generated song: a 220 Hz tone at 0.05 to 3 s, then at 0.4 (the drop, +18 dB), stopped hard at 5.5 s in a 6.5 s scene.
+  await run(ffmpeg, ["-v", "error", "-y", "-f", "lavfi", "-i", "aevalsrc=if(lt(t\\,3)\\,0.05\\,0.4)*sin(2*PI*220*t):s=48000:d=6", "-ac", "2", join(mediaRoot, "song.wav")]);
+  const scene = createScene({ id: "drop", name: "Drop", width: 32, height: 32, duration: 6.5, background: "#000000",
+    layers: [createLayer("audio", { id: "song", name: "song", src: "/api/media/song.wav", mediaSourceDuration: 6, volume: 1,
+      animations: [{ id: "stop", kind: "custom", start: 5.5, duration: 0.03, easing: "linear", from: { volume: 1 }, to: { volume: 0 } }] })] });
+  const directory = join(root, "clips");
+  await mkdir(directory);
+  const clips = await sceneSoundClips(scene, { mediaRoot, directory, duration: 6.5 });
+  const mix = await measureMixPeaks(clips, 6.5, undefined, { heard: true });
+  assert.ok(mix.windows.every((window) => Number.isFinite(window.m)), "each 0.1 s reading has its momentary loudness");
+  const rise = cueRise(mix.windows, { at: 3, kind: "drop" });
+  t.diagnostic(`before ${rise.before}, after ${rise.after}, rise ${rise.rise} LU`);
+  assert.ok(Math.abs(rise.rise - 18) <= 1, `the drop rises ${rise.rise} LU`);
+  // heard: the mix as a default render plays it ("auto"'s gain, then the limiter).
+  assert.equal(mix.heard.gainDb, mix.auto?.gainDb ?? 0);
+  assert.ok(Math.abs(cueRise(mix.heard.windows, { at: 3, kind: "drop" }).rise - 18) <= 1);
+  // A +12 dB gain puts the drop (-8 dBFS peaks) into the limiter and not the bed: the rise reads shorter.
+  const held = cueRise(await soundCurve(clips, 6.5, undefined, { gainDb: 12 }), { at: 3, kind: "drop" });
+  t.diagnostic(`with +12 dB and the limiter: before ${held.before}, after ${held.after}, rise ${held.rise} LU`);
+  assert.ok(held.rise < 16 && held.rise > 10, `the limited drop rises ${held.rise} LU`);
+  const ending = songEnding({ layer: scene.layers[0], duration: 6.5, windows: mix.windows, grid: { onsets: [5.45], beats: [] }, fileSeconds: 6 });
+  assert.deepEqual([ending.kind, ending.at, ending.onset], ["stop", 5.5, 5.45]);
+  assert.ok(Math.abs(ending.soundEnd - 5.55) <= 0.1 && Math.abs(ending.after - 0.95) <= 0.1, `sound ends ${ending.soundEnd}, picture after ${ending.after}`);
 });
 
 test("a loud mix is limited to about -1 dBTP in MP4, WebM and MOV, and the export warns with the loudest moment", {

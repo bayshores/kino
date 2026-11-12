@@ -264,7 +264,7 @@ const PEAK_WINDOW = 0.1;
 // Peaks this close (s) are one place: a loud stretch, not one place per 0.1 s.
 const PLACE_GAP = 0.3;
 
-/** Reads PEAK_METER's printout: { integratedLufs, truePeakDbtp, windows: [{t, peak}] } (peak in dBFS per 0.1 s). */
+/** Reads PEAK_METER's printout: { integratedLufs, truePeakDbtp, windows: [{t, peak, m}] } (peak in dBFS per 0.1 s; m the momentary LUFS, when metered). */
 export function readPeakWindows(printed) {
   let loudness = null, truePeak = 0, window = null;
   const windows = [];
@@ -280,6 +280,8 @@ export function readPeakWindows(printed) {
       continue;
     }
     if (line.startsWith("lavfi.r128.I=")) loudness = Number(line.slice("lavfi.r128.I=".length));
+    // The momentary loudness (the 0.4 s ending with this window, LUFS, -70 its floor): mixReadout.js.
+    else if (window && line.startsWith("lavfi.r128.M=")) window.m = Math.max(-70, Number(line.slice("lavfi.r128.M=".length)) || -70);
     else if (/^lavfi\.r128\.true_peaks?(?:_ch\d+)?=/.test(line)) truePeak = Math.max(truePeak, Number(line.split("=")[1]) || 0);
     else if (window && /^lavfi\.astats\.\d+\.Peak_level=/.test(line)) {
       const peak = Number(line.split("=")[1]);

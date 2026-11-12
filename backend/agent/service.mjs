@@ -143,6 +143,8 @@ import { missingDocumentFonts } from "../../engine/fontRecovery.js";
 import { sceneShots, shotTiles } from "../../engine/sceneShots.js";
 import { boxesAt, cropOnSource, insideShare } from "../../engine/sourceView.js";
 import { mediaFrameState, mediaPlaybackRange, mediaSceneTime, mediaSoundTime } from "../../engine/playback.js";
+import { CUES_READ, cueRise, cueRiseText, endingText, keptLinesOf, quietShare, quietText, songEnding } from "../../engine/mixReadout.js";
+import { songSections } from "../../engine/footage/pace.js";
 import { shapeOf } from "../../engine/footage/layout.js";
 import { cropLine } from "../../engine/quality/rules/footage.js";
 import { followOps, majorityShape, namedShape, sizeLikeFootage, sizeOfShape } from "../../engine/quality/rules/shape.js";
@@ -3793,7 +3795,7 @@ export function createAgentService(deps) {
     // What plays on the song's drop and section starts, and whether it was shown before: facts.
     if (returnsScene) lines.push(...await sceneCueLinesFor(record.document, returnsScene).catch(() => []));
     // Where the mix passes the limiter, measured without a render: a fact line when the scene has sound.
-    const mix = returnsScene && options.listen ? await mixPeaksOf(returnsScene, { projectId }) : null;
+    const mix = returnsScene && options.listen ? await mixPeaksOf(returnsScene, { projectId, heard: true }) : null;
     // What check {fix:"auto"} would turn down (peakTrims planned on the places as measured; its own
     // run measures each layer alone first, so it may pick fewer layers at a place and other factors:
     // a whole-song factor is named only by the fix, never guessed here).
@@ -3808,7 +3810,9 @@ export function createAgentService(deps) {
       const rest = restCallFor(mix.places.filter((place) => !done.has(place.at)), null, returnsScene.layers, { bed: await bedOf(returnsScene, record.document), duration: returnsScene.duration });
       if (rest) mixTail += `; the rest: ${rest}`;
     }
-    if (mix) lines.push(describeMixPeaks(mix, { tail: "; all of them: look {mode:\"motion\", ref:\"sound\"}" }) + mixTail);
+    // The drop and section cues, the ending and the song's time under half volume, measured (mixReadoutFor).
+    const readout = mix ? await mixReadoutFor(record.document, returnsScene, mix).catch(() => ({ lines: [], quiet: "" })) : null;
+    if (mix) lines.push(describeMixPeaks(mix, { tail: "; all of them: look {mode:\"motion\", ref:\"sound\"}" }) + mixTail + readout.quiet, ...readout.lines);
     for (const note of result.notes) lines.push(`note: ${note}`);
     // The rules line comes with the agent's first check of a project since kino started, and
     // with {rules:true}. The dashboard's own checks (by you) do not count.
@@ -5828,15 +5832,16 @@ export function createAgentService(deps) {
   const mixPeaksKept = new Map();
   // perLayer: each layer sharing a place is measured alone too (check {fix:"auto"}).
   // projectId: "auto" reads that project's saved references' loudness, as a render does.
-  async function mixPeaksOf(scene, { perLayer = false, projectId = null } = {}) {
+  // heard: also the momentary loudness as a default render plays the mix (the drop readout).
+  async function mixPeaksOf(scene, { perLayer = false, projectId = null, heard = false } = {}) {
     if (!scene.layers.some((layer) => (layer.type === "audio" || layer.type === "video") && layer.src)) return null;
     const references = projectId ? await referenceLoudness(projectId) : [];
     // Groups too: a hidden group silences the video inside it.
-    const key = createHash("sha1").update(JSON.stringify([scene.duration, perLayer, references, scene.layers.filter((layer) => ["audio", "video", "group"].includes(layer.type))])).digest("hex");
+    const key = createHash("sha1").update(JSON.stringify([scene.duration, perLayer, heard, references, scene.layers.filter((layer) => ["audio", "video", "group"].includes(layer.type))])).digest("hex");
     if (!mixPeaksKept.has(key)) {
       mixPeaksKept.set(key, (async () => {
         const directory = await makeTempFolder("kino-mix-");
-        try { return await measureMixPeaks(await sceneSoundClips(scene, { mediaRoot: deps.mediaRoot, directory, duration: scene.duration, lead: true }), scene.duration, undefined, { perLayer, references }); }
+        try { return await measureMixPeaks(await sceneSoundClips(scene, { mediaRoot: deps.mediaRoot, directory, duration: scene.duration, lead: true }), scene.duration, undefined, { perLayer, references, heard }); }
         catch { mixPeaksKept.delete(key); return null; }
         finally { await removeTempFolder(directory); }
       })());
@@ -5927,8 +5932,9 @@ export function createAgentService(deps) {
     }
     // Every place the mix passes the limiter (the worst 6 when there are more; at most about 1,450
     // characters with 4 long layer names a place), the same numbers as check's mix: line.
-    const peaks = await mixPeaksOf(scene, { projectId: document.id });
-    const limiter = peaks ? `\n${describeMixPeaks(peaks, { limit: 6, label: "limiter", tail: ` (${peaks.places.length - 6} more)` })}` : "";
+    const peaks = await mixPeaksOf(scene, { projectId: document.id, heard: true });
+    const readout = peaks ? await mixReadoutFor(document, scene, peaks).catch(() => ({ lines: [], quiet: "" })) : { lines: [], quiet: "" };
+    const limiter = peaks ? `\n${describeMixPeaks(peaks, { limit: 6, label: "limiter", tail: ` (${peaks.places.length - 6} more)` })}${readout.quiet}${readout.lines.map((line) => `\n${line}`).join("")}` : "";
     return { image: { png: soundMapImage(map) }, text: `${soundMapText(map, { scene: refName(scene.id, codes) })}${limiter}` };
   }
   // Whether the person turned on sound search in Settings (backend/sound-search.mjs).
@@ -8905,6 +8911,52 @@ export function createAgentService(deps) {
       if (shape) return { layer, shape };
     }
     return null;
+  }
+
+  // Measured facts beside the mix line (engine/mixReadout.js), from the readings the mix line already
+  // took (mix.windows, each with its momentary loudness): the mix over the 1 s before and after each
+  // song cue in the scene (the drop first) with the loudest kept line before it, how the song ends
+  // (its saved beat grid for onsets and bar lines) and how long the picture runs after the sound.
+  // { lines, quiet } (quiet: the share-under-half-volume clause for the mix line, or "").
+  async function mixReadoutFor(document, scene, mix) {
+    const none = { lines: [], quiet: "" };
+    if (!mix?.windows?.length) return none;
+    const song = await sceneSong(document, scene);
+    const layer = song?.layer ?? (await savedSoundKinds(scene, document)).find((entry) => entry.music)?.layer ?? null;
+    const range = layer ? mediaPlaybackRange(layer, scene.duration) : null;
+    if (!range) return none;
+    const name = String(layer.name ?? layer.id).slice(0, 24);
+    const toScene = (time) => Math.round((range.start + time - range.offset) * 1000) / 1000;
+    let grid = null, fileSeconds = null;
+    try {
+      const beats = JSON.parse(await readFile(`${mediaFileOf(layer)}.beats`, "utf8"));
+      fileSeconds = Number.isFinite(beats.duration) ? beats.duration : null;
+      if (!range.remapped) grid = { onsets: (beats.onsets ?? []).map((onset) => toScene(onset.time)).filter(Number.isFinite), beats: (beats.beats ?? []).map(toScene) };
+    } catch { /* no saved beat grid: the ending says so */ }
+    // The song shape's measured bar lines (song-shape.mjs bars.lines), phrases every 4 bars from its
+    // first drop (fitMusic.js reads phrases the same way).
+    const barLines = song && !range.remapped && Array.isArray(song.shape?.bars?.lines) && song.shape.bars.lines.length >= 2 ? song.shape.bars.lines : null;
+    if (barLines) {
+      const dropBar = (song.shape.sections ?? []).find((part) => part.kind === "drop" && Number.isInteger(part.bar))?.bar ?? 0;
+      grid = { onsets: grid?.onsets ?? [], beats: grid?.beats ?? [], bars: barLines.map((time, index) => ({ at: toScene(time), kind: (index - dropBar) % 4 === 0 ? "phrase" : "bar" })) };
+    }
+    const lines = [];
+    const sections = song && !range.remapped ? songSections(song.shape, { offset: range.offset - range.start, to: scene.duration })?.sections ?? [] : [];
+    const cues = sections.filter((part) => part.from > 0.05 && part.from < scene.duration - 0.05 && part.kind !== "open").map((part) => ({ at: part.from, kind: part.kind }));
+    const read = [...cues.filter((cue) => /drop/.test(cue.kind)), ...cues.filter((cue) => !/drop/.test(cue.kind))].slice(0, CUES_READ).sort((a, b) => a.at - b.at);
+    const kept = keptLinesOf(scene, (each) => String(each.name ?? each.id).slice(0, 24));
+    // Read as a default render plays the mix ("auto"'s gain, then the limiter: a drop the limiter
+    // holds down reads as the file will), else at loudness "off" before the limiter.
+    const heard = mix.heard?.windows?.length ? mix.heard : null;
+    const gain = heard ? `${heard.gainDb >= 0 ? "+" : ""}${heard.gainDb} dB` : "";
+    const which = heard ? `the mix as a default render plays it: loudness "auto" ${gain}, then the limiter` : "the mix at loudness \"off\", before the limiter";
+    for (const cue of read) lines.push(`cue: ${cueRiseText(cueRise(heard?.windows ?? mix.windows, cue, kept))} (momentary 0.4 s readings, energy mean; ${which})`);
+    const ending = songEnding({ layer, duration: scene.duration, windows: mix.windows, grid, fileSeconds });
+    if (ending) lines.push(endingText(name, ending));
+    const line = kept.find((entry) => entry.name !== name) ?? null;
+    const call = `edit {dry_run:true, ops:[{op:"keep_line", layer:${JSON.stringify(line?.name ?? "<the line's layer>")}, from:${line ? Math.round(line.start * 100) / 100 : "<s>"}, to:${line && Number.isFinite(line.end) ? Math.round(line.end * 100) / 100 : "<s>"}, lift:true}]}`;
+    const quiet = quietText(name, quietShare(layer, scene.duration), call);
+    return { lines, quiet: quiet ? `; ${quiet}` : "" };
   }
 
   // check's cue lines for a built scene: the song's cues (sceneSong) and the story's: the board's
