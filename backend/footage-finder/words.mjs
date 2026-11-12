@@ -13,6 +13,7 @@
 // first word and stays until the next line): read them as to the nearest half second.
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
+import { GLOSS_LABEL } from "../../engine/speech.js";
 import { jsRuntime, NO_JS_RUNTIME, runYtDlp, ytDlpCommand } from "../inspire.mjs";
 import { makeTempFolder, removeTempFolder } from "../temp-folders.mjs";
 
@@ -210,7 +211,8 @@ export function applySaid(shots, lines, said = "") {
     const out = says ? { ...shot, says } : { ...shot };
     if (!said || !says) return out;
     const near = linesOverlapping(lines, shot.start, shot.end);
-    if (!saidMatches(near.map((line) => line.text).join(" "), said)) return out;
+    // A line heard in another language also matches by its machine gloss (the readout marks it unverified).
+    if (!saidMatches(near.map((line) => line.text).join(" "), said) && !near.some((line) => line.gloss && saidMatches(line.gloss, said))) return out;
     const subtitled = (shot.flags ?? []).includes("subtitles");
     return { ...out, said: true, flags: (shot.flags ?? []).filter((flag) => flag !== "subtitles"), ...(subtitled ? { hasSubs: true } : {}) };
   });
@@ -226,7 +228,8 @@ export function applySaid(shots, lines, said = "") {
 export function spokenLines(lines, shots, said = "", most = LINES_SHOWN) {
   const byTime = [...shots].sort((a, b) => a.start - b.start);
   const all = lines.map((line) => ({
-    start: line.start, end: line.end, text: quoted(line.text), hit: Boolean(said) && saidMatches(line.text, said),
+    start: line.start, end: line.end, text: quoted(line.text), hit: Boolean(said) && (saidMatches(line.text, said) || Boolean(line.gloss && saidMatches(line.gloss, said))),
+    ...(line.gloss ? { gloss: quoted(line.gloss) } : {}),
     shots: byTime.filter((shot) => linesOverlapping([line], shot.start, shot.end).length).map((shot) => shot.n),
   })).filter((line) => line.shots.length);
   if (all.length <= most) return all;
@@ -242,7 +245,7 @@ export function linesBlock(code, spoken, { lang, auto, local } = {}) {
     const first = line.shots[0];
     const last = line.shots.at(-1);
     const covered = first === last ? `${code}.${first}` : `${code}.${first}-${code}.${last}`;
-    return `${clockOf(line.start)} "${line.text}" (${covered})${line.hit ? " says it" : ""}`;
+    return `${clockOf(line.start)} "${line.text}"${line.gloss ? ` [${GLOSS_LABEL}: "${line.gloss}"]` : ""} (${covered})${line.hit ? " says it" : ""}`;
   });
   return [head, ...rows].join("\n");
 }

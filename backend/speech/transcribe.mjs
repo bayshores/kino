@@ -850,6 +850,31 @@ async function detectFile(filename, setup, spans) {
   return samples.length ? detectLanguage(samples, setup, spans) : null;
 }
 
+// Whisper is sure enough of a language that is not English to hear the clip in it.
+const heardOtherLanguage = (guess) => Boolean(guess?.language) && guess.language !== "en" && !(guess.p < LANG_SURE);
+
+// The English model wrote some word on this transcript (sure or not), so there may be a voice in it.
+// On a Spanish line it wrote only unsure sound-alike words, no line and no voice tag.
+const wroteWords = (english) => (english?.words ?? []).some((word) => !word.unclear && /[\p{L}\p{N}]/u.test(String(word.text ?? "")));
+
+/**
+ * The same language pass the clip readout uses (createTranscriptCache heard), for a file with no
+ * transcript cache (the footage finder's listened stretches): `english` is transcribeFile's answer.
+ * When the multilingual model file is already on this computer and whisper hears another language
+ * with LANG_SURE, the file is heard in that language: {...transcript, language, languageP, english:
+ * [gloss segments]}. Otherwise `english` comes back as it was. Never fetches the model.
+ * options: languages() (languageSetup), detect(file, setup, spans), transcribe (transcribeFile).
+ */
+export async function hearInOwnLanguage(filename, english, { languages = () => languageSetup(), detect = detectFile, transcribe = transcribeFile } = {}) {
+  const read = readClipSound(english);
+  if (!read.lines.length && !read.voice.length && !wroteWords(english)) return english;
+  const found = languages();
+  if (!found) return english;
+  const guess = await detect(filename, found, []);
+  if (!heardOtherLanguage(guess)) return english;
+  return { ...(await transcribe(filename, found, { language: guess.language })), language: guess.language, languageP: guess.p };
+}
+
 export function createTranscriptCache({
   setup = () => whisperSetup(), transcribe = transcribeFile, now = () => Date.now(),
   languages = () => languageSetup(), detect = detectFile,
@@ -916,8 +941,7 @@ export function createTranscriptCache({
     const read = readClipSound(english);
     // Any word the English model wrote counts, sure or not: on a Spanish line it wrote only unsure
     // sound-alike words, no line and no voice tag (lines-any-language-review RESULT.md).
-    const wrote = (english?.words ?? []).some((word) => !word.unclear && /[\p{L}\p{N}]/u.test(String(word.text ?? "")));
-    if (!read.lines.length && !read.voice.length && !wrote) return english;
+    if (!read.lines.length && !read.voice.length && !wroteWords(english)) return english;
     const found = languages();
     if (!found) {
       if (read.otherLanguage && fetchState === null) {

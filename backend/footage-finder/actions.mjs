@@ -500,7 +500,7 @@ export function createFootageActions({ finder, waitMs = FOOTAGE_WAIT_MS, keepMs 
       data: { code: candidate.code, id, shots: (result.shots ?? []).slice(0, FOOTAGE_SHOTS_SHOWN).map(({ n, start, end, motion, face, match, flags, says, said: hit, hasSubs }) => ({ n, start, end, motion, face, match, flags, ...(says ? { says } : {}), ...(hit ? { said: true } : {}), ...(hasSubs ? { hasSubs: true } : {}) })), matchShown: Boolean(result.matchShown),
         ...(result.marks?.length ? { logo: markPlaces(result.marks), marks: result.marks.map(({ where, box }) => ({ where, box })) } : {}), ...(result.drawn ? { drawn: true } : {}), ...(song ? { song } : {}),
         ...(elsewhere ? { edit: true, ...(importNext ? { import: importNext } : {}) } : {}),
-        ...(lines.length ? { captions: { lang: answer.lang, auto: Boolean(answer.auto), ...(answer.local ? { local: true } : {}), ...(said ? { said, hits: applied.hits } : {}) }, lines: spoken.map(({ start, end, text, hit, shots }) => ({ start, end, text, shots, ...(hit ? { said: true } : {}) })) } : {}) },
+        ...(lines.length ? { captions: { lang: answer.lang, auto: Boolean(answer.auto), ...(answer.local ? { local: true } : {}), ...(said ? { said, hits: applied.hits } : {}) }, lines: spoken.map(({ start, end, text, gloss, hit, shots }) => ({ start, end, text, ...(gloss ? { gloss } : {}), shots, ...(hit ? { said: true } : {}) })) } : {}) },
       nextCall: nextImport ?? (following ? scanCall(following.code) : searchCall()), update };
   }
 

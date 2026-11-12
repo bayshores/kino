@@ -1334,7 +1334,7 @@ test("the skill's footage calls search, scan and import a stub video's shots; a 
 });
 
 // ---- what is said: captions (footage-finder/words.mjs) ----------------------------------------
-import { applySaid, captionArgs, fetchCaptions, parseCaptions, saidMatches, saysOf, saysText } from "./footage-finder/words.mjs";
+import { applySaid, captionArgs, fetchCaptions, linesBlock, parseCaptions, saidMatches, saysOf, saysText, spokenLines } from "./footage-finder/words.mjs";
 import { importLineCall } from "./footage-finder/actions.mjs";
 import { spokenBudget } from "./footage-finder/spoken.mjs";
 
@@ -1588,6 +1588,13 @@ test("the finder listens to a captionless video's scanned stretch once: the audi
   const noModel = createFootageFinder({ directory: path.join(directory, "other"), ytDlp, runtime: withRuntime.runtime,
     transcribe: async () => { throw new Error("The speech model is missing."); } });
   assert.deepEqual(await noModel.spoken(video, [{ start: 30, end: 90 }]), { none: true, why: "The speech model is missing." });
+  // A stretch heard in its own language (hearInOwnLanguage): the words as said, the gloss marked, the language named.
+  const japanese = createFootageFinder({ directory: path.join(directory, "ja"), ytDlp, runtime: withRuntime.runtime,
+    transcribe: async () => ({ language: "ja", words: [word("殺してやる。", 1, 2.5)], english: [{ start: 0.9, end: 2.6, text: "I'll kill you." }] }) });
+  const heardJa = await japanese.spoken(video, [{ start: 30, end: 90 }]);
+  assert.deepEqual([heardJa.lang, heardJa.lines], ["ja", [{ start: 31, end: 32.5, text: "殺してやる。", gloss: "I'll kill you." }]]);
+  const block = linesBlock("F1", spokenLines(heardJa.lines, [{ n: 1, start: 30, end: 40 }]), heardJa);
+  assert.match(block, /^Lines \(ja, heard on this computer\):\n0:31 "殺してやる。" \[gloss \(machine, unverified\): "I'll kill you\."\] \(F1\.1\)$/);
   // The budget keeps whole windows up to 120 s, the first always; a window that would pass it is left.
   assert.deepEqual(spokenBudget([{ start: 0, end: 70 }, { start: 100, end: 160 }, { start: 200, end: 210 }]), { listen: [{ start: 0, end: 70 }, { start: 200, end: 210 }], left: 60 });
 });
@@ -1608,8 +1615,8 @@ test("an import answer says what a clip of 1.5 s or more says, in the clip's own
   // Heard in its own language: the line as said with whisper's English, and the footer says which is which.
   const glossed = { byId: { "m3.mp4": { lines: [{ text: "殺してやる", english: "I'll kill you.", start: 0, end: 6.12 }], voice: [], lufs: -23.4, language: "ja", p: 0.76 } }, missing: null };
   const glossText = takeText(candidate, { media: [clip(9, 10.1, 3)], failed: [], heard: glossed });
-  assert.match(glossText, /m3\.mp4 -23\.4 LUFS · heard in Japanese \(ja, p 0\.76\): "殺してやる" \(en: "I'll kill you\."\) 0\.0-6\.1 s$/m);
-  assert.match(glossText, /^\(en: "\.\.\."\) is whisper's English/m);
+  assert.match(glossText, /m3\.mp4 -23\.4 LUFS · heard in Japanese \(ja, p 0\.76\): "殺してやる" \[gloss \(machine, unverified\): "I'll kill you\."\] 0\.0-6\.1 s$/m);
+  assert.match(glossText, /^\[gloss \(machine, unverified\): "\.\.\."\] is whisper's English/m);
   assert.match(takeText(candidate, { media: [clip(9, 10.1, 3)], failed: [], heard: { ...levels, fetching: true } }), /fetching ggml-small\.bin \(488 MB, once\)/);
   // A clip heard and another not read: the "not read" footer stays off as before the language lines.
   assert.doesNotMatch(takeText(candidate, { media: [clip(9, 10.1, 3)], failed: [], heard: { ...levels, missing: "no speech model" } }), /heard: not read/);

@@ -115,7 +115,7 @@ export function checkDocument(document, { fonts, mediaRoot, codes, sceneId } = {
  * subset, so check runs it after the findings are made. Changes `findings` in place.
  */
 export async function explainMissingGlyphs(findings, document, { fonts, catalog, codes } = {}) {
-  const wanted = findings.filter((finding) => finding.rule === "missing_glyphs" && !finding.waived).slice(0, MAX_FINDINGS);
+  const wanted = findings.filter((finding) => finding.rule === "missing_glyphs" && !finding.waived && !finding.explained).slice(0, MAX_FINDINGS);
   if (!wanted.length) return;
   const layers = documentTextLayers(document);
   for (const finding of wanted) {
@@ -125,6 +125,9 @@ export async function explainMissingGlyphs(findings, document, { fonts, catalog,
     const help = await missingGlyphsHelp({ layer, layerRef: finding.ref, characters, fonts, catalog });
     if (help.message) finding.message = `${finding.message} ${help.message}`;
     finding.fix = help.fix;
+    finding.explained = true;
+    // The fix is an op when a font that has the characters was found: check {fix:"auto"} applies it.
+    if (help.fix && typeof help.fix === "object") finding.auto = true;
   }
 }
 

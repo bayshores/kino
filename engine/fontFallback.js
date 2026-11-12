@@ -22,15 +22,23 @@ export function isEmojiGrapheme(text) {
     (text.includes("\u200d") && /\p{Extended_Pictographic}/u.test(text));
 }
 
+// Han characters are shared by Chinese, Japanese and Korean fonts. The line's own other script picks
+// the form tried first (kana: Japanese, Hangul: Korean, neither: Simplified Chinese); the other CJK
+// families follow, so a computer that has only one of them installed still draws the characters
+// that family has, instead of boxes. Whether a family really has each character is checked per face.
+function hanFamilies(context) {
+  const first = /\p{Script_Extensions=Hiragana}|\p{Script_Extensions=Katakana}/u.test(context) ? "noto-sans-jp"
+    : /\p{Script_Extensions=Hangul}/u.test(context) ? "noto-sans-kr" : "noto-sans-sc";
+  return [first, ...["noto-sans-sc", "noto-sans-tc", "noto-sans-hk", "noto-sans-jp", "noto-sans-kr"].filter((id) => id !== first)];
+}
+
 /** Catalog candidates, in order. Their actual subset coverage is checked before use. */
 export function fallbackCatalogIds(grapheme, context = grapheme) {
   if (!grapheme || /^[\s\p{Default_Ignorable_Code_Point}\p{Control}]+$/u.test(grapheme)) return [];
   if (isEmojiGrapheme(grapheme)) return ["noto-color-emoji"];
   const script = scriptFamilies.find(({ test }) => test.test(grapheme));
   if (script) return [script.id, "noto-sans"];
-  if (/\p{Script_Extensions=Han}/u.test(grapheme))
-    return [/\p{Script_Extensions=Hiragana}|\p{Script_Extensions=Katakana}/u.test(context)
-      ? "noto-sans-jp" : "noto-sans-sc"];
+  if (/\p{Script_Extensions=Han}/u.test(grapheme)) return hanFamilies(context);
   if (/[\p{Script_Extensions=Latin}\p{Script_Extensions=Greek}\p{Script_Extensions=Cyrillic}]/u.test(grapheme))
     return ["noto-sans"];
   return ["noto-sans-symbols-2", "noto-sans-symbols", "noto-sans"];
