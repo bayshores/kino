@@ -8,39 +8,23 @@ titles behind the subject, outlines and glows, a new or blurred background, matt
 ## Subject cut-out
 
 - `cut_out` finds the subject of a video or image layer on this Mac (Apple Vision; nothing is
-  uploaded) and adds a copy of the layer right above it, or above `above`, that shows only the
-  subject. The copy keeps the layer's place, size, Play range, speed and animations, so it stays
-  exactly over it, and has no sound (the layer keeps playing it). It is named `<layer>-<output>`,
-  or `name`.
-- `output`: `"subject"` (default: transparent around the subject), `"silhouette"` (its shape in
-  `color`, default white) or `"matte"` (white on black, for `create_mask`; `invert:true` swaps
-  them).
-- `points:[[x,y]]` (1 to 8, % of the clip's own picture as look `mode:"source"` shows it) keeps
-  only the objects under them; `exclude` (same form) drops the object right under it; `time` (file seconds, default
-  0) is when they are pointed at. The same objects are followed through the clip by overlap.
-  Needs the subject engine; receipt `picked {frame, objects, lost, weak, seeAt}`: `lost` and
-  `weak` are `[[from,to]]` file seconds where the object was gone or its mask shrank, grew or
-  jumped by over half; `seeAt` gives scene seconds of each span's first frame for look
-  `{mode:"frame", t}`.
-- `grow` (-100 to 100 layer pixels) makes the shape bigger, or smaller below 0; `feather`
-  (0 to 200) softens its edge.
-- Every output shares one cleaned edge (rim, outline and glow sit on it): `refine` (default
-  true; false, or a radius to 40 px) smooths stair steps along the picture's own edges;
-  `fillHoles` (default true) fills small holes; `openEdges` (`"fade"` default, `"keep"`, or px)
-  fades the subject where the clip's frame cuts it, so a glow skips that straight edge.
-- A clip's `subject` edge drops still background near it and takes the subject's color (no
-  halo); a frame where Vision lost the subject takes the nearest good one's shape.
+  uploaded) and adds a soundless copy right above it (or above `above`) that stays exactly over
+  it, named `<layer>-<output>` or `name`. Every field, default and receipt field:
+  `library {topic:"rules", name:"cutout"}`.
+- `output`: `"subject"` (default), `"silhouette"` (its shape in `color`), `"outline"` (a path on
+  its edge) or `"matte"` (for `create_mask`). `grow` and `feather` widen and soften the shape.
+  `points:[[x,y]]` (% of the clip's own picture, look `mode:"source"`) keeps only the objects
+  under them, `exclude` drops one; the receipt's `picked` `lost`/`weak` spans say where it slipped.
+- All outputs share one cleaned edge (`refine`, `fillHoles`, `openEdges` fades it where the
+  frame cuts the subject; a clip's edge drops still background near it, no halo); a frame where
+  Vision lost the subject takes the nearest good shape.
 - Keep the `"subject"` engine for a silhouette or a dark figure: `"person"` can leave the body
   half see-through (gray over a white title behind it), and the receipt's `note` says so.
-- `engine:"auto"` (default) is `"subject"` (any subject, macOS 14+) or `"person"` (people only,
-  macOS 13). Other systems have no engine: the edit is refused (`CUTOUT_ENGINE_UNAVAILABLE`), so
-  mask with a shape there. A missing or old helper: `npm run desktop:cutout` builds it.
-- It takes about 1.5 s per second of 1080p video, one cut-out at a time. An edit waits up to 50 s
-  in all (30 s more when nearly done); a longer one answers `CUTOUT_RUNNING` with how far it got,
-  changes nothing and keeps going. Send the same edit again later: the finished cut-out is kept,
-  so it answers at once (`cached:true`), even while another one is being made.
-- The receipt's `cutout` gives engine, frames, seconds, `cached`, `subject` (its box over time
-  and the `room` beside it, scene px) and a `note` for frames with no subject. Undo: `history`.
+- macOS 14+ (`"person"`, people only, on 13); elsewhere refused (`CUTOUT_ENGINE_UNAVAILABLE`):
+  mask with a shape. A missing or old helper: `npm run desktop:cutout` builds it.
+- About 1.5 s per second of 1080p. Over 50 s it answers `CUTOUT_RUNNING`, changes nothing and
+  keeps going: send the same edit later (`cached:true`). The receipt's `subject` gives its box
+  and the `room` beside it (scene px) to place type without a look. Undo: `history`.
 - Cut-outs get `allowOverlap`; `type_covered` warns when the subject's box hides most of a title
   behind it. `covered_layer` and `held_static` skip the source clip.
 - `frame` on the layer carries its cut-outs in the camera group, with every layer stacked between
