@@ -122,6 +122,58 @@ export function layerSpanCuts(layer, fileShots, sceneDuration) {
   return cuts.map((cut) => (plain ? { ...cut, fields: fieldsFor(cut.trim), ...(cut.other ? { otherFields: fieldsFor(cut.other) } : {}) } : cut));
 }
 
+// Picture changes closer than this (file seconds, about 6 frames at 24 fps) are one run: a montage.
+export const MONTAGE_GAP = 0.25;
+
+/**
+ * The picture changes inside one saved shot (shot.changes from the shot finder: a montage of
+ * 1 to 5 frame shots, a short cutaway) that a forward, constant-speed video layer shows, as runs:
+ * { runs: [{from, to, count, at, until}], move } or null when it shows none. A run is changes
+ * under MONTAGE_GAP apart: file seconds from the first change to the last, `count` changes, scene
+ * seconds `at`..`until`. `move` is the one call's fields that show the same length from the
+ * nearest clean stretch of the same shot (between its start, its changes, its edge frames and its
+ * end), {mediaOffset} keeping mediaStart and mediaDuration, with that stretch {from, to}; or the
+ * longest clean stretch inside the shown span when none is long enough: {mediaOffset, mediaStart,
+ * mediaDuration} for it. A change at an edge-frame bound is left to spanCuts.
+ */
+export function layerSpanChanges(layer, fileShots, sceneDuration) {
+  if (layer?.type !== "video" || !Array.isArray(fileShots) || isReversed(layer) || speedAnimations(layer).length) return null;
+  const range = mediaPlaybackRange(layer, sceneDuration);
+  if (!range || range.remapped) return null;
+  const from = range.offset, to = range.offset + range.duration;
+  const sceneAt = (file) => range.start + (file - range.offset);
+  const shot = fileShots.find((each) => Number.isFinite(each?.start) && each.start <= from + EDGE && each.end >= to - EDGE);
+  if (!shot || !Array.isArray(shot.changes)) return null;
+  const edges = new Set([shot.edge?.start, shot.edge?.end].filter(Number.isFinite).map((value) => round(value)));
+  const changes = shot.changes.filter((file) => Number.isFinite(file) && !edges.has(round(file))).sort((a, b) => a - b);
+  const inside = changes.filter((file) => file > from + EDGE && file < to - EDGE);
+  if (!inside.length) return null;
+  const runs = [];
+  for (const file of inside) {
+    const run = runs.at(-1);
+    if (run && file - run.to < MONTAGE_GAP) { run.to = file; run.count += 1; } else runs.push({ from: file, to: file, count: 1 });
+  }
+  for (const run of runs) { run.at = round(sceneAt(run.from)); run.until = round(sceneAt(run.to)); }
+  // The clean stretches of the shot: between its body's ends and each change.
+  const bounds = [shot.edge?.start ?? shot.start, ...changes, shot.edge?.end ?? shot.end];
+  const stretches = bounds.slice(1).map((end, index) => ({ from: bounds[index], to: end })).filter((stretch) => stretch.to > stretch.from);
+  const length = to - from;
+  const fits = stretches.filter((stretch) => stretch.to - stretch.from >= length + 2 * TRIM_MARGIN);
+  let move;
+  if (fits.length) {
+    const near = fits.reduce((best, stretch) => (Math.abs(stretch.from - from) < Math.abs(best.from - from) ? stretch : best));
+    // The layer's own offset moves by as much as its shown span does (the span may start after it).
+    const offset = round((layer.mediaOffset ?? 0) + near.from + TRIM_MARGIN - from);
+    move = { from: round(near.from), to: round(near.to), fields: { mediaOffset: offset } };
+  } else {
+    const shown = stretches.map((stretch) => ({ from: Math.max(stretch.from, from), to: Math.min(stretch.to, to) })).filter((stretch) => stretch.to > stretch.from);
+    const longest = shown.reduce((best, stretch) => (stretch.to - stretch.from > best.to - best.from ? stretch : best), shown[0]);
+    const offset = round(longest.from + (longest.from > from ? TRIM_MARGIN : 0));
+    move = { from: round(longest.from), to: round(longest.to), fields: { mediaOffset: offset, mediaStart: round(sceneAt(offset)), mediaDuration: round(longest.to - TRIM_MARGIN - offset) } };
+  }
+  return { runs, move, shown: { from: round(from), to: round(to) } };
+}
+
 /**
  * The cuts inside a board shot's span: its file seconds are in .. in + dur × speed, played from
  * its cue. Same answer as spanCuts. [] for a shot with no video span.

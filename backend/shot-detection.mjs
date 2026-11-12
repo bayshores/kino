@@ -83,8 +83,9 @@ export const MAX_VIDEO_FRAMES = 72_000;
 const TOO_LONG = "too long to look for shots in";
 // Saved with the shots (shotsFound.version), so a better finder can tell old results apart. 2: cuts
 // between dim drawn shots (UNLIKE_JUMP) and held drawings under a camera drift (DRIFT_MAX). 3: a
-// shot's edge frames (shotEdges), so a file found before them is measured once more.
-export const SHOTS_VERSION = 3;
+// shot's edge frames (shotEdges), so a file found before them is measured once more. 4: picture
+// changes inside a shot (pictureChanges: a montage, a short cutaway).
+export const SHOTS_VERSION = 4;
 // What kino keeps of FFmpeg's messages for an error: the end, where FFmpeg says what went wrong.
 const MAX_ERROR_LENGTH = 4000;
 // Each frame as the metadata filter prints it: "frame:30   pts:15360   pts_time:1.25", then
@@ -235,6 +236,35 @@ export function shotEdges(cuts, starts, frames, { at = (frame) => frame, flashes
     // The body between the edges must stay a shot; else the edges are not told apart from it.
     if (next - start - head - tail < MIN_SHOT_FRAMES) return { head: 0, tail: 0 };
     return { head, tail };
+  });
+}
+
+/**
+ * The picture changes inside each shot that the shot rules do not keep as cuts: a montage of
+ * 1 to 5 frame shots (each change masks its neighbors' spike, so no SPIKE fires) or a short
+ * cutaway that returns to the shot (taken for a flash). A frame changes the picture when it is not
+ * flat, not ALIKE the last frame before it that is not flat, and differs from that frame by at
+ * least SPIKE times the shot's own usual change (the lower third of its frame steps over HOLD_DIFF:
+ * a shot under green rain measured 13 to 15 per step, its montage frames 30 to 79). Returns one
+ * sorted list of frame numbers per shot (its first frame is never one).
+ */
+export function pictureChanges(starts, frames, mad, { flat = () => false, alike = () => true } = {}) {
+  return starts.map((start, index) => {
+    const next = starts[index + 1] ?? frames;
+    const steps = [];
+    for (let frame = start + 1; frame < next; frame += 1) { const step = mad(frame - 1, frame); if (step > HOLD_DIFF) steps.push(step); }
+    if (!steps.length) return [];
+    steps.sort((a, b) => a - b);
+    // The lower third, not the median: a montage's own big steps would raise the median.
+    const usual = steps[Math.floor(steps.length / 3)];
+    const changes = [];
+    let last = flat(start) ? -1 : start;
+    for (let frame = start + 1; frame < next; frame += 1) {
+      if (flat(frame)) continue;
+      if (last >= 0 && !alike(last, frame) && mad(last, frame) >= SPIKE * usual) changes.push(frame);
+      last = frame;
+    }
+    return changes;
   });
 }
 
@@ -589,7 +619,8 @@ export function shotsFromRun(run, { duration, length, minShotFrames = MIN_SHOT_F
     // An edge frame is flat (black, white, a blur) or not alike the body's nearest frame: a drawn
     // pose change at a shot's start (the same picture, redrawn) is body, not an edge.
     const edges = shotEdges(cuts, starts, frames, { at, flashes: flashFrames, apart: (frame, body) => flat(frame) || !alike(frame, body) });
-    return { starts, flashes, flashSpans, edges, holds: holdPattern(frames, mad, run.times, length, starts) };
+    const changes = pictureChanges(starts, frames, mad, { flat, alike });
+    return { starts, flashes, flashSpans, edges, changes, holds: holdPattern(frames, mad, run.times, length, starts) };
   };
   // Drawn footage (each drawing held 2 frames or more in the shots found without it) is looked at
   // once more for cuts between dim drawn shots (UNLIKE_JUMP).
@@ -604,7 +635,9 @@ export function shotsFromRun(run, { duration, length, minShotFrames = MIN_SHOT_F
     // {start, end} file seconds, which imports and board shots keep to by default.
     const inner = (frame) => run.times[frame];
     const edge = head || tail ? { head, tail, start: round3(head ? inner(starts[index] + head) : start), end: round3(tail ? inner((starts[index + 1] ?? frames) - tail) : end) } : null;
-    return { start: round3(start), end: round3(end), ...(edge && Number.isFinite(edge.start) && Number.isFinite(edge.end) ? { edge } : {}) };
+    // Picture changes inside the shot the shot rules keep no cut for (pictureChanges), file seconds.
+    const changes = (found.changes[index] ?? []).map((frame) => run.times[frame]).filter(Number.isFinite).map((time) => round3(time));
+    return { start: round3(start), end: round3(end), ...(edge && Number.isFinite(edge.start) && Number.isFinite(edge.end) ? { edge } : {}), ...(changes.length ? { changes } : {}) };
   });
   return {
     shots,

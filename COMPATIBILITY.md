@@ -972,7 +972,10 @@ How to read it:
   (past a cut and its edge frames together) and found-footage imports keep to the shot body; look source lists edge
   frames and labels their tiles. Evidence: `backend/shot-detection.test.mjs` (lavfi clip with a 1-frame card and 2
   black frames), `engine/sceneShots.test.js`, `engine/qualityRules.test.js`, `backend/footage-finder.test.mjs`,
-  `backend/look-source.test.mjs`. Gaps: no frame-difference measure for a file with no scan.
+  `backend/look-source.test.mjs`. Picture changes inside a saved shot (a found clip's montage or short cutaway,
+  shot.changes) are named by source_cut as runs with counts, with a move to a clean stretch of the shot (replayed on a
+  found clip: 12 changes at file 0.61-1.69 s). Gaps: no frame-difference measure for a file with no scan; cuts
+  between very dark drawn shots (correlation 0.74 to 0.87) are not found.
 - **place on a face part**: Verified. `place {layers, on:"mouth", of}` centers layers on a mouth, the eyes, between
   the eyes, the face or above the head: exact on a part mark, an estimate from a head mark or found face, refused
   with the mark call when none. Evidence: `backend/agent-blocks.test.mjs`, `engine/footage.test.js`.

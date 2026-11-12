@@ -2053,6 +2053,13 @@ test("source_cut: a layer whose shown span holds its file's cut or a shot's edge
   const [both] = (await run({ ...full, mediaOffset: 1.4, mediaDuration: 1.6 })).findings;
   assert.match(both.message, /2 edge frames .* at 1\.52 s \(file 2\.92 s\): 3 frames of the other picture show; 1 more in its span\.$/);
   assert.deepEqual((await run({ ...full, mediaOffset: 1.6, mediaDuration: 1.3 })).findings, [], "file 1.6-2.9 s: inside the body");
+  // Picture changes inside one saved shot (a found clip's own montage, measured on a real file):
+  // a 1.4 s span over a run of 4 and a 2-frame cutaway moves to the shot's clean stretch after them.
+  const montage = [{ start: 0, end: 0.438 }, { start: 0.438, end: 3.146, changes: [0.605, 0.646, 0.688, 0.73, 1.563, 1.688] }];
+  const at = scene({ duration: 13, layers: [{ ...full, mediaStart: 11.6, mediaOffset: 0.448, mediaDuration: 1.4, mediaSourceDuration: 3.146 }] });
+  const [mixed] = (await check("source_cut", at, { scene: at.scenes[0], mediaShots: { [TALL_CROP.src]: montage } })).findings;
+  assert.match(mixed.message, /shows 6 picture changes of its file inside one saved shot .*: a run of 4 changes file 0\.61-0\.73 s \(scene 11\.76-11\.88 s\); a run of 2 changes file 1\.56-1\.69 s \(scene 12\.72-12\.84 s\)\.$/);
+  assert.deepEqual([mixed.at, mixed.fix.properties], [11.76, { mediaOffset: 1.698 }]);
 });
 
 test("burned_in_mark: a window that still shows a mark found in the file warns with the crop that leaves it out; a clip with no mark stays quiet", async () => {
