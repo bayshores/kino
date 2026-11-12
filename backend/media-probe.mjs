@@ -337,19 +337,18 @@ export const PICTURE_COLOR_FILTERS = [
   "setparams=color_primaries=unknown:color_trc=unknown:colorspace=unknown",
 ];
 
-// A video picture scaled to `width` x `height` (kept inside, its own shape). When the picture is
-// resized, FFmpeg's default scaler reads the chroma at the scaled size without exact rounding, and
-// every picture comes out about 2 levels darker than the file (measured on 7 drawn clips, dark and
-// bright: 13.2 of 255 at 240 and 960 px wide against 15.0 at the file's own 1920; a 3-stop lift
-// raised that gap to 5 to 8 levels). Full chroma and exact rounding draw 15.2 at every width.
-// A picture kept at the file's own size (`source`: the file's width and height) is not resized, and
-// FFmpeg's plain conversion reads within 0.3 levels there: it stays as it was, because the final
-// render's audit limits were measured with it (the full-chroma conversion took a busy test clip
-// from 2.1 to 4.9 of the 10 levels the audit allows).
+// A video picture scaled to `width` x `height` (kept inside, its own shape). FFmpeg's default scaler
+// reads the chroma at the scaled size without exact rounding, and a resized picture comes out about
+// 2 levels darker than the file (measured on 7 drawn clips, dark and bright: 13.2 of 255 at 240 and
+// 960 px wide against 15.0 at the file's own 1920; a 3-stop lift raised that gap to 5 to 8 levels).
+// Full chroma and exact rounding draw 15.2 at every width. A picture kept at the file's own size
+// (`source`, unused: kept for callers) gets the same flags: FFmpeg's plain conversion there reads
+// within 0.3 levels on an Apple chip but a whole level under on the Linux test machines, so check,
+// look and the export would disagree by computer. The final render's audit on real 1080p clips
+// reads the same either way (0.2 to 0.7 of the 10 levels it allows).
 export const pictureScale = (width, height, source) => {
   const fit = `scale=${width}:${height}:force_original_aspect_ratio=decrease`;
-  const sameSize = source?.width > 0 && source?.height > 0 && Math.min(width / source.width, height / source.height) === 1;
-  return sameSize ? fit : `${fit}:flags=bicubic+accurate_rnd+full_chroma_int`;
+  return `${fit}:flags=bicubic+accurate_rnd+full_chroma_int`;
 };
 
 /**

@@ -191,7 +191,9 @@ test("a final MP4 render of a testsrc2 video layer passes its decoded-output aud
     { mediaRoot, outputPath: join(directory, "busy-final.mp4") });
   assert.equal(result.outputAudit.checks.rendererMatch.status, "pass", JSON.stringify(result.outputAudit.checks.rendererMatch));
   assert.equal(result.outputAudit.facts.framesCompared, 8);
-  assert.ok(result.outputAudit.facts.meanRgbError < 3, `mean error ${result.outputAudit.facts.meanRgbError}`);
+  // testsrc2 has one-pixel color columns, which a 4:2:0 file cannot hold: 4.9 here since video pictures decode
+  // with full chroma (media-probe.mjs pictureScale; 2.1 before). Real clips at 1080p measured 0.2 to 0.7.
+  assert.ok(result.outputAudit.facts.meanRgbError < 8, `mean error ${result.outputAudit.facts.meanRgbError}`);
   // Brightness and change of every decoded frame: testsrc2 moves, so it has no stills.
   assert.equal(result.motion.luma.length, 8);
   assert.equal(result.motion.diff.length, 8);
@@ -458,8 +460,9 @@ process.exit(result.status ?? 1);
   try {
     await assert.rejects(exportScene(scene, { profile: "mp4.alt", fps: 30, width, height, renderQuality: "final" },
       { mediaRoot, outputPath: join(directory, "late-final.mp4") }), (error) => {
-      // Only the shift check fails: every frame is inside the mean and pixel limits.
-      assert.match(error.message, /^Rendered file differs from its intended frames: rendererMatch\. From frame 1 \(0\.033 s\) to frame 14 \(0\.467 s\), 14 decoded frames look like the renderer frame just before their own: the file runs a frame late there, as if a frame was repeated\. This is a fault in encoding the file, not in your scene\. Render again; if it fails again, report it with this message and the scene\.$/);
+      // The shift check names the fault. A few of the late frames may also be over the mean limit
+      // (3 here: testsrc2's color columns, see the test above), which adds one sentence before it.
+      assert.match(error.message, /^Rendered file differs from its intended frames: rendererMatch\. (Decoded frames differ from their renderer references at \d+ frame\(s\)\. )?From frame 1 \(0\.033 s\) to frame 14 \(0\.467 s\), 14 decoded frames look like the renderer frame just before their own: the file runs a frame late there, as if a frame was repeated\. This is a fault in encoding the file, not in your scene\. Render again; if it fails again, report it with this message and the scene\.$/);
       return true;
     });
   } finally {
