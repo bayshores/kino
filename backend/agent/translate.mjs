@@ -732,7 +732,7 @@ function translateOne(raw, resolver, document) {
     checkStepsCount(operation, type, document);
     if (type === "add_animation") effectEndDefault(operation, resolver);
     if (type === "isolate_voice") checkIsolateVoice(operation, resolver);
-    if (type === "cut_out") checkCutOut(operation, resolver);
+    if (type === "cut_out") checkCutOut(operation, resolver, document);
     if (type === "cut_speech") checkCutSpeech(operation);
     if (type === "place_broll") checkPlaceBroll(operation);
     if (type === "keep_line") checkKeepLine(operation);
@@ -1304,19 +1304,50 @@ function checkTrackOrPin(operation, type) {
 // checked here, so a wrong value is refused before any picture is decoded. It names the new layer
 // now ("<layer name>-<output>" without a file extension, or `name`), so later operations in the
 // same edit can use that name. The agent service does the rest (cutout-operation.mjs runCutOut).
-const CUTOUT_FIELDS = new Set(["type", "sceneId", "layerId", "output", "engine", "grow", "feather", "color", "invert", "points", "exclude", "time", "referenceId", "behindText", "name", "refine", "fillHoles", "openEdges", "edge", "width", "step", "detail"]);
+const CUTOUT_FIELDS = new Set(["type", "sceneId", "layerId", "output", "engine", "grow", "feather", "color", "invert", "points", "exclude", "time", "referenceId", "behindText", "name", "refine", "fillHoles", "openEdges", "edge", "width", "step", "detail", "at", "dur", "until"]);
 // [[x%, y%], …] of the clip's own picture, 1 to 8 points.
 function checkPoints(name, value) {
   const point = (item) => Array.isArray(item) && item.length === 2 && item.every((part) => typeof part === "number" && part >= 0 && part <= 100);
   if (!(Array.isArray(value) && value.length >= 1 && value.length <= 8 && value.every(point)))
     throw new Error(`${name} must be 1 to 8 points [x, y] in % of the clip's own picture (0 to 100, from its top left; look mode:"source" shows the grid), not ${JSON.stringify(value)}.`);
 }
-function checkCutOut(operation, resolver) {
+// at, dur and until are the copy's own span in scene seconds ("cue:<name>" for at and until): it
+// shows from at (default the layer's own Show) for dur, or until until (default the scene's end).
+function cutOutSpan(operation, document) {
+  for (const field of ["at", "until"]) {
+    let value = operation[field];
+    if (value === undefined) continue;
+    if (typeof value === "string" && /^cue:/.test(value)) {
+      const cue = (document?.cues ?? []).find((entry) => entry.name === value.slice(4));
+      if (!cue) throw new Error(`${field} ${JSON.stringify(value)}: there is no cue "${value.slice(4)}"${document?.cues?.length ? "" : " (set_cue {name, at} makes one)"}.`);
+      operation[field] = value = cue.time;
+    }
+    if (!(typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 86400))
+      throw new Error(`${field} must be scene seconds (0 or more) or "cue:<name>", not ${JSON.stringify(value)}.`);
+  }
+  if (operation.dur !== undefined && !(typeof operation.dur === "number" && operation.dur > 0 && operation.dur <= 86400))
+    throw new Error(`dur must be seconds above 0 (how long the copy shows), not ${JSON.stringify(operation.dur)}.`);
+  if (operation.dur !== undefined && operation.until !== undefined) throw new Error("cut_out takes dur (how long the copy shows) or until (when it hides), not both.");
+  if (operation.until !== undefined && operation.at !== undefined && operation.until <= operation.at)
+    throw new Error(`until (${operation.until} s) must be after at (${operation.at} s): the copy shows from at until until.`);
+}
+// A cut-out of the same layer and output made earlier with another engine is replaced by the
+// new one when engine is given (it keeps the old one's place, ID and name).
+function replacedCutOut(operation, document) {
+  if (!operation.engine || operation.engine === "auto" || (operation.output ?? "subject") === "outline") return;
+  const scene = document?.scenes?.find((item) => item.id === operation.sceneId);
+  const source = scene?.layers.find((item) => item.id === operation.layerId);
+  const old = source && scene.layers.find((item) => item.cutoutOf === source.id && !item.cutoutFor && (item.cutoutOutput ?? "subject") === (operation.output ?? "subject")
+    && typeof item.cutoutEngine === "string" && item.cutoutEngine !== operation.engine && item.parentId === source.parentId);
+  if (old) Object.assign(operation, { replaces: old.id, replacesName: old.name, replacesEngine: old.cutoutEngine });
+}
+function checkCutOut(operation, resolver, document) {
   const extra = Object.keys(operation).filter((key) => !CUTOUT_FIELDS.has(key));
   if (extra.length) {
-    const suggestions = closest(extra[0], ["output", "engine", "grow", "feather", "color", "invert", "points", "exclude", "time", "above", "behind", "name", "refine", "fillHoles", "openEdges", "edge", "width", "step", "detail"]);
-    throw Object.assign(new Error(`cut_out has no ${extra.join(", ")}; it takes layer, output, engine, grow, feather, color, invert, points, exclude, time, above, behind, name, refine, fillHoles, openEdges, edge and, for output "outline", width, step and detail.`), { suggestions });
+    const suggestions = closest(extra[0], ["output", "engine", "grow", "feather", "color", "invert", "points", "exclude", "time", "above", "behind", "name", "refine", "fillHoles", "openEdges", "edge", "width", "step", "detail", "at", "dur", "until"]);
+    throw Object.assign(new Error(`cut_out has no ${extra.join(", ")}; it takes layer, output, engine, grow, feather, color, invert, points, exclude, time, above, behind, name, refine, fillHoles, openEdges, edge, at, dur, until and, for output "outline", width, step and detail.`), { suggestions });
   }
+  cutOutSpan(operation, document);
   if (operation.edge !== undefined && !["auto", "crisp", "soft"].includes(operation.edge))
     throw Object.assign(new Error(`edge must be "auto" (default for a subject: crisp on drawn footage, soft on camera footage), "crisp" or "soft", not ${JSON.stringify(operation.edge)}.`), { suggestions: closest(String(operation.edge), ["auto", "crisp", "soft"]) });
   if (operation.refine !== undefined && !(typeof operation.refine === "boolean" || (typeof operation.refine === "number" && operation.refine >= 0 && operation.refine <= 40)))
@@ -1368,9 +1399,12 @@ function checkCutOut(operation, resolver) {
     throw new Error("name must be a name of 1 to 200 characters for the new layer.");
   const layerName = resolver.nameOf("layer", operation.layerId) ?? operation.layerId;
   const base = layerName.replace(/\.(?:mp4|webm|mov|png|jpe?g|webp|gif)$/i, "") || layerName;
-  operation.cutoutName = (operation.name ?? `${base}-${output}`).slice(0, 200);
+  // engine given and an older cut-out of this layer made with the other engine: this one takes its
+  // place, ID and (unless name is given) name, so every layer that points at it keeps working.
+  replacedCutOut(operation, document);
+  operation.cutoutName = (operation.name ?? operation.replacesName ?? `${base}-${output}`).slice(0, 200);
   delete operation.name;
-  operation.cutoutId = idFromName(operation.cutoutName, "layer", resolver) || randomUUID();
+  operation.cutoutId = operation.replaces ?? (idFromName(operation.cutoutName, "layer", resolver) || randomUUID());
 }
 
 // A move field with `cutout: {of, auto}` (backdrop-flash subject, masked-type subject) takes the

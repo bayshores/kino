@@ -179,6 +179,65 @@ export function liftNotes(moves, refName) {
   });
 }
 
+// What is left of [from, to] after the given [from, to] windows are taken away.
+function uncovered(window, taken) {
+  let rest = [window];
+  for (const [from, to] of taken) {
+    rest = rest.flatMap(([start, end]) => (from >= end || to <= start ? [[start, end]]
+      : [[start, Math.min(end, from)], [Math.max(start, to), end]].filter(([a, b]) => b - a > 1e-6)));
+  }
+  return rest;
+}
+
+/**
+ * Copies made at chosen times (duplicate_layers at) sit right above their original, so a layer
+ * that is above the original and full-frame can hide a copy for its whole span (a copy of a shot
+ * at 6.24 s under the next shot). For each such copy (`rootIds`, top-level layers) this moves it
+ * above the topmost full-frame layer that covers it, unless that would cover words or graphics
+ * the copy does not cover now (then it stays and the note gives the one move_layers call).
+ * Returns { document, notes }; the layers are reordered in a copy of the document.
+ */
+export function raiseHiddenCopies(document, sceneId, rootIds, { seeThrough = new Set() } = {}) {
+  const scene = document.scenes.find((item) => item.id === sceneId);
+  if (!scene) return { document, notes: [] };
+  const layers = [...scene.layers];
+  const notes = [];
+  const opaque = (layer) => fullFrame(layer, scene) && !layer.cutoutOf && !layer.isMask && !seeThrough.has(layer.src);
+  for (const id of rootIds) {
+    const at = layers.findIndex((layer) => layer.id === id);
+    const copy = layers[at];
+    if (!copy || copy.parentId || copy.isMask) continue;
+    const window = windowOf(copy, scene);
+    if (!(window[1] > window[0])) continue;
+    const above = layers.slice(at + 1).filter((layer) => !layer.parentId && opaque(layer) && overlaps(layer, copy, scene));
+    if (!above.length || uncovered(window, above.map((layer) => windowOf(layer, scene))).length) continue;
+    const top = layers.indexOf(above.at(-1));
+    const passed = layers.slice(at + 1, top);
+    // Words and graphics between the copy and that layer that show in the copy's span: the copy would cover them.
+    const lettering = passed.filter((layer, index) => {
+      if (layer.parentId || layer.visible === false || !(Number(layer.opacity ?? 1) > 0) || !COVERABLE.has(layer.type) || opaque(layer)) return false;
+      const own = windowOf(layer, scene);
+      const inside = [Math.max(own[0], window[0]), Math.min(own[1], window[1])];
+      if (!(inside[1] > inside[0])) return false;
+      const over = layers.slice(at + 1 + index + 1).filter((other) => !other.parentId && opaque(other)).map((other) => windowOf(other, scene));
+      return uncovered(inside, over).length > 0;
+    });
+    const range = `${sec2(window[0])}-${sec2(window[1])} s`;
+    const names = (list) => list.slice(0, 3).map((layer) => `"${layer.name}"`).join(", ") + (list.length > 3 ? ` and ${list.length - 3} more` : "");
+    const call = `move_layers {layers:["${copy.name}"], position:"above", referenceId:"${layers[top].name}"}`;
+    const maskNear = passed.some((layer) => layer.isMask) || layers[top + 1]?.isMask;
+    if (lettering.length || maskNear) {
+      notes.push(`"${copy.name}" (shows ${range}) is under ${names(above)}, which cover it the whole time, so it does not show. Nothing was reordered${lettering.length ? ` because raising it would cover ${names(lettering)}` : " because a mask is next to it"}. To raise it anyway: ${call}.`);
+      continue;
+    }
+    layers.splice(at, 1);
+    layers.splice(top, 0, copy);
+    notes.push(`"${copy.name}" (shows ${range}) was under ${names(above)}, which cover it the whole time, so kino placed it above "${layers[top - 1].name}" and nothing else was moved.`);
+  }
+  const moved = layers.some((layer, index) => layer !== scene.layers[index]);
+  return { document: moved ? { ...document, scenes: document.scenes.map((item) => (item.id === sceneId ? { ...item, layers } : item)) } : document, notes };
+}
+
 /**
  * For each text this edit made or gave a new span on screen (a longer hide, an earlier show), the
  * full-frame footage that is above it in layer order and on screen at the same time, as a fact: which

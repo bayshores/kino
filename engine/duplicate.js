@@ -79,7 +79,7 @@ export function duplicateSelection(document, sceneId, layerIds, offset = DUPLICA
   });
   return {
     document: { ...copied, scenes: copied.scenes.map((item) => (item.id === sceneId ? { ...item, layers } : item)) },
-    rootIds, copyIds: [...copyIds],
+    rootIds, copyIds: [...copyIds], originalOf,
   };
 }
 
@@ -144,6 +144,8 @@ export function duplicateRepeated(document, sceneId, layerIds, options = {}, { f
   const { layout, stagger = 0, at } = options;
   const count = options.count ?? (Array.isArray(at) ? at.length : 1);
   if (!Number.isInteger(count) || count < 1 || count > MAX_COPIES) throw new Error(`count must be a whole number from 1 to ${MAX_COPIES}.`);
+  if (options.withMoves !== undefined && (typeof options.withMoves !== "boolean" || at === undefined))
+    throw new Error("withMoves is true or false and goes with at: it copies the animations that recorded moves put on the original (a flash) to the copies at their times.");
   const scene0 = document.scenes.find((item) => item.id === sceneId);
   const timed = at === undefined ? null : copyTimes(scene0, layerIds, at, count, options);
   if (timed && options.offset === undefined && layout === undefined) options = { ...options, offset: 0 }; // in place
@@ -183,12 +185,20 @@ export function duplicateRepeated(document, sceneId, layerIds, options = {}, { f
   let next = document;
   const copies = [];
   const roots = [];
+  let report = null;
   for (let n = count; n >= 1; n -= 1) {
     const [dx, dy] = offsets[n - 1];
     const chosen = options.copies?.[n - 1];
     const result = duplicateSelection(next, sceneId, layerIds, dx, { dy, name: numbered ? numberedName(n) : copyName, ids: chosen?.ids, names: chosen?.names });
     const delay = timed ? round(timed.at[n - 1] - timed.first) : round(n * stagger);
-    next = delay !== 0 ? delayLayers(result.document, sceneId, new Set(result.copyIds), delay) : result.document;
+    if (timed || delay !== 0) {
+      const sceneBefore = next.scenes.find((item) => item.id === sceneId);
+      const originals = new Map(result.copyIds.map((copyId) => [copyId, sceneBefore.layers.find((layer) => layer.id === result.originalOf.get(copyId))?.animations]));
+      const placed = delayLayers(result.document, sceneId, new Set(result.copyIds), delay, { timed: !!timed, withMoves: options.withMoves === true, originals });
+      next = placed.document;
+      // Every copy's sorting counts: a late copy may be cut at the scene's end while an early one is not.
+      report = Object.fromEntries(Object.entries(placed.report).map(([key, names]) => [key, [...new Set([...(report?.[key] ?? []), ...names])]]));
+    } else next = result.document;
     copies.unshift(result.copyIds);
     roots.unshift(result.rootIds);
   }
@@ -196,7 +206,7 @@ export function duplicateRepeated(document, sceneId, layerIds, options = {}, { f
     if (!timed) throw new Error("vary works with at: give the times of the copies.");
     next = varyPlaces(next, sceneId, [topSelected(scene0.layers, layerIds), ...roots], [timed.first, ...timed.at], options.vary);
   }
-  return { document: next, copyIds: copies.flat(), ...(timed ? { first: timed.first } : {}) };
+  return { document: next, copyIds: copies.flat(), rootIds: roots.flat(), ...(timed ? { first: timed.first, report } : {}) };
 }
 
 // ---- at: copies at chosen times ---------------------------------------------------------------
@@ -223,11 +233,18 @@ function topSelected(layers, layerIds) {
 const shows = (animation) => Number.isFinite(animation?.start) && animation.kind !== "effect" && animation.kind !== "hide";
 
 /**
- * The earliest time the selection shows or plays: its Shows and animation starts (not effects or
- * Hides), a video's or audio's play time (mediaStart) and a component instance's clock
- * (componentStart). Null when it has none.
+ * The time the selection shows: the earliest Show of its layers (what "the original at" means),
+ * else the earliest of its animation starts (not effects or Hides), a video's or audio's play time
+ * (mediaStart) and a component instance's clock (componentStart). Null when it has none. A custom
+ * animation at 0 (a volume line, a move over the whole clip) does not say when a layer shows, so
+ * a layer with a Show is read by its Show.
  */
 export function selectionStart(layers) {
+  const shown = [];
+  for (const layer of layers)
+    for (const animation of flattenAnimations(layer.animations ?? []))
+      if (animation?.kind === "show" && animation.keeps === undefined && Number.isFinite(animation.start)) shown.push(animation.start);
+  if (shown.length) return Math.min(...shown);
   const times = [];
   for (const layer of layers) {
     for (const animation of flattenAnimations(layer.animations ?? [])) if (shows(animation)) times.push(animation.start);
@@ -261,26 +278,68 @@ function copyTimes(scene, layerIds, at, count, options) {
 // speech.js rippleScene moves), so a footage or component copy plays at its own time.
 // A Hide or Show pushed past the scene's end stops at the end: it draws the same, and the saved
 // point stays inside the scene (add_animation refuses one past it).
-function delayLayers(document, sceneId, ids, delay) {
-  const end = document.scenes.find((scene) => scene.id === sceneId)?.duration ?? Infinity;
+// With `timed` (a copy at a chosen time) the animations are also sorted, and `report` says how:
+// whole-scene animations stay whole (cut at the scene's end), the animations a recorded move put
+// on the original stay on the original unless `withMoves`, and a moved animation that would start
+// past the scene's end is dropped or, when it only runs past it, cut at the end.
+const WHOLE_EDGE = 0.05;
+const spansScene = (animation, end) => Number.isFinite(animation?.start) && Number.isFinite(animation?.duration)
+  && animation.start <= WHOLE_EDGE && animation.start + animation.duration >= end - WHOLE_EDGE;
+// The animations a recorded move (scene.moves) put on a layer carry the move's ID in front of
+// theirs ("impact-accent.impact-flash-up"). Its Hide and Show points stay: they say when it shows.
+const fromMove = (animation, moveIds) => typeof animation?.id === "string" && animation.kind !== "show" && animation.kind !== "hide"
+  && moveIds.some((id) => animation.id.startsWith(`${id}.`));
+const animationLabel = (animation) => animation.name || animation.effect || animation.kind;
+
+// A copy's animations have fresh IDs, so `originals` (copy ID to the list of its original's
+// animations, in the same order) says which ones a recorded move made.
+function delayLayers(document, sceneId, ids, delay, { timed = false, withMoves = false, originals = new Map() } = {}) {
+  const scene = document.scenes.find((item) => item.id === sceneId);
+  const end = scene?.duration ?? Infinity;
+  const moveIds = (scene?.moves ?? []).map((entry) => entry.id).filter((id) => typeof id === "string");
+  const report = { moved: new Set(), whole: new Set(), left: new Set(), cut: new Set() };
   const later = (animation) => {
     if (typeof animation?.start !== "number") return animation;
     const start = round(Math.max(0, animation.start + delay));
     const point = animation.kind === "hide" || animation.kind === "show";
     return { ...animation, start: point ? Math.min(start, end) : start };
   };
+  // The animation for the copy, or null to leave it on the original only.
+  const place = (animation, index, layer) => {
+    if (!timed || typeof animation?.start !== "number") return later(animation);
+    const label = animationLabel(animation);
+    if (!withMoves && fromMove(originals.get(layer.id)?.[index] ?? animation, moveIds)) { report.left.add(label); return null; }
+    if (spansScene(animation, end)) {
+      report.whole.add(label);
+      const duration = round(Math.min(animation.duration, end - animation.start));
+      if (duration >= animation.duration) return animation;
+      report.cut.add(`${label} to ${end} s`);
+      return { ...animation, duration };
+    }
+    const moved = later(animation);
+    const point = animation.kind === "hide" || animation.kind === "show";
+    if (!point && moved.start >= end) { report.cut.add(`${label} dropped (it would start at ${moved.start} s, past the end)`); return null; }
+    report.moved.add(label);
+    if (point && animation.start + delay > end + 1e-6) report.cut.add(`${label} to ${end} s`);
+    if (!point && Number.isFinite(moved.duration) && moved.start + moved.duration > end) {
+      report.cut.add(`${label} to ${end} s`);
+      return { ...moved, duration: round(Math.max(0.001, end - moved.start)) };
+    }
+    return moved;
+  };
   const shifted = (layer) => {
     const next = { ...layer };
-    if (Array.isArray(layer.animations)) next.animations = layer.animations.map(later);
+    if (Array.isArray(layer.animations)) next.animations = layer.animations.map((animation, index) => place(animation, index, layer)).filter(Boolean);
     if (hasMediaPlay(layer)) next.mediaStart = round(Math.max(0, (Number.isFinite(layer.mediaStart) ? layer.mediaStart : 0) + delay));
     if (layer.type === "component" && Number.isFinite(layer.componentStart)) next.componentStart = round(Math.max(0, layer.componentStart + delay));
     if (Array.isArray(layer.playbackWindows))
       next.playbackWindows = layer.playbackWindows.map((window) => ({ ...window, start: round(Math.max(0, window.start + delay)), end: round(Math.max(0, window.end + delay)) }));
     return next;
   };
-  return { ...document, scenes: document.scenes.map((scene) => scene.id !== sceneId ? scene : {
-    ...scene, layers: scene.layers.map((layer) => (ids.has(layer.id) ? shifted(layer) : layer)),
+  const next = { ...document, scenes: document.scenes.map((item) => item.id !== sceneId ? item : {
+    ...item, layers: item.layers.map((layer) => (ids.has(layer.id) ? shifted(layer) : layer)),
   }) };
+  return { document: next, report: Object.fromEntries(Object.entries(report).map(([key, set]) => [key, [...set]])) };
 }
 
 // ---- vary: one value per place ----------------------------------------------------------------

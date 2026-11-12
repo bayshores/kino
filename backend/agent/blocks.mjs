@@ -80,6 +80,7 @@ import { footageBrand, guessTreatment, treatmentFromPick, treatmentNamed, TREATM
 import { PACE_NAMES } from "../../engine/footage/pace.js";
 import { cutsOnBeats } from "../../engine/cutFacts.js";
 import { isRecord } from "../../engine/numbers.js";
+import { raiseHiddenCopies } from "./silent-receipts.mjs";
 
 /** A title from a project's name: "Orbit trailer v2" → "Orbit" (words that name the kind of video go). */
 export function projectTitle(name) {
@@ -1263,8 +1264,21 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     const root = scene.layers.find((layer) => layer.id === ids[0]);
     const cues = written.map((value, index) => (typeof value === "string" ? `${value.replace(/^cue:/, "")} at ${operation.at[index]}` : null)).filter(Boolean);
     const varied = Object.entries(operation.vary ?? {}).map(([key, values]) => `${key} ${values[0]} to ${values[values.length - 1]}`);
-    work.notes.push(`${root?.name ?? ids[0]}: the original at ${round(made.first)} s, copies at ${operation.at.join(" ")} s${cues.length ? ` (${cues.join(", ")})` : ""}${varied.length ? `; ${varied.join(", ")} in time order` : ""}`);
-    return made.document;
+    work.notes.push(`${root?.name ?? ids[0]}: the original at ${round(made.first)} s (its Show), copies at ${operation.at.join(" ")} s${cues.length ? ` (${cues.join(", ")})` : ""}${varied.length ? `; ${varied.join(", ")} in time order` : ""}`);
+    // What each copy took: the animations moved with its Show, the ones kept whole, the ones left on the original, the ones cut.
+    const { moved = [], whole = [], left = [], cut = [] } = made.report ?? {};
+    const list = (names) => `${names.slice(0, 6).join(", ")}${names.length > 6 ? ` and ${names.length - 6} more` : ""}`;
+    const parts = [
+      moved.length ? `moved with it: ${list(moved)}` : null,
+      whole.length ? `kept whole scene (0-${scene.duration} s): ${list(whole)}` : null,
+      left.length ? `left on the original (put there by a recorded move; withMoves:true copies them): ${list(left)}` : null,
+      cut.length ? `cut to the scene: ${list(cut)}` : null,
+    ].filter(Boolean);
+    if (parts.length) work.notes.push(`${root?.name ?? ids[0]} copies: ${parts.join("; ")}`);
+    // A copy fully under a full-frame layer above it is placed above that layer (or the note says it is hidden).
+    const raised = raiseHiddenCopies(made.document, scene.id, made.rootIds ?? []);
+    work.notes.push(...raised.notes);
+    return raised.document === made.document ? made.document : parseDocument(raised.document);
   }
 
   // ---- recipe -------------------------------------------------------------------------------

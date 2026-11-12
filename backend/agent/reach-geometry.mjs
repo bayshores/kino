@@ -95,9 +95,11 @@ function duplicate(document, operation, fonts) {
     return { document: parseDocument(duplicateSelection(document, scene.id, operation.layerIds, offset, copies[0]).document) };
   const options = Object.fromEntries(REPEAT_FIELDS.filter((field) => operation[field] !== undefined).map((field) => [field, operation[field]]));
   options.copies = copies;
+  if (operation.withMoves !== undefined) options.withMoves = operation.withMoves;
   if (operation.offset !== undefined) options.offset = offset;
   const result = duplicateRepeated(document, scene.id, operation.layerIds, options, { fonts });
-  return { document: parseDocument(result.document), ...(result.first !== undefined ? { first: result.first } : {}) };
+  return { document: parseDocument(result.document), rootIds: result.rootIds,
+    ...(result.first !== undefined ? { first: result.first, report: result.report } : {}) };
 }
 
 // split_layer {layer, at} cuts a timed layer in two; {layer, from, to} also skips the file
