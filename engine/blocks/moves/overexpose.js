@@ -14,6 +14,13 @@
 //                 whited out the whole face.
 //   bloom 0.3     glow strength 0.3 of the bright parts (threshold 0.75), radius 2% of the frame
 //                 height: tuned on the same frame (0.5 at threshold 0.6 spread over the features).
+//   saturation 1.4  color kept at the peak: the roll-off pulls bright colors toward white, and the
+//                 contest-a recreate's bloom read milky (f909 L/C/S 131/69/45 against the
+//                 reference's 146/83/62, GAPS item 4); 62/45 = 1.38, so the peak lifts saturation
+//                 by 0.4 (scaled by amount). 1 gives the old milky wash. Measured effect is small
+//                 (review on the same clip, mean chroma 0-255: peak 27 at 1, 30 at 1.4, 35 at 2;
+//                 f909 33, 35, 38 against the reference's 47): the saturation acts after the
+//                 per-channel roll-off, which has already pulled bright colors toward white.
 // Reduced motion: half the stops and bloom (as impact-accent's flash).
 import { CURVES, effect, hide, round, show } from "./kit.js";
 import { startClips } from "./transitions.js";
@@ -22,6 +29,7 @@ const FRAME = 1 / 30;
 const PEAK_STOPS = 2;
 const SHOULDER = 1;
 const BLOOM = 0.3;
+const SATURATION = 1.4;
 const HEX = /^#[0-9a-f]{6}$/i;
 
 export const overexpose = {
@@ -41,6 +49,7 @@ export const overexpose = {
     shoulder: { kind: "number", low: 0, high: 1, about: "highlight roll-off: 0 clips hard, 1 the softest (default 1)" },
     bloom: { kind: "number", low: 0, high: 1, about: "soft glow of the bright parts at the peak (default 0.3; 0 none)" },
     color: { kind: "text", max: 7, about: "tint of the bloom, hex (default none: the shot's own colors)" },
+    saturation: { kind: "number", low: 0, high: 3, about: "color at the peak: 1 lets the wash go milky, above 1 keeps colors rich (default 1.4)" },
   },
   example: { layer: "shot-a", into: "shot-b", at: 1 },
   setup: "shot-a and shot-b, two full-frame pictures",
@@ -54,6 +63,7 @@ export const overexpose = {
     const stops = round(PEAK_STOPS * amount * strength, 2);
     const shoulder = input.shoulder ?? SHOULDER;
     const bloom = (input.bloom ?? BLOOM) * amount * strength;
+    const saturation = round(1 + ((input.saturation ?? SATURATION) - 1) * amount * strength, 3);
     const share = input.peak ?? (into ? 0.5 : 0.3);
     const top = round(ctx.start + ctx.duration * share);
     const rise = top - ctx.start;
@@ -64,12 +74,12 @@ export const overexpose = {
       ...(input.color ? { color: input.color, colorMix: 0.6 } : {}) };
     const up = (target, role) => {
       if (rise < 0.001) return;
-      ctx.animate(target.id, "up", effect({ name: "Overexpose up", effect: "color-grade", start: ctx.start, duration: rise, easing: CURVES.accelerate, from: { stops: 0, shoulder }, to: { stops, shoulder }, keepStill: "off" }), role);
+      ctx.animate(target.id, "up", effect({ name: "Overexpose up", effect: "color-grade", start: ctx.start, duration: rise, easing: CURVES.accelerate, from: { stops: 0, shoulder, saturation: 1 }, to: { stops, shoulder, saturation }, keepStill: "off" }), role);
       if (bloom > 0) ctx.animate(target.id, "bloom-up", effect({ name: "Overexpose bloom", effect: "glow", start: ctx.start, duration: rise, easing: CURVES.accelerate, from: { strength: 0 }, to: { strength: round(bloom, 3), ...glow }, keepStill: "off" }), role);
     };
     const down = (target, role) => {
       if (fall < 0.001) return;
-      ctx.animate(target.id, "down", effect({ name: "Overexpose settles", effect: "color-grade", start: top, duration: fall, easing: CURVES.settle, from: { stops, shoulder }, to: { stops: 0, shoulder }, keepStill: "off" }), role);
+      ctx.animate(target.id, "down", effect({ name: "Overexpose settles", effect: "color-grade", start: top, duration: fall, easing: CURVES.settle, from: { stops, shoulder, saturation }, to: { stops: 0, shoulder, saturation: 1 }, keepStill: "off" }), role);
       if (bloom > 0) ctx.animate(target.id, "bloom-down", effect({ name: "Overexpose bloom fades", effect: "glow", start: top, duration: fall, easing: CURVES.settle, from: { strength: round(bloom, 3) }, to: { strength: 0, ...glow }, keepStill: "off" }), role);
     };
     up(layer, "layer");
