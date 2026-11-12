@@ -1584,8 +1584,9 @@ How to read it:
   the made techniques the saved references' labels name (else the deck's unused cards) on song cues and subject shots, prints each
   value and the made share before and after; left out, the receipt only names what it would place. Overexpose and smear go on cuts,
   color labels recolor in their hues, split-fields and splatters take colors from the label's words, the reference's strip frame or the
-  shot (each source printed), a splatter sits beside the marked subject box, a composite gets a background-behind-cut-out call, and
-  particles and splatters repeat toward the references' median made share. Evidence: `backend/agent-core.test.mjs`. Gap: moves are
+  shot (each source printed), a splatter sits beside, above or below the marked subject box, a composite gets a background behind
+  an existing cut-out (else a ready call), overexposes stay 1 s apart, and particles and splatters repeat toward the references' median
+  made share. Evidence: `backend/agent-core.test.mjs`. Gap: moves are
   not run end to end through the edit tool in a test; with no subject box a splatter's size and place stay a printed starting guess.
 - **Type by job** (`add_layer` text with `role`): Test-verified. Caption and label text get a subtitle treatment, headline, hero and
   cta a payoff one, from saved type labels when usable, else the scene's colors; a payoff's letters enter on a song cue. Evidence:

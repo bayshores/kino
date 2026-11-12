@@ -1011,6 +1011,24 @@ test("match_references made: hand-offs go on cuts, recolor and split-fields take
   // A splatter goes beside the marked subject on the side with more room, never over it.
   const box = subjectBoxAt({ type: "video", x: 0, y: 0, width: 640, height: 360, subjectBoxes: { boxes: [{ at: 0, box: [40, 10, 20, 80] }] } }, 1);
   assert.deepEqual([box, besideSubject(box, 640, 360)], [[256, 36, 128, 288], { x: 422, y: 90, size: 180, side: "right" }]);
+  // In 9:16 a subject as wide as the frame leaves room above or below it, not beside it.
+  assert.deepEqual(besideSubject([20, 300, 320, 240], 360, 640), { x: 90, y: 60, size: 180, side: "above" });
+  // A shot whose cut-out is already made gets its background now, right under the cut-out (no ready call).
+  const withCopy = parseDocument({ ...document, scenes: [{ ...document.scenes[0], layers: [...document.scenes[0].layers,
+    createLayer("image", { id: "shot-c-subject", name: "shot-c-subject", src: "/api/media/gray.png", x: 0, y: 0, width: 640, height: 360, cutoutOf: "shot-c", animations: [{ id: "c-in", name: "In", kind: "show", start: 4 }] })] }] });
+  const apply = async (doc, ops) => parseDocument(applyOperations(doc, translateOperations(ops, createResolver(doc), doc).map((op) => ({ sceneId: "main", ...op }))));
+  const backed = await placeMade(withCopy, { refs: [{ id: "yt:stub3", seen: [{ at: 4, kinds: ["made", "composite"], words: "a figure cut out on sky blue" }] }], fonts: defaultFonts, runOps: apply });
+  const layers = backed.document.scenes[0].layers.map((layer) => layer.id);
+  assert.deepEqual([layers.slice(-3), backed.document.scenes[0].layers.find((layer) => layer.id === "match-made-1").fill], [["shot-c", "match-made-1", "shot-c-subject"], "#7EC8F2"]);
+  assert.match(backed.lines[0], /match-made-1 \(background #7EC8F2 from the label's "sky blue", frame size, right under shot-c-subject, the cut-out of shot-c\)/);
+  assert.ok(!backed.lines.some((line) => /not placed: cut_out/.test(line)), backed.lines.join("\n"));
+  // Overexposes stay a second apart (the flashing check allows three flashes a second): cuts at 0.7, 1.4 and 2.1 s take two.
+  const quick = (id, index) => createLayer("image", { id, name: id, src: "/api/media/gray.png", x: 0, y: 0, width: 640, height: 360,
+    animations: [...(index ? [{ id: `${id}.in`, name: "In", kind: "show", start: index * 0.7 }] : []), ...(index < 3 ? [{ id: `${id}.out`, name: "Out", kind: "hide", start: (index + 1) * 0.7 }] : [])] });
+  const fast = parseDocument(createDocument({ scenes: [createScene({ id: "main", width: 640, height: 360, duration: 2.8, layers: ["q0", "q1", "q2", "q3"].map(quick) })] }));
+  const flash = { at: 1, kinds: ["overlay"], words: "white flash" };
+  const flashed = await placeMade(fast, { refs: [{ id: "yt:stub4", seen: [flash, flash, flash] }], fonts: defaultFonts, runOps });
+  assert.deepEqual(flashed.placed.map((entry) => [entry.name, entry.op.at]), [["overexpose", 0.5], ["overexpose", 1.9]]);
 });
 
 test("lift_dark aims a dark shot at the other shots' median, adds a curve and grain, reports the render's numbers and replaces its own effects", async () => {

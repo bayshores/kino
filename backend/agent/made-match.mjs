@@ -14,8 +14,10 @@
 // Values, each printed with where it came from: colors from the label's own color words, else the
 // reference's strip frame nearest the label's time, else the shot under the element (its main and
 // accent colors), else a starting guess; a splatter's size and place from the shot's marked subject
-// box (beside it, on the side with more room, never over it); a duration from the shot's cut or the
-// next song cue, whichever comes first.
+// box (beside, above or below it, on the side with the most room, never over it); a duration from
+// the shot's cut or the next song cue, whichever comes first. Overexposes stay a second apart (the
+// flashing check allows three flashes a second). A composite label puts a background under a cut-out
+// that already exists; with none, it is a ready call (cut_out takes up to a minute).
 // Every op is ordinary (add_animation, add_layer, move) with an id that starts match-made-, so
 // update_animation or update_layer changes it, sending the op again replaces them and remove:true
 // takes them off.
@@ -201,37 +203,52 @@ export function subjectBoxAt(layer, time) {
   return [Math.round(layer.x + (layer.width * x) / 100), Math.round(layer.y + (layer.height * y) / 100), Math.round((layer.width * w) / 100), Math.round((layer.height * h) / 100)];
 }
 
-/** A splatter's square beside `box` (scene px) on the side with more room, never over it: {x, y, size, side} or null with no room. */
+/**
+ * A splatter's square beside `box` (scene px) on the side with the most room (left or right, else
+ * above or below, as a 9:16 frame leaves it), never over it: {x, y, size, side} or null with no room.
+ */
 export function besideSubject(box, width, height) {
   const [bx, by, bw, bh] = box;
-  const left = bx, right = width - (bx + bw);
-  const side = right >= left ? "right" : "left";
-  const roomWidth = Math.max(left, right);
-  const size = Math.round(Math.min(bh, roomWidth * 0.9, Math.min(width, height) * 0.5));
-  if (size < Math.min(width, height) / 10) return null;
-  const x = side === "left" ? Math.round((left - size) / 2) : Math.round(bx + bw + (right - size) / 2);
-  const y = Math.round(Math.min(Math.max(0, by + bh / 2 - size / 2), height - size));
-  return { x, y, size, side };
+  const clamp = (value, most) => Math.round(Math.min(Math.max(0, value), most));
+  const cap = Math.min(width, height) * 0.5;
+  const sides = [
+    { side: "right", room: width - (bx + bw), along: bh },
+    { side: "left", room: bx, along: bh },
+    { side: "below", room: height - (by + bh), along: bw },
+    { side: "above", room: by, along: bw },
+  ].map((entry) => ({ ...entry, size: Math.round(Math.min(entry.along, entry.room * 0.9, cap)) }));
+  const best = sides.reduce((top, entry) => (entry.size > top.size ? entry : top));
+  if (best.size < Math.min(width, height) / 10) return null;
+  const { side, size, room } = best;
+  if (side === "right" || side === "left") {
+    const x = side === "left" ? Math.round((room - size) / 2) : Math.round(bx + bw + (room - size) / 2);
+    return { x, y: clamp(by + bh / 2 - size / 2, height - size), size, side };
+  }
+  const y = side === "above" ? Math.round((room - size) / 2) : Math.round(by + bh + (room - size) / 2);
+  return { x: clamp(bx + bw / 2 - size / 2, width - size), y, size, side };
 }
 
 // The colors for a technique at a slot (`count` of them) and where they came from: the label's color
 // words, the reference's strip frame nearest the label's time, the shot at that moment, else a guess.
-async function colorsFor(technique, slot, count, { refColors, colorsAt, guess }) {
+// One color is the accent (a splatter), or with `main` the biggest one (a background behind a cut-out).
+async function colorsFor(technique, slot, count, { refColors, colorsAt, guess, main = false }) {
   // Hues before white and black when a label names enough of them ("white splat; pink and purple paint" recolors pink and purple).
   const all = technique.colors ?? [], hues = all.filter((entry) => !NEUTRAL.has(entry.hex));
-  const words = technique.name === "splatter" ? all : hues.length >= count ? hues : count > 1 ? all : hues;
+  const words = technique.name === "splatter" || main ? all : hues.length >= count ? hues : count > 1 ? all : hues;
   if (words.length) {
     const picked = words.slice(0, count);
     return { hexes: picked.map((entry) => entry.hex), from: `the label's ${picked.map((entry) => `"${entry.word}"`).join(" and ")}` };
   }
+  const one = (found) => (count === 1 ? [main ? found[0] : found.at(-1)] : found.slice(0, count));
   const source = technique.sources?.[0];
   if (source && refColors) {
     const found = mainAndAccent(await refColors(source.ref, source.at).catch(() => null));
-    if (found.length >= Math.min(count, 2)) return { hexes: count === 1 ? [found.at(-1)] : found.slice(0, count), from: `${source.ref}'s frame at ${source.at} s` };
+    if (found.length >= Math.min(count, 2)) return { hexes: one(found), from: `${source.ref}'s frame at ${source.at} s` };
   }
-  if (colorsAt) {
+  // A background is never the shot's own color (it would hide the cut-out's edge against nothing new).
+  if (colorsAt && !main) {
     const found = mainAndAccent(await colorsAt(slot.span.layerId, slot.at).catch(() => null));
-    if (found.length >= Math.min(count, 2)) return { hexes: count === 1 ? [found.at(-1)] : found.slice(0, count), from: `${slot.span.name} at ${slot.at} s` };
+    if (found.length >= Math.min(count, 2)) return { hexes: one(found), from: `${slot.span.name} at ${slot.at} s` };
   }
   return { hexes: guess.slice(0, count), from: "a starting guess" };
 }
@@ -291,28 +308,36 @@ export function madeIds(scene) {
 
 // Applies `ops` together, else one by one (an op the scene cannot take, such as a layer in a group,
 // is left out and named, so the exposure match and the other placements still land): {document, failed}.
+// An entry of `ops` is one op or a list that lands together (a background and the move under its cut-out).
 async function applyEach(document, ops, runOps) {
   if (!ops.length) return { document, failed: [] };
-  try { return { document: await runOps(document, ops), failed: [] }; } catch { /* one op at a time below */ }
+  try { return { document: await runOps(document, ops.flat()), failed: [] }; } catch { /* one at a time below */ }
   let current = document;
   const failed = [];
   for (const op of ops) {
-    try { current = await runOps(current, [op]); } catch (error) { failed.push({ op, why: String(error?.message ?? error).split("\n")[0].slice(0, 120) }); }
+    try { current = await runOps(current, [op].flat()); } catch (error) { failed.push({ op, why: String(error?.message ?? error).split("\n")[0].slice(0, 120) }); }
   }
   return { document: current, failed };
 }
 
+// A made background behind the cut-out `subjectId` of the slot's shot: a frame-size rectangle in the
+// label's color (else the reference's frame there, else a starting guess) moved right under the
+// cut-out, so the subject stands on it: {ops, fill, from, stay}.
+async function backgroundOps(technique, slot, subjectId, id, { scene, cues, measure }) {
+  const { hexes, from } = await colorsFor(technique, slot, 1, { ...measure, guess: ["#FFFFFF"], main: true });
+  const stay = until(slot, cues);
+  const layer = { op: "add_layer", layerType: "rectangle", name: id, properties: { id, x: 0, y: 0, width: scene.width, height: scene.height, fill: hexes[0], mediaStart: slot.at, mediaDuration: round(stay.end - slot.at) } };
+  return { ops: [layer, { op: "move_layers", layers: [id], position: "below", referenceId: subjectId }], fill: hexes[0], from, stay };
+}
+
 // The ready call for a cut-out technique on a subject shot: a composite (cut_out) also gets a made
-// background between the clip and its subject, in the label's color.
-function cutoutCall(technique, subject, scene, cues) {
+// background between the clip and its subject.
+async function cutoutCall(technique, subject, context) {
   const shot = subject.span.name;
   if (technique.name !== "cut_out") return `edit {"ops":[{"op":"move","name":"${technique.name}","layer":"${shot}","at":${subject.at}}]}`;
-  const color = (technique.colors ?? [])[0];
-  const stay = until(subject, cues);
-  const id = `${MADE_PREFIX}bg`;
-  const background = { op: "add_layer", layerType: "rectangle", name: id, properties: { id, x: 0, y: 0, width: scene.width, height: scene.height, fill: color?.hex ?? "#FFFFFF", mediaStart: subject.at, mediaDuration: round(stay.end - subject.at) } };
-  const ops = [{ op: "cut_out", layer: shot, name: `${shot}-subject` }, background, { op: "move_layers", layers: [id], position: "below", referenceId: `${shot}-subject` }];
-  return `edit ${JSON.stringify({ ops })} (background ${background.properties.fill} from ${color ? `the label's "${color.word}"` : "a starting guess"}, to ${stay.why})`;
+  const background = await backgroundOps(technique, subject, `${shot}-subject`, `${MADE_PREFIX}bg`, context);
+  const ops = [{ op: "cut_out", layer: shot, name: `${shot}-subject` }, ...background.ops];
+  return `edit ${JSON.stringify({ ops })} (background ${background.fill} from ${background.from}, to ${background.stay.why})`;
 }
 
 /**
@@ -352,16 +377,27 @@ export async function placeMade(document, { sceneId = null, refs = [], deck = nu
   const taken = new Set(), cutTaken = new Set();
   const ops = [], placed = [], left = [];
   const measure = { colorsAt, refColors };
+  // Overexposes stay a second or more apart, so they add at most one flash a second (the flashing
+  // check allows three).
+  const flashes = [];
+  const apart = (technique, at) => technique.name !== "overexpose" || flashes.every((time) => Math.abs(time - at) >= 1);
+  // Shots whose cut-out got a made background: it hides the clip under the subject, so nothing else goes there.
+  const backed = new Set();
+  const open = (technique, span) => !taken.has(span) && !backed.has(span.layerId);
   let count = 0;
   const place = async (technique) => {
     let slot;
     if (HANDOFFS.has(technique.name)) {
-      slot = cuts.find((entry) => !cutTaken.has(entry));
+      slot = cuts.find((entry) => !cutTaken.has(entry) && apart(technique, entry.at) && !backed.has(entry.span.layerId) && !backed.has(entry.prev.layerId));
       if (slot) cutTaken.add(slot);
-      else if (technique.name === "overexpose") slot = slots.find((entry) => !taken.has(entry.span));
+      else if (technique.name === "overexpose") {
+        slot = slots.find((entry) => open(technique, entry.span) && apart(technique, entry.at));
+        if (slot) taken.add(slot.span);
+      }
       if (!slot) return false;
+      if (technique.name === "overexpose") flashes.push(slot.at);
     } else {
-      slot = slots.find((entry) => !taken.has(entry.span));
+      slot = slots.find((entry) => open(technique, entry.span));
       if (!slot) return false;
       taken.add(slot.span);
     }
@@ -372,6 +408,22 @@ export async function placeMade(document, { sceneId = null, refs = [], deck = nu
     placed.push({ name: technique.name, op: made.op, note: made.note, why: slot.why, refs: technique.refs });
     return true;
   };
+  // A composite on a shot whose cut-out is already made gets its background first (no render).
+  const composite = techniques.find((entry) => entry.name === "cut_out");
+  if (composite) {
+    const copyOf = (span) => baseScene.layers.find((layer) => layer.cutoutOf === span.layerId && layer.isMask !== true);
+    for (const slot of slots) {
+      const copy = copyOf(slot.span);
+      if (backed.size >= composite.labels || !copy || backed.has(slot.span.layerId)) continue;
+      backed.add(slot.span.layerId);
+      count += 1;
+      const id = `${MADE_PREFIX}${count}`;
+      const bg = await backgroundOps(composite, slot, copy.id, id, { scene: baseScene, cues, measure });
+      ops.push(bg.ops);
+      placed.push({ name: "cut_out", op: bg.ops, refs: composite.refs, why: slot.why,
+        note: `${id} (background ${bg.fill} from ${bg.from}, frame size, right under ${copy.name ?? copy.id}, the cut-out of ${slot.span.name}) at ${slot.at} s for ${round(bg.stay.end - slot.at)} s (to ${bg.stay.why})` });
+    }
+  }
   // Round by round, so every technique gets a shot before one gets a second.
   const rounds = Math.max(0, ...techniques.map((entry) => entry.labels));
   for (let turn = 0; turn < rounds; turn += 1) {
@@ -384,11 +436,11 @@ export async function placeMade(document, { sceneId = null, refs = [], deck = nu
     while (predicted() < aim * start.moments.length && (await place(counted[index % counted.length]))) index += 1;
   }
   for (const technique of techniques.filter((entry) => placeable(entry.name) && !placed.some((item) => item.name === entry.name))) {
-    left.push(`${technique.name} (${HANDOFFS.has(technique.name) ? "no cut between two shots of 0.6 s or more left" : "no shot left"})`);
+    left.push(`${technique.name} (${HANDOFFS.has(technique.name) ? `no cut between two shots of 0.6 s or more left${technique.name === "overexpose" ? ", a second from another overexpose" : ""}` : "no shot left"})`);
   }
-  for (const technique of techniques.filter((entry) => !placeable(entry.name))) {
+  for (const technique of techniques.filter((entry) => !placeable(entry.name) && !(entry.name === "cut_out" && backed.size))) {
     const subject = slots.find((slot) => slot.why === "marked subject" || slot.why === "face found") ?? slots[0];
-    const call = CUTOUT.has(technique.name) && subject ? cutoutCall(technique, subject, baseScene, cues) : `library {topic:"search", search:"${technique.name.replace(/[-_]/g, " ")}"}`;
+    const call = CUTOUT.has(technique.name) && subject ? await cutoutCall(technique, subject, { scene: baseScene, cues, measure }) : `library {topic:"search", search:"${technique.name.replace(/[-_]/g, " ")}"}`;
     left.push(`${technique.name} (${CUTOUT.has(technique.name) ? "a cut-out takes up to a minute, so it gets its own call" : "no one-op maker here"}): ${call}`);
   }
   const { document: after, failed } = await applyEach(base, ops, runOps);
@@ -403,6 +455,7 @@ export async function placeMade(document, { sceneId = null, refs = [], deck = nu
   if (!techniques.length) lines.push(`match_references made: nothing to follow (no labeled reference and no unused deck card); ${share}. made:["embers", "glow"] places your own list.`);
   else {
     if (placed.length) lines.push(`match_references made, from ${from}: ${placed.map((entry) => `${entry.note} [${entry.why}${entry.refs ? `; ${entry.refs} reference${entry.refs === 1 ? "" : "s"}` : ""}]`).join(", ")}`);
+    else if (!techniques.some((entry) => placeable(entry.name))) lines.push(`match_references made, from ${from}: none of them is one op (each has its call under "not placed")`);
     else lines.push(`match_references made, from ${from}: no shot left to place on (${slots.length} moments, ${spans.length} shots)`);
     if (left.length) lines.push(`not placed: ${left.join("; ")}`);
     lines.push(`${share}. Each is ${MADE_PREFIX}<n>: update_animation or update_layer changes a value; made:[names] places your own list, made:false none; sent again it replaces them; remove:true takes them off.`);
