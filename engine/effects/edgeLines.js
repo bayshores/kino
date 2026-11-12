@@ -39,9 +39,47 @@ const fmt = (value) => {
   return Object.is(rounded, -0) ? "0" : String(rounded);
 };
 
+// Auto width and threshold (the default of a new effect since the recreate test, GAPS item 20).
+// The reference's line art (fan-fast frames 102 and 105, 960 x 540) has line cores 2 px wide
+// (median crossing) covering 0.9 to 1.1% of the frame; kino's lines covered 3.0 to 4.3% and its
+// page text came out denser. A drawn line is about width + 1 px (the 1 px difference plus the soft
+// edge), so auto width is 0.2% of the layer's height (1.1 at 540, 2.2 at 1080): 2 px at 540.
+export const EDGE_WIDTH_SHARE = 0.002;
+// Auto threshold: the renderer measures the layer's own edge strengths (backend/export.mjs
+// layerEdges, the same gray, lift and one-pixel difference as below) and the threshold is their
+// EDGE_PERCENTILE, so a low-contrast picture still gets its strongest edges and a busy one does not
+// fill with lines. Without a measurement (the live preview, shapes) it is the fixed 0.05 below.
+// 0.98: at 0.95 the proof's falling-figure frame drew lines over 5.2% of the frame against the
+// reference's 2.0% (pixels over half the brightest line's green), median line 4 px against 2 to 4.
+export const EDGE_PERCENTILE = 0.98;
+const FIXED_THRESHOLD = 0.05;
+
+/**
+ * [threshold, top, bottom, left, right] measured for the layer, or null (helpers.levels). The
+ * measurement reads one-pixel steps of the measured pictures; a picture drawn larger than it was
+ * measured (a 540 px clip on a 1080 px layer, or a look drawn smaller than the project) spreads
+ * each step over more layer pixels, so the threshold shrinks by the pictures' height over the
+ * layer's (never grows: a sharp step keeps its size when drawn smaller). Without this a 1080 p
+ * project drew the skeptic proof's line-art frames nearly empty.
+ */
+export function measuredEdges(frame) {
+  const levels = frame?.helpers?.levels;
+  if (!Array.isArray(levels) || levels.length < 7 || !levels.slice(2, 7).every(Number.isFinite)) return null;
+  const [threshold, ...bars] = levels.slice(2, 7);
+  const measuredHeight = levels[7], layerHeight = frame?.bounds?.height;
+  const scale = Number.isFinite(measuredHeight) && measuredHeight > 0 && layerHeight > 0 ? Math.min(1, measuredHeight / layerHeight) : 1;
+  return [threshold * scale, ...bars];
+}
+
 export function renderEdgeLines(frame) {
-  const width = numberParameter(frame, "width", 3, 0.5, 12);
-  const given = numberParameter(frame, "threshold", 0.05, 0, 1);
+  const measured = measuredEdges(frame);  const autoWidth = frame?.parameters?.width === "auto";
+  const width = autoWidth ? Math.min(12, Math.max(0.5, (frame.bounds?.height ?? 540) * EDGE_WIDTH_SHARE)) : numberParameter(frame, "width", 3, 0.5, 12);
+  const autoThreshold = frame?.parameters?.threshold === "auto";
+  // The measurement reads unsmoothed pictures; the smoothing below flattens a step's slope (to
+  // 0.4 of a sharp step at smooth 1, less on soft video), so the measured value is divided by
+  // 1 + smooth (a guess between the two).
+  const smoothing = numberParameter(frame, "smooth", 1, 0, 8);
+  const given = autoThreshold ? (measured ? measured[0] / (1 + smoothing) : FIXED_THRESHOLD) : numberParameter(frame, "threshold", 0.05, 0, 1);
   const smooth = numberParameter(frame, "smooth", 1, 0, 8);
   const dim = numberParameter(frame, "dim", 0.7, 0, 1);
   const background = EDGE_LINES_BACKGROUNDS.includes(frame?.parameters?.background) ? frame.parameters.background : "keep";
@@ -61,7 +99,8 @@ export function renderEdgeLines(frame) {
   // at 100% those were lost again. adapt 0 (the value of effects saved before it existed) is the
   // plain difference at the given threshold.
   const adapt = numberParameter(frame, "adapt", 0, 0, 1);
-  const threshold = given * (1 - 0.4 * adapt);
+  // A measured threshold already reads the lifted grays, so it is not lowered again.
+  const threshold = autoThreshold && measured ? given : given * (1 - 0.4 * adapt);
   if (adapt > 0) {
     steps.push(`<feComponentTransfer in="edgeGray" result="edgeLift">${["R", "G", "B"].map((channel) => `<feFunc${channel} type="gamma" amplitude="1" exponent="${fmt(1 - 0.6 * adapt)}" offset="0"/>`).join("")}</feComponentTransfer>`);
     gray = "edgeLift";
@@ -95,12 +134,19 @@ export function renderEdgeLines(frame) {
   // rectangle, not a contour: the shifted copies and the blur meet the empty padding there and
   // drew a false line along the top and left (glow-outline proof frame), so a strip of
   // 3 x smooth + 2 px along the box is left out. Shapes and text keep their box edge.
+  // The picture's own black bars (a letterboxed clip) are its border too: the renderer measures
+  // rows and columns that stay black (backend/export.mjs layerEdges), and the strip grows past them
+  // (fan-fast frame 45 drew the letterbox edges as two full-width lines; the reference has none).
   const box = frame.bounds;
   const inset = Math.ceil(3 * smooth) + 2;
-  const picture = ["video", "image"].includes(frame?.helpers?.layerType) && box.width > 2 * inset && box.height > 2 * inset;
+  const [top, bottom, left, right] = measured ? measured.slice(1) : [0, 0, 0, 0];
+  const inner = { x: box.x + left * box.width + inset, y: box.y + top * box.height + inset };
+  inner.width = box.width * (1 - left - right) - 2 * inset;
+  inner.height = box.height * (1 - top - bottom) - 2 * inset;
+  const picture = ["video", "image"].includes(frame?.helpers?.layerType) && inner.width > 0 && inner.height > 0;
   steps.push(`<feFlood flood-color="rgb(${rgb.join(",")})" result="edgeColor"/>`,
     `<feComposite in="edgeColor" in2="edgeSoft" operator="in" result="edgeColored"/>`);
-  if (picture) steps.push(`<feFlood flood-color="#fff" x="${fmt(box.x + inset)}" y="${fmt(box.y + inset)}" width="${fmt(box.width - 2 * inset)}" height="${fmt(box.height - 2 * inset)}" result="edgeInner"/>`,
+  if (picture) steps.push(`<feFlood flood-color="#fff" x="${fmt(inner.x)}" y="${fmt(inner.y)}" width="${fmt(inner.width)}" height="${fmt(inner.height)}" result="edgeInner"/>`,
     `<feComposite in="edgeColored" in2="edgeInner" operator="in" result="edgeInside"/>`);
   steps.push(`<feComposite in="${picture ? "edgeInside" : "edgeColored"}" in2="SourceAlpha" operator="in" result="edgePaint"/>`);
   // 7. Background.

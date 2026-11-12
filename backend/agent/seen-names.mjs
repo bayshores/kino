@@ -85,6 +85,8 @@ const SEEN_AS = {
   "plain typing": ["type-on"], "fast typing": ["type-on"], "fast type": ["type-on"], "typed fast": ["type-on"], "type text": ["type-on"], "letters appear": ["type-on"],
   decode: ["decode"], decoding: ["decode"], "dot matrix": ["decode"], "dots into letters": ["decode"], "dots and dashes": ["decode"], scramble: ["decode"], scrambled: ["decode"],
   duotone: ["duotone"], tritone: ["tritone"],
+  // dot-grid is a circular halftone; keepPicture puts fine dots only in the shadows.
+  halftone: ["dot-grid"], "halftone dots": ["dot-grid"], "screen tone": ["dot-grid"], screentone: ["dot-grid"], "comic dots": ["dot-grid"], "ben day": ["dot-grid"], dots: ["dot-grid"],
   "text behind": ["masked-type", "cut_out"], "behind text": ["masked-type", "cut_out"],
   "3d": ["card-flip", "3d-orbit"], "3d text": ["card-flip", "3d-orbit"], "3d type": ["card-flip", "3d-orbit"],
   streaks: ["streaks", "speed-lines", "rain", "light-rays"], streak: ["streaks", "lens-flare", "speed-lines"],
@@ -103,7 +105,7 @@ const SEEN_AS = {
 };
 // Looks kino has no maker for yet. Asked for alone, they print a line that says so (and what to do)
 // instead of a name that only sounds close.
-const NO_MAKER = ["halftone", "dirt texture", "paper texture", "lightning", "electric arc"];
+const NO_MAKER = ["dirt texture", "paper texture", "lightning", "electric arc"];
 // Looks with no maker of their own that still have a way to build them from kino's parts.
 const NO_MAKER_HOW = {
   lightning: "a jagged path layer (add_layer path) with the glow effect and a few quick opacity steps; sparks adds the specks",

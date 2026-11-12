@@ -6,6 +6,7 @@ import { EFFECTS, effectDefaults, effectDefinition, MIX_DOCUMENTATION, normalize
 import { describeOperation } from "../../backend/operation-guide.mjs";
 import { effectsAt } from "./animation.js";
 import { createHash } from "node:crypto";
+import { halftoneTile } from "./postFx.js";
 
 const W = 48, H = 32;
 // Dark to light bars with colored stripes: enough detail to see warps and tone changes.
@@ -63,8 +64,31 @@ test("the fixed defaults: dot grid in two tones, warps that keep the picture, lu
   for (let offset = 0; offset < drawn.length; offset += 4) if (drawn[offset + 3] > 250) colors.add(drawn.slice(offset, offset + 3).join());
   assert.ok(colors.size > 2, "the default dots follow the picture's tones");
 
-  // The new defaults change the picture far less than the old ones did (they shredded it).
+  // keepPicture: dots only in the shadows, in the shadow's own hue darkened, the picture kept.
   const original = source();
+  const pixelsIn = (pixels, x0, x1, rows = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]) => rows.flatMap((y) => Array.from({ length: x1 - x0 }, (_, i) => at(pixels, x0 + i, y)));
+  const kept = draw("dot-grid", { ...dots, keepPicture: true, dotPitch: 6 }).pixels;
+  const darkBar = pixelsIn(kept, 12, 18);
+  assert.ok(darkBar.some(([r]) => r < 30) && darkBar.some(([r]) => r > 55), "the dark bar (64,60,56) gets dots and gaps");
+  assert.deepEqual(pixelsIn(kept, 36, 42), pixelsIn(original, 36, 42), "a light bar keeps its picture");
+  const lights = draw("dot-grid", { ...dots, keepPicture: true, dotPitch: 6, where: "highlights", dotColor: "#000000" }).pixels;
+  assert.ok(pixelsIn(lights, 36, 42).some(([r]) => r < 20), "where highlights puts the dots on the light bar");
+  assert.deepEqual(pixelsIn(lights, 12, 18), pixelsIn(original, 12, 18), "and keeps the dark one");
+  assert.equal("keepPicture" in dots, false, "dot-grids saved before it draw as before");
+  // The grid is one whole-pixel tile repeated, so a flat shadow gets the same dot in every cell
+  // (a whole-layer map at most 256 px wide clumped fine dots into a moire).
+  assert.deepEqual([halftoneTile(5.7, 45).tile, halftoneTile(5.7, 45).cos.toFixed(6)], [8, Math.SQRT1_2.toFixed(6)], "45 degrees, pitch 5.66");
+  assert.equal(Math.round(Math.atan2(halftoneTile(5.7, 35).sin, halftoneTile(5.7, 35).cos) * 180 / Math.PI), 34, "35 snaps to 33.7");
+  const flat = draw("dot-grid", { keepPicture: true, dotPitch: 5.7 }, { content: `<rect width="${W}" height="${H}" fill="#303030"/>` }).pixels;
+  const dark = new Set();
+  for (let y = 2; y < 22; y += 1) for (let x = 2; x < 38; x += 1) {
+    const [here, there] = [at(flat, x, y)[0], at(flat, x + 8, y + (x % 2 ? 0 : 8))[0]];
+    assert.ok(Math.abs(here - there) <= 2, `the dot repeats at ${x},${y}: ${here} and ${there}`);
+    if (here < 30) dark.add(`${x % 8},${y % 8}`);
+  }
+  assert.ok(dark.size >= 2, "a flat shadow gets dots");
+
+  // The new defaults change the picture far less than the old ones did (they shredded it).
   for (const [key, old] of [["fluid-warp", { amount: 25, octaves: 4 }], ["ripple", { strength: 0.18, frequency: 8, sharpness: 6 }]]) {
     const now = meanDifference(draw(key, effectDefaults(key)).pixels, original);
     const before = meanDifference(draw(key, { ...effectDefaults(key), ...old }).pixels, original);

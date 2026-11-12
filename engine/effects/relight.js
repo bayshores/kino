@@ -23,7 +23,8 @@ export function levelsFor(frame, { whenMissing = true } = {}) {
   const normalize = frame?.parameters?.normalize ?? whenMissing;
   if (normalize === false) return null;
   const levels = frame?.helpers?.levels;
-  if (!Array.isArray(levels) || levels.length !== 2 || !levels.every(Number.isFinite)) return null;
+  // [low, high], then edge-lines' measured edges when the layer has an auto edge-lines (edgeLines.js).
+  if (!Array.isArray(levels) || levels.length < 2 || !levels.slice(0, 2).every(Number.isFinite)) return null;
   const [low, high] = levels;
   // A nearly flat picture (a solid card) is left alone rather than blown up.
   return high - low >= 0.04 ? [clamp01(low), clamp01(high)] : null;

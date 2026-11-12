@@ -6,7 +6,7 @@ import { renderFluidWarp } from "./fluidWarp.js";
 import { renderFlutedGlass } from "./flutedGlass.js";
 import { renderNoiseWarp } from "./noiseWarp.js";
 import { renderRipple } from "./ripple.js";
-import { renderDithering, renderDotGrid, renderDuotone, renderLumaHighlight, renderNoiseMask,
+import { DOT_GRID_WHERE, renderDithering, renderDotGrid, renderDuotone, renderLumaHighlight, renderNoiseMask,
   renderPixelate, renderThresholdColor, renderTritone, renderRgbShift, RGB_SHIFT_COLORS } from "./postFx.js";
 import { renderTwirl } from "./twirl.js";
 import { renderOrbit, renderCardFlip } from "./projection.js";
@@ -118,6 +118,15 @@ const definitions = [
       dotScale: number("Dot Scale", 7, 0, 8, 0.1), contrast: number("Contrast", 1.1, 0, 4, 0.05),
       shadowColor: color("Shadow Color", "#2A2A30"), highlightColor: color("Highlight Color", "#F5EFE4"),
       invertDetection: boolean("Invert Detection", false),
+      // Halftone over the kept picture: dots only in the shadows (or highlights), fine dots sized
+      // by the layer's height (postFx.js renderShadowHalftone says where each default comes from).
+      // Optional: stored only when given, so dot-grids saved before them draw the same.
+      keepPicture: { ...boolean("Keep Picture", false), optional: true },
+      threshold: number("Threshold", 0.42, 0, 1, 0.01, "", { optional: true }),
+      where: { type: "enum", label: "Where", default: "shadows", optional: true, options: DOT_GRID_WHERE.map((value) => [value, value[0].toUpperCase() + value.slice(1)]) },
+      dotPitch: number("Dot Pitch", 0, 0, 512, 0.5, "px", { optional: true }),
+      angle: number("Angle", 45, -360, 360, 1, "°", { optional: true }),
+      dotColor: { ...color("Dot Color", "#000000"), optional: true },
     } },
   { key: "duotone", label: "Duotone", group: "Post FX", kind: "ranged", render: renderDuotone,
     parameters: {
@@ -188,8 +197,10 @@ const definitions = [
   { key: "edge-lines", label: "Edge Lines", group: "Post FX", kind: "ranged", render: renderEdgeLines,
     parameters: {
       color: color("Color", "#FFFFFF"),
-      width: number("Width", 3, 0.5, 12, 0.5, "px"),
-      threshold: number("Threshold", 0.05, 0, 1, 0.01),
+      // "auto" (new effects): width from the layer's height, threshold from the layer's own edges
+      // (edgeLines.js says how and where from). Effects saved before them keep their numbers.
+      width: number("Width", "auto", 0.5, 12, 0.5, "px", { auto: true }),
+      threshold: number("Threshold", "auto", 0, 1, 0.01, "", { auto: true }),
       // 1 lifts the dark end of the picture before the lines are found, so dark clips get lines
       // (edgeLines.js step 1b). Stored with 1 on a new effect only; effects saved before it have 0.
       adapt: number("Adapt", 1, 0, 1, 0.01, "", { optional: true, created: true }),

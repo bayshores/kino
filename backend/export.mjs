@@ -45,6 +45,7 @@ import { plannedTimes } from "../engine/quality/motionPixels.js";
 import { isAnimationCompatible } from "../engine/animationCompatibility.js";
 import { enabledAnimations } from "../engine/animationEnabled.js";
 import { effectDefinition } from "../engine/effects/catalog.js";
+import { EDGE_PERCENTILE } from "../engine/effects/edgeLines.js";
 import { lottieShapeParts, roundedBoxMask } from "./lottie-shapes.mjs";
 import { hasSoftReveal, lottieRevealMask, revealSampleTimes } from "./lottie-reveal.mjs";
 import { isGeneralReveal } from "../engine/reveal.js";
@@ -1155,7 +1156,47 @@ export function normalizesLevels(animation) {
   if (animation?.kind !== "effect" || animation.enabled === false || animation.to?.normalize === false) return false;
   // A duotone or tritone saved before normalize existed has none and is not measured.
   return ((animation.effect === "duotone" || animation.effect === "tritone") && animation.to?.normalize === true) ||
-    (animation.effect === "color-look" && animation.to?.look === "section-grade");
+    (animation.effect === "color-look" && animation.to?.look === "section-grade") || readsEdges(animation);
+}
+
+// An edge-lines whose threshold is "auto" reads the layer's measured edges (engine/effects/edgeLines.js).
+const readsEdges = (animation) => animation?.kind === "effect" && animation.enabled !== false &&
+  animation.effect === "edge-lines" && animation.to?.threshold === "auto";
+
+const BLACK_ROW = 0.08; // a row or column whose brightest sample is under 8% gray is a black bar (a guess)
+
+/**
+ * [threshold, top, bottom, left, right, height] for an auto edge-lines: the EDGE_PERCENTILE of the
+ * pictures' one-pixel luma differences (|dx| + |dy|, after the effect's lift by `adapt`), and the
+ * share of the picture taken by black bars on each side (rows or columns black in every picture,
+ * at most a quarter each). Samples every 2nd pixel inside the bars.
+ */
+export function layerEdges(pictures, adapt = 1) {
+  if (!pictures.length) return null;
+  const { width, height } = pictures[0];
+  const same = pictures.filter((picture) => picture.width === width && picture.height === height);
+  const exponent = 1 - 0.6 * Math.min(1, Math.max(0, adapt));
+  const gray = (data, index) => ((0.2126 * data[index] + 0.7152 * data[index + 1] + 0.0722 * data[index + 2]) / 255) ** exponent;
+  const rowMax = (y) => Math.max(...same.map(({ data }) => { let most = 0; for (let x = 0; x < width; x += 4) most = Math.max(most, gray(data, (y * width + x) * 4)); return most; }));
+  const columnMax = (x) => Math.max(...same.map(({ data }) => { let most = 0; for (let y = 0; y < height; y += 4) most = Math.max(most, gray(data, (y * width + x) * 4)); return most; }));
+  const black = BLACK_ROW ** exponent;
+  const count = (size, maxAt) => { let n = 0; while (n < size / 4 && maxAt(n) < black) n += 1; return n; };
+  const top = count(height, rowMax), bottom = count(height, (n) => rowMax(height - 1 - n));
+  const left = count(width, columnMax), right = count(width, (n) => columnMax(width - 1 - n));
+  const histogram = new Uint32Array(512);
+  let total = 0;
+  for (const { data } of same) for (let y = top + 2; y < height - bottom - 3; y += 2) for (let x = left + 2; x < width - right - 3; x += 2) {
+    const at = (y * width + x) * 4;
+    const here = gray(data, at);
+    const step = Math.abs(here - gray(data, at + 4)) + Math.abs(here - gray(data, at + width * 4));
+    histogram[Math.min(511, Math.round(step * 255))] += 1;
+    total += 1;
+  }
+  if (!total) return null;
+  let seen = 0, value = 0;
+  for (; value < 511; value += 1) { seen += histogram[value]; if (seen >= EDGE_PERCENTILE * total) break; }
+  // The pictures' height comes last: the renderer scales the threshold to the layer's own pixels.
+  return [Math.max(0.01, value / 255), top / height, bottom / height, left / width, right / width, height];
 }
 
 // The 2nd and 98th percentile luma (0..1) of RGBA pictures, counting only opaque pixels.
@@ -1193,7 +1234,9 @@ async function measureSceneLevels(scene, videoSources, { directory, signal, warn
     if (!source || !(layer.animations ?? []).some(normalizesLevels)) continue;
     const duration = Math.max(0.001, Number(scene.duration) || 1);
     const times = Array.from({ length: LEVEL_SAMPLES }, (_, index) => duration * (index + 0.5) / LEVEL_SAMPLES);
-    const key = `${source.videoPath}|${JSON.stringify(videoSourceTimes(layer, times, false, source.extraction.clocks).map((entry) => entry?.time ?? null))}`;
+    const edgeEffect = (layer.animations ?? []).find(readsEdges);
+    const adapt = Number.isFinite(edgeEffect?.to?.adapt) ? edgeEffect.to.adapt : 0;
+    const key = `${source.videoPath}|${JSON.stringify(videoSourceTimes(layer, times, false, source.extraction.clocks).map((entry) => entry?.time ?? null))}${edgeEffect ? `|edges ${adapt}` : ""}`;
     if (!measuredLevels.has(key)) {
       const pictures = [];
       // extractVideoFrames makes each picture's own folder, so only the parent is made here
@@ -1207,7 +1250,9 @@ async function measureSceneLevels(scene, videoSources, { directory, signal, warn
       }
       // A failed read is not remembered (the next render measures again) and is said out loud:
       // the grade then draws without normalize.
-      if (pictures.length) measuredLevels.set(key, lumaLevels(pictures));
+      // An auto edge-lines adds its measured edges after [low, high] (layerEdges).
+      const edges = edgeEffect && pictures.length ? layerEdges(pictures, adapt) : null;
+      if (pictures.length) measuredLevels.set(key, edges && lumaLevels(pictures) ? [...lumaLevels(pictures), ...edges] : lumaLevels(pictures));
       else warnings?.push({ code: "grade-levels-unmeasured", layerId: layer.id,
         message: `Could not read pictures of “${layer.name ?? layer.id}” to measure its levels; its grade is drawn without normalize.` });
       if (measuredLevels.size > 64) measuredLevels.delete(measuredLevels.keys().next().value);
