@@ -13,6 +13,7 @@ import { createCanvas } from "@napi-rs/canvas";
 import { ffmpeg, skipWithoutMediaTools } from "./media.test.support.mjs";
 import { measureAbilities, measureVideo } from "./measure/measure.mjs";
 import { soundHelper } from "./footage/sounds.mjs";
+import { burnedTextLine, NOT_READ, readBurnedText } from "./footage/burned-text.mjs";
 
 const skipWithoutVision = skipWithoutMediaTools
   || (process.platform !== "darwin" && "Apple Vision measure test skipped: it needs macOS")
@@ -135,4 +136,22 @@ test("without Apple Vision the fingerprint keeps kino's own numbers and names wh
   } finally {
     if (before === undefined) delete process.env.KINO_MEASURE_HELPER; else process.env.KINO_MEASURE_HELPER = before;
   }
+});
+
+test("burned-in text: the reader's lines become a mark and subtitles on the record's line; with no reader the line says so once", async () => {
+  // The reader stubbed: a site name top-left on every frame, a subtitle on the last one.
+  const asked = [];
+  const readFrames = async (file, options) => {
+    asked.push(options);
+    return [0, 0.25, 0.5, 0.75, 1.15].map((t) => ({ t, lines: [{ box: [0.009, 0.01, 0.078, 0.032], s: "sitename", c: 0.5 }, ...(t > 1 ? [{ box: [0.404, 0.88, 0.192, 0.054], s: "but I'll stay.", c: 0.5 }] : [])] }));
+  };
+  const burned = await readBurnedText("clip.mp4", { width: 1920, height: 1080, duration: 1.19 }, { readFrames });
+  assert.equal(asked[0].step, 0.25);
+  assert.equal(burnedTextLine(burned), 'burned-in text (file s, read every 0.25 s at 960 px): a mark top-left "sitename" (1-9% across, 1-4% down) on 5 of 5 frames · a subtitle 1.15 s "but I\'ll stay." (40-60% across, 88-93% down).');
+  // A long clip is read at an even step, at most 48 frames.
+  await readBurnedText("long.mp4", { width: 1920, height: 1080, duration: 120 }, { readFrames });
+  assert.equal(asked[1].step, 2.5);
+  const unread = await readBurnedText("clip.mp4", { width: 1920, height: 1080, duration: 1.19 }, { readFrames: async () => null });
+  assert.equal(unread.unread, NOT_READ);
+  assert.equal(burnedTextLine(unread), "burned-in text: not read on this system (Apple Vision's text reader is on a Mac only).");
 });

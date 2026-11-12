@@ -29,6 +29,7 @@ import { mergeDocuments } from "../engine/documentMerge.js";
 import { createOperationRequest } from "./operation-request.mjs";
 import { accessFor, openShareStore, sameSecret } from "./shares.mjs";
 import { probeMedia, runMediaTool, videoFrameFacts } from "./media-probe.mjs";
+import { readBurnedText } from "./footage/burned-text.mjs";
 import { REMUX_MIMES, alphaToWebm, probePicture, remuxToMp4 } from "./media-remux.mjs";
 import { createShotFinder, findShots, firstErrorLine, shotFilters } from "./shot-detection.mjs";
 import { createGifFrameCache } from "./gif-frame-cache.mjs";
@@ -795,11 +796,13 @@ function videoFactsOf(id) {
   if (Date.now() - (factsFailed.get(id) ?? -Infinity) < FACTS_RETRY_MS) return Promise.resolve({});
   const job = videoFactsQueue.then(async () => {
     const record = JSON.parse(await readFile(path.join(mediaRoot, `${id}.json`), "utf8"));
-    if (Object.hasOwn(record, "busy")) return { busy: record.busy, edges: record.edges, flat: record.flat };
-    const facts = await videoFrameFacts(path.join(mediaRoot, id), record.duration);
+    const facts = Object.hasOwn(record, "busy") ? { busy: record.busy, edges: record.edges, flat: record.flat } : await videoFrameFacts(path.join(mediaRoot, id), record.duration);
     if (!facts) { factsFailed.set(id, Date.now()); return {}; }
-    await saveMediaRecord(id, facts);
-    return facts;
+    // The text burned into its frames (a site name, the source's own subtitles): read once, kept.
+    const burnedText = record.burnedText ?? await readBurnedText(path.join(mediaRoot, id), record).catch(() => null);
+    const fresh = { ...(Object.hasOwn(record, "busy") ? {} : facts), ...(burnedText && !record.burnedText ? { burnedText } : {}) };
+    if (Object.keys(fresh).length) await saveMediaRecord(id, fresh);
+    return { ...facts, ...(burnedText ? { burnedText } : {}) };
   });
   videoFactsQueue = job.catch(() => {});
   return job;

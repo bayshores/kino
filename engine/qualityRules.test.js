@@ -14,7 +14,7 @@ import { RULES, blocksFinal, ruleOf, runQuality, tasteNotes } from "./quality/in
 import { kinoTimeline } from "./quality/kinoTimeline.js";
 import { haloOf, haloShadow } from "./quality/pixels.js";
 import { cropCounts, cropLine, seenMark } from "./quality/rules/footage.js";
-import { cropPast } from "./footage/burned.js";
+import { burnedTextFacts, cropPast, subjectLost } from "./footage/burned.js";
 import { askLine } from "./quality/rules/ask.js";
 import { judderBlurId } from "./quality/techniques.js";
 import { aliveDuring } from "./quality/motionPixels.js";
@@ -2088,6 +2088,54 @@ test("burned_in_mark: a window that still shows a mark found in the file warns w
   // No marks known (a clip of the person's, or one scanned clean): nothing to name; a layer not shown is not judged.
   assert.deepEqual((await run(full, {})).findings, []);
   assert.deepEqual((await run({ ...full, opacity: 0 })).findings, []);
+});
+
+test("burnedTextFacts: words in one place on most frames are a mark, low middle lines are subtitles by stretch; subjectLost measures a crop", () => {
+  const site = { box: [0.009, 0.01, 0.078, 0.032], s: "sitename" };
+  const frames = [0, 0.25, 0.5, 0.75, 1.0, 1.14].map((t) => ({ t, lines: [site, ...(t >= 1 ? [{ box: [0.404, 0.88, 0.192, 0.054], s: t < 1.1 ? "Run." : "but I'll stay." }] : [])] }));
+  frames.push({ t: 1.2, lines: null });
+  const facts = burnedTextFacts(frames);
+  assert.equal(facts.read, 6);
+  assert.deepEqual(facts.marks, [{ where: "top-left", box: [0.009, 0.01, 0.078, 0.032], words: "sitename", frames: 6 }]);
+  assert.deepEqual(facts.subtitles.map((sub) => [sub.from, sub.to, sub.words]), [[1, 1, "Run."], [1.14, 1.14, "but I'll stay."]]);
+  // A line read once is no mark; nothing read is no frame.
+  assert.deepEqual(burnedTextFacts([{ t: 0, lines: [site] }, { t: 1, lines: [] }, { t: 2, lines: [] }]).marks, []);
+  // A sign held mid-picture on every frame (a shop name in a still shot) is not a mark; nor a wide title along the top.
+  const sign = { box: [0.4, 0.4, 0.15, 0.05], s: "OPEN" }, title = { box: [0.1, 0.05, 0.8, 0.08], s: "A long title line" };
+  assert.deepEqual(burnedTextFacts([0, 1, 2].map((t) => ({ t, lines: [sign, title] }))).marks, []);
+  assert.equal(burnedTextFacts([{ t: 0, lines: null }]).read, 0);
+  // A 1.1x crop of a 1920x1080 file centered: a subject in the middle keeps all, one at the left edge loses its outer part.
+  const fit = { x: -96, y: -54, width: 2112, height: 1188 };
+  assert.equal(subjectLost(fit, { width: 1920, height: 1080 }, [0.4, 0.3, 0.2, 0.4]), 0);
+  assert.equal(subjectLost(fit, { width: 1920, height: 1080 }, [0, 0.3, 0.1, 0.4]), 0.45);
+});
+
+test("burned_text: a kino text beside a subtitle burned into the clip, and a mark the reader found, are facts with the crop call and its cost", async () => {
+  const full = { ...TALL_CROP, x: 0, y: 0, width: 1920, height: 1080 };
+  const line = { type: "text", id: "line", name: "line", text: "I will", x: 600, y: 860, width: 720, height: 80, fontSize: 60 };
+  const burned = { [TALL_CROP.src]: { read: 6, marks: [{ where: "top-left", box: [0.01, 0.01, 0.08, 0.03], words: "sitename", frames: 6 }], subtitles: [{ from: 1, to: 1.25, box: [0.3, 0.88, 0.4, 0.05], words: "but I'll stay." }] } };
+  const run = (layers, context = {}) => { const document = scene({ duration: 2, layers }); return fires("burned_text", document, { scene: document.scenes[0], mediaSizes: keeperSizes, burnedText: burned, ...context }); };
+  const found = await run([full, line], { people: facesFound([45, 30, 10, 25]) });
+  assert.ok(found.every((finding) => finding.severity === "info"));
+  const sub = found.find((finding) => finding.itemId === "line");
+  assert.match(sub.message, /^"line" \("I will"\) shows with the subtitle burned into "keeper" \("but I'll stay\.", file 1-1\.25 s\) at 0\.9-1\.4 s, 33 px apart on screen\.$/);
+  // The crop past the subtitle cuts the bottom 12%: its call, zoom and the face it keeps.
+  assert.match(sub.fix.text, /"op":"update_layer","layer":"keeper","properties":\{"x":-131,"y":0,"width":2182,"height":1227\}\}\]\} crops the subtitle out \(1\.14x against the frame-filling size, cuts 0% of the face found\)/);
+  const mark = found.find((finding) => finding.itemId === "keeper");
+  assert.match(mark.message, /^"keeper" shows the mark burned into its top-left \("sitename", 1 to 9% across, 1 to 4% down of the file\) at 0-2 s\.$/);
+  assert.match(mark.fix.text, /crops it out \(1\.04x against the frame-filling size, cuts 0% of the face found\)/);
+  // Two layers of the file in one box: one update_layers takes the mark out of both; a scan mark (burned_in_mark) is not said twice.
+  const [both] = (await run([full, { ...full, id: "keeper2", name: "keeper2" }])).filter((finding) => finding.itemId === "keeper2");
+  assert.match(both.fix.text, /"op":"update_layers","layerIds":\["keeper","keeper2"\],"properties":\{.*\} \(every 2 layers of this file in this box: "keeper", "keeper2"\) crops it out \(1\.04x against the frame-filling size, no subject known/);
+  const document = scene({ duration: 2, layers: [full] });
+  assert.deepEqual((await check("burned_text", document, { scene: document.scenes[0], mediaSizes: keeperSizes, burnedText: burned, burnedMarks: { [TALL_CROP.src]: [{ where: "top-left", box: [0.01, 0.01, 0.08, 0.03] }] } })).findings, []);
+  // A screen recording's own lettering is its content: no fact.
+  assert.deepEqual((await check("burned_text", document, { scene: document.scenes[0], mediaSizes: { [TALL_CROP.src]: { width: 1920, height: 1080, screen: true } }, burnedText: burned })).findings, []);
+  // 9:16: the tall window already leaves the top-left mark out; the subtitle under a caption is cropped past at the bottom, the window kept centered.
+  const tall = scene({ duration: 2, width: 1080, height: 1920, layers: [TALL_CROP, { ...line, x: 180, y: 1540, width: 720 }] });
+  const tallFound = (await check("burned_text", tall, { scene: tall.scenes[0], mediaSizes: keeperSizes, burnedText: burned })).findings;
+  assert.deepEqual(tallFound.map((finding) => finding.itemId), ["line"]);
+  assert.match(tallFound[0].fix.text, /"properties":\{"x":-1400,"y":0,"width":3879,"height":2182\}\}\]\} crops the subtitle out \(1\.14x against the frame-filling size/);
 });
 
 test("crop_no_subject: where no face was found, the window must keep what kino sees (the largest saliency box); narrow_window goes quiet there", async () => {

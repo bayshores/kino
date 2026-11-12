@@ -1110,6 +1110,13 @@ How to read it:
   `engine/footage.test.js` (frame_shot).
   Gap: only text marks are found (a logo with no letters is not), marks are per video, not per shot;
   a mark wider than a quarter of the frame (a long credit line) is not found.
+- **Burned-in text on any clip** (`burned_text`, info): Stub-verified, measured on 3 round-4 clips. Each clip's
+  frames are read at 960 px (every 0.25 s plus the last frame); look source prints the marks and subtitles;
+  check names a kino text beside a burned-in subtitle and a mark in the frame, each with one crop call
+  (update_layers for every layer of the file in one box), its zoom and the subject share it cuts. A mark is
+  logo-sized and near an edge (the finder scan's rule); screen recordings are skipped; a 9:16 window is tested.
+  Evidence: `engine/qualityRules.test.js` (burnedTextFacts, burned_text), `backend/measure-vision.test.mjs`
+  (reader stubbed). Gap: a Mac only; the import answer and the finder scan do not print it yet.
 - **Dark shots kept**: Stub-verified. A scan tags a dark shot "dark" (its line says `light N`) and keeps its rank.
   Evidence: `backend/footage-finder.test.mjs`.
 - **Shot facts and narrowing**: Stub-verified; the saliency measure run once on a lavfi clip. Each scanned
