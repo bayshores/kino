@@ -33,6 +33,13 @@ B-roll on the spoken word
   repeated frames), `frames` (the usual hold, 3 on 3s), `fps` and `stills` (the file's own held
   poses of 0.3 s or more). Drawn footage shows `drawn on 3s (...)` in its shots line. Slowed, keep
   `mediaInterpolation` `nearest` (whole drawings); `blend` lays two drawings over each other.
+  A slow camera drift over held drawings still measures as drawn: `record.holds.drift` says kino
+  treated the drift as the same drawing (changes up to 2 of 255, under drawing changes at least 4
+  times larger). Slowing a drawn clip below 1x, the edit receipt names its interpolation, why and
+  the file's hold: 'slows drawn footage to 0.5x: interpolation nearest (kino's default ...); the
+  file holds each drawing 3 frames (0.13 s), 0.25 s on screen'. The shot finder also cuts on a
+  low-score jump into a picture unlike the one before (dim drawn shots); videos measured before
+  `shotsFound.version` 2 are measured once more by the next look that needs their shots.
 - `library {topic:"media", search?, page?}` lists imported files, 30 a page.
 - Play: `mediaStart` (scene seconds it starts), `mediaOffset` (file seconds it starts from),
   `mediaDuration`. edit and inspect read trimStart or inPoint as mediaOffset, startTime as mediaStart.

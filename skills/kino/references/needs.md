@@ -84,3 +84,15 @@ off as theirs. A graphic that says what happened is fine; a fake of it happening
 A final render waits while a need is unanswered, a "have" is not sent or a picked option is not
 made (`needs_open`), and a 15 s+ video with a brief and footage or speech waits until its
 material was checked (`needs_unchecked`). A deliberate skip: `waive_check {code:"needs", target:"*", reason}`.
+
+## Found clips: sources and limits
+
+- Each found clip keeps its creator and link as metadata. Put no credits on screen unless the
+  person asks. A final render's answer has one `Sources` line: pass it on only when the person
+  says they will publish.
+- `source:"commons"` searches Wikimedia Commons (needs the web search switch in Settings).
+- No cookies are ever sent. When YouTube asks for a bot check, kino pauses YouTube for 15
+  minutes: use the person's clips or Commons meanwhile.
+- A video that cannot play here (region, members only, age) is dropped.
+- Nothing for the words: try the English title or `source:"commons"`.
+- Found clips never stand in for a real moment of the person's story: ask.

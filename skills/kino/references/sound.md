@@ -8,9 +8,7 @@ Contents: Sound effects · Volume, fades and ducking · The mix line and its fix
 ## Sound effects: finding and placing them
 
 - Sources: the person's files first, else kino's CC0 effects (sound-library guide):
-  `library {topic:"sounds", search:"whoosh"}`, then `project {action:"import", file:"sfx:<id>"}`.
-  No ding or beep on nothing.
-- Search the on-screen action ("swish", "click"), never a mood ("epic whoosh").
+  `library {topic:"sounds", search:"whoosh"}`, then `project {action:"import", file:"sfx:<id>"}`.- Search the on-screen action ("swish", "click"), never a mood ("epic whoosh").
 - Length fits the action: a tap or click 0.05-0.5 s, a slam 0.3-1 s, a whoosh under 1 s.
 - Place each one on an action the picture shows (a tap, a message arriving, a cut),
   never on every text entrance: two or three in 15 s, silence between. `mediaStart` is the scene time it plays at (on the action's frame, or
@@ -38,6 +36,8 @@ Contents: Sound effects · Volume, fades and ducking · The mix line and its fix
   (`sections`). The music comes back up between two lines when both fades fit in a gap that
   leaves it up 0.3 s or more. A dip that would cross the song's drop ends on it; the receipt's
   `payoff` gives the line's level over the song there and the volume that lifts it 6 LU over.
+  Without `to` or `fadeUp`, lines 3 s apart or less that a dip per line would churn share one
+  dip (the receipt's `joined` says so); `ways` gives each line's level three ways (3 lines at most).
 - Fade out after the last dip: an animation starting inside a dip takes over from it.
 - Muffled until the drop: animate `lowpass` (Hz, 20-20000; none is off) 400 to 20000 over the
   bar before it, `kind:"in"`, `ease-in`.
@@ -53,14 +53,16 @@ Contents: Sound effects · Volume, fades and ducking · The mix line and its fix
 
 ## Sound: the mix line and its fix
 
-- `check {fix:"auto"}` applies each limiter place's `xN` from the `mix:` line to the layers
-  playing there, in one edit: a short clip (a hit, a footstep) is turned down whole, a long one
-  dips only over the place, with 0.05 s Peak down / Peak up ramps. The `mix fix:` line gives
-  the places, LUFS and true peak before and after.
+- `check {fix:"auto"}` measures each layer alone at a limiter place and turns down only the one
+  that makes the peak (a hit, a loud word) by its own `xN`; the others keep their level. A short
+  clip is turned down whole, a long one dips only over the place, with 0.05 s Peak down / Peak up
+  ramps. The `mix fix:` line gives LUFS and true peak before and after, then each place's layers,
+  factors and peak (`2 s Voice x0.69: +0.2 -> -1.8 dBFS`).
 - Left alone: a layer whose volume moves at the place (named under not applied, with its `xN`
-  to apply by hand); a song whose dips would turn its level 3 times in 10 s (`volume_churn`),
-  though the other sounds there come down; every place when `mix:` says loudness `"auto"`
-  adds a gain so the limiter never works (the `xN` are for loudness `"off"`).
+  to apply by hand); a song whose dips would turn its level 3 times in 10 s (`volume_churn`:
+  send `keep_line {lift:true}` per line, or `duck_audio {replace:true, fadeUp:<longest gap>}` for
+  one dip), though the other sounds there come down; every place when `mix:` says loudness
+  `"auto"` adds a gain so the limiter never works (the `xN` are for loudness `"off"`).
 
 ## Sound: music as structure
 
@@ -77,8 +79,7 @@ Contents: Sound effects · Volume, fades and ducking · The mix line and its fix
   `board {music}` notes end with the same `; ending: ...`. With `end` the scene end stays: the
   song's own ending counts within 2 bars of it, else a 1 to 2 bar fade.
 - fit_music with no payoff puts the drop where it plays the most whole 4-bar groups its section
-  holds, 45% or more in; too short for a group, the receipt names the payoff that gives one.
-- `music.sections` lists sections and seams, weight 0 to 1 ("8.01 s drop, weight 0.8
+  holds, 45% or more in; too short for a group, the receipt names the payoff that gives one.- `music.sections` lists sections and seams, weight 0 to 1 ("8.01 s drop, weight 0.8
   (payoff)"); cues `song-drop-1`, `song-dropout-`, `song-return-`, `song-vocal-in-`,
   `song-switch-` mark them where heard.
 

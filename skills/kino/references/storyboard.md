@@ -57,6 +57,14 @@ top, nothing under the app's captions.
 Page 1 also prints the pace each side of the song's turn and its beat times (sound-library
 reference snaps cuts to them).
 
+With a measured song shape, the board answer, `look board` page 1 and `check` (after `made:`, from
+the built video layers by file time, speed and reverse counted) print one line per drop or section
+start: the shot on it, then `new`, `repeats X s of file a-b s shown at t1-t2 s`, `continues the
+file ...` or `on screen since T s (no cut on it)`. A repeat or on-screen line lists up to 3 unused
+scanned shots (F code and shot number) whose light, face or subject size differ most from what was
+shown; import one with `project import {file, options:{shots}}`. 'one take fills N% of the edit'
+names a file that fills over half the runtime.
+
 ## Ask
 
 - Fresh-eyes check first (stops reference). No `check`. Open items: ask them in one message, log each reply word for word
@@ -82,16 +90,8 @@ reference snaps cuts to them).
 
 ## After the approval
 
-Board approved: build it in one call, `edit {ops:[{op:"compose", from:"board"}]}`: a layer per
-shot in board order, board music kept; sent again it replaces only its board-* layers.
-kino keeps a copy of the approved board: build to it. These lapse the approval: media, text,
-sound, pacing, follow, move, music (or its file), shot order, a shot added or removed, a new open
-item; a cut, in-point or end moved over 6 frames; a crop changed over 5% of the frame width.
-`board.lapsed` and `status` say so: ask again (only changed shots show). A gap lapses it until
-covered. Smaller changes are logged (`board.revisions`), as is adding or changing a text's `until` ('shot 3 words held until 5.5 s'); the words, font, size, y or fill still lapse. "Approve with notes": make the changes.
-After the person answers rough,
-color or sound, only another song, media or shot list lapses it. Approved with only "your
-call": fix what a viewer finds (cut a repeat), never waive it.
+Board approved: build it in one call, `edit {ops:[{op:"compose", from:"board"}]}`, and build to
+the approved copy kino keeps. What lapses the approval: stops reference.
 
 ## Examples
 

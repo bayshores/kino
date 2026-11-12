@@ -1,6 +1,6 @@
 # Subject cut-out
 
-Contents: Subject cut-out (title behind, outline, background, matte), Follow an object (track, pin), Steady shaky footage (stabilize), Two pictures at once.
+Contents: Subject cut-out (title behind, outline, background, matte), Follow an object (track, pin), Steady shaky footage (stabilize). Split-screen and picture-in-picture: moves.
 
 Putting the subject of a video or photo (a person, an animal, an object) in a layer of its own:
 titles behind the subject, outlines and glows, a new or blurred background, mattes for masks.
@@ -24,7 +24,7 @@ titles behind the subject, outlines and glows, a new or blurred background, matt
   mask with a shape. A missing or old helper: `npm run desktop:cutout` builds it.
 - About 1.5 s per second of 1080p. Over 50 s it answers `CUTOUT_RUNNING`, changes nothing and
   keeps going: send the same edit later (`cached:true`). The receipt's `subject` gives its box
-  and the `room` beside it (scene px) to place type without a look. Undo: `history`.
+  and the `room` beside it (scene px) to place type without a look.
 - Cut-outs get `allowOverlap`; `type_covered` warns when the subject's box hides most of a title
   behind it. `covered_layer` and `held_static` skip the source clip.
 - `frame` on the layer carries its cut-outs in the camera group, with every layer stacked between
@@ -47,12 +47,18 @@ scan picks the engine: few people, subject; else person, then subject; `engine` 
 
 Type that must read whole goes beside the subject: `place {layers:["word"], around:"<cut-out>"}`
 (or a shot, or `"subject"`: the marked subject of the shot under the text) sets it in the free
-room, shrunk to fit; `side` is left, right, above, below or split. With no `side` it keeps the type
-largest, then moves it least: text already clear stays put. `split` sets one line in two parts at
-a word gap, the second a new layer `<name> 2`. A face mark, or a face kino found, counts as a
-person down to the picture's bottom, so no text goes below it. The receipt prints the share of
-letter area inside the subject box before and after, and the room on each side; `type_covered`
-lists that room and the `place {around}` call to send.
+room, shrunk to fit, clear of the subject for the whole time the text shows (up to 24 sampled
+seconds). `around` is required: without it the refusal names it. `side` is left,
+right, above, below or split. With no `side` it keeps the type largest, then moves it least: text
+already clear stays put. `split` sets one line in two parts at a word gap, the second a new layer
+`<name> 2`. `follow:true` instead moves it with the subject on a pin path (track "around"), the
+shortest move clear of it at every moment, same size. A face mark, or a face kino found, counts as
+a person down to the picture's bottom, so no text goes below it. The receipt prints the letter
+share inside the subject box at the worst moment before and after, the room on each side, the
+hold and how far a moving subject moves, and says when no spot is clear for the whole hold;
+`type_covered` lists that room and the call to send. A cut-out copy keeps `subjectPath` (the
+subject box over time), which `around` reads. A title set between a clip and its cut-out is never
+covered by a later clip: kino leaves it where it is.
 
 ### Outline or glow
 
@@ -65,8 +71,7 @@ A grown silhouette under the subject is an outline; a grown, feathered one is a 
 {"op":"cut_out","layer":"dancer","above":"outline"}
 ```
 
-A subject cut_out leaves the clip's glow on the clip, so it shines behind the subject (the
-receipt says so). To bloom the subject too, add a glow to the cut-out layer.
+A subject cut_out leaves the clip's glow on the clip, so it shines behind the subject. To bloom the subject too, add a glow to the cut-out layer.
 
 ### New or blurred background
 
@@ -102,15 +107,13 @@ the mask's `blur`, strength its `opacity`. `library {topic:"masks"}`.
 
 ## Follow an object
 
-`track` follows one object through a video layer on this Mac (Apple Vision, no download, about
-10 ms a frame). Give `at` (a second of the file) and `point` [x, y] or `box` [x, y, w, h] in % of
+`track` follows one object through a video layer on this Mac (Apple Vision, no download). Give `at` (a second of the file) and `point` [x, y] or `box` [x, y, w, h] in % of
 the source frame: `look {mode:"source", layer, t}` shows that frame with a % grid. It runs forward
 and back through the part of the file the layer plays and keeps the path as a scene track. `pin`
 makes any layer follow it: its center on the track's center plus `offset` (scene pixels), and
 `scale:true` grows it with the object. The receipt's `track.confidence` and `note` say where
 Vision was unsure (under 0.5); there the pinned layer holds its last good place and check
-`track_lost` names the seconds. To see it, `look {mode:"frames"}` over the shot shows the label
-moving with the object. A track made again under the same name moves its pins too; `pin {to:null}`
+`track_lost` names the seconds. Check it with `look {mode:"frames"}`. A track made again under the same name moves its pins too; `pin {to:null}`
 lets go.
 
 ```json
@@ -136,10 +139,3 @@ so the track follows the steady picture.
 {"op":"add_layer","layerType":"video","name":"walk","properties":{"src":"/api/media/<walk>.mp4"}}
 {"op":"stabilize","layer":"walk","smooth":1}
 ```
-
-## Two pictures at once
-
-Mark each clip's subject first (framing): panes and insets crop on it, else on a face.
-`move {name:"split-screen", layers:[2-4], at}` (side, stacked or slant panes) or
-`move {name:"picture-in-picture", layer, at}` (a corner inset); library {topic:"moves", name} has every default. A framed clip works as is.
-A crop aimed at no mark or face says so first, with the mark_subject call.

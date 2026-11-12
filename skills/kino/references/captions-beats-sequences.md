@@ -51,6 +51,12 @@ played as one.
   `order: forward | reverse | random`; a list of up to 4 combines by `mode` (add, subtract, ...).
   `{shape:"wiggly", wiggles, correlation, seed}` jitters each unit around from on a custom
   animation. Change text and Counter `in`/`out` effects take `range` too.
+- Type by job: an `add_layer` text with `role` caption, headline, hero, label or cta that names no
+  face or fill (in properties or at the top level) gets that job's face, size, fill and edge; the
+  receipt says where they came from ('from label': a saved type label counts only if kino found a
+  lettering box on its frame). With saved labels the biggest lettering sets the payoff word, the
+  smallest the subtitle line; size shrinks to fit (payoff one line, subtitle two). A payoff word with
+  no entrance gets a letter entrance picked by the song cue it lands on (drop: scale-in, build: rise).
 - Beats: import the music, add it as an audio layer, and run `detect_beats` in the same edit
   (it reads the sound the ops before it set). It writes cues `beat-1`, `beat-2`, … and
   `onset-1`, … and sets the project's rhythm. Onsets carry `weight` (0 to 1 against the song)
@@ -75,7 +81,8 @@ played as one.
   `accents:true` adds downbeat zoom punches (off by default; `effect_fit` asks each for a cue).
 - Accents: `move {name:"impact-accent", kind, at:"cue:<name>"}` (techniques reference); none
   is fine. impact-accent kinds: flash, shake, impact-frame, dip, strobe, hit (hit takes any cue or
-  time; effect_fit needs a set_cues marker under a beat number or a time).
+  time; within 3 frames of a song cue it snaps to it; on a cut instead, effect_fit takes the cut as
+  its reason, weight 0.3; with neither it reports untriggered).
 - Sequences: build each part as its own scene (same size), then `add_sequence` makes one scene
   that plays them in order: `cut` (default), `crossfade`, `push`, `wipe`, `zoom`, `whip` (a
   push smeared by a directional blur) or `spin` (a turn under a spin blur), 0.5 s by default.

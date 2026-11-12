@@ -51,6 +51,7 @@ Camera rules read the model at 30 samples a second (no render).
 - Workflow: `check` names the moment, `look motion` shows how it moves around it, `look frames`
   shows each frame there.
 - Match the source's frame rate: project {action:"create", id:"clip", fps:"24000/1001"} (later: update_project {properties:{fps:20}}); look, check and renders step at it.
+- Motion blur, smear or shutter: {op:"update_project", properties:{shutterAngle:180}} draws it in look frames, sheets and drafts (up to 6 moments a frame); 0 or none stays sharp.
 - at:"f36" is frame 36 at the project's rate, its exact start: {op:"add_animation", layer:"card", preset:"show", at:"f36"}. The receipt names frames (A1 f36).
 
 ## Rendered motion

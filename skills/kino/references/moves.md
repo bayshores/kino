@@ -69,7 +69,10 @@ What each is for; fields from `library {topic:"moves", name}`.
   behind the person.
 - **perceive-insert**: a region of a clip fills the frame for about 1 s, muted.
 - **voice-type**: a spoken line set big word by word.
-- **split-screen**, **picture-in-picture**: panes, a corner inset (cutout.md).
+- **split-screen** `{layers:[2-4], at}`: side, stacked or slant panes. **picture-in-picture**
+  `{layer, at}`: a corner inset. Mark each clip's subject first (framing): panes and insets crop
+  on it, else on a face; a framed clip works as is, and a crop aimed at no mark or face says so
+  first, with the `mark_subject` call.
 - **type-on**: your text layer types with a caret; a box under it grows.
 - **stream**: words of any text layer arrive and settle. **rewrite**: the layer blurs out, `new`
   streams in. **decode**: random letters settle left to right. **assemble**: letters fly together.

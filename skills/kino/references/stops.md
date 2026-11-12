@@ -58,6 +58,19 @@ the small ones yourself and add each to `calls` (edit `board`; they show as "my 
 questions for the person go out, in one message. At most 2 rounds. Then ask with
 `fresh:"ran"`, or `fresh:"skipped"` when your app cannot start one. (After superpowers' builder-check prompt, obra/superpowers, MIT.)
 
+## After the storyboard is approved
+
+Build it in one call, `edit {ops:[{op:"compose", from:"board"}]}`: a layer per shot in board
+order, board music kept; sent again it replaces only its board-* layers. kino keeps a copy of the
+approved board: build to it. These lapse the approval: media, text, sound, pacing, follow, move,
+music (or its file), shot order, a shot added or removed, a new open item; a cut, in-point or end
+moved over 6 frames; a crop changed over 5% of the frame width. `board.lapsed` and `status` say
+so: ask again (only changed shots show). A gap lapses it until covered. Smaller changes are logged
+(`board.revisions`), as is adding or changing a text's `until` ('shot 3 words held until 5.5 s');
+the words, font, size, y or fill still lapse. "Approve with notes": make the changes. After the
+person answers rough, color or sound, only another song, media or shot list lapses it. Approved
+with only "your call": fix what a viewer finds (cut a repeat), never waive it.
+
 ## Finishing
 
 End every turn with one of: `Done: <file>`, `Done, with open questions: …` or

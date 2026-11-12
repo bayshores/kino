@@ -33,7 +33,15 @@ Contents: Color grading · Frame finish and letterbox · Filters · Changing an 
 - Mixed sources: `match_color` with `layers` (or `layer`) and `to` (the reference layer) grades each
   to that shot (effects "Color match" and "Color match saturation"; again replaces them).
 - Dark footage: `match_references` lifts each shot darker than your saved references into their range
-  (exposure only, `<layer>.match-ref`; compose does it unless `match:false`); by hand, lift `gamma` first.
+  (exposure only, `<layer>.match-ref`; compose does it unless `match:false`); by hand, `lift_dark`
+  (below), not `gamma`: the `reference_range` fix for dark footage names `lift_dark {layer}`;
+  color-wheels `gamma` is for bringing a picture down.
+- `match_references` as an op also places the made techniques your saved references' labels name (else your deck's unused cards) on song cues and subject shots; a cut-out one (cut_out,
+  energy-aura, rim-light) comes back as a ready edit call. `made:false` places none (exposure
+  only), `made:["embers", "glow"]` your own list. Each is `match-made-<n>`: `update_animation` or `update_layer` changes
+  it, `remove:true` takes it off. The receipt ends 'made share X of N moments before, Y of N after;
+  your references' made labels ...'; in 9:16 the card over its blurred copy takes the made
+  element; an op the scene cannot take is listed under 'not placed' and the rest still land.
 - One dark shot in one call: `lift_dark {layer, target?}` lifts it with a curve from its own
   tones, not a gamma wash: the black point stays, the mids rise to `target` (mean luma 0 to 255;
   left out, the median of the scene's other pictures that cover a fifth of the frame or more)
@@ -42,7 +50,13 @@ Contents: Color grading · Frame finish and letterbox · Filters · Changing an 
   or less) stays. From a 1 stop lift it adds a small matched grain `<layer>.lift-grain`
   (`grain:false` leaves it off); the curve is `<layer>.lift`, and `remove:true` takes both off.
   The receipt prints mean, contrast (p90-p10) and black before and after, beside a plain gamma
-  to the same mean.
+  to the same mean. A 16:9 clip in a 9:16 box is measured whole and centered (bars not counted).
+  When a video's codec block grid shows (grid steps 1.5x the steps inside blocks), it adds a
+  deblock `<layer>.lift-deblock` before the curve; it measures the layer drawn alone at each
+  sampled frame's position, and the receipt gives the block step before and after ('block step
+  (16 px grid, ...) 0.18 to 0.14'). Grain is one grain per source pixel on the scene (a 540p clip
+  in a 1080p frame: size 2); `reduced:true` (or a scene composed with reduced) keeps it still
+  (the preview under reduced motion too).
 - A teal-orange grade, then a full hue turn starting on a cue:
 
 ```json

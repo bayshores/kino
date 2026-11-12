@@ -41,7 +41,7 @@ Contents: Building blocks · Layers · Layout · Text · Animations · Scenes ·
 
 ## Layout
 
-- `place {layers, below|above|left_of|right_of: <layer>, gap?, align?: start|center|end} or {layers, around: <video layer or cut-out>|"subject", side?: left|right|above|below|split, at?, gap?}`
+- `place {layers, below|above|left_of|right_of: <layer>, gap?, align?: start|center|end} or {layers, around: <video layer or cut-out>|"subject", side?: left|right|above|below|split, at?, gap?, follow?}`
 - `align {layers, to: left|center|right|top|middle|bottom (or a list of two), within?: safe|frame|<slot>|<layer>}`
 - `distribute {layers, axis?: x|y, within?}`
 - `stack {layers, direction?: down|right, gap?, slot?, align?: start|center|end}`
@@ -114,7 +114,7 @@ Contents: Building blocks · Layers · Layout · Text · Animations · Scenes ·
 - `fit_music {scene?, layer, payoff?, turn?, end?, plan?, drop?, recut?}`
 - `place_broll {scene?, speech, clips, lead?}`
 - `color_filter {scene?, layer | layers, filter, strength?}`
-- `keep_line {scene?, layer, line? | from?, to? | sound?, text?, subtitle?, look?, name?, duck?, dip?, dropout?, wait?}`
+- `keep_line {scene?, layer, line? | from?, to? | sound?, text?, subtitle?, look?, name?, duck?, dip?, lift?, dropout?, wait?}`
 - `frame_shot {layer | layers}`
 - `place_sounds {scene?, at, under?}`
 - `match_color {scene?, layer | layers, to, at?}`
@@ -125,8 +125,8 @@ Contents: Building blocks · Layers · Layout · Text · Animations · Scenes ·
 - `frame {layer, rect:[x, y, w, h], at, to?, cut?, dur?}`
 - `shift {at, by, scene?}`
 - `mark_subject {layer, t, box, part?, shows?}`
-- `match_references {scene?, layer? | layers?, remove?, lower?}`
-- `lift_dark {layer | layers, target?, grain?, remove?}`
+- `match_references {scene?, layer? | layers?, remove?, lower?, made?}`
+- `lift_dark {layer | layers, target?, grain?, reduced?, remove?}`
 - `split_image {layer, boxes:[{name, rect:[x, y, w, h]}]}`
 - `source {name, text}`
 - `board {music, shots:[{cue, dur, pacing, media, in, crop, subject, follow, text, sound, move, why, speed?, lift?, alts?, id?}], calls?, open?} or {snap:"beats"}`

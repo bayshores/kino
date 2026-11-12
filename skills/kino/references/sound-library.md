@@ -13,7 +13,9 @@ Contents: Sound effects · Music · Placing sound · A clip's own sounds · Sepa
   typing, a BigSoundBank crash reversed into a swell) as `sfx:<id> 0.4s -18 LUFS: words`.
   Search plain words for what happens on screen: whoosh, swish, click, tap, pop, drop, impact,
   boom, glitch, chime, confirm, error, zap, scroll, door, camera, typing, keypress, reverse
-  cymbal (the riser: no CC0 synth riser exists yet). `full:true` allows up to 60 s.
+  cymbal (the riser: no CC0 synth riser exists yet). `full:true` allows up to 60 s. The header
+  says 'CC0 library sounds', 'library sounds made by kino' or 'library sounds (N made by kino, the
+  rest CC0)'; each made sound's line ends '(made by kino)': made sounds are not CC0 files.
 - `project {action:"import", file:"sfx:<id>"}` adds it with its credit (CC0 needs none in the
   video, but the sound stop names it).
 - Openverse only when the person turned on web
@@ -44,7 +46,8 @@ Contents: Sound effects · Music · Placing sound · A clip's own sounds · Sepa
   over 6 frames lapses an approval. It keeps (and names) a cut that would run a shot past
   its file's end.
 - `fit_music` alone after a board, under a late payoff, gives the same payoff-shot offer as
-  `board {music}`: shot cues plus the `fit_music` payoff edit.
+  `board {music}`: shot cues plus the `fit_music` payoff edit. `fit_music` sent again without
+  `payoff` falls back to 45% of the video: send the payoff again to keep the drop where it was.
 
 ## Placing sound
 
@@ -58,6 +61,9 @@ Contents: Sound effects · Music · Placing sound · A clip's own sounds · Sepa
 - place_sounds sets each effect's volume against the bed at the effect's own loudest heard
   window (a riser's end, an impact's ring), not at the action; a bed silent there is read 0.2 s
   either side of the action.
+- place_sounds also turns a new sound down, but only where the mix with it passes the limiter
+  (-1.5 dBFS) and the default loudness "auto" gain would not clear it; the receipt's `peak:`
+  clause gives its level over the rest of the mix, the factor and the new volume.
 - At volume 2 and still short of its aim, the receipt's `sounds.louder` gives the next louder
   library sound of the same kind and one edit call that swaps it (it keeps your `under`).
 - `what:"footstep"` and `what:"cloth"` are sounds kino makes in code (0.3 s, no download), so
@@ -73,8 +79,15 @@ Contents: Sound effects · Music · Placing sound · A clip's own sounds · Sepa
   heard 2.8-3.0 s, words not read` (file seconds) is voice whisper could not read; keep it with
   `keep_line {layer:"shot-3", from:5.4, to:7.3}` (`from`/`to` are scene seconds).
 - `keep_line` levels a clip line 6 LU over the song (never under -16 LUFS), up to +12 dB, and
-  holds the mix; a line still short of the music gets the music out, and the note gives the LU
-  short and a dip: that keeps the music in. Receipt: the mix vs the 2 s around.
+  holds the mix. It makes no dip when lifting alone puts the line 6 LU over; else the shallowest
+  dip; a line still short gets the music out, and the note gives the LU short and a dip that keeps
+  the music in. Receipt: `way` (lift, dip or out), `ways` (each way with its factor and headroom;
+  `duck_audio` prints it too), the mix vs the 2 s around.
+- `keep_line {lift:true}` keeps the song untouched and lifts the line within the headroom; the
+  note gives the LU reached and how many LU short of +6. Beside a given `dip` or `dropout` it is
+  set aside, with a note. Sent again, `keep_line` measures the song without earlier dips (and
+  `fit_music`'s fades), so it picks the same dip. With the music out, the note says 'is back by
+  <s>' when the dip ends by the song's drop before the planned beat.
 - Music out for a line: `{op:"keep_line", layer:"clip", from:5.5, to:7.2, dropout:true}` (and
   `wait`): the music hits back on the downbeat within wait (default half a bar), else on the next
   beat; the receipt states the gap and the wait that reaches the downbeat. `dip` (0 to 1) sets a
