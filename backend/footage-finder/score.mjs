@@ -380,6 +380,33 @@ export async function readScan(dataRoot, id) {
   return scan;
 }
 
+/**
+ * A saved scan ranked again for other `want` words, from the vectors it saved: no download, no new
+ * scan (found-shared: a second project that wants other words of the same video reuses the scan).
+ * Answers the new scan (also saved), or null when it cannot: no saved scan of this version, or
+ * words to match but no image model then (embed) or no saved vectors.
+ */
+export async function rematchScan(dataRoot, id, want, { embed = null } = {}) {
+  const saved = await readScan(dataRoot, id);
+  if (!saved || saved.version !== SCAN_VERSION || !Array.isArray(saved.shots)) return null;
+  const words = String(want ?? "").trim();
+  let wantVector = null;
+  if (words) {
+    if (!embed || !saved.model || !saved.shots.some((shot) => shot.vector)) return null;
+    const [vector] = (await embed.text([words])) ?? [];
+    if (!vector) return null;
+    wantVector = normalize(vector);
+  }
+  const rows = saved.shots.map((shot) => ({ ...shot, flags: shot.flags ?? [], base: shot.base ?? shot.score ?? 0, vector: shot.vector ? decodeVector(shot.vector) : null }));
+  const answer = matchShots(rows, { wantVector, drawn: Boolean(saved.drawn) });
+  const shots = saved.shots.map((shot, index) => ({ ...shot, flags: rows[index].flags, base: rows[index].base, match: answer.matches[index], score: answer.scores[index] })).sort(compareShots);
+  const scan = { ...saved, want: words, matchShown: answer.matchShown, matchBest: answer.matchBest, matchBar: answer.matchBar, shots };
+  const file = scanPath(dataRoot, id, "json");
+  await writeFile(`${file}.part`, JSON.stringify(scan));
+  await rename(`${file}.part`, file);
+  return scan;
+}
+
 /** A saved scan's sheet (the jpg of its best stills, scan.sheet names their shots), or null. */
 export async function readScanSheet(dataRoot, id) {
   try { return await readFile(scanPath(dataRoot, id, "jpg")); } catch { return null; }

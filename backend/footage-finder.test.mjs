@@ -47,7 +47,7 @@ function commonsPage(pageid, { license = "CC BY-SA 4.0", licenseUrl = "https://c
   };
 }
 import { downloadScanCopy, parseProbe, pickWindows, probeFootage } from "./footage-finder/scan.mjs";
-import { matchBar, numberShots, pruneScans, rankShots, readScan, SCAN_VERSION, scanFootage, scanMarks, scansFolder, shotFacts, stillPicks, stillsAt } from "./footage-finder/score.mjs";
+import { matchBar, numberShots, pruneScans, rankShots, readScan, rematchScan, SCAN_VERSION, scanFootage, scanMarks, scansFolder, shotFacts, stillPicks, stillsAt } from "./footage-finder/score.mjs";
 import { encodeVector, normalize } from "./music-embed.mjs";
 import { findShots } from "./shot-detection.mjs";
 import { botCheckError, createYouTubeGate } from "./process-slots.mjs";
@@ -529,6 +529,14 @@ test("a scan again with other words matches every saved shot to the newest words
     const none = await scanOf(200, "ABC", "");
     assert.ok(none.shots.every((shot) => shot.match === null));
     assert.equal(none.matchShown, false);
+    // found-shared: other words on the saved scan rank from its saved vectors alone (no copy, no tools).
+    const again = await rematchScan(directory, "yt-abcdefghijk", "dog", { embed });
+    assert.equal(again.want, "dog");
+    // The two "A" looking shots (1 and 7) are the dog shots.
+    assert.deepEqual(again.shots.filter((shot) => shot.match > 1).map((shot) => shot.n).sort((a, b) => a - b), [1, 7]);
+    assert.equal((await readScan(directory, "yt-abcdefghijk")).want, "dog");
+    // Words but no image model: it cannot, and says so with null (the scan is then made again).
+    assert.equal(await rematchScan(directory, "yt-abcdefghijk", "dog", { embed: null }), null);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -1167,7 +1175,7 @@ test("a slow import answers with a repeat call, and the repeat joins it: one dow
     inspire: { projectView: async () => ({ searches: [], saved: [], refs: {} }), reference: async () => ({ measuredDoubt: "a patch stays in place 80% (a watermark or another app's frame?)" }) } });
   const importing = () => service.call("project", { project: "anime-edit", action: "import", file: "F1", options: { shots: [4] } });
   const first = await importing();
-  assert.match(first.text, /^F1 is still importing 1 piece .*Send the same call again/);
+  assert.match(first.text, /^F1 import running now \(1 piece: download, then an exact cut and encode each\)\. It keeps going by itself.*Read its result with this same call/);
   const second = importing();
   setTimeout(() => finish(), 5);
   const done = (await second).text;
@@ -1175,6 +1183,88 @@ test("a slow import answers with a repeat call, and the repeat joins it: one dow
   assert.match(done, /\nF1 is yt:v{10}1, a patch stays in place 80% of its frames: study it as a reference \(library \{"topic":"inspire","name":"save yt:v{10}1"\}\) or pick another clip/);
   assert.equal(takes, 1);
   assert.deepEqual((await agentState.read("anime-edit")).footage.candidates[0].imported, { shots: [4], seconds: 2 });
+});
+
+test("found-shared: a search lists a video another project scanned as scanned and reused; a scan with other words ranks the saved scan again and downloads nothing", async () => {
+  const saved = { version: SCAN_VERSION, want: "dog", scannedAt: "2026-11-01T00:00:00.000Z", windows: [{ start: 0, end: 60 }], shots: [{ n: 1, start: 1, end: 3, motion: 50, face: 0, flags: [] }], skipped: {} };
+  let scans = 0;
+  const finder = {
+    search: async (words) => ({ words, candidates: [found(1), found(2)], dropped: {} }),
+    readScan: async (id) => (id === "yt-vvvvvvvvvv1" ? saved : null),
+    rematch: async (_id, want) => ({ ...saved, want }),
+    scan: async () => { scans += 1; return saved; },
+  };
+  const actions = createFootageActions({ finder });
+  const searched = await actions.handle({ search: "episode" }, { footage: null, personClips: 0 });
+  assert.match(searched.text, /^F1 .*scanned, 1 shots · already on this computer: reused$/m);
+  assert.doesNotMatch(searched.text.split("\n").find((line) => line.startsWith("F2")), /reused/);
+  const footage = searched.update(null);
+  assert.deepEqual(footage.candidates[0].scan, { id: "yt-vvvvvvvvvv1", shots: 1, at: saved.scannedAt });
+  const answer = await actions.handle({ scan: "F1", want: "a cat" }, { footage, personClips: 0 });
+  assert.match(answer.text, /^F1: already on this computer: reused \(its scan is saved here, nothing downloaded\)\.$/m);
+  assert.equal(scans, 0);
+});
+
+test("found-shared: clip:yt-<id> of a video another project scanned joins this project under a new code, and a shot kino already cut is reused: no download", async (t) => {
+  const dataRoot = await mkdtemp(path.join(tmpdir(), "kino-test-footage-"));
+  t.after(() => rm(dataRoot, { recursive: true, force: true }));
+  const store = await openStore(dataRoot);
+  await store.createProject(createDocument({ id: "second", name: "Second", scenes: [createScene({ id: "s1" })] }));
+  const agentState = createAgentStateStore(dataRoot);
+  await mkdir(path.join(dataRoot, "media"), { recursive: true });
+  await writeFile(path.join(dataRoot, "media", "m4.mp4"), "clip");
+  // The clip another project cut from this video: same video id, same start and end.
+  const cut = { id: "m4.mp4", src: "/api/media/m4.mp4", mime: "video/mp4", duration: 2, width: 1920, height: 1080, hasAudio: false, footage: { candidate: found(1).id, code: "F7", shot: 4, start: 30, end: 32, cutAt: 30 } };
+  let takes = 0;
+  const finder = { readScan: async () => ({ title: "Episode 1", shots: [{ n: 4, start: 30, end: 32 }] }), take: async () => { takes += 1; return { media: [], failed: [] }; } };
+  const service = createAgentService({ store, agentState, agentDirectory: path.join(dataRoot, "agent"), mediaRoot: path.join(dataRoot, "media"),
+    exportBatches: {}, fontCatalog: { async loadInto() {} }, loadFonts: async () => [], listMedia: async () => [cut], footage: finder });
+  const importing = (file) => service.call("project", { project: "second", action: "import", file, options: { shots: [4] } });
+  // An F code belongs to one project: the refusal names the way in.
+  assert.match((await importing("F7")).text, /F codes belong to one project/);
+  const imported = await importing(found(1).id);
+  assert.equal(imported.isError, undefined, imported.text);
+  assert.equal(takes, 0);
+  assert.match(imported.text, /^Imported 1 clip of F1 "Episode 1" \(2 s in all, H\.264\) for this video; all already on this computer: reused, nothing downloaded:/);
+  assert.match(imported.text, /^F1\.4 2s 1920×1080 \/api\/media\/m4\.mp4 no sound$/m);
+  const entry = (await agentState.read("second")).footage.candidates[0];
+  assert.deepEqual([entry.code, entry.scan.shots, entry.imported], ["F1", 1, { shots: [4], seconds: 2 }]);
+  // Sent again, the same clip is returned and its seconds are not counted twice.
+  await importing(found(1).id);
+  assert.deepEqual((await agentState.read("second")).footage.candidates[0].imported, { shots: [4], seconds: 2 });
+});
+
+test("found-shared: imports sent one after another queue behind the running one and answer in turn, never a refusal to resend", async (t) => {
+  const dataRoot = await mkdtemp(path.join(tmpdir(), "kino-test-footage-"));
+  t.after(() => rm(dataRoot, { recursive: true, force: true }));
+  const store = await openStore(dataRoot);
+  await store.createProject(createDocument({ id: "anime-edit", name: "Anime edit", scenes: [createScene({ id: "s1" })] }));
+  const agentState = createAgentStateStore(dataRoot);
+  await agentState.update("anime-edit", (draft) => { draft.footage = addCandidates(null, [found(1)]); draft.footage.candidates[0].scan = { id: "yt-vvvvvvvvvv1", shots: 2 }; });
+  const started = [];
+  const finish = [];
+  const finder = { readScan: async () => ({ shots: [{ n: 4, start: 30, end: 32 }, { n: 5, start: 40, end: 42 }] }),
+    take: (_candidate, pieces) => { started.push(pieces[0].n); return new Promise((resolve) => { finish.push(() => resolve({ media: [{ id: `m${pieces[0].n}.mp4`, src: `/api/media/m${pieces[0].n}.mp4`, duration: 2, footage: { shot: pieces[0].n, start: pieces[0].start, end: pieces[0].end } }], failed: [] })); }); } };
+  const service = createAgentService({ store, agentState, agentDirectory: path.join(dataRoot, "agent"), mediaRoot: path.join(dataRoot, "media"),
+    exportBatches: {}, fontCatalog: { async loadInto() {} }, loadFonts: async () => [], listMedia: async () => [], footage: finder, footageWaitMs: 30 });
+  const importing = (shot) => service.call("project", { project: "anime-edit", action: "import", file: "F1", options: { shots: [shot] } });
+  const sentFirst = importing(4);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  const [one, two] = await Promise.all([sentFirst, importing(5)]);
+  assert.match(one.text, /^F1 import running now \(1 piece/);
+  assert.match(two.text, /^F1 import queued, 1 import of this video ahead of it \(1 piece\)\. It keeps going by itself/);
+  assert.deepEqual(two.data, { importing: "F1", queued: true, ahead: 1 });
+  // Only the first runs: the second has not started its download.
+  assert.deepEqual(started, [4]);
+  // The first ends, the second starts by itself; each call, sent again, returns its finished answer.
+  finish[0]();
+  const first = await importing(4);
+  assert.match(first.text, /^Imported 1 clip of F1/);
+  assert.deepEqual(started, [4, 5]);
+  const secondDone = importing(5);
+  finish[1]();
+  assert.match((await secondDone).text, /^Imported 1 clip of F1/);
+  assert.deepEqual((await agentState.read("anime-edit")).footage.candidates[0].imported, { shots: [4, 5], seconds: 4 });
 });
 
 // The whole path on a real server, never online: a stub yt-dlp (tests/fixtures/footage) serves a
@@ -1433,7 +1523,11 @@ test("an import answer says what a clip of 1.5 s or more says, in the clip's own
   const clip = (cutAt, duration, shot) => ({ id: `m${shot}.mp4`, src: `/api/media/m${shot}.mp4`, duration, width: 1920, height: 1080, credit: takeCredit(candidate), footage: { shot, start: cutAt - 0.1, end: cutAt + duration, cutAt } });
   const text = takeText(candidate, { media: [clip(4.9, 2.4, 2), clip(30, 1.2, 3)], failed: [], captions: { lang: "en", auto: false, lines: SAID_LINES } });
   assert.match(text, /^F1\.2 2\.4s 1920×1080 \/api\/media\/m2\.mp4 says "I will protect them all" 0\.3-2\.1 s$/m);
-  assert.match(text, /^F1\.3 1\.2s 1920×1080 \/api\/media\/m3\.mp4$/m);
+  // Every clip is one line with its layer-ready file and what it says, or why it says nothing (no second call to learn it).
+  assert.match(text, /^F1\.3 1\.2s 1920×1080 \/api\/media\/m3\.mp4 no line \(under 1\.5 s\)$/m);
+  assert.match(takeText(candidate, { media: [{ ...clip(4.9, 2.4, 2), hasAudio: false }], failed: [] }), /m2\.mp4 no sound$/m);
+  assert.match(takeText(candidate, { media: [clip(4.9, 2.4, 2)], failed: [], heard: { byId: {}, missing: null } }), /m2\.mp4 no speech heard$/m);
+  assert.match(takeText(candidate, { media: [clip(4.9, 2.4, 2)], failed: [] }), /m2\.mp4 speech not read$/m);
   assert.doesNotMatch(takeText(candidate, { media: [clip(4.9, 2.4, 2)], failed: [] }), /says/);
   assert.deepEqual(saysOf(SAID_LINES, 4.9, 1.4), []);
   assert.equal(saysText(saysOf(SAID_LINES, 0, 8)), 'says "All right, so here we are" 1.0-2.5 s, "I will protect them all" 5.2-7.0 s');

@@ -7,7 +7,7 @@ import { runYtDlp } from "../inspire.mjs";
 import { createWebCache } from "../web-cache.mjs";
 import { makeTempFolder, removeTempFolder } from "../temp-folders.mjs";
 import { downloadScanCopy, pickWindows, probeFootage } from "./scan.mjs";
-import { readScan, readScanSheet, scanFootage } from "./score.mjs";
+import { readScan, readScanSheet, rematchScan, scanFootage } from "./score.mjs";
 import { searchFootage } from "./search.mjs";
 import { takeFootage } from "./take.mjs";
 import { defaultLanguages, fetchCaptions } from "./words.mjs";
@@ -36,6 +36,7 @@ class NothingFound extends Error {
  * runtime (the JavaScript runtime yt-dlp needs; default the one inspire.mjs finds; tests pass one).
  * Returns {search(words, {count, signal}) → {words, tried?, candidates, dropped, cached},
  * scan(candidate, options), take(candidate, pieces, {projectId}), readScan(id),
+ * rematch(id, want) → a saved scan ranked again for other words (no download), or null,
  * readSheet(id) → the scan's sheet jpg or null, searchCommons(words),
  * captions(candidate, {signal}) → words.mjs fetchCaptions' answer, kept in <directory>/captions}.
  */
@@ -171,6 +172,7 @@ export function createFootageFinder(deps) {
     take,
     captions,
     readScan: (id) => (dataRoot ? readScan(dataRoot, id) : Promise.resolve(null)),
+    rematch: (id, want) => (dataRoot ? rematchScan(dataRoot, id, want, { embed }) : Promise.resolve(null)),
     readSheet: (id) => (dataRoot ? readScanSheet(dataRoot, id) : Promise.resolve(null)),
     searchCommons: async (words) => {
       if (!commons) throw new Error("Commons is not available here.");

@@ -237,9 +237,12 @@ function heardLines(candidate, shots, heard) {
   return out.filter(Boolean);
 }
 
-function candidateLabel(candidate, known = null) {
+/** Said where a video's download or scan is already in the data folder (found-shared): nothing is fetched again. */
+export const REUSED_LINE = "already on this computer: reused";
+
+function candidateLabel(candidate, known = null, reused = null) {
   const line = candidateLine({ ...candidate, title: short(oneLine(candidate.title), TITLE_SHOWN) }, candidate.code);
-  const status = candidate.imported ? "imported" : candidate.scan ? `scanned, ${candidate.scan.shots} shots${candidate.scan.logo ? `, ${burnedInto(candidate.scan.logo)}` : ""}` : "";
+  const status = [candidate.imported ? "imported" : candidate.scan ? `scanned, ${candidate.scan.shots} shots${candidate.scan.logo ? `, ${burnedInto(candidate.scan.logo)}` : ""}` : "", reused?.has(candidate.id) ? REUSED_LINE : ""].filter(Boolean).join(" · ");
   const note = candidate.note ? `${candidate.note.verdict}: ${short(candidate.note.why, 60)}` : "";
   const edit = someoneElses(candidate, known);
   return [line, edit ? `someone else's edit (${edit.why})` : "", status, note].filter(Boolean).join(" · ");
@@ -303,8 +306,17 @@ export function createFootageActions({ finder, waitMs = FOOTAGE_WAIT_MS, keepMs 
     // Someone else's edits are listed after the rest (and so scanned last), never hidden.
     known = await withStudies(known, found.candidates);
     const ranked = editsLast(found.candidates, known);
+    // Videos whose scan is already in the data folder (another project scanned them): this project
+    // lists them as scanned, so a scan call answers at once and nothing is downloaded again.
+    const onComputer = new Map();
+    for (const candidate of ranked) {
+      if (candidate.source === "commons" || !finder.readScan) continue;
+      const have = await finder.readScan(scanIdOf(candidate)).catch(() => null);
+      if (have?.version === SCAN_VERSION && Array.isArray(have.shots)) onComputer.set(candidate.id, { id: scanIdOf(candidate), shots: have.shots.length, at: have.scannedAt ?? null, ...(have.marks?.length ? { logo: markPlaces(have.marks) } : {}) });
+    }
     const update = (saved) => {
       const next = ranked.length ? addCandidates(saved, ranked) : structuredClone(saved ?? emptyFootage());
+      for (const entry of next.candidates) if (!entry.scan && onComputer.has(entry.id)) entry.scan = onComputer.get(entry.id);
       if (want !== null) next.want = want;
       if (said !== null) next.said = said;
       return next;
@@ -317,7 +329,7 @@ export function createFootageActions({ finder, waitMs = FOOTAGE_WAIT_MS, keepMs 
     const listed = editsLast(logoLast(after.order.map((code) => after.candidates.find((entry) => entry.code === code))), known);
     const lines = [
       `Found ${listed.length} for "${found.tried ?? found.words ?? words}"${found.cached ? " (from today's search)" : ""}${after.want ? `; want: "${after.want}"` : ""}:`,
-      ...listed.map((candidate) => candidateLabel(candidate, known)),
+      ...listed.map((candidate) => candidateLabel(candidate, known, new Set(onComputer.keys()))),
       droppedLine(found.dropped),
       scannedLine(listed, known) || "Scan one to see its best shots (it waits up to about 50 s).",
     ];
@@ -365,8 +377,11 @@ export function createFootageActions({ finder, waitMs = FOOTAGE_WAIT_MS, keepMs 
     const repeat = scanCall(candidate.code, { ...(input.want !== undefined ? { want } : {}), ...(input.said !== undefined ? { said } : {}), ...(plain ? {} : { from: input.from, to: input.to, ...(options.whole ? { whole: true } : {}) }) });
     // A scan saved before with the same words answers at once.
     let result = plain ? await finder.readScan(id).catch(() => null) : null;
-    // A scan of an older version, or of other words, is scanned again.
-    if (result && ((result.want ?? "") !== want || result.version !== SCAN_VERSION)) result = null;
+    // A scan of an older version is scanned again. One of other words is ranked again from its saved
+    // vectors when the finder can (no download); else it is scanned again.
+    if (result && result.version !== SCAN_VERSION) result = null;
+    else if (result && (result.want ?? "") !== want) result = await finder.rematch?.(id, want).catch(() => null) ?? null;
+    const reusedScan = Boolean(result);
     if (!result) {
       const key = `${id}\n${JSON.stringify(options)}`;
       let job = scans.get(key);
@@ -435,7 +450,7 @@ export function createFootageActions({ finder, waitMs = FOOTAGE_WAIT_MS, keepMs 
     const following = nextCandidate(saved, candidate.code, known);
     // After this scan: someone else's edit says so once; and when fewer than half of the last search is scanned, how many.
     const listed = (saved.order ?? []).map((code) => saved.candidates.find((entry) => entry.code === code)).filter(Boolean).map((entry) => entry.code === candidate.code ? { ...entry, scan: entry.scan ?? { id } } : entry);
-    return { text: withLead(personClips, [scanText(candidate, result, need, heard), elsewhereLine(candidate, known), scannedLine(listed, known)]),
+    return { text: withLead(personClips, [reusedScan ? `${candidate.code}: ${REUSED_LINE} (its scan is saved here, nothing downloaded).` : "", scanText(candidate, result, need, heard), elsewhereLine(candidate, known), scannedLine(listed, known)]),
       data: { code: candidate.code, id, shots: (result.shots ?? []).slice(0, FOOTAGE_SHOTS_SHOWN).map(({ n, start, end, motion, face, match, flags, says, said: hit, hasSubs }) => ({ n, start, end, motion, face, match, flags, ...(says ? { says } : {}), ...(hit ? { said: true } : {}), ...(hasSubs ? { hasSubs: true } : {}) })), matchShown: Boolean(result.matchShown),
         ...(result.marks?.length ? { logo: markPlaces(result.marks), marks: result.marks.map(({ where, box }) => ({ where, box })) } : {}), ...(result.drawn ? { drawn: true } : {}), ...(song ? { song } : {}),
         ...(elsewhere ? { edit: true, ...(importNext ? { import: importNext } : {}) } : {}),

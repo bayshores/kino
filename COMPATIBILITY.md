@@ -879,6 +879,14 @@ How to read it:
   `backend/footage-finder.test.mjs` (stub yt-dlp: search, scan, import, add_layer, a final frame and
   its credit line), `skills/kino/references/footage.md`. Gaps: not
   run live in CI; the image model does not know character names.
+- **Found video shared by all projects**: Stub-verified. A scan saved by video id answers any project at
+  once ("already on this computer: reused", other `want` words re-rank its saved vectors, no download),
+  `clip:yt-<id>` joins it under a new F code, and cut clips already in the media library import with no
+  download. Evidence: `backend/footage-finder.test.mjs` (reuse). Gap: a deleted clip downloads again.
+- **Imports queue**: Stub-verified. Three imports at once run one after another; each answers when done
+  (waits up to 60 s, a guess, else says queued and to repeat the call). Evidence: `backend/footage-finder.test.mjs` (queue).
+- **One line per imported clip**: Stub-verified. Each line gives the `clip:` reference and what it says or
+  heard, or why none. Evidence: `backend/footage-finder.test.mjs` (takeText).
 - **Someone else's edit flagged**: Stub-verified, not on a live project. A found video that inspire listed,
   that is a saved reference or whose study shows a patch outside a corner is flagged, listed last and named
   in one line with two choices (study it, or pick another), still usable (its scan's next call moves on,
