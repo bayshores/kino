@@ -10,11 +10,11 @@ Contents: The move op · The moves · Moves example · Trim paths and dashes
 
 - `move {name, at, dur?, id?, seed?, reduced?, look?, brand?, …its fields}`. `at` takes every
   time form (`1.2`, `"cue:drop"`, `"after:title.in"`). Layer fields take top-level layers or
-  groups (a layer alone in a group, as frame makes, means the group).
-- `library {topic:"moves", name?}` lists the moves, or one's fields, defaults and example.
+  groups (a layer alone in a group means the group).
+- `library {topic:"moves", name?}` lists the moves, or one's fields and example.
 - The receipt says when it plays, the layers it made (`<id>-<part>`) and which of yours it
   animates. Its id is the move's name (`-2` for a second).
-- The same id remakes it; `{name, id, remove:true}` takes it away. Never edit its parts.
+- The same id, or the same layers and time sent again, replaces it; `{name, id, remove:true}` removes it. Never edit its parts.
 - `seed` picks other choices. `reduced:true`: calm fades, small moves.
 - No move runs past the scene's end: `retime` it or start earlier.
 
@@ -101,7 +101,7 @@ Launch-video type (words arrive faint, then darken):
 - **count-up**: an accent number counts to `value` ("98%", "$1.2M") in steady-width digits,
   a `label` writes on under it.
 
-Moves use the brand's fonts (else the project's); a `scrim` only where words could fail contrast.
+Moves use the brand's fonts (else the project's); a `scrim` only where words could fail.
 
 ## Moves example
 

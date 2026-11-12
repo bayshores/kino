@@ -10,6 +10,7 @@ import {
   effectInitialValues,
   effectMediaSources,
   normalizeEffectParameters,
+  unchangedAtOneWords,
 } from "./catalog.js";
 import { IDENTITY_CURVE } from "./colorMath.js";
 import { createEffectAnimation, effectsAt } from "./animation.js";
@@ -103,6 +104,19 @@ test("effect parameter input rejects unknown keys, wrong types, non-finite value
   assert.throws(() => normalizeEffectParameters("displacement", { direction: "diagonal" }), /horizontal, vertical, both/);
   assert.throws(() => normalizeEffectParameters("ripple", { frequency: Infinity }), /must be a number/);
   assert.deepEqual(normalizeEffectParameters("bulge", { amount: 0.25 }, { partial: true }), { amount: 0.25 });
+});
+
+test("settings where 1 is unchanged take a clear relative text, say so when refused, and plain numbers stay as given", () => {
+  const partial = { partial: true };
+  assert.deepEqual(normalizeEffectParameters("hue-saturation", { saturation: "-0.7" }, partial), { saturation: 0.3 });
+  assert.deepEqual(normalizeEffectParameters("hue-saturation", { saturation: "+0.5" }, partial), { saturation: 1.5 });
+  assert.deepEqual(normalizeEffectParameters("color-grade", { exposure: "+0.5 stop" }, partial), { stops: 0.5 });
+  assert.deepEqual(normalizeEffectParameters("color-grade", { exposure: 0.5 }, partial), { exposure: 0.5 });
+  assert.throws(() => normalizeEffectParameters("hue-saturation", { saturation: -0.7 }), /from 0 to 4 where 1 is unchanged/);
+  assert.throws(() => normalizeEffectParameters("hue-saturation", { saturation: "much" }), /where 1 is unchanged/);
+  assert.match(effectDocumentation({ keys: ["color-grade"] }), /exposure [^;]*\(1 = unchanged\)/);
+  assert.equal(unchangedAtOneWords("exposure", 0.5), "half as bright");
+  assert.equal(unchangedAtOneWords("saturation", 0), "gray, no color");
 });
 
 test("generated effect documentation reflects every registered effect and its parameter limits", () => {

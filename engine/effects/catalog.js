@@ -170,6 +170,9 @@ const definitions = [
       color: color("Color", "#FFFFFF"),
       width: number("Width", 3, 0.5, 12, 0.5, "px"),
       threshold: number("Threshold", 0.05, 0, 1, 0.01),
+      // 1 lifts the dark end of the picture before the lines are found, so dark clips get lines
+      // (edgeLines.js step 1b). Stored with 1 on a new effect only; effects saved before it have 0.
+      adapt: number("Adapt", 1, 0, 1, 0.01, "", { optional: true, created: true }),
       background: { type: "enum", label: "Background", default: "keep", options: EDGE_LINES_BACKGROUNDS.map((value) => [value, value[0].toUpperCase() + value.slice(1)]) },
       smooth: number("Smooth", 1, 0, 8, 0.1, "px"),
       dim: number("Dim", 0.7, 0, 1, 0.01),
@@ -305,9 +308,48 @@ export function effectInitialValues(key) {
     .filter(([, field]) => Object.hasOwn(field, "initial")).map(([name, field]) => [name, field.initial]));
 }
 
-export function normalizeEffectParameters(key, values, { partial = false, path = "parameters" } = {}) {
+// A multiplier where 1 leaves the picture as it is (exposure gain, brightness, contrast,
+// saturation: 0 to 4, default 1). Directors passed 0.5 meaning "half a stop up" and -0.7 meaning
+// "less saturated" (ceiling studies a and c, FRICTION), so these fields also take a signed text.
+export const isUnchangedAtOne = (field) => field?.type === "number" && field.default === 1 && field.min === 0 && field.max === 4;
+const SIGNED_AMOUNT = /^\s*([+-]\d+(?:\.\d+)?)\s*(stops?)?\s*$/i;
+
+/**
+ * A clear relative form of a "1 = unchanged" setting, as the setting it means, or null:
+ * "-0.7" is 1 - 0.7 = 0.3; "+0.5" is 1.5; "+0.5 stop" on color-grade exposure is stops 0.5, and on
+ * another such setting (brightness) it is 2 to the power 0.5. Stored values stay numbers.
+ */
+export function relativeSetting(key, name, value) {
+  const field = effectDefinition(key).parameters[name];
+  const match = typeof value === "string" && isUnchangedAtOne(field) ? SIGNED_AMOUNT.exec(value) : null;
+  if (!match) return null;
+  const amount = Number(match[1]);
+  const round = (number) => Math.round(number * 1e4) / 1e4;
+  if (!match[2]) return { name, value: round(1 + amount) };
+  if (key === "color-grade" && name === "exposure") return { name: "stops", value: amount };
+  return { name, value: round(2 ** amount) };
+}
+
+// What a value of such a setting does, in plain words (the edit receipt says it).
+export function unchangedAtOneWords(name, value) {
+  if (value === 1) return "unchanged";
+  const share = (below, above) => (value < 1 ? below : above);
+  const times = value < 1 ? (value === 0.5 ? "half" : `${Math.round(value * 100)}%`) : `${Math.round(value * 100) / 100}x`;
+  if (/exposure|brightness|gain/i.test(name)) return value === 0 ? "black" : `${times} as bright`;
+  if (/contrast/i.test(name)) return share(`flatter (${times} of the contrast)`, `punchier (${times} the contrast)`);
+  if (/saturation/i.test(name)) return value === 0 ? "gray, no color" : share(`less color (${times} of it)`, `more color (${times} of it)`);
+  return share(`weaker (${times} of unchanged)`, `stronger (${times} of unchanged)`);
+}
+
+export function normalizeEffectParameters(key, given, { partial = false, path = "parameters" } = {}) {
   const { parameters } = effectDefinition(key);
-  if (!values || typeof values !== "object" || Array.isArray(values)) throw new TypeError(`${path} must be an object`);
+  if (!given || typeof given !== "object" || Array.isArray(given)) throw new TypeError(`${path} must be an object`);
+  // A signed text such as "-0.7" or "+0.5 stop" on a "1 = unchanged" setting becomes its number.
+  const values = {};
+  for (const [name, value] of Object.entries(given)) {
+    const relative = Object.hasOwn(parameters, name) ? relativeSetting(key, name, value) : null;
+    if (relative) values[relative.name] = relative.value; else values[name] = value;
+  }
   for (const name of Object.keys(values)) {
     if (!Object.hasOwn(parameters, name)) throw new TypeError(`${path}.${name} is not a parameter of ${key}`);
   }
@@ -320,7 +362,7 @@ export function normalizeEffectParameters(key, values, { partial = false, path =
       output[name] = value;
     } else if (field.type === "number") {
       if (typeof value !== "number" || !Number.isFinite(value) || value < field.min || value > field.max || (field.integer && !Number.isInteger(value)))
-        throw new RangeError(`${at} must be ${field.integer ? "an integer" : "a number"} from ${field.min} to ${field.max}`);
+        throw new RangeError(`${at} must be ${field.integer ? "an integer" : "a number"} from ${field.min} to ${field.max}${isUnchangedAtOne(field) ? ` where 1 is unchanged (write "+0.5" or "-0.3" as text for more or less than unchanged${name === "exposure" ? `, "+0.5 stop" for half a stop brighter` : ""})` : ""}`);
       output[name] = value;
     } else if (field.type === "boolean") {
       if (typeof value !== "boolean") throw new TypeError(`${at} must be true or false`);
@@ -366,7 +408,7 @@ export function effectMediaSources(animation) {
 
 // What values a parameter takes, after its type: " 0..1500 integer px/s", " area/bottom/…", and so on.
 export function fieldRange(field) {
-  if (field.type === "number") return ` ${field.min}..${field.max}${field.integer ? " integer" : ""}${field.unit ? ` ${field.unit}` : ""}${field.auto ? " or \"auto\"" : ""}`;
+  if (field.type === "number") return ` ${field.min}..${field.max}${field.integer ? " integer" : ""}${field.unit ? ` ${field.unit}` : ""}${field.auto ? " or \"auto\"" : ""}${isUnchangedAtOne(field) ? " (1 = unchanged)" : ""}`;
   if (field.type === "color" && field.auto) return " hex or \"auto\"";
   if (field.type === "enum") return ` ${field.options.map(([value]) => value).join("/")}`;
   if (field.type === "curve") return ` [[in,out],…] 2..${MAX_CURVE_POINTS} points 0..1`;

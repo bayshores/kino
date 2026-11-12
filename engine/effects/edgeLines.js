@@ -26,7 +26,8 @@
 // 0.06 (after-edge-lines-skeptic) picked width 3, threshold 0.05: brows, eyes, mouth, ears and
 // scarf folds as single lines at about the reference's weight, little speckle. dim 0.7 sits
 // between the study's -3 stop grade (0.875) and a picture that still reads (a guess); smooth 1
-// and the ramp are guesses.
+// and the ramp are guesses. Color defaults to white: the one color that reads on any dark picture
+// (the dim only darkens the picture under it); a color the agent gives is kept as given.
 import { filterEffect } from "./svg.js";
 import { numberParameter } from "./periodicDisplacement.js";
 import { hexColor } from "./glow.js";
@@ -40,7 +41,7 @@ const fmt = (value) => {
 
 export function renderEdgeLines(frame) {
   const width = numberParameter(frame, "width", 3, 0.5, 12);
-  const threshold = numberParameter(frame, "threshold", 0.05, 0, 1);
+  const given = numberParameter(frame, "threshold", 0.05, 0, 1);
   const smooth = numberParameter(frame, "smooth", 1, 0, 8);
   const dim = numberParameter(frame, "dim", 0.7, 0, 1);
   const background = EDGE_LINES_BACKGROUNDS.includes(frame?.parameters?.background) ? frame.parameters.background : "keep";
@@ -48,9 +49,23 @@ export function renderEdgeLines(frame) {
   // 1. Gray picture with whole alpha.
   const steps = [`<feColorMatrix in="SourceGraphic" type="matrix" values="0.2126 0.7152 0.0722 0 0 0.2126 0.7152 0.0722 0 0 0.2126 0.7152 0.0722 0 0 0 0 0 0 1" result="edgeGray"/>`];
   let gray = "edgeGray";
+  // 1b. Adapt: the grays are lifted by a power below 1 (1 - 0.6 * adapt, so 0.4 at adapt 1), which
+  // spreads the dark end (slope about 4 at 2% gray, 0.6 at 50%), and the threshold falls to 30% of
+  // what was given (1 - 0.7 * adapt): a step from 2% to 5% gray (a dark clip, or a picture a grade
+  // darkened before this effect) then draws, so `threshold` reads the picture's own contrast and
+  // not its brightness. The ceiling studies drew near-black lines on dark clips because the plain
+  // difference of two dark grays is under the threshold. 0.6 and 0.7 are guesses, sized so that
+  // step draws and a one gray-level step (noise) does not; adapt 0 (the value of effects saved
+  // before it existed) is the plain difference at the given threshold.
+  const adapt = numberParameter(frame, "adapt", 0, 0, 1);
+  const threshold = given * (1 - 0.7 * adapt);
+  if (adapt > 0) {
+    steps.push(`<feComponentTransfer in="edgeGray" result="edgeLift">${["R", "G", "B"].map((channel) => `<feFunc${channel} type="gamma" amplitude="1" exponent="${fmt(1 - 0.6 * adapt)}" offset="0"/>`).join("")}</feComponentTransfer>`);
+    gray = "edgeLift";
+  }
   // 2. Smooth.
   if (smooth > 0) {
-    steps.push(`<feGaussianBlur in="edgeGray" stdDeviation="${fmt(smooth)}" result="edgeSmooth"/>`);
+    steps.push(`<feGaussianBlur in="${gray}" stdDeviation="${fmt(smooth)}" result="edgeSmooth"/>`);
     gray = "edgeSmooth";
   }
   // 3. Difference against copies shifted right and down, added.

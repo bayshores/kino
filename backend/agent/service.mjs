@@ -440,6 +440,7 @@ function propertyPresetHelp() {
   return [
     `Chosen values: animation {kind:"custom" ("in"/"out" for an entrance/exit), name, start, duration, from, to}; from left out starts where the layer is drawn at its start. to for each property preset: ${values.join(", ")}.`,
     `Example: ${JSON.stringify(example)}`,
+    `Effect settings 0..4 (exposure, saturation): 1 = unchanged, 0.5 half as much; "+0.5 stop" or "-0.7" as text is relative.`,
   ].join("\n");
 }
 

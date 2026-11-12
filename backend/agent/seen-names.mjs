@@ -23,7 +23,14 @@ const SEEN_AS = {
   "light rays": ["light-rays"], "god rays": ["light-rays"], rays: ["light-rays"], beams: ["light-rays"],
   "lens flare": ["lens-flare"], flare: ["lens-flare"], "light leak": ["light-leaks", "light-leak"],
   "color grade": ["color_filter", "color-grade", "color-wheels"], grade: ["color_filter", "color-grade", "color-wheels"],
-  grading: ["color_filter", "color-grade"], tint: ["white-balance", "color_filter", "hue-saturation"],
+  grading: ["color_filter", "color-grade"],
+  // Plain words for the settings of color-grade and hue-saturation (the ceiling studies guessed
+  // "color-correct" and "brightness" as effect names).
+  "color correct": ["color-grade", "color-wheels", "hue-saturation"], "color correction": ["color-grade", "color-wheels", "hue-saturation"],
+  correction: ["color-grade", "color-wheels"], brightness: ["color-grade", "color-wheels"], brighten: ["color-grade", "overexpose"], darken: ["color-grade", "vignette"],
+  contrast: ["color-grade", "curves"], saturation: ["hue-saturation", "color-grade"], saturate: ["hue-saturation"], desaturate: ["hue-saturation"],
+  levels: ["curves", "color-grade"], gamma: ["color-wheels", "curves"],
+  tint: ["white-balance", "color_filter", "hue-saturation"],
   "green tint": ["white-balance", "color_filter", "color-wheels"], green: ["white-balance", "color-wheels", "hue-saturation"], desaturated: ["hue-saturation", "keep-color"], "black and white": ["hue-saturation", "keep-color"],
   repeat: ["beat-repeat"], stutter: ["beat-repeat"], "replay on beats": ["beat-repeat"], "repeat on beats": ["beat-repeat"], echo: ["beat-repeat", "inward-echoes"],
   glitch: ["glitch", "smear", "rgb-split-hit", "rgb-shift"], "glitch transition": ["smear", "glitch", "shatter"],

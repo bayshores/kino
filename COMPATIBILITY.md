@@ -676,6 +676,14 @@ How to read it:
   `cut_out` `output:"outline"` makes a path layer morphing through the subject's traced edge (no
   line where the frame cuts the subject). Evidence: `engine/effects/light.test.js`,
   `backend/cutout-matte.test.mjs`, `backend/agent-cutout.test.mjs`. Gap: largest shape only (no holes).
+- **Edge lines adapt**: Test-verified. A new `edge-lines` lifts the dark end and lowers its threshold to 30%, so a
+  near-black step draws; effects saved before have no `adapt` and draw as they did. Evidence: `engine/effects/light.test.js`. Gap: 0.6 and 0.7 are guesses.
+- **Move resent replaces**: Test-verified. The same move on the same layers at the same time sent again replaces the first
+  (receipt says "replaced"), another time adds `-2`; the receipt names the layers a move made. Evidence: `backend/agent-moves.test.mjs`.
+- **Settings where 1 is unchanged**: Test-verified. `"+0.5 stop"` or `"-0.7"` as text is read for exposure and saturation, the range
+  error and `library` say "1 = unchanged", and the receipt says what a value did ("half as bright"). Evidence: `engine/effects/catalog.test.js`,
+  `backend/agent-common-mistakes.test.mjs`. Gap: plain numbers are never read as stops.
+- **Effect names from plain words**: Test-verified. "color-correct" and "brightness" lead to color-grade in the refusal. Evidence: `backend/agent-common-mistakes.test.mjs`.
 - **Cost**: 26 to 201 ms a 1080p MP4 frame.
 - **Lens flare streak, ghosts, softness**: Verified. One soft full-width line, no ghosts; ghosts 0
   turns reflections off; the core is the flare color, white only above strength 1. Evidence: `engine/effects/light.test.js`, grade-bloom-flash study re-run (one call for 5 ops).

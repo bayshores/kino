@@ -415,7 +415,14 @@ const TRANSLATE = {
     if (operation.id !== undefined) {
       if (typeof operation.id !== "string" || !NEW_ID.test(operation.id)) throw problem("id must be 1 to 48 letters, digits, dashes or underscores.");
     } else {
-      for (let number = 1; number < 500 && operation.id === undefined; number += 1) {
+      // The same move sent again (same name, same layers, same time) replaces the earlier one
+      // instead of stacking a second copy (ceiling study a, FRICTION 6: overexpose-2); a
+      // different time or layer adds another.
+      const repeated = sameMoveId(document, definition, operation);
+      if (repeated !== undefined) {
+        operation.id = repeated;
+        operation.replaces = true;
+      } else for (let number = 1; number < 500 && operation.id === undefined; number += 1) {
         const id = number === 1 ? definition.name : `${definition.name}-${number}`;
         if (!storedIn(id) && !taken.has(id) && !["scene", "layer", "animation"].some((kind) => resolver.exists(kind, id))) operation.id = id;
       }
@@ -699,6 +706,26 @@ export function projectFaces(document) {
   const weights = [...best.weights.entries()];
   const face = (fontWeight) => ({ fontFamily: best.fontFamily, fontSource: best.fontSource, fontWeight, fontStyle: "normal" });
   return { display: face(Math.max(...weights.map(([weight]) => weight))), body: face(weights.sort((a, b) => b[1] - a[1])[0][0]) };
+}
+
+// The id of a saved move that this op would only repeat: the same move, on the same layers
+// (every layer field the op gives), at the same time. Undefined when there is none.
+function sameMoveId(document, definition, operation) {
+  if (operation.remove !== undefined) return undefined;
+  const layerFields = Object.entries(definition.fields).filter(([, field]) => ["layer", "layers", "target", "stops"].includes(field.kind)).map(([key]) => moveFieldKey(key));
+  // A move that names no layer has no identity beyond its time: it is never taken for a repeat.
+  if (!layerFields.length) return undefined;
+  const key = (value) => JSON.stringify(value ?? null);
+  for (const scene of document.scenes) for (const entry of scene.moves ?? []) {
+    if ((MOVES[entry.name]?.name ?? entry.name) !== definition.name) continue;
+    if (key(entry.settings?.at) !== key(operation.at)) continue;
+    const same = layerFields.every((field) => {
+      const settingsKey = Object.keys(definition.fields).find((name) => moveFieldKey(name) === field);
+      return key(operation[field]) === key(entry.settings?.[settingsKey]);
+    });
+    if (same) return entry.id;
+  }
+  return undefined;
 }
 
 /** The move's own fields in an op ({layer, layers, from, to, text, …}), under the move's names. */
@@ -1289,7 +1316,11 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     // Only the cut-outs that were made (an optional one is skipped where no engine or subject is found).
     const cutsMade = (operation.cutoutMade ?? []).filter((cut) => scene.layers.some((layer) => layer.id === cut.id)).map((cut) => cut.text);
     const cutNote = cutsMade.length ? `; made the subject ${cutsMade.join(", ")}` : "";
-    work.notes.push(`move ${operation.id}${stored ? " (made again)" : ""}: ${made.start}–${made.end} s; ${made.added.length} new layer${made.added.length === 1 ? "" : "s"}${touched.length ? `, animates ${touched.join(", ")}` : ""}${cutNote}; ${made.tags.join(", ")}${made.notes.length ? `; ${made.notes.join("; ")}` : ""}${cueNote}`);
+    // Which layers the move made (up to 6 by name), so the receipt need not be read from the outline.
+    const madeIds = made.added.map((entry) => entry.layer.id);
+    const madeNames = madeIds.length ? ` (${madeIds.slice(0, 6).join(", ")}${madeIds.length > 6 ? `, +${madeIds.length - 6} more` : ""})` : "";
+    const again = stored ? (operation.replaces ? " (replaced: the same move on the same layers at the same time)" : " (made again)") : "";
+    work.notes.push(`move ${operation.id}${again}: ${made.start}–${made.end} s; ${made.added.length} new layer${made.added.length === 1 ? "" : "s"}${madeNames}${touched.length ? `, animates ${touched.join(", ")}` : ""}${cutNote}; ${made.tags.join(", ")}${made.notes.length ? `; ${made.notes.join("; ")}` : ""}${cueNote}`);
   }
 
   // ---- compose ------------------------------------------------------------------------------

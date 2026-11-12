@@ -15,7 +15,8 @@
 import { PRESETS, presetAnimation } from "../../engine/animation.js";
 import { PRESET_DEFINITIONS, PRESET_MADE_FIELDS, resolvePreset } from "../../engine/presetCatalog.js";
 import { createLayer } from "../../engine/model.js";
-import { EFFECTS } from "../../engine/effects/catalog.js";
+import { EFFECTS, isUnchangedAtOne, relativeSetting, unchangedAtOneWords } from "../../engine/effects/catalog.js";
+import { seenNames } from "./seen-names.mjs";
 import { EFFECT_ANIMATION_FIELDS } from "../../engine/effects/animation.js";
 import { COUNTER_FORBIDDEN_FIELDS } from "../../engine/counter.js";
 import { TEXT_EFFECT_FIELDS } from "../../engine/textChange.js";
@@ -795,9 +796,32 @@ function fixEffectName(word, fixes, field, layer) {
     return key;
   }
   const choice = EFFECT_CHOICES[String(word).trim().toLowerCase().replace(/[\s_-]+/g, "")];
-  const suggestions = choice?.suggestions ?? closest(String(word), EFFECT_KEYS);
-  throw mistake(choice?.message ?? `unknown effect ${quote(word)}. Did you mean ${suggestions.join(", ")}? library {topic:"effects"} lists them all.`,
+  // The effects the plain words stand for (SEEN_AS, the map library search uses) come first,
+  // then the spelling-closest names: "color-correct" and "brightness" lead to color-grade.
+  const meant = seenNames(String(word), { limit: 8 }).map((line) => line.split(" ")[0]).filter((name) => EFFECT_KEYS.includes(name));
+  const suggestions = choice?.suggestions ?? [...new Set([...meant, ...closest(String(word), EFFECT_KEYS)])].slice(0, 3);
+  const first = EFFECTS.find((effect) => effect.key === suggestions[0]);
+  // The settings of the first suggestion where 1 is unchanged, so 0.5 is not sent as "half a stop".
+  const ones = first && !choice ? Object.entries(first.parameters).filter(([, field]) => isUnchangedAtOne(field)).map(([name]) => name) : [];
+  const fields = ones.length ? ` In ${first.key}, ${ones.join(", ")}: 1 = unchanged.` : "";
+  throw mistake(choice?.message ?? `unknown effect ${quote(word)}. Did you mean ${suggestions.join(", ")}?${fields}${fields ? "" : ' library {topic:"effects"} lists them all.'}`,
     { op: "add_animation", layer, effect: suggestions[0], ...(choice?.parameters ? { parameters: choice.parameters } : {}) }, suggestions);
+}
+
+// The receipt says in plain words what a "1 = unchanged" setting did (exposure 0.5: half as
+// bright), and what a signed text such as "+0.5 stop" was taken to mean (ceiling studies a and c:
+// 0.5 was meant as half a stop up and darkened the shot to near black).
+function noteUnchangedValues(effect, values, resolver) {
+  const definition = EFFECTS.find((entry) => entry.key === effect);
+  if (!definition || !isRecord(values) || !resolver?.notes) return;
+  for (const [name, value] of Object.entries(values)) {
+    if (!isUnchangedAtOne(definition.parameters[name])) continue;
+    const relative = relativeSetting(effect, name, value);
+    if (relative?.name === "stops") resolver.notes.push(`${effect} ${name} ${quote(value)}: stops ${relative.value}, ${Math.abs(relative.value)} stop${Math.abs(relative.value) === 1 ? "" : "s"} ${relative.value < 0 ? "darker" : "brighter"} (0 = unchanged)`);
+    else if (relative) resolver.notes.push(`${effect} ${name} ${quote(value)}: ${relative.value}, ${unchangedAtOneWords(name, relative.value)} (1 = unchanged)`);
+    else if (typeof value === "number" && value !== 1)
+      resolver.notes.push(`${effect} ${name} ${value}: ${unchangedAtOneWords(name, value)} (1 = unchanged${name === "exposure" ? `; for half a stop brighter write "+0.5 stop"` : ""})`);
+  }
 }
 
 // keyframes:[{time, x, ...}] with times in scene seconds: a custom animation from the first
@@ -865,6 +889,9 @@ function fixAddAnimation(operation, fixes, { layerRef, resolver }) {
   }
   if (isRecord(operation.animation) && typeof operation.animation.effect === "string")
     operation.animation = { ...operation.animation, effect: fixEffectName(operation.animation.effect, fixes, "animation.effect", layer) };
+  noteUnchangedValues(typeof operation.effect === "string" ? operation.effect : typeof operation.preset === "string" && operation.preset.startsWith("effect:") ? operation.preset.slice("effect:".length) : null,
+    operation.parameters, resolver);
+  noteUnchangedValues(isRecord(operation.animation) ? operation.animation.effect : null, operation.animation?.to, resolver);
   if (typeof operation.mode === "string" && MODE_WORDS[operation.mode.toLowerCase()] && operation.mode !== MODE_WORDS[operation.mode.toLowerCase()]) {
     fixes.push(`mode ${quote(operation.mode)} → ${MODE_WORDS[operation.mode.toLowerCase()]}`);
     operation.mode = MODE_WORDS[operation.mode.toLowerCase()];

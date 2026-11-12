@@ -8,6 +8,7 @@ import { join } from "node:path";
 import test, { after, before } from "node:test";
 import { createCanvas, loadImage } from "@napi-rs/canvas";
 import { createChromiumRasterizer } from "../../backend/chromium-raster.mjs";
+import { createEffectAnimation } from "./animation.js";
 import { effectDefaults } from "./catalog.js";
 import { glowRadii, glowWeights, renderGlow, thresholdTable } from "./glow.js";
 import { MAX_RAY_COPIES_PER_STAGE, MAX_RAY_STAGES, rayFade, rayStages, renderLightRays, sceneBoxInLayer } from "./lightRays.js";
@@ -202,6 +203,19 @@ test("edge lines: a line on the contour of a gray square, nothing on its flat pa
   // A video's rectangle is not a contour: a bright picture gets no line along its top or left edge.
   const bright = await lines({}, `<rect width="${size}" height="${size}" fill="#C0C0C0"/>`, "video");
   for (const [x, y] of [[60, 0], [60, 1], [0, 60], [119, 60], [60, 119]]) assert.equal(bright.pixel(x, y)[3], 0, `no line on the picture's border at ${x},${y}`);
+});
+
+test("edge lines adapt: a step between two dark grays gets a line on a new effect, none with adapt 0 (as saved before)", async () => {
+  const size = 120;
+  const dark = `<rect width="${size}" height="${size}" fill="#050505"/>` + SQUARE("#0C0C0C");
+  const lines = (parameters) => draw(renderEdgeLines, { ...effectDefaults("edge-lines"), color: "#00FF00", background: "transparent", ...parameters }, { width: size, height: size, content: dark });
+  const edge = (picture) => Math.max(...[48, 49, 50, 51].map((x) => picture.pixel(x, 60)[3]));
+  assert.equal(edge(await lines({})), 0, "an old effect (no adapt) finds nothing in a step this dark");
+  assert.equal(edge(await lines({ adapt: 0 })), 0);
+  assert.ok(edge(await lines({ adapt: 1 })) > 100, "adapt 1 lifts the dark end so the same step draws");
+  const created = createEffectAnimation("edge-lines", createLayer("rectangle", { id: "box" }), 0, createScene({ id: "s", width: 200, height: 200, duration: 1 }), "edge");
+  assert.equal(created.to.adapt, 1, "a new edge-lines effect starts with adapt on");
+  assert.equal(effectDefaults("edge-lines").adapt, undefined, "an effect saved before it has no adapt");
 });
 
 test("light rays: the copy plan, the fade along a streak and the scene box", () => {
