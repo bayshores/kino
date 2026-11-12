@@ -256,13 +256,17 @@ test("kino checks the shots against the video, the files and the fonts: overlap,
   assertRefused(await editBoard("board-checks", [motion(0, 5)]), "overlap", "shot 1 ends at 5 s, after the video ends (4.42 s).");
   assertRefused(await editBoard("board-checks", [footage(0, 4.417, 0, 30, { crop: [30, 12, 40, 76] })]), "bad_shot",
     "shot 1 crop [30, 12, 40, 76] is 0.94 wide per 1 tall on the source; the video is 1080×1920 (0.56): with h 76, w is 24 (or crop \"whole\" when the source is shown whole).");
-  // A shot that runs past its file: the refusal names both one-field fixes with their numbers, and the
-  // retry's fix is the agent's own shots with the speed that fills the shot (the cuts stay).
+  // A shot that runs past its file: the refusal names the fixes with their numbers, and the retry's
+  // fix is the agent's own shots with the speed that fills the shot (the cuts stay). The last shot
+  // gets no shorter dur (the board takes no gap at the end).
   const past = await editBoard("board-checks", [motion(0, 2.317), footage(2.317, 2.1, 3.5, 40)]);
   assert.equal(past.data.boardError, "bad_shot", past.text);
-  assert.match(past.data.reason, /shot 2 needs 2\.1 s of sintel-village-dragon\.mp4 from 3\.5 s, but the file ends at 4\.42 s\. Send speed 0\.43 \(the clip plays slower and fills the 2\.1 s shot\) or dur 0\.91 \(a shorter shot, ending 1\.19 s sooner\)\.$/);
+  assert.match(past.data.reason, /shot 2 needs 2\.1 s of sintel-village-dragon\.mp4 from 3\.5 s, but the file ends at 4\.42 s\. Send speed 0\.43 \(the clip plays slower and fills the 2\.1 s shot\), or in 2\.31 \(the same 2\.1 s, from earlier in the file\)\.$/);
   assert.deepEqual(past.data.example.shots.map((shot) => shot.speed), [undefined, 0.43]);
   assert.match(JSON.parse(past.text).next, /^edit \{"retry":"E\d+","fix":\{"0":\{"op":"board".*"speed":0\.43\}/s);
+  // A shot before another: a shorter dur names where the next shot starts and how much longer it runs.
+  const early = await editBoard("board-checks", [footage(0, 2.317, 3.5, 40), motion(2.317, 2.1)]);
+  assert.match(early.data.reason, /shot 1 needs 2\.32 s .* Send speed 0\.39 \(.*\), or in 2\.09 \(.*\), or dur 0\.91 with shot 2 starting at 0\.91 s and 1\.41 s longer\.$/);
   // Too long text and a font kino lacks: one refusal names both.
   assertRefused(await editBoard("board-checks", [motion(0, 4.417, { text: { text: "t".repeat(205), family: "Bangers" } })]), "bad_shot",
     'shot 1 text.text is 205 characters, limit 200. Also: shot 1 text family "Bangers" is not a font kino has (library {topic:"fonts", search:"Bangers"}).');

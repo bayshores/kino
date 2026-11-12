@@ -285,16 +285,19 @@ function seenFault(rest) {
   const text = String(rest ?? "").trim();
   const head = /^(\S+)\s*(.*)$/s.exec(text);
   if (!head) return "nothing follows seen: send the reference id, @<seconds>, the kinds, a colon and the words";
-  const after = /^@(\d+(?:\.\d+)?)\s*s?\s*[,;]?\s*(.*)$/s.exec(head[2]);
+  const after = SEEN_TIME.exec(head[2]);
   if (!after) return `"${head[2].slice(0, 20)}" is not @<seconds>: the reference id ${head[1]} is followed by @ and the second of the moment, such as @1.8`;
   const colon = after[2].indexOf(":");
   if (colon < 0) return `no ":" after the kinds: write the kinds, a colon, then the words, such as "overlay, made: green outline"`;
   const kinds = after[2].slice(0, colon);
-  const odd = /[^a-z ,+&/]/i.exec(kinds);
+  const odd = /[^a-z ,;+&/]/i.exec(kinds);
   if (odd) return `"${odd[0]}" at ${odd.index + 1} in the kinds "${kinds.trim().slice(0, 30)}": kinds are words separated by commas or spaces`;
-  if (!kinds.trim()) return `no kinds before the ":": ${ONSCREEN_KIND_LIST}`;
-  return `no words after the ":": write what you see`;
+  if (!/[a-z]/i.test(kinds)) return `no kinds before the ":": ${ONSCREEN_KIND_LIST}`;
+  if (!after[2].slice(colon + 1).trim()) return `no words after the ":": write what you see`;
+  return `write it as seen ${head[1]} @1.8 overlay, made: green outline`;
 }
+// The time of a seen line and what follows it: "@1.8 overlay", "@1.8s overlay", "@1.8, overlay", "@1.8,overlay".
+const SEEN_TIME = /^@(\d+(?:\.\d+)?)s?(?:\s*[,;]\s*|\s+)(.*)$/is;
 const ONSCREEN_KIND_LIST = "type, overlay, composite, color, made, frame, spoken, plain";
 // The check an unchecked revision needs: fix:"auto", unless the last fix:"auto" applied nothing
 // (a plain check then says itself when an auto fix turns up again).
@@ -3028,7 +3031,7 @@ export function createAgentService(deps) {
       };
       if (input.dry_run) {
         const finish = await finishCall(projectId);
-        return { receipt: true, project: projectId, ...(hideCall ? { nextCall: hideCall } : {}), data: { ...receipt, rev: record.revision, turn: finish.turn, inbox: finish.inbox } };
+        return { receipt: true, project: projectId, data: { ...receipt, rev: record.revision, turn: finish.turn, inbox: finish.inbox } };
       }
       const actor = byYou() ? "you" : "agent";
       let updated;
@@ -7457,7 +7460,7 @@ export function createAgentService(deps) {
     // at one of the reference's 6 moments (suggest.mjs onscreenMoments), saved with the project.
     if (verb === "seen") {
       // A comma or "s" after the time is accepted ("@1.8, frame, color: ..."); commas, "+", "&" and "/" separate kinds.
-      const parts = /^(\S+)\s+@(\d+(?:\.\d+)?)\s*s?\s*[,;]?\s+([a-z][a-z ,+&/]*?)\s*:\s*(.+)$/is.exec(rest.trim());
+      const parts = /^(\S+)\s+@(\d+(?:\.\d+)?)s?(?:\s*[,;]\s*|\s+)([a-z][a-z ,;+&/]*?)\s*:\s*(.+)$/is.exec(rest.trim());
       const id = parts ? refId(parts[1]) : null;
       const refuse = (why) => new AgentError("bad_input", `seen needs a saved reference, a time from its on-screen list and kinds: library {topic:"inspire", name:"seen yt:X @1.8 overlay, made: green outline traced on the figure"}.${why ? ` (${why})` : ""}`);
       if (!id) throw refuse(parts ? `${parts[1]} is not a YouTube id` : seenFault(rest));
@@ -7469,7 +7472,7 @@ export function createAgentService(deps) {
       if (moment !== undefined && !((await agentState.read(projectId))?.shown?.[id] ?? []).some((shown) => Math.abs(shown - moment) < 0.01))
         throw Object.assign(refuse(`you have not looked at ${moment} s yet: look {mode:"reference", ref:"${id}", t:${moment}} shows it, then label it`), { nextCall: nextOf("look", { mode: "reference", ref: id, t: moment }) });
       let done;
-      try { done = await deps.inspire.setSeen(projectId, id, { at: Number(parts[2]), kinds: parts[3].toLowerCase().split(/[\s,+&/]+/).filter(Boolean), words: parts[4] }); }
+      try { done = await deps.inspire.setSeen(projectId, id, { at: Number(parts[2]), kinds: parts[3].toLowerCase().split(/[\s,;+&/]+/).filter(Boolean), words: parts[4] }); }
       catch (error) { throw refuse(error.message); }
       const counts = {};
       for (const entry of done.seen) for (const kind of entry.kinds) counts[kind] = (counts[kind] ?? 0) + 1;

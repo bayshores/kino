@@ -272,7 +272,7 @@ function lineProblem(name, line, current, said = null) {
   const text = textProblem(`${name}.text`, line.text, name === "idea" ? STYLE_LIMITS.idea : BRIEF_LIMITS.text);
   if (text) {
     const over = typeof line.text === "string" ? line.text.trim().length - (name === "idea" ? STYLE_LIMITS.idea : BRIEF_LIMITS.text) : 0;
-    return { code: "bad_input", message: `${text}${over > 0 ? ` Cut ${over} character${over === 1 ? "" : "s"}:` : ""} Keep the line short; the quote holds their words.` };
+    return { code: "bad_input", message: `${text} ${over > 0 ? `Cut ${over} character${over === 1 ? "" : "s"}: keep` : "Keep"} the line short; the quote holds their words.` };
   }
   if (line.by === "you") {
     if (!hasText(line.quote))

@@ -158,7 +158,7 @@ test("a you line needs a quote, a guessed line has none, and a refused save keep
   assert.equal(several.data.error, "quote_needed");
   assert.deepEqual(several.data.lines, { never: "quote_needed", nevr: "bad_input" });
   for (const [body, pattern] of [
-    [{ fields: { plays_on: { text: "x".repeat(BRIEF_LIMITS.text + 1), by: "guessed" } } }, /^plays_on\.text is 1–120 characters \(it has 121\)\. Cut 1 character: Keep the line short/],
+    [{ fields: { plays_on: { text: "x".repeat(BRIEF_LIMITS.text + 1), by: "guessed" } } }, /^plays_on\.text is 1–120 characters \(it has 121\)\. Cut 1 character: keep the line short/],
     [{ fields: { never: { text: "no meme text", by: "you", quote: "q".repeat(BRIEF_LIMITS.quote + 1) } } }, /^never\.quote is 1–120 characters \(it has 121\)/],
     [{ fields: { never: { text: "no meme text", by: "person", quote: "no meme text" } } }, /^never\.by is "you"/],
     [{ fields: { never: { text: "no meme text", by: "guessed", reason: "x" } } }, /^never takes text, by and quote, not reason/],
@@ -1402,11 +1402,13 @@ test("the order labels what each studied reference shows on screen (seen) before
   assert.match(await faulty("seen yt:kinoSeen001 1.2 overlay: smoke"), /\("1\.2 overlay: smoke" is not @<seconds>: the reference id yt:kinoSeen001 is followed by @ and the second/);
   assert.match(await faulty("seen yt:kinoSeen001 @1 overlay smoke"), /\(no ":" after the kinds/);
   assert.match(await faulty("seen yt:kinoSeen001 @1 overlay 2: smoke"), /\("2" at 9 in the kinds "overlay 2": kinds are words separated by commas or spaces\)/);
+  assert.match(await faulty("seen yt:kinoSeen001 @1 ,: smoke"), /\(no kinds before the ":": type, overlay/);
   // A comma and an "s" after the time, and commas in the words, are accepted.
   const saved = await agent("library", { project: id, topic: "inspire", name: "seen yt:kinoSeen001 @1.2s, overlay, made: green outline, traced on the figure" });
   assert.match(saved.text, /^seen yt:kinoSeen001: 1 of 1 moments labeled \(overlay 1, made 1\)\.\nnext: look \{"mode":"reference","ref":"yt:kinoSeen002","t":1/);
   assert.match((await agent("edit", compose)).data.reason, /Next: label yt:kinoSeen002 on screen/);
-  await agent("library", { project: id, topic: "inspire", name: "seen yt:kinoSeen002 @1 type: thin sans titles" });
+  // A comma with no space after the time is accepted too.
+  await agent("library", { project: id, topic: "inspire", name: "seen yt:kinoSeen002 @1,type: thin sans titles" });
   assert.match((await agent("edit", compose)).data.reason, /Next: write 5 treatments/);
   // A type label may name any time inside the reference (run 8: the most specific lettering, at 3.8 s, was refused
   // because it was not one of the six moments); other kinds stay on the list, and a time past the end is refused.
