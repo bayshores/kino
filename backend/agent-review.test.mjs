@@ -675,7 +675,7 @@ test("look critique: a packet for a fresh critic (protocol, brief, trace, seam p
   // One round, a fix list: the final render goes ahead and its receipt lists the open P0.
   const open = await agent("render", { project: id, action: "start", quality: "final", format: "gif" });
   assert.equal(open.isError, undefined, open.text);
-  assert.match(open.text, /Open notes \(not gates[^)]*\): critique: s1: rev \d+'s critic found 1 P0 line: P0 t=6 · cut to light/);
+  assert.match(open.text, /Open notes \(not gates[^)]*\): .*critique: s1: rev \d+'s critic found 1 P0 line: P0 t=6 · cut to light/);
   await agent("render", { project: id, action: "cancel", job: open.data.job });
   assert.equal((await agent("notes", { project: id, action: "critique", rev, lines: ["none"] })).data.error, "bad_input");
   // A second round is not asked for: the answer points at the fix, then the final render.

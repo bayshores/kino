@@ -3839,7 +3839,7 @@ export function createAgentService(deps) {
     // When the viewer gate asks too, its sheets (a frame every 0.5 s) and heard.txt come first, for
     // the same helper; the moments are then frames on those sheets, not pages of their own.
     const viewer = whole && await viewerJoins(document, state, scene, record.revision) ? await viewerSheets(document, scene, prepared) : null;
-    const intents = viewer ? state.story.intents[scene.id] : null;
+    const intents = viewer ? state.story?.intents?.[scene.id] ?? null : null;
     const first = viewer ? viewer.pngs.length : 0;
     const sheetName = (number) => `sheet-${String(number).padStart(2, "0")}.jpg`;
     const viewerTimeList = viewer ? viewerTimes(scene.duration) : [];
@@ -6588,7 +6588,7 @@ export function createAgentService(deps) {
             throw new AgentError("check_failed", `${plural(blocking.length, "open finding")} in ${refName(scene.id, codes)} block a final render (fix each or waive it with a reason):\n${openFindingLines(blocking).map((line) => `  ${line}`).join("\n")}`, {
               next: 'check {fix:"auto"} applies the safe fixes; fix the rest with edit, or waive_check {code, target, reason} for a deliberate exception. A draft render is allowed now.',
             });
-          const taste = real ? tasteNotes(findings) : "";
+          const taste = tasteNotes(findings);
           if (taste) openNotes.push(`taste: ${taste}`);
         }
         // The review, viewer and critic passes fold into the final render (run 8: they held it with
