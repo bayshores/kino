@@ -2161,7 +2161,7 @@ export function createAgentService(deps) {
     let directory = null;
     try {
       directory = await makeTempFolder("kino-mix-");
-      const peak = await capLinePeak(scene, { layerIds: ids, start: report.scene[0], end: report.scene[1], mediaRoot: deps.mediaRoot, directory });
+      const peak = await capLinePeak(scene, { layerIds: ids, start: report.scene[0], end: report.scene[1], mediaRoot: deps.mediaRoot, directory, gainStage: report.way === "gain" });
       if (peak) applyLinePeak(report, peak);
     } catch { /* not measured: the receipt keeps the loudness stand-in */ }
     finally { if (directory) await removeTempFolder(directory); }

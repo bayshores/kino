@@ -18,7 +18,7 @@ const round1 = (value) => Math.round(value * 10) / 10;
  * ceilingDbfs, lowered? {db, from, to, beforeDbfs}, rest? (the rest of the mix alone is over: dBFS)},
  * or null when nothing is heard there.
  */
-export async function capLinePeak(scene, { layerIds, start, end, mediaRoot, directory, signal }) {
+export async function capLinePeak(scene, { layerIds, start, end, mediaRoot, directory, signal, gainStage = false }) {
   const ids = new Set(layerIds);
   const measure = async () => {
     const clips = await sceneSoundClips(scene, { mediaRoot, directory, duration: scene.duration, lead: true, signal });
@@ -33,9 +33,10 @@ export async function capLinePeak(scene, { layerIds, start, end, mediaRoot, dire
   // line only raises it (measured: line down 6.8 dB, "auto" up to +8.2 dB). The receipt prints it.
   const ceiling = LIMITER_CEILING_DB;
   if (!(first.peak > ceiling)) return result;
-  // A gain stage (keep_line lift:"gain", layer voiceLift) is asked to stay, the master limiter after
-  // it: the line is not lowered, and the receipt says how far the limiter works there.
-  if (scene.layers.some((layer) => ids.has(layer.id) && Number.isFinite(layer.voiceLift))) return { ...result, limiterDb: round1(first.peak - ceiling) };
+  // A gain stage this line took (keep_line way "gain", `gainStage`) is asked to stay, the master limiter
+  // after it: the line is not lowered, and the receipt says how far the limiter works there. A plain
+  // lift on a layer whose other line keeps a gain stage still comes down.
+  if (gainStage) return { ...result, limiterDb: round1(first.peak - ceiling) };
   const layers = scene.layers.filter((layer) => ids.has(layer.id) && Number.isFinite(layer.voiceLevel));
   if (!layers.length) return result;
   const rest = peakOver(await measurePeakWindows(first.clips.filter((clip) => !ids.has(clip.layerId)), Math.min(scene.duration, end + 0.1), signal), start, end) ?? -Infinity;

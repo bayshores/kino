@@ -1446,7 +1446,10 @@ function normalizeLayer(raw, path, animationIds, counters) {
   if (layer.voiceLevel !== undefined) {
     if (layer.type !== "video" && layer.type !== "audio")
       fail(`${path}.voiceLevel`, `needs a video or audio layer; a ${layer.type} layer has no sound`);
-    layer.voiceLevel = requireNumber(layer.voiceLevel, `${path}.voiceLevel`, -60, 0);
+    // Over 0 (to 36, a file leveled before a volume under 1) only with a gain stage (voiceLift); a
+    // level over 0 left without one plays at 0.
+    layer.voiceLevel = requireNumber(layer.voiceLevel, `${path}.voiceLevel`, -60, 36);
+    if (!Number.isFinite(layer.voiceLift) && layer.voiceLevel > 0) layer.voiceLevel = 0;
   }
   // The most (dB) the export may lift the kept lines to voiceLevel (keep_line lift:"gain", a gain
   // stage past the 12 dB leveling cap; mixLevels.js liftCap): optional, null removes it.

@@ -637,7 +637,10 @@ function evenLine(scene, owner, said, start, end, curve, forced) {
     places.push([from, to, place.db]);
   }
   // The export levels the line from its raw curve: the target moves by the shift so the line's loudness stays.
-  if (places.length && Number.isFinite(piece.voiceLevel)) piece.voiceLevel = round(Math.max(-60, Math.min(0, piece.voiceLevel - evening.shift)), 1);
+  // A gain stage (voiceLift) may sit over 0 LUFS before a volume under 1, and grows by a raised target.
+  const lifted = Number.isFinite(piece.voiceLift);
+  if (places.length && Number.isFinite(piece.voiceLevel)) piece.voiceLevel = round(Math.max(-60, Math.min(lifted ? GAIN_STAGE_MAX_DB : 0, piece.voiceLevel - evening.shift)), 1);
+  if (places.length && lifted && evening.shift < 0) piece.voiceLift = round(Math.min(60, piece.voiceLift - evening.shift), 1);
   return { median: evening.median, spread: evening.spread, places, shift: evening.shift };
 }
 
@@ -832,8 +835,14 @@ export function applyKeepLine(document, operation, { fonts, reports } = {}) {
   const lifting = operation.lift === true || operation.lift === "gain";
   // A given dip or dropout is kept as given; lift:true beside it is set aside, and a note says so.
   if (lifting && (operation.dip !== undefined || operation.dropout === true)) notes.push(`lift:${JSON.stringify(operation.lift)} is set aside: the ${operation.dropout === true ? "dropout" : "dip"} given takes the music down under the line`);
-  // A gain stage an earlier keep_line set on these pieces goes; lift:"gain" sets it again below.
-  for (const entry of kept) delete entry.piece.voiceLift;
+  // A gain stage an earlier keep_line set on these pieces goes when it was this line's (lift:"gain"
+  // sets it again below); another kept line on the layer keeps it, so that line stays where it was set.
+  const otherLine = kept.some((entry) => entry.ranges.some((range) => !range.sound && (range.end < start - 0.01 || range.start > end + 0.01)));
+  if (!otherLine) for (const entry of kept) {
+    delete entry.piece.voiceLift;
+    // A level over 0 LUFS (before a volume under 1) is reached only through a gain stage.
+    if (entry.piece.voiceLevel > 0) entry.piece.voiceLevel = 0;
+  }
   let gainSaid = null;
   let duck = null;
   let mix = null;
@@ -898,10 +907,12 @@ export function applyKeepLine(document, operation, { fonts, reports } = {}) {
     const signed = (value) => `${value >= 0 ? "+" : ""}${value}`;
     const wayLevel = (chosen, why = "") => {
       const taken = chosen === "dip" ? ways.dip : chosen === "gain" ? ways.gain : ways.lift;
-      owner.piece.voiceLevel = round(Math.max(-60, Math.min(0, taken.reach - 20 * Math.log10(Math.max(1e-6, volume)))), 1);
+      // A gain stage on a clip under volume 1 (a bed) levels the file past 0 LUFS before that volume.
+      owner.piece.voiceLevel = round(Math.max(-60, Math.min(chosen === "gain" ? GAIN_STAGE_MAX_DB : 0, taken.reach - 20 * Math.log10(Math.max(1e-6, volume)))), 1);
       for (const entry of kept) if (entry !== owner) entry.piece.voiceLevel = owner.piece.voiceLevel;
-      // The gain stage: the export may lift these pieces' kept stretches this far (mixLevels.js liftCap).
-      if (chosen === "gain") for (const entry of kept) entry.piece.voiceLift = Math.min(GAIN_STAGE_MAX_DB, Math.ceil(ways.gain.db * 10) / 10 + 0.1);
+      // The gain stage: the export may lift these pieces' kept stretches this far (mixLevels.js liftCap);
+      // one another line on the layer kept stays when it is larger.
+      if (chosen === "gain") for (const entry of kept) entry.piece.voiceLift = Math.max(entry.piece.voiceLift ?? 0, Math.min(GAIN_STAGE_MAX_DB, Math.ceil(ways.gain.db * 10) / 10 + 0.1));
       const bed = over.measured.under + (chosen === "dip" ? ways.dip.dipDb : 0);
       const total = round(10 * Math.log10(10 ** (taken.reach / 10) + 10 ** (bed / 10)), 1);
       mix = { line: taken.reach, around: over.measured.around, under: total, change: round(total - over.measured.around, 1) };

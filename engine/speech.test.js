@@ -609,6 +609,15 @@ test("keep_line over measured music levels the line against the music around it,
   assert.equal(Math.round(voiceLines(quietClip.clip, gained.clip, mediaPlaybackRange(gained.clip, 12), words)[0].lufs), -7);
   // Kept again with lift:true, the gain stage goes.
   assert.equal(parseDocument(applyOperations(parseDocument({ ...document, scenes: [{ ...document.scenes[0], layers: [gained.clip, gained.music] }] }), [{ type: "keep_line", sceneId: "s", layerId: "clip", from: 4, to: 6, subtitle: false, levels: quietClip, beats, lift: true }])).scenes[0].layers[0].voiceLift, undefined);
+  // Another line kept on the layer later keeps the first line's gain stage.
+  assert.equal(parseDocument(applyOperations(parseDocument({ ...document, scenes: [{ ...document.scenes[0], layers: [gained.clip, gained.music] }] }), [{ type: "keep_line", sceneId: "s", layerId: "clip", from: 8, to: 9.5, subtitle: false, levels: quietClip, beats, lift: true }])).scenes[0].layers[0].voiceLift, 26.6);
+  // On a clip under volume 1 (a bed at 0.38, -8.4 dB) the file is leveled past 0 LUFS, so the check
+  // hears the line where the receipt says (it was held at voiceLevel 0, -8.4 LUFS against -7 printed).
+  const bedReports = new Map();
+  const bedLine = { type: "keep_line", sceneId: "s", layerId: "clip", from: 4, to: 6, subtitle: false, beats, lift: "gain", levels: { ...quietClip, clip: { step: 0.1, momentary: quietClip.clip.momentary.map((value) => (value > -60 ? -20 : value)) } } };
+  const bedClip = parseDocument(applyOperations(parseDocument({ ...document, scenes: [{ ...document.scenes[0], layers: [{ ...clip, volume: 0.38 }, document.scenes[0].layers[1]] }] }), [bedLine], { reports: bedReports })).scenes[0].layers[0];
+  assert.deepEqual([bedReports.get(bedLine).gain.line[1], bedClip.voiceLevel], [-7, 1.4]);
+  assert.equal(Math.round(voiceLines(bedLine.levels.clip, bedClip, mediaPlaybackRange(bedClip, 12), words)[0].lufs), -7);
 });
 
 test("two music-out lines 0.6 s apart share a low bed, not silence, and the song lands its drop after the last word", () => {
