@@ -439,6 +439,17 @@ test("keep_line over measured music levels the line against the music around it,
   assert.deepEqual([volumeAt(out.music, 5), volumeAt(out.music, 6.4), volumeAt(out.music, 6.6)], [0, 0, 1]);
   assert.match(out.report.notes.join(" "), /hits back on the beat at 6\.5 s \(0\.5 s after the line; the downbeat at 8 s is 2 s after: wait:2 waits for it\)/);
   assert.equal(out.clip.voiceLevel, -13, "alone, the line holds the music's level");
+  // A drop at 6.2 s ends the dip there, before the planned beat (6.5 s): the note gives the time the
+  // music is back in fact (dm2-b replay: "hits back on the beat at 6.554 s" over a dip back by 6.041).
+  const dropped = (() => {
+    const reports = new Map();
+    const operation = { type: "keep_line", sceneId: "s", layerId: "clip", from: 4, to: 6, subtitle: false, levels, beats, dropout: true };
+    const scene = parseDocument(applyOperations(documentWith([clip, musicLayer()], 12, { cues: [{ name: "drop", time: 6.2, kind: "marker" }] }), [operation], { reports })).scenes[0];
+    return { notes: reports.get(operation).notes.join(" | "), music: scene.layers.find((layer) => layer.id === "music") };
+  })();
+  assert.equal(volumeAt(dropped.music, 6.2), 1);
+  assert.match(dropped.notes, /is back by 6\.2 s \(0\.2 s after the line ends\): the dip ends on the song's section cue there, not on the beat at 6\.5 s/);
+  assert.doesNotMatch(dropped.notes, /hits back on the beat/);
   // wait:2 waits for the downbeat (8 s).
   const waited = run({ dropout: true, wait: 2 });
   assert.deepEqual([volumeAt(waited.music, 5), volumeAt(waited.music, 7.5), volumeAt(waited.music, 8.1)], [0, 0, 1]);

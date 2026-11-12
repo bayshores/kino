@@ -485,7 +485,12 @@ export function applyKeepLine(document, operation, { fonts } = {}) {
       duck = applyDuckAudio(document, { type: "duck_audio", sceneId: scene.id, layerId: music.layer.id, under: under.map((entry) => entry.piece.id), to: dip, speech, ownLine: true, ...(operation.dip === undefined ? { payoffStop: true } : {}), ...(fadeUp !== undefined ? { fadeUp } : {}) });
       if (duck.payoff) notes.push(duck.payoff);
       if (out && back) hitBack(scene, music.layer, end, back.at);
-      if (back && out && back.kind === "beat") notes.push(`the music drops out for the line and hits back on the beat at ${back.at} s (${round(back.at - end, 1)} s after the line${back.downbeat != null ? `; the downbeat at ${back.downbeat} s is ${round(back.downbeat - end, 1)} s after${back.downbeat - end <= 4 ? `: wait:${Math.min(4, Math.ceil((back.downbeat - end) * 10) / 10)} waits for it` : ""}` : ""})`);
+      // Where the music is back up in fact: a dip that ends by the song's drop (payoffStop) is back
+      // before the beat returnTime planned, and the note says that time, not the plan.
+      const ups = (music.layer.animations ?? []).filter((animation) => animation.name === DUCK_NAMES.up && animation.start + animation.duration >= end - 0.01);
+      const upAt = ups.length ? round(Math.min(...ups.map((animation) => animation.start + animation.duration))) : null;
+      if (back && out && upAt !== null && upAt < back.at - 0.02) notes.push(`the music drops out for the line and is back by ${upAt} s (${Math.abs(round(upAt - end, 1))} s ${upAt >= end ? "after" : "before"} the line ends): the dip ends on the song's section cue there, not on the beat at ${back.at} s`);
+      else if (back && out && back.kind === "beat") notes.push(`the music drops out for the line and hits back on the beat at ${back.at} s (${round(back.at - end, 1)} s after the line${back.downbeat != null ? `; the downbeat at ${back.downbeat} s is ${round(back.downbeat - end, 1)} s after${back.downbeat - end <= 4 ? `: wait:${Math.min(4, Math.ceil((back.downbeat - end) * 10) / 10)} waits for it` : ""}` : ""})`);
       else if (back) notes.push(out ? `the music drops out for the line and hits back on the downbeat at ${back.at} s (${round(back.at - end, 1)} s after the line)` : `the music comes back up on the beat at ${back.at} s`);
       else if (out) notes.push("no beats measured on the music: it comes back over 0.8 s after the line");
       if (!out && operation.dip === undefined && over && !over.own) notes.push("dropout:true takes the music out under the line and hits back on the next downbeat");
