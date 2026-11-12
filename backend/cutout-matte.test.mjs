@@ -4,9 +4,9 @@
 // edge is known exactly, not against output saved from an earlier run.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { scaleMatte } from "./cutout/cutout.mjs";
+import { openEdgePixels, scaleMatte } from "./cutout/cutout.mjs";
 import { outlinePathData, traceOutline } from "./cutout/outline.mjs";
-import { createSteadier, fadeOpenEdges, feather, fillHoles, finishMatte, grow, matteMeasure, radialEdgeErrors, refineEdges, softCounts } from "./cutout/matte.mjs";
+import { DRAWN_HELD, createSteadier, crispenMatte, fadeOpenEdges, feather, heldShare, fillHoles, finishMatte, grow, matteMeasure, radialEdgeErrors, refineEdges, softCounts } from "./cutout/matte.mjs";
 
 // A disc of radius r centred at (cx, cy), anti-aliased over one pixel like a real matte.
 function disc(width, height, { cx, cy, r }) {
@@ -202,6 +202,26 @@ test("fadeOpenEdges fades a subject cut by the frame to 0 at the border only", (
   const rim = finishMatte(matte, width, height, { grow: 3, openEdges: 8 });
   for (let y = 32; y < height; y += 1) assert.ok(rim[y * width + 20] <= faded[y * width + 20], `row ${y}: rim ${rim[y * width + 20]} over subject ${faded[y * width + 20]}`);
   assert.equal(rim[37 * width + 20], 0, "the rim is clear next to the border");
+});
+
+test("openEdges extend carries a subject that stops short of the frame out to the border, and edge crisp steepens it", () => {
+  const width = 40, height = 40;
+  const matte = new Uint8Array(width * height);
+  // Legs that stop 3 px above the bottom with a soft edge (Vision's upscaled mask).
+  for (let y = 10; y < height - 3; y += 1) for (let x = 10; x < 30; x += 1) matte[y * width + x] = y === height - 4 ? 128 : 255;
+  const extended = finishMatte(matte, width, height, { openEdges: -6 });
+  assert.equal(extended[39 * width + 20], 255, "the bottom row is solid under the subject");
+  assert.equal(extended[39 * width + 5], 0, "nothing is added beside the subject");
+  assert.equal(extended[20 * width + 20], 255);
+  assert.equal(openEdgePixels("extend", { width: 1000, height: 400 }), -12);
+  const crisp = crispenMatte(Uint8Array.from([0, 64, 100, 128, 160, 255]));
+  assert.deepEqual([...crisp], [0, 0, 18, 130, 255, 255]);
+  // Drawings held on 2s read as drawn; camera footage that changes a little every frame, and a
+  // frozen picture, do not.
+  const clip = (values) => Uint8Array.from(values.flatMap((v) => new Array(16).fill(v)));
+  assert.ok(heldShare(clip([10, 10, 40, 40, 70, 70, 100, 100]), 16) >= DRAWN_HELD);
+  assert.ok(heldShare(clip([10, 12, 14, 16, 18, 20, 22, 24]), 16) < DRAWN_HELD);
+  assert.equal(heldShare(clip([50, 50, 50, 50]), 16), 0);
 });
 
 test("the outline tracer follows a disc's edge, keeps the biggest shape and fits its point budget", () => {

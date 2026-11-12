@@ -882,6 +882,8 @@ How to read it:
   makes a subject, matte or silhouette locally; off macOS it answers CUTOUT_ENGINE_UNAVAILABLE.
   Evidence: `backend/agent-cutout.test.mjs`, `backend/cutout.test.mjs`,
   `skills/kino/references/cutout.md`, golden `cutout-pop`.
+- **cut_out openEdges "extend" and edge**: a subject reaches the frame border solid by default;
+  edge "auto" is crisp on a video whose drawings are held over frames. Evidence: `backend/cutout-matte.test.mjs`.
 - **Cut-out follows its clip, holds through lost frames, states the subject's box**: Test-verified.
   A retimed clip retimes its outline and copies; an outline takes the clip's push and fades, holds 0.5 s where no subject is found,
   then fades; receipts give `subject {box, at, room}`; a nearly done cut-out is waited for 30 s more.

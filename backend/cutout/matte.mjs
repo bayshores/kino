@@ -334,6 +334,8 @@ export function feather(matte, width, height, pixels) {
  * (everything outside stays empty); a subject that fills a third of the frame costs a third.
  */
 export function finishMatte(matte, width, height, { grow: growBy = 0, feather: featherBy = 0, openEdges = 0 } = {}) {
+  // A negative openEdges carries the subject out to the borders instead (extendOpenEdges).
+  if (openEdges < 0) return extendOpenEdges(growBy || featherBy ? finishBox(matte, width, height, growBy, featherBy) : matte, width, height, -openEdges);
   if (!growBy && !featherBy) return openEdges > 0 ? fadeOpenEdges(matte, width, height, openEdges) : matte;
   const finished = finishBox(matte, width, height, growBy, featherBy);
   // A grown or feathered matte (a rim or outline behind the subject) reaches grow + feather past
@@ -394,6 +396,72 @@ export function fadeOpenEdges(matte, width, height, pixels, start = 0) {
     }
   }
   return out;
+}
+
+/**
+ * Carries the subject out to the picture's borders: each pixel within `pixels` of a border takes
+ * the larger of its own value and the value `pixels` further in, so a subject cut by the frame (legs
+ * past the bottom) reaches the edge solid instead of stopping short. Vision's upscaled mask often
+ * stops a few pixels inside the frame: contest-b left a pale strip 8 px tall at the frame bottom
+ * (y 432-440 mean 177-192 against the reference's 61-118, GAPS item 14). Returns a new matte.
+ */
+export function extendOpenEdges(matte, width, height, pixels) {
+  checkSize(width, height);
+  const out = Uint8Array.from(matte);
+  const reach = Math.min(Math.floor(pixels), Math.floor((Math.min(width, height) - 1) / 2));
+  if (!(reach > 0)) return out;
+  for (let d = 0; d < reach; d += 1) {
+    const top = d * width, bottom = (height - 1 - d) * width, topIn = reach * width, bottomIn = (height - 1 - reach) * width;
+    for (let x = 0; x < width; x += 1) {
+      if (matte[topIn + x] > out[top + x]) out[top + x] = matte[topIn + x];
+      if (matte[bottomIn + x] > out[bottom + x]) out[bottom + x] = matte[bottomIn + x];
+    }
+    for (let y = 0; y < height; y += 1) {
+      const row = y * width;
+      if (matte[row + reach] > out[row + d]) out[row + d] = matte[row + reach];
+      if (matte[row + width - 1 - reach] > out[row + width - 1 - d]) out[row + width - 1 - d] = matte[row + width - 1 - reach];
+    }
+  }
+  return out;
+}
+
+// edge "crisp": the soft band of a refined matte (about 4 px) is steepened this many times around
+// its middle, so it falls over about one pixel. 4 is a guess (not measured) aimed at contest-b's drawn figure,
+// whose cut edge is a hard line with no gray band (blind.md item 12: kino's edge feathered).
+const CRISP_CONTRAST = 4;
+
+/** Steepens the matte's edge ramp around half (contrast 1 leaves it). Returns a new matte. */
+export function crispenMatte(matte, contrast = CRISP_CONTRAST) {
+  const out = new Uint8Array(matte.length);
+  for (let i = 0; i < matte.length; i += 1) out[i] = Math.max(0, Math.min(255, Math.round((matte[i] - 127.5) * contrast + 127.5)));
+  return out;
+}
+
+// edge "auto": a clip is drawn when its drawings are held over frames (animation drawn "on 2s" or
+// "on 3s" repeats each picture), so frames that repeat the one before sit between frames that move.
+// A one-picture measure of flat color does not tell them apart: share of near-equal neighboring
+// pixels was 0.75 to 0.86 on the film-trailer's camera shots and 0.44 to 0.63 on contest-b's drawn
+// clips (measured 2026-11-11 on .scratch/recreate). Held-between-moves share over the first 48
+// frames, 96x54 gray: contest-b girl 0.44 and tree 0.50; contest-b cockpit 0.22 and fan-fast 0.23
+// (drawn, but read as unsure and kept soft); camera shots, a frozen shot and a screen recording 0 to
+// 0.02. A frame "repeats" under HELD_STEP mean luma change and "moves" over MOVE_STEP (same study).
+export const DRAWN_HELD = 0.3;
+const HELD_STEP = 0.35, MOVE_STEP = 1;
+
+/**
+ * The share of frame steps that hold a drawing between moves: `frames` is consecutive gray frames
+ * of `size` pixels each, back to back. A still or frozen clip has no moves and scores 0.
+ */
+export function heldShare(frames, size) {
+  const count = Math.floor(frames.length / size);
+  const steps = [];
+  for (let f = 1; f < count; f += 1) {
+    let sum = 0;
+    for (let i = 0, a = f * size, b = (f - 1) * size; i < size; i += 1) sum += Math.abs(frames[a + i] - frames[b + i]);
+    steps.push(sum / size);
+  }
+  if (!steps.length) return 0;
+  return steps.filter((d, i) => d < HELD_STEP && (steps[i - 1] > MOVE_STEP || steps[i + 1] > MOVE_STEP)).length / steps.length;
 }
 
 // Edge clean-up defaults for every cut_out output (one cleaned matte, kept in the cache):

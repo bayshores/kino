@@ -36,7 +36,7 @@ import { fileURLToPath } from "node:url";
 import { ffmpegCommand, parseFrameRate, runMediaTool } from "../media-probe.mjs";
 import { sha256File } from "../voice/model.mjs";
 import { createEdgeRefiner, createPlateBuilder } from "./edges.mjs";
-import { DEFAULT_OPEN_EDGES, HOLE_SHARE, REFINE_RADIUS, cleanMatte, createSteadier, fadeOpenEdges, finishMatte, lumaFromBgra, refineEdges, softCounts } from "./matte.mjs";
+import { DEFAULT_OPEN_EDGES, DRAWN_HELD, HOLE_SHARE, REFINE_RADIUS, cleanMatte, createSteadier, crispenMatte, extendOpenEdges, fadeOpenEdges, finishMatte, heldShare, lumaFromBgra, refineEdges, softCounts } from "./matte.mjs";
 import { followPicked, followReport, gridLabels, gridStep, keepLabels, pickedLabels } from "./pick.mjs";
 
 export const CUTOUT_ENGINES = Object.freeze(["auto", "subject", "person"]);
@@ -723,12 +723,12 @@ function encoderArgs(output, colour, keyEvery) {
  * Writes one output of a video matte to `target`. grow and feather are in the file's pixels.
  * Returns the file's extension and MIME type.
  */
-async function writeVideoOutput({ source, folder, info, output, grow = 0, feather = 0, openEdges = 0, color, invert, target, signal, onFraction }) {
-  if (output === "subject") return writeSubjectVideo({ source, folder, info, grow, feather, openEdges, target, signal, onFraction });
+async function writeVideoOutput({ source, folder, info, output, grow = 0, feather = 0, openEdges = 0, edge, color, invert, target, signal, onFraction }) {
+  if (output === "subject") return writeSubjectVideo({ source, folder, info, grow, feather, openEdges, edge, target, signal, onFraction });
   const { width, height, rate, lead } = info.source;
   const scale = info.width / width;
   const growBy = grow * scale, featherBy = feather * scale, openBy = openEdges * scale;
-  const finishing = growBy !== 0 || featherBy !== 0 || openBy > 0;
+  const finishing = growBy !== 0 || featherBy !== 0 || openBy !== 0;
   const matteFile = join(folder, info.file);
   // H.264 needs an even size; the matte is stretched by at most one pixel to get one.
   const outWidth = output === "matte" ? width + (width % 2) : width, outHeight = output === "matte" ? height + (height % 2) : height;
@@ -849,7 +849,20 @@ const LOST_SHARE = 0.35;
 // How many lost frames wait for the next good one (each is a full frame in memory).
 const HOLD = 12;
 
-async function writeSubjectVideo({ source, folder, info, grow = 0, feather = 0, openEdges = 0, target, signal, onFraction }) {
+// Whether a clip is drawn footage: its first 48 frames, as decoded (no rate change, which would
+// repeat frames), at 96x54 gray, hold drawings between moves (matte.mjs heldShare). A failed read
+// counts as not drawn, so the edge stays soft.
+async function looksDrawn(source, signal) {
+  const size = 96 * 54;
+  const child = spawn(ffmpegCommand(), ["-hide_banner", "-nostdin", "-v", "error", "-i", source, "-map", "0:V:0", "-an", "-sn", "-dn", "-frames:v", "48",
+    "-vf", "scale=96:54:flags=area", "-f", "rawvideo", "-pix_fmt", "gray", "pipe:1"], { stdio: ["ignore", "pipe", "ignore"], signal });
+  const parts = [];
+  child.stdout.on("data", (part) => parts.push(part));
+  const ok = await new Promise((resolve) => { child.on("error", () => resolve(false)); child.on("close", (code) => resolve(code === 0)); });
+  return ok && heldShare(Buffer.concat(parts), size) >= DRAWN_HELD;
+}
+
+async function writeSubjectVideo({ source, folder, info, grow = 0, feather = 0, openEdges = 0, edge = "soft", target, signal, onFraction }) {
   const { width, height, rate, lead } = info.source;
   const scale = info.width / width;
   const growBy = grow * scale;
@@ -893,8 +906,13 @@ async function writeSubjectVideo({ source, folder, info, grow = 0, feather = 0, 
   // not steepen them and the subject matches the silhouette and matte outputs.
   const smooth = info.clean?.refine > 0 && plate.steady
     ? (yuv, mask) => refineEdges(mask, yuv.subarray(0, pixels), width, height, { radius: info.clean.refine / scale }) : (yuv, mask) => mask;
+  // edge "crisp" steepens the refined edge to about a pixel; "auto" does so when the clip's
+  // drawings are held over frames (drawn footage, matte.mjs heldShare), else keeps the soft edge.
+  const crisp = edge === "crisp" || edge === "auto" && await looksDrawn(source, signal);
   const finish = (mask) => {
-    const soft = feather > 0 ? finishMatte(mask, width, height, { feather }) : mask;
+    const sharp = crisp ? crispenMatte(mask) : mask;
+    const soft = feather > 0 ? finishMatte(sharp, width, height, { feather }) : sharp;
+    if (openEdges < 0) return extendOpenEdges(soft, width, height, -openEdges);
     return openEdges > 0 ? fadeOpenEdges(soft, width, height, openEdges, Math.max(0, grow) + feather) : soft;
   };
   const write = (yuv, raw) => {
@@ -940,7 +958,7 @@ async function writeSubjectVideo({ source, folder, info, grow = 0, feather = 0, 
 }
 
 /** Writes one output of a still image's matte to `target` as a PNG. */
-async function writeImageOutput({ source, folder, info, output, grow = 0, feather = 0, openEdges = 0, color, invert, target, signal }) {
+async function writeImageOutput({ source, folder, info, output, grow = 0, feather = 0, openEdges = 0, edge = "soft", color, invert, target, signal }) {
   const { width, height } = info.source;
   const scale = info.width / width;
   let matte = new Uint8Array(await readFile(join(folder, info.file)));
@@ -950,6 +968,8 @@ async function writeImageOutput({ source, folder, info, output, grow = 0, feathe
   if (output === "subject") {
     const image = await readImage(source, null);
     if (image.width !== width || image.height !== height) throw cutoutError("The image changed size since its matte was made.", "CUTOUT_ENGINE_FAILED");
+    // A still has no held drawings to read, so "auto" keeps the soft edge there; "crisp" asks for it.
+    if (edge === "crisp") matte = crispenMatte(matte);
     for (let i = 0, p = 0; i < matte.length; i += 1, p += 4) {
       rgba[p] = image.rgba[p]; rgba[p + 1] = image.rgba[p + 1]; rgba[p + 2] = image.rgba[p + 2];
       rgba[p + 3] = Math.round((image.rgba[p + 3] * matte[i]) / 255);
@@ -977,18 +997,20 @@ async function writeImageOutput({ source, folder, info, output, grow = 0, feathe
  * "silhouette"; grow and feather in the file's pixels; color for a silhouette; invert for a
  * matte. Returns { extension, mime }.
  */
-export async function writeCutoutOutput({ source, folder, info, output, grow, feather, openEdges, color, invert, target, signal, onFraction }) {
+export async function writeCutoutOutput({ source, folder, info, output, grow, feather, openEdges, edge, color, invert, target, signal, onFraction }) {
   if (!FILE_OUTPUTS.includes(output)) throw new RangeError(`output must be one of ${FILE_OUTPUTS.join(", ")}.`);
   const write = info.kind === "video" ? writeVideoOutput : writeImageOutput;
-  return write({ source, folder, info, output, grow, feather, openEdges: openEdgePixels(openEdges, info.source), color, invert, target, signal, onFraction });
+  return write({ source, folder, info, output, grow, feather, openEdges: openEdgePixels(openEdges, info.source), edge, color, invert, target, signal, onFraction });
 }
 
 /**
- * The border fade in the file's pixels: "fade" (the default) is DEFAULT_OPEN_EDGES of the short
- * side, "keep" or 0 none, a number that many pixels.
+ * The border treatment in the file's pixels: "fade" (the default) is DEFAULT_OPEN_EDGES of the
+ * short side, "keep" or 0 none, a number that many pixels; "extend" is the same width as a negative
+ * number: the subject is carried out to the border over it (matte.mjs extendOpenEdges).
  */
 export function openEdgePixels(openEdges = "fade", { width, height }) {
   if (openEdges === "keep" || openEdges === false) return 0;
   if (typeof openEdges === "number") return Math.max(0, openEdges);
-  return Math.round(DEFAULT_OPEN_EDGES * Math.min(width, height));
+  const pixels = Math.round(DEFAULT_OPEN_EDGES * Math.min(width, height));
+  return openEdges === "extend" ? -pixels : pixels;
 }

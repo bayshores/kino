@@ -270,7 +270,12 @@ async function cutOut(document, operation, { mediaRoot, cutoutMedia, operationCo
     kind: layer.type === "video" ? "video" : "image", output, engine,
     grow: inFilePixels(operation.grow), feather: inFilePixels(operation.feather),
     color: operation.color ?? "#ffffff", invert: operation.invert === true,
-    openEdges: typeof operation.openEdges === "number" ? inFilePixels(operation.openEdges) : operation.openEdges ?? "fade",
+    // A subject cut by the frame reaches the border ("extend") by default; a silhouette or matte,
+    // the base of a glow or outline, fades there so it does not trace the border (GAPS item 14:
+    // the fade left a pale strip under contest-b's figure).
+    openEdges: typeof operation.openEdges === "number" ? inFilePixels(operation.openEdges) : operation.openEdges ?? (output === "subject" ? "extend" : "fade"),
+    // edge "auto" (the subject's default): crisp on drawn footage, the refined soft edge on camera footage.
+    edge: operation.edge ?? (output === "subject" ? "auto" : "soft"),
     ...(operation.refine !== undefined || operation.fillHoles !== undefined
       ? { clean: { refine: typeof operation.refine === "number" ? inFilePixels(operation.refine) : operation.refine, holes: operation.fillHoles } } : {}),
     ...(operation.points ? { pick: { points: operation.points, ...(operation.exclude ? { exclude: operation.exclude } : {}), ...(layer.type === "video" && operation.time !== undefined ? { time: operation.time } : {}) } } : {}) });
