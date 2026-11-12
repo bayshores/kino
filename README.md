@@ -42,7 +42,7 @@ made up.
 - **Agents do the editing.** Ten MCP tools, a `kino` command line and a skill file. The whole
   tool list is capped at 5,800 tokens, and no answer is over about 8,000. kino can also start
   Claude Code or Codex agents from your own installs, within a budget you set (the crew screen).
-- **A quality checker.** 27 errors that block a final render and 104 warnings (reading time,
+- **A quality checker.** 26 errors that block a final render and 105 warnings (reading time,
   contrast, flashing, safe zones, timing), each with a fix the agent can apply.
 - **Building blocks.** One `compose` op builds a whole promo from beats and a brand kit: 24
   recipes, 3 transitions, 5 looks, a 6×6 slot grid, relative timing, variants and templates.

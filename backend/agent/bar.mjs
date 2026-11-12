@@ -106,7 +106,10 @@ export const AI_EDIT_QUESTIONS = [
   "Do the captions break as spoken phrases and appear and leave with the words, or as fixed chunks?",
   "Does each cut land on an action or the voice (a word, a breath, a hit), or between them?",
   "Do the title and the end card feel designed for this product, or like a template?",
-  "Count the devices: does it look like an AI stacked effects? A taste-led edit uses few and repeats them on purpose.",
+  // Was "count the devices ... a taste-led edit uses few": in run 8 it pulled the 1-frame flashes and
+  // the split that every human-made reference hit used (run 8 trace, effects notes). The question now
+  // compares with what the saved references measure at their hits, not with a device count.
+  "At each hit (a flash, a punch, a cut on a loud beat), does the picture change as much as your saved references do at theirs (the brightness swing and flashes kino measured on them, when the packet lists them), or is the hit decoration on a moment that has none?",
   "Was the type (face, weight, size, reveal) chosen from the references and the footage, or left at whatever came first?",
   "Do the text reveals look like stock ones (a blur-rise, a blur plus fade, the same fade on every line), or does each reveal follow the story or a reference?",
 ];

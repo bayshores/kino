@@ -151,7 +151,7 @@ export const RULES = [
   rule("page_chrome", "warn", pageChrome, "tracked caps labels under 40 px and rows of thin bars 8 s at most"),
   rule("reference_drift", "warn", referenceDrift, "close to the saved Inspire references in text on screen, and text alone on a plain frame at most twice their share (motion, camera and look advise); needs references and Apple Vision", true),
   rule("reference_range", "warn", referenceRange, "inside the range of your saved references (2 or more measured) in median brightness, share of the video under 38 of 255, contrast, text entrances per 10 s, and a clip's own speech before the loudest change of the music where most references have a voice; the fix names the dark stretch and a color-wheels gamma, a color-grade contrast, or the clips' lines, or waive it with a reason", true),
-  rule("reference_kinds", "error", referenceKinds, "each on-screen kind (type, overlay, composite, color, made, spoken) that 2+ labeled references show at 2+ moments appears in the edit; plain footage no more than the references"),
+  rule("reference_kinds", "warn", referenceKinds, "each on-screen kind (type, overlay, composite, color, made, spoken) that 2+ labeled references show at 2+ moments appears in the edit (advice naming a free moment when it is missing); plain footage no more than the references"),
   rule("reference_closeness", "warn", referenceCloseness, "no run of 6 shots timed like a saved reference (shot lengths in order at one scale, each within a frame, more than chance gives), and in a music edit not every device your saved references share (black hole, seam flash, bars, word cards) or 3 of them in their order within 2 s"),
   rule("seen_before", "warn", seenBefore, "type or a logo not laid out as in another kino project (0.12) unless a reference is closer; the edit not built like another (same pace and 75% of its parts)"),
   rule("type_seen", "warn", typeSeen, "the type look (face, weight, case, size, reveal) not the look of one of kino's last 3 projects (same face and 4 of 5 parts) unless a reference or the picked treatment chose it; an agent waives it with a reason naming the reference"),
@@ -201,14 +201,32 @@ export const ruleOf = (code) => RULES.find((entry) => entry.code === code);
 
 // Warnings while editing that block a final render: the edit may be unfinished, the render may not.
 export const FINAL_GATES = Object.freeze(RULES.filter((entry) => entry.final).map((entry) => entry.code));
+// Taste warnings: a choice a viewer may like or not, never a defect they see (a missing file, an
+// uncovered frame, a flash, clipped text or sound, unreadable text: `hold` stays a defect, it is
+// reading time). In run 8 they held the final render 3 times and drew 10 waivers (restraint x13,
+// jump_cut, end_on_fade, first_entrance, off_beat, reference_drift, reference_kinds; run 8 trace,
+// critic notes section 7), and the run ended with no final file. They ride on the final render's
+// receipt as open notes instead (TASTE_WARNINGS from consistency.js are the same kind).
+export const TASTE_RULES = Object.freeze(["reference_kinds", "restraint", "first_entrance", "off_beat", "reference_drift", "jump_cut", "end_on_fade", ...TASTE_WARNINGS]);
 /**
  * True for a finding that blocks a final render (unless waived with a reason). In a real edit
- * (a brief, over 30 layers: `real`, the default) every error and warning blocks; elsewhere (a
- * sketch, a test) errors, FINAL_GATES warnings (signature_missing) and a warning marked final
- * (plain_beats). Advice (info) never blocks.
+ * (a brief, over 30 layers: `real`, the default) every error and every warning but a taste one
+ * (TASTE_RULES) blocks; elsewhere (a sketch, a test) errors, FINAL_GATES warnings
+ * (signature_missing) and a warning marked final (plain_beats). Advice (info) never blocks.
  */
 export const blocksFinal = (finding, real = true) => !finding.waived && (finding.severity === "error"
-  || (finding.severity === "warn" && (real || finding.final === true || FINAL_GATES.includes(finding.rule))));
+  || (finding.severity === "warn" && ((real && !TASTE_RULES.includes(finding.rule)) || finding.final === true || FINAL_GATES.includes(finding.rule))));
+
+/** The open taste notes of a final render's receipt: "restraint x13, off_beat" (non-blocking warnings and reference_kinds advice), or "". */
+export function tasteNotes(findings) {
+  const counts = new Map();
+  for (const finding of findings) {
+    if (finding.waived || !TASTE_RULES.includes(finding.rule) || !["warn", "info"].includes(finding.severity) || blocksFinal(finding, true)) continue;
+    if (finding.severity === "info" && finding.rule !== "reference_kinds") continue;
+    counts.set(finding.rule, (counts.get(finding.rule) ?? 0) + 1);
+  }
+  return [...counts].map(([rule, count]) => (count > 1 ? `${rule} x${count}` : rule)).join(", ");
+}
 
 // Advice rules (level info): taste and planning notes, not a defect a viewer sees. Their findings
 // come as info, listed in one line and never counted as warnings (a safe auto fix still applies).
