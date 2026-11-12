@@ -5161,7 +5161,7 @@ export function createAgentService(deps) {
     if (!mixPeaksKept.has(key)) {
       mixPeaksKept.set(key, (async () => {
         const directory = await makeTempFolder("kino-mix-");
-        try { return await measureMixPeaks(await sceneSoundClips(scene, { mediaRoot: deps.mediaRoot, directory, duration: scene.duration }), scene.duration); }
+        try { return await measureMixPeaks(await sceneSoundClips(scene, { mediaRoot: deps.mediaRoot, directory, duration: scene.duration, lead: true }), scene.duration); }
         catch { mixPeaksKept.delete(key); return null; }
         finally { await removeTempFolder(directory); }
       })());
@@ -5217,10 +5217,10 @@ export function createAgentService(deps) {
     } finally {
       await removeTempFolder(directory);
     }
-    // Every place the mix passes the limiter (the worst 8 when there are more; under 1,500
-    // characters), the same numbers as check's mix: line.
+    // Every place the mix passes the limiter (the worst 6 when there are more; at most about 1,450
+    // characters with 4 long layer names a place), the same numbers as check's mix: line.
     const peaks = await mixPeaksOf(scene);
-    const limiter = peaks ? `\n${describeMixPeaks(peaks, { limit: 8, label: "limiter", tail: ` (${peaks.places.length - 8} more)` })}` : "";
+    const limiter = peaks ? `\n${describeMixPeaks(peaks, { limit: 6, label: "limiter", tail: ` (${peaks.places.length - 6} more)` })}` : "";
     return { image: { png: soundMapImage(map) }, text: `${soundMapText(map, { scene: refName(scene.id, codes) })}${limiter}` };
   }
   // Whether the person turned on sound search in Settings (backend/sound-search.mjs).

@@ -281,13 +281,17 @@ const placeText = (place) => {
  * `limit` how many of the worst places are named, `tail` what follows them.
  */
 export function describeMixPeaks(mix, { limit = 3, tail = "", label = "mix" } = {}) {
-  const level = `${label}: ${mix.integratedLufs === null ? "too short to measure LUFS" : `${mix.integratedLufs} LUFS`}, true peak ${mix.truePeakDbtp === null ? "silent" : `${signed(mix.truePeakDbtp)} dBTP`} at its own level (render loudness "off"; a loudness target adds one gain first)`;
-  if (!mix.places.length) return `${level}; the limiter (ceiling ${LIMITER_CEILING_DB} dBFS) never works`;
+  const level = `${label}: ${mix.integratedLufs === null ? "too short to measure LUFS" : `${mix.integratedLufs} LUFS`}, true peak ${mix.truePeakDbtp === null ? "silent" : `${signed(mix.truePeakDbtp)} dBTP`} with render loudness "off"`;
+  // What the default "auto" target's gain does to the same peaks (measureMixPeaks `auto`).
+  const auto = mix.auto;
+  const autoText = auto ? `; loudness "auto" (the render default, target ${auto.targetLufs} ${auto.target}) adds ${signed(auto.gainDb)} dB first${auto.held ? " (held by the peaks)" : ""}, then the limiter ` +
+    (auto.places ? `works at ${auto.places} ${auto.places === 1 ? "place" : "places"}, most ${auto.worst.overDb} dB at ${auto.worst.at} s` : "never works") : "";
+  if (!mix.places.length) return `${level}; the limiter (ceiling ${LIMITER_CEILING_DB} dBFS) never works${autoText}`;
   // All of them in time order when they fit, else the worst first.
   const all = limit >= mix.places.length;
   const shown = all ? mix.places : [...mix.places].sort((a, b) => b.overDb - a.overDb || a.at - b.at).slice(0, limit);
   return `${level}; the limiter (ceiling ${LIMITER_CEILING_DB} dBFS) works at ${mix.places.length} ${mix.places.length === 1 ? "place" : "places"}${all ? "" : `, worst ${shown.length}`}: ` +
-    `${shown.map(placeText).join(" · ")} (xN: multiply the volumes playing there by N to clear it)${all ? "" : tail}`;
+    `${shown.map(placeText).join(" · ")} (xN: multiply the volumes playing there by N to clear it)${autoText}${all ? "" : tail}`;
 }
 
 /**

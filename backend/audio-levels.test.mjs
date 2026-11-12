@@ -257,6 +257,9 @@ test("the limiter places: each 0.1 s peak over the ceiling, near ones joined, ti
   const line = describeMixPeaks(mix, { limit: 1, tail: "; all: look" });
   assert.match(line, /^mix: -11\.2 LUFS, true peak \+3\.1 dBTP .*works at 2 places, worst 1: 2 s \+3\.1 dBTP, 4\.6 dB over \(song 1, hit 0\.55\) x0\.58 .*; all: look$/);
   assert.match(describeMixPeaks({ ...mix, places: [] }), /the limiter \(ceiling -1\.5 dBFS\) never works$/);
+  // The default "auto" target's gain moves every peak: a quiet mix raised 8 dB is limited where "off" is not.
+  const auto = { target: "web", targetLufs: -14, gainDb: 8, held: true, places: 1, worst: { at: 2, overDb: 6 } };
+  assert.match(describeMixPeaks({ ...mix, places: [], auto }), /never works; loudness "auto" \(the render default, target -14 web\) adds \+8 dB first \(held by the peaks\), then the limiter works at 1 place, most 6 dB at 2 s$/);
 });
 
 test("measuring the mix finds every limiter place, and the loudest matches the render's own warning", { skip: skipWithoutMediaTools }, async (t) => {
@@ -273,6 +276,10 @@ test("measuring the mix finds every limiter place, and the loudest matches the r
   const result = await exportScene(scene, { profile: "mp4.alt", fps: 10 }, { mediaRoot, outputPath: join(root, "loud.mp4") });
   const [, peak, at] = result.warnings.find((entry) => entry.code === "audio-limited").message.match(/peaked at \+([\d.]+) dBTP at ([\d.]+) s/);
   assert.ok(Math.abs(Number(at) - mix.places[0].at) <= 0.1 && Math.abs(Number(peak) - mix.places[0].peakDbtp) <= 0.5, `render ${peak} at ${at}`);
+  // The default "auto" target: the same gain a render at "auto" applies (no song here, so -14 web).
+  const leveled = await exportScene(scene, { profile: "mp4.alt", fps: 10, loudness: "auto" }, { mediaRoot, outputPath: join(root, "auto.mp4") });
+  assert.equal(mix.auto.target, leveled.loudness.target);
+  assert.ok(Math.abs(mix.auto.gainDb - leveled.loudness.gainDb) <= 0.5, `measured ${mix.auto.gainDb}, render ${leveled.loudness.gainDb}`);
 });
 
 test("a loud mix is limited to about -1 dBTP in MP4, WebM and MOV, and the export warns with the loudest moment", {
