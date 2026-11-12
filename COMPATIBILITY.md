@@ -820,6 +820,9 @@ How to read it:
   A retimed clip retimes its outline and copies; an outline takes the clip's push and fades, holds 0.5 s where no subject is found,
   then fades; receipts give `subject {box, at, room}`; a nearly done cut-out is waited for 30 s more.
   Evidence: `backend/agent-cutout.test.mjs` ("cut_out outline", "close to done").
+- **Outline shows only while its clip is drawn**: Test-verified. It takes the clip's Hide and Show and a
+  playback window for a clip not frozen both ways; update_layer and update_layers move it.
+  Evidence: `backend/agent-cutout.test.mjs` ("shows only while its clip is drawn").
 - **type_covered**: Test-verified. Type behind a cut-out whose measured subject box hides over 40%
   of it for over half its time warns, with a move beside the subject. Evidence:
   `engine/qualityRules.test.js` ("type_covered").

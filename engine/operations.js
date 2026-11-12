@@ -653,6 +653,8 @@ function updateSceneLayers(document, scene, operation, fonts, reports) {
   const old = new Map(layers.map((layer) => [layer.id, layer]));
   const moved = scene.layers.filter((layer) => old.has(layer.id)).flatMap((layer) => [...carryPresets(old.get(layer.id), layer, { document, fonts }), ...(Object.hasOwn(properties ?? {}, "animations") ? [] : carryVolume(old.get(layer.id), layer))]);
   reportMoved(reports, operation, moved);
+  // Cut-outs of a retimed clip stay on the same frames of it (cutoutTiming.js), as with update_layer.
+  for (const layer of scene.layers) if (old.has(layer.id)) followClipTiming(scene, old.get(layer.id), layer);
 }
 
 // update_layer and update_layers: a moved or resized layer's presets move with it

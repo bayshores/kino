@@ -524,6 +524,21 @@ test("cut_out outline: with no subject it holds 0.5 s then fades, states the sub
   assert.equal(after.animations.find((animation) => animation.kind === "out").start, 1.667);
 });
 
+test("cut_out outline shows only while its clip is drawn: its Play window and Hide go on the line, and move when the clip is retimed", async (t) => {
+  const { root, cutoutMedia, document, operation } = await fakeOutline(t);
+  const clip = document.scenes[0].layers[0];
+  Object.assign(clip, { mediaStart: 0.5, mediaFreeze: "none", animations: [{ id: "gone", name: "Hide", kind: "hide", start: 1.2 }] });
+  const next = await runCutOut(document, operation, { mediaRoot: root, cutoutMedia, operationContext: async () => ({}) });
+  const line = next.scenes[0].layers.find((layer) => layer.id === "clip-line");
+  assert.deepEqual(line.playbackWindows, [{ start: 0.5, end: 1.5, visibility: "during", hold: false }]);
+  assert.ok(line.animations.some((animation) => animation.kind === "hide" && animation.start === 1.2));
+  const moved = applyOperations(next, [{ type: "update_layer", sceneId: "scene", layerId: "clip", properties: { mediaStart: 1 } }]);
+  assert.deepEqual(moved.scenes[0].layers.find((layer) => layer.id === "clip-line").playbackWindows, [{ start: 1, end: 2, visibility: "during", hold: false }]);
+  // update_layers retimes it the same way.
+  const many = applyOperations(next, [{ type: "update_layers", sceneId: "scene", layerIds: ["clip"], properties: { mediaStart: 1.5 } }]);
+  assert.deepEqual(many.scenes[0].layers.find((layer) => layer.id === "clip-line").playbackWindows, [{ start: 1.5, end: 2.5, visibility: "during", hold: false }]);
+});
+
 test("a cut_out close to done past the edit's wait is waited for, not refused (graceSeconds)", async (t) => {
   const { root, cutoutMedia, document, operation } = await fakeOutline(t, { slow: 300 });
   const options = { mediaRoot: root, cutoutMedia, operationContext: async () => ({}), waitSeconds: 0.05 };

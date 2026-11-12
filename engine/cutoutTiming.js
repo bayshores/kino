@@ -8,12 +8,26 @@
 //   followClipTiming(scene, before, after)  after update_layer on clip `after` (was `before`):
 //     a media copy that had the clip's old Play fields gets the new ones; an outline's path keys
 //     move to the scene times the clip now shows the same file moments (keys it never shows go).
-import { mediaSceneTime, mediaSoundTime } from "./playback.js";
+//   clipShowWindow(clip, sceneDuration)  the playback window an outline needs to show only when
+//     its clip does: a clip whose Freeze is not "both" is not drawn before or after Play, but a
+//     path is drawn the whole scene (run 6 probe: the last shot's outline over another shot at 10 s;
+//     study b: "the side shot's band and outline over every frame"). null when the clip always shows.
+import { effectiveMediaDuration, mediaSceneTime, mediaSoundTime } from "./playback.js";
 
 /** The id part of an outline's fades where no subject is found (cutout-operation.mjs). */
 export const LOST_FADE = "lost-fade-";
 const PLAY_KEYS =["mediaStart", "mediaDuration", "mediaOffset", "mediaSpeed", "mediaReverse", "mediaFreeze", "mediaSourceDuration", "mediaFrameRate", "playbackWindows"];
 const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+const FREEZE_SHOWS = { first: "before", last: "after", none: "during" };
+
+export function clipShowWindow(clip, sceneDuration) {
+  const media = clip.type === "video" || (clip.type === "image" && clip.mediaDuration > 0);
+  const visibility = media ? FREEZE_SHOWS[clip.mediaFreeze ?? (clip.type === "video" ? "both" : "none")] : undefined;
+  if (!visibility) return null;
+  const start = Math.max(0, clip.mediaStart ?? 0), length = effectiveMediaDuration(clip);
+  const end = Number.isFinite(length) ? start + length : Math.max(start, sceneDuration ?? start);
+  return { start: Math.round(start * 1000) / 1000, end: Math.round(end * 1000) / 1000, visibility, hold: false };
+}
 
 export function playChanged(before, after) {
   return PLAY_KEYS.some((key) => !same(before[key], after[key]));
@@ -51,6 +65,10 @@ export function followClipTiming(scene, before, after) {
         if (!moved.keys) delete moved.keys;
         return [moved];
       });
+      // Its show window (clipShowWindow) moves to the clip's new Play range.
+      const old = clipShowWindow(before, scene.duration), now = clipShowWindow(after, scene.duration);
+      const windows = (layer.playbackWindows ?? []).filter((window) => !(old && same(window, old)));
+      if (old || now) layer.playbackWindows = now ? [...windows, now] : windows;
       continue;
     }
     // A copy that still had the clip's old timing takes the new one (one retimed on its own keeps its own).

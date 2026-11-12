@@ -28,7 +28,7 @@ import { duplicateLayers } from "../../engine/layerClipboard.js";
 import { createLayer, parseDocument } from "../../engine/model.js";
 import { outlinePathData, pointsBox } from "../cutout/outline.mjs";
 import { presetAnimation } from "../../engine/animation.js";
-import { LOST_FADE } from "../../engine/cutoutTiming.js";
+import { clipShowWindow, LOST_FADE } from "../../engine/cutoutTiming.js";
 import { parseFrameRate } from "../media-probe.mjs";
 import { applyOperations } from "../../engine/operations.js";
 import { mediaSceneTime } from "../../engine/playback.js";
@@ -138,6 +138,9 @@ async function addOutlineLayer({ document, operation, scene, layer, made, report
     ...Object.fromEntries(PLACE_KEYS.filter((key) => layer[key] !== undefined).map((key) => [key, structuredClone(layer[key])])),
     path: shapes[0].path, pathBounds: { x: 0, y: 0, width: layer.width, height: layer.height }, fillEnabled: false,
     stroke: operation.color ?? "#ffffff", strokeWidth: operation.width ?? 3 });
+  // The line shows only while its clip is drawn (a clip with Freeze "none" is not drawn outside Play).
+  const shows = clipShowWindow(layer, scene.duration);
+  if (shows) outlineLayer.playbackWindows = [...(outlineLayer.playbackWindows ?? []), shows];
   let next = parseDocument({ ...document, scenes: document.scenes.map((item) => item.id === sceneId ? { ...item, layers: [...item.layers, outlineLayer] } : item) });
   const steps = [{ type: "move_layers", sceneId, layerIds: [operation.cutoutId], position: "above", referenceId: operation.referenceId ?? layerId }];
   // One custom animation per run of shapes, each ending where the next begins.
@@ -150,7 +153,8 @@ async function addOutlineLayer({ document, operation, scene, layer, made, report
   }
   // The clip's moves (a push, a slide, a turn, its fades) go on the line too, or a pushed clip's
   // subject grows away from its outline (probe on run 6: "final" pushed 1 to 1.15, line 60 px off).
-  const moves = (layer.animations ?? []).filter((animation) => ["custom", "in", "out"].includes(animation.kind)
+  // Its Hide and Show go on the line too (study b hid each clip with them).
+  const moves = (layer.animations ?? []).filter((animation) => ["custom", "in", "out", "hide", "show"].includes(animation.kind)
     && [animation.from, animation.to, ...(animation.keys ?? []).map((key) => key.value)].every((values) => Object.keys(values ?? {}).every((key) => MOVE_KEYS.has(key))));
   for (const animation of moves) {
     const { id, ...copy } = structuredClone(animation);
@@ -171,7 +175,7 @@ async function addOutlineLayer({ document, operation, scene, layer, made, report
   next = parseDocument(applyOperations(next, steps, await operationContext(next, steps)));
   const notes = made.note ? [made.note] : [];
   if (empty > 0) notes.push(`no ${made.engine === "person" ? "person" : "subject"} in ${empty} of ${sampled.length} traced frames Play shows: held ${OUTLINE_HOLD} s or faded${faded.length ? ` (faded out at ${faded.join(", ")} s)` : ""}`);
-  if (layer.animations?.some((animation) => animation.kind !== "effect" && !moves.includes(animation))) notes.push(`"${layer.name}" has animations the outline does not copy (only its moves, scales, turns and fades); add the same ones to it if they change its place`);
+  if (layer.animations?.some((animation) => animation.kind !== "effect" && !moves.includes(animation))) notes.push(`"${layer.name}" has animations the outline does not copy (only its moves, scales, turns, fades, shows and hides); add the same ones to it if they change its place`);
   const subject = subjectReport(layer, found.map(({ time, box }) => ({ time, box })), scene);
   reports?.set(operation, { engine: made.engine, output: "outline", frames: made.frames, seconds: Math.round(made.seconds * 10) / 10,
     cached: made.cached, outline: { shapes: shapes.length, step: outline.step, points: Math.max(...outline.frames.map((frame) => frame.points?.length ?? 0)) },
