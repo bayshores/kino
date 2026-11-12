@@ -130,6 +130,8 @@ function steadyOpacity(move, layer, start, end) {
   if (fading) throw new Error(`${move}: ${layer.id} fades during the move (${round(fading.start)} to ${round(fading.start + fading.duration)} s); start it after the entrance and end it before the exit.`);
 }
 
+// The glow effect's largest radius in px (engine/effects/light.js).
+const HALO_MOST = 400;
 const glowTo = (color, radius, strength) => ({ strength, radius: round(radius, 1), threshold: 0, softness: 0, color, colorMix: 1, passes: 2 });
 
 export const accentHit = {
@@ -352,8 +354,9 @@ export const lightSweep = {
       for (let step = 0; step < SWEEP_STEPS; step += 1)
         ctx.animate(target, `sweep-${crossing ? `${crossing + 1}-` : ""}${step + 1}`, motion({ name: "Light sweep", start: t + crossing * pass + step * stepLength, duration: stepLength, easing: LINEAR,
           from: { fill: bandAt(middleAt(step)) }, to: { fill: bandAt(middleAt(step + 1)) } }));
-    // The halo: the band glows (only it has color), wide and soft.
-    ctx.animate(copy, "halo", effect({ name: "Halo", effect: "glow", start: t, duration: ctx.duration, easing: CURVES.fade, to: glowTo(color, size * 0.35, 1.2), keepStill: "off" }));
+    // The halo: the band glows (only it has color), wide and soft. A tall picture (a full-frame clip
+    // over 1142 px high) would ask for more than the glow's largest radius, so it takes that.
+    ctx.animate(copy, "halo", effect({ name: "Halo", effect: "glow", start: t, duration: ctx.duration, easing: CURVES.fade, to: glowTo(color, Math.min(HALO_MOST, size * 0.35), 1.2), keepStill: "off" }));
     ctx.animate(copy, "show", show(t));
     ctx.animate(copy, "hide", hide(end));
     return { end, tags: lightSweep.tags };

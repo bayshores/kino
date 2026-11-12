@@ -1294,6 +1294,11 @@ test("accent-hit flashes one word in two frames and decays back in 4-8; light-sw
   assert.ok(Math.abs((peaks[2] - peaks[1]) - (peaks[3] - peaks[2])) < 0.02, JSON.stringify(peaks));
   assert.equal(at("light-sweep-overlay", 1.4).visible, false);
   assert.deepEqual(sweep.tags, ["light-sweep"]);
+  // A full-frame plate 1174 px high (a clip pushed in past 1080): the halo takes the glow's largest radius, 400.
+  const tall = build();
+  tall.layers.push(createLayer("rectangle", { id: "plate", name: "plate", x: -83, y: -47, width: 2087, height: 1174, fill: "#334455" }));
+  const halo = run(tall, "light-sweep", { layer: "plate" }, 1).added.flatMap(({ layer }) => layer.animations).find((animation) => animation.name === "Halo");
+  assert.equal(halo.to.radius, 400);
   // Reduced motion: no glow and no sweep, the word just turns the color and back.
   const calm = [run(build(), "accent-hit", { layer: "line" }, 1, true), run(build(), "light-sweep", { layer: "mark" }, 1, true)];
   for (const made of calm) {

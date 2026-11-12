@@ -489,6 +489,26 @@ test("keep_line over measured music levels the line against the music around it,
   assert.deepEqual([volumeAt(dropped.music, 6.15), volumeAt(dropped.music, 6.2)], [0, 1]);
   assert.match(dropped.notes, /the music stays out until the song's drop at 6\.2 s, 0\.2 s after the line's last word, and hits back on it: \+0 LU there \(-13 to -13 LUFS, 0\.4 s each side, measured\)/);
   assert.doesNotMatch(dropped.notes, /hits back on the beat/);
+  // A dip that joins one already under another line stays down past the beat: the note gives the
+  // time the music is back in fact (dm2-b replay: "back up on the beat at 3.331 s" over a dip held to 6.02).
+  const other = createLayer("audio", { id: "other", name: "other.wav", src: "/api/media/other.wav", mediaSourceDuration: 12 });
+  const later = { type: "keep_line", sceneId: "s", layerId: "other", from: 6.6, to: 8.5, subtitle: false, levels: { ...levels, other: flat(-24, 12) }, beats, dip: 0.5 };
+  const joinedReports = new Map();
+  const joinedLine = { type: "keep_line", sceneId: "s", layerId: "clip", from: 4, to: 6, subtitle: false, levels: later.levels, beats, dip: 0.5 };
+  const joined = parseDocument(applyOperations(documentWith([clip, other, musicLayer()], 12), [later, joinedLine], { reports: joinedReports })).scenes[0];
+  const joinedNotes = joinedReports.get(joinedLine).notes.join(" | ");
+  const joinedMusic = joined.layers.find((layer) => layer.id === "music");
+  assert.deepEqual([6.5, 9].map((time) => volumeAt(joinedMusic, time)), [0.5, 1], joinedNotes);
+  assert.match(joinedNotes, /stays down with the dip under the next sound and comes back up at 9 s \(not on the beat at 6\.5 s\)/);
+  assert.doesNotMatch(joinedNotes, /comes back up on the beat/);
+  // lift:true inside a dip another line made: the note and the mix give the song as heard (6 dB down),
+  // not as measured without the dip (dm2-b replay: "-1.3 LU over" with the song held at 0.25).
+  const liftReports = new Map();
+  const liftLine = { type: "keep_line", sceneId: "s", layerId: "clip", from: 4, to: 6, subtitle: false, levels: later.levels, beats, lift: true };
+  applyOperations(documentWith([clip, other, musicLayer()], 12), [{ ...later, from: 3.5, to: 6.5 }, liftLine], { reports: liftReports });
+  const liftReport = liftReports.get(liftLine);
+  assert.match(liftReport.notes.join(" | "), /a dip already under this stretch holds music at -19 LUFS \(-6 LU from its own -13\): the line is \+6 LU over the song as heard/);
+  assert.deepEqual([liftReport.mix.line, liftReport.mix.under], [-13, -12]);
   // wait:2 waits for the downbeat (8 s).
   const waited = run({ dropout: true, wait: 2 });
   assert.deepEqual([volumeAt(waited.music, 5), volumeAt(waited.music, 7.5), volumeAt(waited.music, 8.1)], [0, 0, 1]);

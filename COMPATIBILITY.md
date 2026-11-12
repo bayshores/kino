@@ -1109,7 +1109,8 @@ How to read it:
   curves, not rendered. Each line's level over the song is printed three ways (lifted with the song untouched and its
   headroom to the song's loudest moment, the shallowest dip with the lift, music out); the default lifts alone when
   that reaches 6 LU, else takes the shallowest dip, and lifts instead when a dip would churn (volume_churn);
-  duck_audio's default joins churning dips 3 s apart or less into one (`joined`).
+  duck_audio's default joins churning dips 3 s apart or less into one (`joined`). Replayed on a copy of a real
+  project: lift inside another line's dip and a dip joined past the beat now print the song as heard and the real release time.
   Evidence: `engine/speech.test.js`, `engine/audioDucking.test.js`. Gap: the headroom is a loudness stand-in, not a measured peak.
 - **Holes round kept lines** (`keep_line` bed, drop, shared dip): Engine-tested on measured curves and rendered once
   on generated audio. Lines sharing one music-out dip get a measured low bed, 6 LU under the quietest line
@@ -1623,7 +1624,7 @@ How to read it:
   color labels recolor in their hues, split-fields and splatters take colors from the label's words, the reference's strip frame or the
   shot (each source printed), a splatter sits beside, above or below the marked subject box, a composite gets a background behind
   an existing cut-out (else a ready call), overexposes stay 1 s apart, and particles and splatters repeat toward the references' median
-  made share. Evidence: `backend/agent-core.test.mjs`. Gap: moves are
+  made share. A light-sweep halo is capped at the glow's largest radius (a 1174 px high clip was refused on a real project). Evidence: `backend/agent-core.test.mjs`, `engine/moves.test.js`. Gap: moves are
   not run end to end through the edit tool in a test; with no subject box a splatter's size and place stay a printed starting guess.
 - **Type by job** (`add_layer` text with `role`): Test-verified. Caption and label text get a subtitle treatment, headline, hero and
   cta a payoff one, from saved type labels when usable, else the scene's colors; a payoff's letters enter on a song cue. Evidence:
