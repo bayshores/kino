@@ -4,6 +4,8 @@ kino has its own sound effects and music as a fallback: a video never waits for 
 switch. A real song (soundtrack guide: named, searched or explored) is the default for music. The catalog ships with kino; each pack or track downloads once, on
 first import, into kino's data folder and is checked against the catalog (SHA-256).
 
+Contents: Sound effects · Music · Placing sound · A clip's own sounds · Separating voice
+
 ## Sound effects
 
 - `library {topic:"sounds", search:"whoosh"}` lists up to 10 of 154 CC0 effects (Kenney's

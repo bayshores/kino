@@ -645,6 +645,8 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
   // {src: {width, height, busy?, edges?, flat?} | null} (the last three: frozen_screen, screen_unreadable). Also each media file's name as the library lists it
   // {src: "target.mp4"}: spine_drift matches a beat's uses by it.
   const sizes = new Map();
+  // Frame facts measured here for a record saved without them: asked once per file.
+  const factsOf = new Map();
   async function mediaSizes(document) {
     const found = {};
     const names = {};
@@ -665,7 +667,7 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
       let record = null;
       try { record = id && mediaRoot ? JSON.parse(await readFile(path.join(mediaRoot, `${id}.json`), "utf8")) : null; } catch { record = null; }
       records.set(layer.src, record);
-      if (record && layer.type === "video" && videoFacts && record.hasVideo !== false && !Object.hasOwn(record, "busy") && !record.recording) {
+      if (record && layer.type === "video" && videoFacts && record.hasVideo !== false && !Object.hasOwn(record, "busy") && !record.recording && !factsOf.has(layer.src)) {
         const facts = {};
         asked.set(layer.src, { facts, job: Promise.resolve().then(() => videoFacts(id, record)).then((value) => Object.assign(facts, value), () => {}) });
       }
@@ -680,7 +682,8 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
       let entry = sizes.get(layer.src);
       if (!entry) {
         let record = records.get(layer.src) ?? null;
-        const measured = asked.get(layer.src)?.facts;
+        const measured = asked.get(layer.src)?.facts ?? factsOf.get(layer.src);
+        if (measured && Object.hasOwn(measured, "busy")) factsOf.set(layer.src, measured);
         if (measured) record = { ...record, ...measured };
         const size = record?.width > 0 && record?.height > 0 ? { width: record.width, height: record.height,
           ...(Array.isArray(record.busy) ? { busy: record.busy, edges: record.edges, flat: record.flat } : {}),
@@ -700,6 +703,7 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
         if (!measured || Object.hasOwn(measured, "busy")) { if (layer.type !== "video" || holds) sizes.set(layer.src, entry); }
         else pending.push(layer.src);
         if (sizes.size > 4096) sizes.delete(sizes.keys().next().value);
+        if (factsOf.size > 4096) factsOf.delete(factsOf.keys().next().value);
       }
       const { size, name } = entry;
       if (layer.type !== "audio") found[layer.src] = size;

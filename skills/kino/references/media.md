@@ -108,3 +108,7 @@ B-roll on the spoken word
   whose words is said (unchanged): give it words the voice says, not a description of the shot.
 - Clean the voice first (`cut_speech` with `pauses:"natural"`, `"tight"` or `"fast"`: pauses over
   0.6, 0.35 or 0.2 s shrink to 0.4, 0.25 or 0.12 s); put the clips above the speaker's picture.
+
+A board shot as one video layer (W × H the video, `[x, y, w, h]` the crop): `height` = H × 100 / h,
+`width` = `height` × the source's width / height, `x` = −x / 100 × `width`, `y` = −y / 100 ×
+`height`, `mediaStart` = `cue`, `mediaOffset` = `in`, `mediaDuration` = `dur`, `mediaSpeed` = `speed`.
