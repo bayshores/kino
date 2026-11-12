@@ -3683,9 +3683,10 @@ export function createAgentService(deps) {
     const scene = document.scenes.find((entry) => entry.id === sceneId);
     return scene ? { duration: scene.duration, ids: new Set((scene.layers ?? []).map((layer) => layer.id)) } : null;
   };
-  // The video shots on screen at `at` (seconds) in a scene, [{id, name}]: saved with each critic line
-  // so a line about a shot deleted since is dropped, not held open.
-  const shotsAt = (scene, at) => (scene?.layers ?? []).filter((layer) => layer.type === "video" && layer.enabled !== false && layer.visible !== false)
+  // The pictures on screen at `at` (seconds) in a scene, [{id, name}]: video shots and images (a
+  // product promo's screenshot is its shot; an image with no Play range counts for the whole scene).
+  // Saved with each critic line so a line about a picture deleted since is dropped, not held open.
+  const shotsAt = (scene, at) => (scene?.layers ?? []).filter((layer) => (layer.type === "video" || layer.type === "image") && layer.enabled !== false && layer.visible !== false)
     .filter((layer) => { const range = mediaPlaybackRange(layer, scene.duration); return range && range.start <= at + 1e-6 && at < range.end - 1e-6; })
     .map((layer) => ({ id: layer.id, name: layer.name ?? layer.id }));
   // A scene's open P0 lines as they stand now, or null: none, waived, about something deleted since,
@@ -3910,9 +3911,9 @@ export function createAgentService(deps) {
     const shown = packet.split("\n");
     const idea = viewer ? ideaLines(styleContext(state.brief?.style)) : [];
     const record_ = viewer
-      ? [`Then read ${viewerFile} (its part 1) and record both in one call: notes {action:"critique", rev:${record.revision}, lines:[its answer], matches:[{beat, got:"yes"|"partly"|"no", note}], bugs:[{at, what}]}; kino takes the report from viewer.txt. Match it against your ${plural(intents.beats.length, "beat")}' intents yourself. A P0 or a story bug asks for round 2. Answered part 1 only: notes {action:"critique", rev:${record.revision}, report:"<its answer>"}.`,
+      ? [`Then read ${viewerFile} (its part 1) and record both in one call: notes {action:"critique", rev:${record.revision}, lines:[its answer], matches:[{beat, got:"yes"|"partly"|"no", note}], bugs:[{at, what}]}; kino takes the report from viewer.txt.${intents?.beats?.length ? ` Match it against your ${plural(intents.beats.length, "beat")}' intents yourself.` : ""} Its P0s and story bugs are a fix list; the final render does not wait on them. Answered part 1 only: notes {action:"critique", rev:${record.revision}, report:"<its answer>"}.`,
         ...(idea.length ? [`Match it against the idea too (did its "moment you cared most" land on the signature?): ${idea.join(" · ")}`] : [])]
-      : [`Then record its lines as they came: notes {action:"critique", rev:${record.revision}, lines:["P0 t=..."]}. A P0 blocks a final render until a newer rev's round has none.`];
+      : [`Then record its lines as they came: notes {action:"critique", rev:${record.revision}, lines:["P0 t=..."]}. One round: its P0s are a fix list, and the final render does not wait on them.`];
     const lines = [
       `critique packet ${sceneName} rev ${record.revision}: ${viewer ? `the viewer's ${plural(first, "sheet")} and heard.txt, then ` : ""}${plural(pages.length, "page")} (${plural(seams.length, "seam")}, ${plural(moments.length, "moment")}) and packet.txt in ${folder}; page ${pageNumber} shown${all.length > 1 ? `, look {mode:"critique", page} for others` : ""}`,
       "Start one fresh subagent that never saw this chat; give it only this prompt:", "---", prompt, "---",

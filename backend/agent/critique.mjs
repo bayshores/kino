@@ -13,7 +13,7 @@ import { sec } from "./describe.mjs";
 import { AI_EDIT_QUESTIONS, BAR_FORM, BAR_PROBLEM, barLine } from "./bar.mjs";
 
 // Added to the protocol when the project has a bar (bar.mjs): the comparison comes first.
-export const BAR_PROTOCOL = `There is a bar: the best earlier cut, judged by the person. The bar pages show it beside this cut at the same story points. Before anything else, one line: ${BAR_FORM}. Name the times and the exact differences (captions, cut timing, devices, title and end card); never call it better because it does more. worse blocks the final render.`;
+export const BAR_PROTOCOL = `There is a bar: the best earlier cut, judged by the person. The bar pages show it beside this cut at the same story points. Before anything else, one line: ${BAR_FORM}. Name the times and the exact differences (captions, cut timing, devices, title and end card); never call it better because it does more. worse is a P0 on the fix list.`;
 
 // Videos shorter than this (seconds) skip the critic.
 export const CRITIQUE_UNDER = 10;

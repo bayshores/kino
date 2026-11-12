@@ -2329,7 +2329,8 @@ test("reference_kinds: references with a measured voice and an edit with no hear
   const clipLines = [{ layer: "a", text: "I am done", from: 1, to: 2.4 }, { layer: "a", text: "Hello there", from: 3, to: 4 }];
   const context = { sceneName: "s1", seenRefs: voiced, speech: [], clipLines };
   const [none] = (await check("reference_kinds", scene({ layers: [footage("a")] }), context)).findings.filter((finding) => finding.severity === "info");
-  assert.match(none.message, /^reference_kinds: your edit shows spoken at 0 of 8 moments; your references show it at 2 of 2 with a voice before their loudest change \(yt:aaaaaaaaaaa @2\.5\)\. A free moment: 1\.75 s\.$/);
+  assert.match(none.message, /^reference_kinds: your edit shows spoken at 0 of 8 moments; your references show it at 2 of 2 with a voice before their loudest change \(yt:aaaaaaaaaaa @2\.5\)\.$/);
+  assert.equal(none.at, undefined, "a kept line plays where the clip says it: no free moment");
   assert.deepEqual(none.fix.call, { tool: "edit", input: { ops: [{ op: "keep_line", layer: "a", line: "I am done" }, { op: "isolate_voice", layer: "a" }] } });
   assert.match(none.fix.text, /^edit \{"ops":\[\{"op":"keep_line","layer":"a","line":"I am done"\}.*your clips say a "I am done" 1-2\.4 s · a "Hello there" 3-4 s/);
   // One reference with a voice is not two; a slowed clip's line is no call (keep_line needs speed 1).

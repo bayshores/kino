@@ -333,12 +333,14 @@ export function referenceKinds(model, ctx) {
       const unseen = kind === "made" ? moments.filter((moment) => moment.madeShare > 0) : [];
       const covers = unseen.length ? Math.max(...unseen.map((moment) => moment.madeShare)) : 0;
       const hidden = unseen.length ? `made shows at ${unseen.length} of ${total} moments but covers ${Math.round(covers * 1000) / 10}% of the frame (under ${Math.round(MADE_MIN_SHARE * 100)}%)` : "";
+      // Spoken has no free moment: a kept line plays where the clip says it (spokenFix names the times).
+      const place = kind === "spoken" ? null : free;
       findings.push({
-        rule: "reference_kinds", severity: "info", ...(free === null ? {} : { at: free }),
+        rule: "reference_kinds", severity: "info", ...(place === null ? {} : { at: place }),
         measured: hidden || `${kind} at 0 of ${total} moments`,
         required: byVoice ? `${kind} at some moment, as ${voice.before} of ${voice.n} of your references have a voice there` : `${kind} at some moment, as ${showers.length} of your references show it at 2 or more`,
-        message: `reference_kinds: ${hidden || `your edit shows ${kind} at 0 of ${total} moments`}; your references show it at ${lines}.${free === null ? "" : ` A free moment: ${free} s${lead ? ` ("${String(lead).replaceAll('"', "'").slice(0, 60)}")` : ""}.`}`,
-        fix: { kind: "hint", text: `${ready ? `${ready.text}, or ${search.text}` : search.text}. ${advice}`, call: (ready ?? search).call },
+        message: `reference_kinds: ${hidden || `your edit shows ${kind} at 0 of ${total} moments`}; your references show it at ${lines}.${place === null ? "" : ` A free moment: ${place} s${lead ? ` ("${String(lead).replaceAll('"', "'").slice(0, 60)}")` : ""}.`}`,
+        fix: { kind: "hint", text: `${ready ? `${ready.text}, or ${search.text}` : search.text}. ${kind === "made" ? advice : "Advice, never a gate; plain on purpose is fine."}`, call: (ready ?? search).call },
       });
     } else if (sized.length && have > 0 && have / total < lowest - MARGIN) {
       const all = sized.map((share) => `${showing(share, kind)} (${share.id})`).join(" and ");

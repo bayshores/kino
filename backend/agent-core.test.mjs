@@ -821,6 +821,9 @@ test("advice is one line and not a warning; open findings list by rule; a rule w
   assert.ok(report.findings.every((finding) => finding.severity !== "info"));
   assert.equal(report.advice, "busy_edit x2, pacing_jump");
   assert.equal(adviceLine(findings.slice(0, 4)), "");
+  // A missing reference kind is advice that names its place in the line the agent reads.
+  assert.equal(adviceLine([{ severity: "info", rule: "reference_kinds", measured: "made at 0 of 30 moments", at: 11.3 }, { severity: "info", rule: "reference_kinds", measured: "spoken at 0 of 30 moments" }]),
+    "reference_kinds x2 (made at 0 of 30, free moment 11.3 s; spoken at 0 of 30)");
   // A check that names its rules lists the advice too.
   assert.equal(checkReport(findings, { info: true }).findings.filter((finding) => finding.severity === "info").length, 3);
   assert.deepEqual(openFindingLines(findings), ["overlap (title)", "hold x2 (say4)"]);
