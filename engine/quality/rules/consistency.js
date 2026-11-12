@@ -183,11 +183,17 @@ export function roleFontDrift(model, ctx) {
     const onSize = items.filter((item, index) => near(index));
     const besideOnSize = (item) => onSize.some((other) => other !== item && model.times.some((time, at) => item.samples.opacity[at] > 0.3 && other.samples.opacity[at] > 0.3));
     const odd = items.filter((item, index) => !near(index) && !(role === "display" && besideOnSize(item)));
+    // A size in the style bible that neither the person's words nor a reference line chose is the
+    // agent's guess (run 8: display 270 px was guessed before any lettering was measured, and this
+    // rule pushed 220 and 250 px back to it three times). It is reported, not pushed: severity info.
+    const guessedSize = Boolean(bible?.size) && !ctx.style?.fontsBacked && !chosenFamilies(ctx, { strict: true }).has(familyOf(bible.family));
     if (odd.length) findings.push({
-      rule: "role_font_drift", severity, itemId: odd[0].id, itemIds: odd.map((item) => item.id), at: sec(firstShown(model, odd[0])),
-      measured: `${roleName} at ${[...new Set(sizes.map(Math.round))].join(", ")} px`, required: `${bible?.size ? `the style bible's ${bible.size} px` : "one size"} for ${roleName} text (within ${Math.round(SIZE_SPREAD * 100)}%)`,
-      message: `${odd.slice(0, 3).map((item) => ctx.name(item)).join(", ")} ${odd.length === 1 ? "is" : "are"} ${roleName} text at another size than ${bible?.size ? `the style says (${bibleRole} ${Math.round(target)} px)` : `the others (${Math.round(target)} px)`}.`,
-      fix: { kind: "hint", text: `Set fontSize ${Math.round(target)} on ${odd.slice(0, 4).map((item) => ctx.name(item)).join(", ")} (update_layer)${bible?.size ? `, or change style.fonts.${bibleRole}.size (notes brief)` : ""}, or give a title the role headline.` },
+      rule: "role_font_drift", severity: guessedSize ? "info" : severity, itemId: odd[0].id, itemIds: odd.map((item) => item.id), at: sec(firstShown(model, odd[0])),
+      measured: `${roleName} at ${[...new Set(sizes.map(Math.round))].join(", ")} px`, required: `${bible?.size ? `the style bible's ${bible.size} px${guessedSize ? " (a guess)" : ""}` : "one size"} for ${roleName} text (within ${Math.round(SIZE_SPREAD * 100)}%)`,
+      message: `${odd.slice(0, 3).map((item) => ctx.name(item)).join(", ")} ${odd.length === 1 ? "is" : "are"} ${roleName} text at another size than ${bible?.size ? `the style says (${bibleRole} ${Math.round(target)} px)` : `the others (${Math.round(target)} px)`}.${guessedSize ? ` Information only: ${Math.round(target)} px is the agent's guess (no reference line or person chose it), so the size on screen stands unless it reads wrong.` : ""}`,
+      fix: { kind: "hint", text: guessedSize
+        ? `Keep the size if it reads right and update style.fonts.${bibleRole}.size to it (notes brief); a size measured on a reference moment (library {topic:"fonts", like}) or given by the person is what this rule holds the video to.`
+        : `Set fontSize ${Math.round(target)} on ${odd.slice(0, 4).map((item) => ctx.name(item)).join(", ")} (update_layer)${bible?.size ? `, or change style.fonts.${bibleRole}.size (notes brief)` : ""}, or give a title the role headline.` },
     });
   }
   return findings;

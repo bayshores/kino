@@ -1012,7 +1012,9 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
       const body = style.caption?.family ? style.caption : face;
       return { fonts: [{ family: face.family }, { family: body.family }], note: `type from the style spec: ${face.family}${body.family === face.family ? "" : ` and ${body.family}`}` };
     }
-    if (spec?.type) return { fonts: null, note: `the picked type is '${spec.type}': set style.fonts or set_font to a face for it` };
+    // A type direction written before any reference type label is the agent's guess: the note says so,
+    // and points at the references' lettering (library fonts lists faces from the labels first).
+    if (spec?.type) return { fonts: null, note: `the picked type is ${spec.typeLabeled === false ? "a guess (no reference type label yet) " : ""}'${spec.type}': set style.fonts or set_font to a face for it${spec.typeLabeled === false ? '; label a reference moment type, then library {topic:"fonts"} ranks faces from it' : ""}` };
     return { fonts: null, note: null };
   }
 

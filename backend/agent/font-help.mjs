@@ -315,15 +315,37 @@ async function lookMatches({ categories, weights, names, styles = [], boost = []
   return { matches, offline, own };
 }
 
+/**
+ * The catalog families a search word names: a family whose name starts with the word, or with
+ * all the unknown words together ("anton", "bebas neue"). { found, rest }: the families, best first,
+ * and the words that named none. Run 8 asked "Anton condensed bold" and the answer said
+ * "ignored: anton" and listed condensed faces A to Z.
+ */
+async function namedFamilies(ignored, catalog) {
+  const found = [], used = new Set();
+  for (const phrase of ignored.length > 1 ? [ignored.join(" "), ...ignored] : ignored) {
+    if (phrase.split(" ").every((word) => used.has(word))) continue;
+    const { families } = await catalog.list({ search: phrase, limit: 6 });
+    const hits = families.filter((family) => family.family.toLowerCase().startsWith(phrase));
+    if (!hits.length) continue;
+    for (const hit of hits) if (!found.some((family) => family.id === hit.id)) found.push(hit);
+    for (const word of phrase.split(" ")) used.add(word);
+  }
+  return { found, rest: ignored.filter((word) => !used.has(word)) };
+}
+
 async function lookFamilies(wanted, term, catalog) {
-  const { categories, weights, styles = [], scripts = [], ranks = [], ignored } = wanted;
-  const { matches, offline, own } = await lookMatches(wanted, catalog);
+  const { categories, weights, styles = [], scripts = [], ranks = [] } = wanted;
+  const { matches: categoryMatches, offline, own } = await lookMatches(wanted, catalog);
+  // A family the search names comes first, then the category's matches.
+  const { found: named, rest: ignored } = wanted.ignored.length ? await namedFamilies(wanted.ignored, catalog) : { found: [], rest: [] };
+  const matches = [...named, ...categoryMatches.filter((family) => !named.some((hit) => hit.id === family.id))];
   const range = (family) => (family.weights[0] === family.weights.at(-1) ? `${family.weights[0]}` : `${family.weights[0]}-${family.weights.at(-1)}`);
   const kind = [...(categories.length ? categories : ["all categories"]), ...weights.map((word) => WEIGHT_LABELS[word]), ...styles, ...ranks.map((word) => `${word} first`), ...scripts].join(", ");
   const listed = matches.slice(0, LISTED);
   const label = (family) => `${family.family} ${range(family)}${own.has(family.family) ? " [kino's own]" : ""}`;
   return [
-    `catalog${offline ? " (offline: cached list)" : ""}, look ${JSON.stringify(term)} (${kind}, ${matches.length} match${ignored.length ? `; ignored: ${ignored.join(", ")}` : ""}): ${listed.map(label).join(", ") || "none match; use fewer words"}${matches.length > LISTED ? ` +${matches.length - LISTED} more` : ""}`,
+    `catalog${offline ? " (offline: cached list)" : ""}, look ${JSON.stringify(term)} (${kind}, ${matches.length} match${named.length ? `; named first: ${named.map((family) => family.family).join(", ")}` : ""}${ignored.length ? `; ignored: ${ignored.join(", ")}` : ""}): ${listed.map(label).join(", ") || "none match; use fewer words"}${matches.length > LISTED ? ` +${matches.length - LISTED} more` : ""}`,
     "Compare by eye with the reference strip, or library {topic:\"fonts\", like:\"<picture path, or yt:id with t>\", region:[x,y,w,h]} ranks faces by the measured letters; set_font {layerIds, family, weight} downloads the one you pick."
     + (listed.some((family) => own.has(family.family)) ? ` [kino's own] fonts are flagged by check unless a style line at a saved reference's moment names them (notes brief, style lines).` : ""),
   ].join("\n");

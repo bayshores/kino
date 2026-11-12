@@ -282,6 +282,24 @@ test("fonts library shape words rank instead of being ignored: rounded and geome
   assert.match(await fontsLibraryText("pixel", { fonts, catalog }), /\(all categories, pixel first, 1 match\): Silkscreen 400-700\n/);
 });
 
+// Run 8 asked "Anton condensed bold": the answer said "ignored: anton" and listed condensed faces A to Z.
+test("fonts library keeps a named family: it is listed first with a category word beside it, then the category's matches", async () => {
+  const entry = (id, family, category, weights) => ({ id, family, category, weights });
+  const families = [entry("barlow-condensed", "Barlow Condensed", "sans-serif", [400, 800]), entry("anton", "Anton", "sans-serif", [400]),
+    entry("anton-sc", "Anton SC", "sans-serif", [400]), entry("bebas-neue", "Bebas Neue", "sans-serif", [400]), entry("oswald", "Oswald", "sans-serif", [400, 700])];
+  const catalog = { list: async ({ search = "" } = {}) => {
+    const found = families.filter((family) => family.family.toLowerCase().includes(search.toLowerCase()));
+    return { families: found, total: found.length, offline: false };
+  } };
+  const fonts = { entries: () => [] };
+  const named = await fontsLibraryText("Anton condensed bold", { fonts, catalog });
+  assert.match(named, /^catalog, look "Anton condensed bold" \(all categories, 700\+, 3 match; named first: Anton, Anton SC\): Anton 400 \[kino's own\], Anton SC 400, Barlow Condensed 400-800\n/);
+  assert.doesNotMatch(named, /ignored: anton/);
+  // A name of two words, and a word that names no family (still ignored).
+  assert.match(await fontsLibraryText("Bebas Neue sans-serif", { fonts, catalog }), /named first: Bebas Neue\): Bebas Neue 400 \[kino's own\], Barlow Condensed/);
+  assert.match(await fontsLibraryText("wobbly condensed", { fonts, catalog }), /\(all categories, 1 match; ignored: wobbly\): Barlow Condensed/);
+});
+
 // library {topic:"fonts", like}: a picture of letters set in one bundled face ranks that face first.
 test("fonts like: the lettering in a picture ranks the face it was set in first, with words for what differs and a set_font call", async (t) => {
   const { createCanvas, GlobalFonts } = await import("@napi-rs/canvas");
@@ -304,6 +322,17 @@ test("fonts like: the lettering in a picture ranks the face it was set in first,
   assert.match(answer.text, /\n1\. Noto Serif 700 \(distance [\d.]+: [a-z ,]+\) set_font \{layerIds:\["<layer>"\], family:"Noto Serif", weight:700\}/);
   assert.match(answer.text, /\n2\. (?!Noto Serif 700)/, "one line per face");
   assert.match(await (await import("node:fs/promises")).readFile(catalog.measuresFile, "utf8"), /Noto Serif|NotoSerif/, "measures are kept on disk");
+  // Saved type labels: the same ranking runs at each labeled moment and its lines come first (here the saved moment is this picture).
+  const { fontsLikeLabels } = await import("./font-like.mjs");
+  const frame = await (await import("node:fs/promises")).readFile(file);
+  const labels = [{ id: "yt:aaaaaaaaaaa", at: 3.8, words: "STORM in a serif" }, { id: "yt:bbbbbbbbbbb", at: 1, words: "x" }, { id: "yt:ccccccccccc", at: 2, words: "y" }];
+  const labeled = await fontsLikeLabels(labels, { fonts, catalog, referenceFrame: async () => frame });
+  assert.match(labeled.text, /^like your label yt:aaaaaaaaaaa @3\.8 "STORM in a serif": \S.* \d+ \([\d.]+\)(, .*){3}\n/, "four faces, each with its distance");
+  assert.match(labeled.text, /\n.* yt:bbbbbbbbbbb @1 "x"[^\n]*\n\(smaller distance = closer letters; 1 more label: like:"<ref>", t; region/, "two labels are measured, the rest named");
+  assert.equal(labeled.found.length, 2);
+  assert.equal(await fontsLikeLabels([], { fonts }), null, "no labels, no lines");
+  const blank = await fontsLikeLabels([labels[0]], { fonts, catalog, referenceFrame: async () => createCanvas(40, 40).toBuffer("image/png") });
+  assert.match(blank.text, /^your label yt:aaaaaaaaaaa @3\.8 "STORM in a serif" was not measured \(no lettering found in that region\): library \{topic:"fonts", like:"yt:aaaaaaaaaaa", t:3\.8, region:\[x,y,w,h\]\}/);
 });
 
 // Measured on the benchmark crops: a dotted lettering read dots 0.43 and lost to solid condensed faces,
