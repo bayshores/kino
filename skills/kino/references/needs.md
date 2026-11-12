@@ -44,7 +44,7 @@ things you can do without it, each with its cost, and one you recommend:
 
 Then say it plainly in the chat: what is missing, why the video loses it, and the options. The
 dashboard shows the same question with a button for each option, "I have it" and "do without"
-(the found footage option reads "find footage" there).
+(the found footage option reads "find footage" there). An item may carry `file:"<name, src or source address>"`: a clip the person already imported is not asked for, and the answer names the import that matched.
 
 ## Their answer
 

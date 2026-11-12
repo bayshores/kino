@@ -9,9 +9,8 @@ Contents: Ops and names · Refusals and fixes · Examples · Animations · Fonts
 
 - `ops` is a list of `{op, …}`. `name` on `add_layer`, `group_layers` or `insert_component`
   becomes its ID; codes (`L3`, `A2`, `s1`) work too. `headline.in` is the `in` animation of
-  `headline` once an earlier edit saved it (in the same edit, name the layer). A name not
-  found is refused with `didYouMean`. A scene or layer added earlier in the same edit works
-  by name or coming code.
+  `headline` once saved (in the same edit, name the layer). A name not
+  found is refused with `didYouMean`.
 - `add_layer` takes animations inline: `animations:[{preset, start, duration, …}]` (the
   `add_animation` fields without `layer`) or `[{kind:"custom", …}]`. A layer property sent next
   to `properties` (`text`, `x`, …) is moved into them (in `fixed`); any other unknown field is
@@ -20,8 +19,7 @@ Contents: Ops and names · Refusals and fixes · Examples · Animations · Fonts
   `textResize:"width-height"`.
 - Colors are hex (`#00000000` transparent); color words, `rgba()`, `hsl()` and CSS gradients
   convert. Corners: `radius` or `cornerRadii` (four). A property no layer has is refused with
-  the closest names; a field an op does not have is ignored, and the receipt's notes give the
-  closest field and the op's field line.
+  the closest names; a field an op lacks is ignored, and the receipt's notes give the closest.
 - `rev` (optional): the revision you read; a changed project takes the edit when it still fits
   (`rebased:true`), else refuses it.
 - A face named but not loaded says so in notes ('font: <layer> asks <face>, not loaded: drawn in <face> now; <call>'): run that `set_font` before the render.
@@ -29,7 +27,6 @@ Contents: Ops and names · Refusals and fixes · Examples · Animations · Fonts
   weight 400, line height 1.2, left aligned); set the font.
 - style_text_range {layer, text:"P", style:{scaleX:-1}} mirrors one letter in place (scaleX/scaleY -10..10, not 0).
 - import_svg {name:"logo", svg} names its top-level layers "logo", "logo 2"; a receipt note lists them.
-- set_font on a face missing a glyph sets it, the glyph in a fallback.
 - Drawn prop, logo or brush word in footage? Trace it into vector shapes: {op:"trace_image", layer:"<clip layer>", time:2.6, region:[x,y,w,h], name:"logo"}
 
 ## Refusals and fixes
@@ -98,8 +95,7 @@ A second scene (from then on every op names its `scene`):
   `properties:{visible:false}`, not `opacity:0`.
 - Moving a layer moves its presets too; for custom x and y, starts away from where a layer is
   drawn, or ends using an old value, the receipt gives the `update_animation` ops that fix them.
-- `preset` also takes `{id, mode, parameters}`.
-- `update_scene` with a new `duration` also ends whole-scene animations (grade, curves, grain, background Color) at the new length (a Speed animation keeps its times); `sceneLength` lists them.
+- `update_scene` with a new `duration` also ends whole-scene animations (grade, curves, grain, background Color) at the new length (a Speed animation keeps its times); `sceneLength` lists them. Up to 1 s longer, a full-frame picture's Hide moves from the old end to the new end; `sceneLength.lastShot` names the Hides moved and left, and for a clip whose Play ends first, the seconds its last frame holds.
 - `delete_animation {pair:true}` also takes the other animations the same move made on that layer. Deleting a move's last own layer leaves what the move put on your layers: `{op:"move", name, id, remove:true}` takes it.
 
 ## Fonts

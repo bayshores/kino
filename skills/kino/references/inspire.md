@@ -98,11 +98,11 @@ frame strips · Proposing ideas · Sound effects
   layer and the contrast ratio).
 - `look {mode:"reference", ref, t}` shows the strip nearest `t` and its neighbors: 6 frames
   1/12 s apart from 0.25 s before the moment, 240 px wide. Without `t`, `page` 1, 2, … of 6.
-  Without `ref`: the saved references, one line each.
-- Strips are kept around cuts, motion peaks and each suggested line's time (24 at most).
+  Without `ref`: the saved references.
+- Strips are kept around cuts, motion peaks and each suggested line (24 at most).
 - `seen` takes a comma after the time (`@1.8, frame, color: ...` or `@1.8,frame`), an `s` after
   the second, and commas, `+`, `&` or `/` between kinds; a line that does not parse names the
-  missing part.
+  missing part. A seen time is a moment or a strip time a look printed.
 - With saved references, a full check runs `reference_drift` (text far from theirs warns;
   motion advises) and `reference_range` (brightness, contrast, dark share, text entrances, a
   clip's own speech where theirs have a voice).

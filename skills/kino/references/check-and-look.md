@@ -11,38 +11,32 @@ Contents: Check · Looking · Review before final · Building in order
 - Each finding says what it measured, what is required and a fix op. A rule's exact limits:
   `library {topic:"rules", name:"quality", search:"<code>"}`. A topic too long for one answer
   comes back cut with the lines left: `search` reads the lines that mention a word.
-- `check {fix:"auto"}` applies the `(auto)` fixes in one edit (skipping one that adds an error
-  or keeps its finding), re-checks, up to 3 rounds: call it once. A warning's fix skips layers
+- `check {fix:"auto"}` applies the `(auto)` fixes in one edit, re-checks, up to 3 rounds: call it once. A warning's fix skips layers
   your last edit moved, a waiver names or a spine beat uses.
-- After an edit, `check {}` redraws only the frames the edit touches, and a check of an
-  unchanged scene answers from the last one.
 - First `check` ends with `Rules:`; a same-rev repeat is 1 line (`{rules:true}` all).
-- The first 8 lines of `check`, `look` versus and review, and `status` lead with what decides your
-  next call (errors, advice, drift, `whole scene:`, inbox); the rest is detail.
-- Footage: `speech_cut` (a voice cut mid-word: sound reference), `soft_upscale` (drawn over 1.3x
-  its file; block step: color reference; one file drawn at one size on several layers lists them in `refs`, `waive_check`
-  targets that list, and a waiver on one layer covers only it), `crop_no_subject` (cropped, no subject marked), `head_cut_off` (Mac), `jump_cut`
-  (one file framed alike back to back), `frozen_footage` (picture stops 0.3 s+: start earlier,
-  mediaSpeed 0.85+, or cut away), `out_of_sync` (a line over another moment of a synced file).
+- Footage: `speech_cut` (sound reference), `soft_upscale` (drawn over 1.3x its file; block step:
+  color reference; a file drawn at one size on several layers lists them in `refs`, and a waiver on one
+  layer covers only it), `crop_no_subject`, `head_cut_off` (Mac), `jump_cut`, `frozen_footage`
+  (picture stops 0.3 s+: start earlier, mediaSpeed 0.85+, or cut away), `out_of_sync`.
 - `covered_layer`: a solid shape, mp4 or jpg above hides a layer (png, webm, mov may be clear).
 - Motion rules (camera, brightness, frozen pictures): motion reference.
 - Contrast: under 0.2 s warns, longer is an error; the fix tries a scrim, a halo
   shadow, a darker place, a large-text size, then a plate.
 - With sound in the scene, `check` adds a `mix:` line: every place the mix passes the master
-  limiter at render loudness `"off"` (time, dB over, layers at their volume, xN to clear it),
-  then what the default `"auto"` gain does to the same peaks; `look {mode:"motion",
-  ref:"sound"}` lists them (worst 6). No render needed. `check {fix:"auto"}` applies those xN
-  (sound reference).
-- `check` and `look` review print a `bare background @T s` fact line (time, frames, color, brightness on both sides, closing call) where the scene background shows between two full-frame shots. A fact, never a block; a card of words made on the background for that stretch is not a gap.
-- The counts line of `status` and receipts reads `err, warn` then the open finding names, and
-  `N waived` then the waived ones, by rule then ref; check's `waived:` line lists the same.
-- Full-frame footage you add over a text that shows at the same time is moved under the text; the
-  receipt notes name it, the seconds and the `move_layers` call that puts it back. Masks, a layer a `move_layers` or `reorder_layer` in the
-  same edit names, a blend mode other than normal and an alpha channel are left alone.
+  limiter at loudness `"off"` (time, dB over, layers, xN to clear it), then what the default
+  `"auto"` gain does to the same peaks. `look {mode:"motion", ref:"sound"}` lists them (worst 6)
+  and prints the same `cue:` and `ending:` lines. `check {fix:"auto", rules:["mix"]}` applies
+  only the mix fix (sound reference).
+- A `fix:"auto"` with `rules:[...]` applies only those rules' fixes. The applied line names each fix (rule and layer, then `mix at <s>`), the `fixed mix` line each place's layers and factors. A song heard under 50% of its time is never lowered whole; a place it cannot dip is 'not applied' with its factor.
+- `check` and `look` review print a `bare background @T s` fact line (time, frames, color, brightness on both sides, closing call) where the background shows between two full-frame shots or in the scene's first or last stretch. The closing call is the last shot's Hide moved to the end, or `update_scene` duration. A fade to or from the background and a card of words on it are no gap.
+- `bare strip`: a full-frame picture (a mirrored one too) leaves an edge uncovered for its whole shot. The line gives the edge, the px, and the scale or x/y that covers it. Facts never block.
+- The counts line of `status`, receipts and `check` reads `err, warn`, then the open finding names, `N waived` then the waived ones, and may end `· N warn stop(s) a final render (rule xN)`: fix or waive those before a final render.
+- Full-frame footage you add over a text shown at the same time goes under the text; the
+  receipt names it and the `move_layers` call that puts it back.
 - `default_font` fix: `library {topic:"fonts", search:"<first type label's words>"}`.
 - `check {rules:["missing_glyphs"], fix:"auto"}` applies the glyph-range fix (a
   `textStyleRanges` range in a font that has the characters); when no font has them, the
-  receipt names a font file to import (Chinese: NotoSansSC-Regular.ttf).
+  receipt names a font file to import.
 - `opacity` 0 under a fade-in warns, names the `delete_animation` call, and its next is
   `update_layer visible:false`.
 - Errors, and in a real edit warnings except taste ones (they ride on the final's receipt), block final. On purpose:
@@ -52,7 +46,7 @@ Contents: Check · Looking · Review before final · Building in order
   `music_stall` the scene. `head_cut_off`, `narrow_window`, `soft_upscale`: named layers.
   Reason names: `ask_unmet` the origin word; `default_font`, `type_seen` a moment you
   labeled type (`yt:<id> @4.4`); `reference_range` its rows (dark footage: its fix is `lift_dark
-  {layer}`; color-wheels `gamma` only brings a picture down). `shape_guess`: never.
+  {layer}`). `shape_guess`: never. A second `reference_range` waiver for other rows keeps the first; any other code keeps two on one target when each passes `detail:"<word>"`.
 - AI tells warn: `own_words` (no `source`), `stock_copy`,
   `same_entrance`, `word_by_word`, `soft_cuts`, `blurred_backdrop`, `text_glow`, `page_chrome`,
   `split_card_layout`, `seen_before`, `type_seen` (like a recent project's: set from references).
@@ -66,20 +60,17 @@ Contents: Check · Looking · Review before final · Building in order
 ## Looking
 
 - CLI: `kino look frame t=3 width=720`; a list is one word (`fields=x,width`).
-- `inspect {targets, fields}`: `color` answers with `fill`,
-  `size`: `width`, `height`.
 - `sheet` (default): about 12 tiles a scene; with cuts, a tile or more a shot, labeled
   `2 · 1.42s` (24 shots at most; `from` shows the rest); several scenes: one frame each.
   `sheet {from, to}`: one stretch.
 - look sheet, look review and check print `returns: <thing> at <times> (what changes)`: each made
   layer, word, image, move or shot shown at 2+ places, and what the first second and last frame
-  share. A fact. A group, or layers named by number (tread-1 to tread-4), counts as
+  share, ending `first and last picture alike: 0.85 (1 is the same picture)` with pixels on. A fact. A group, or layers named by number (tread-1 to tread-4), counts as
   one device: `tread (4 layers) at 1 2 3 ×3`.
-- `check` prints `made:` after `returns:` (`status` and look too, with a deck or labeled references): the share of
-  half-second moments with a cut-out, a drawn graphic or shape, a particle overlay, or non-caption type at 8% of frame height up. Beside it: `deck: N of M cards unused (names)` (`deck_unused`) and
+- `check` prints `made:` after `returns:`: the share of half-second moments with a cut-out, a drawn graphic or shape, a particle overlay, or non-caption type at 8% of frame height up. Beside it: `deck: N of M cards unused (names)` (`deck_unused`) and
   `drawn graphic: yours X of N moments, your references' made labels a of b`.
 - `frame {t, width?}` (up to 1280 px; `zoom` for detail), `zoom {layer, t?}`, `strip {anim}`
-  `compare {rev}`, `changed`, `variants`.
+  `compare {rev}`, `variants`. `changed` after an edit of several spans shows a frame in each, labeled `<t>s in <from>-<to>s`, and prints `N changed spans (scanned the whole scene against rev R)`; spans left out come back as a `look {mode:"frames", times:[...]}` call.
 - `motion {from?, to?}` (graph and trace, no render), `frames {from, to?}` (each 30 fps frame):
   motion reference.
 - `source {layer, t?}`: a video layer's whole source frame (default: mid-screen-time), a 10%
@@ -100,17 +91,12 @@ Contents: Check · Looking · Review before final · Building in order
    time, what happens, findings in yellow. Cuts add seam rows (motion reference).
 3. Study every frame for type, wrapping, overlaps, framing, empty space, artifacts; fix all in one `edit`.
 4. `look {mode:"review"}` again shows only the moments whose picture changed.
-5. A final render does not wait for look review (its receipt names moments not yet reviewed).
-   Review first anyway.
-6. Saved references: with no `look {mode:"versus"}` in 10 revs, final runs it: rows by place
+5. Saved references: with no `look {mode:"versus"}` in 10 revs, final runs it: rows by place
    (opening, loudest change, ending), gaps in fill, contrast, drift, range, softness, accent. A
    lost judge round blocks. Skip: `waive_check {code:"reference", target:"*", reason}`.
 
 ## Building in order
 
-Get a rough whole scene first (layout, background, main subject; often one `compose`), then
-build in at most 3 sections, a designer's order: 1 supporting parts, 2 motion and timing, 3
-polish (color, type, sound). Each section is one `edit`, then `look {mode:"sheet", from, to}`
-over its time before the next; those looks are your pass. With the fixes in one more `edit`
-that is
+A rough whole scene first (often one `compose`), then at most 3 sections: 1 supporting parts, 2 motion and timing, 3
+polish (color, type, sound). Each is one `edit`, then `look {mode:"sheet", from, to}` over its time; those looks are your pass. With the fixes in one more `edit` that is
 at most 5 edits to build it; the storyboard, a redo the person asks for at a stop and a retry come on top.

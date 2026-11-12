@@ -7,8 +7,8 @@ description: Makes and edits motion videos with kino, a local motion design engi
 
 ## The short path
 
-Every answer ends with `next:`, the next call, written out. When unsure,
-send it as is; put your words where it has `<angle brackets>`. A new video, idea first:
+Every answer ends with `next:`, the next call. When unsure, send it as is;
+put your words where it has `<angle brackets>`. A new video, idea first:
 
 1. `project {action:"create", id:"orbit", name:"Orbit promo", width:1920, height:1080, duration:15}`
 2. `notes` brief: `ask` (their message whole; `"none"` if no person), `about`, then a line per thing.
@@ -31,9 +31,9 @@ send it as is; put your words where it has `<angle brackets>`. A new video, idea
 | `status` | The outline, `direction:`, `step:`, the plan and your inbox. Call it first. |
 | `edit {ops}` | Every change: a list of `{op, …}`, saved as one revision. |
 | `check` | Findings with fix ops; `{fix:"auto"}` fixes and re-checks. |
-| `look` | `sheet`, `review`, `changed`, `zoom`, `board`, … `source`: every clip (no FFmpeg sheets). |
+| `look` | `sheet`, `review`, `changed`, `zoom`, `board`, … `source`: every clip. |
 | `inspect {targets}` | Exact layer, animation, cue fields. |
-| `render` | Files: `{action:"start", quality:"final", out:"<absolute folder>", wait:true}`. Final waits only on defects; the rest rides its receipt. |
+| `render` | Files: `{action:"start", quality:"final", out:"<absolute folder>", wait:true}`. Final waits only on defects. |
 | `library` | Exact rules: `{topic:"op", name}` (fields), presets, fonts, blocks. |
 | `history` | Your turns; `{action:"revert", turn:"T3"}` undoes one. |
 | `notes` | The `brief`, stops, plan, notes, `helper` agents. |
@@ -41,9 +41,9 @@ send it as is; put your words where it has `<angle brackets>`. A new video, idea
 
 ## The loop
 
-1. `status`; inbox notes first (`notes reply` when fixed). New chat or compaction: first say its `direction:` back in one sentence, and trust it over your memory.
+1. `status`; inbox notes first (`notes reply`). New chat or compaction: first say its `direction:` back in one sentence, and trust it over your memory.
 2. New video: brief from the chat ([controls](references/controls.md)); from 8 s, board first.
-   Save their material (`edit` op `source`); write the story.
+   Save their material (op `source`); write the story.
    **A video is one scene**: `render` makes one file per scene.
 3. Save 2+ edits like yours (`library {topic:"inspire", search}`), study, label their
    strips; then `notes {action:"set_plan", steps:[…]}`, 3–6 steps.
@@ -93,7 +93,7 @@ send it as is; put your words where it has `<angle brackets>`. A new video, idea
 - [blur](references/blur.md), [light](references/light.md), [particles](references/particles.md): glow, sparks, fog.
 - [check-and-look](references/check-and-look.md): findings, looks; [motion](references/motion.md).
 - [ideas](references/ideas.md): story; [spine](references/spine.md): idea and lock.
-- [taste](references/taste.md): motion, readability.
+- [taste](references/taste.md): motion, readability; [lettering](references/lettering.md).
 - [direction](references/direction.md): brief; [stops](references/stops.md); [dashboard](references/dashboard.md): notes.
 - [render](references/render.md): exports.
-- [inspire](references/inspire.md): cuts; found [songs](references/soundtrack.md), [footage](references/footage.md); [workspace](references/workspace.md).
+- [inspire](references/inspire.md): cuts; found [songs](references/soundtrack.md), [footage](references/footage.md), [clips](references/clips.md); [workspace](references/workspace.md).

@@ -40,6 +40,7 @@ revision with 0 errors, and your own `look`. "It looks right" is not a check.
 - Record it word for word with the ask's `rev`: `notes {action:"answer", id:"C1", rev:4,
   words:"<their reply>", read_as:"approve"}`. `id` may be a stop's name (`id:"board"`) for the stop that waits; `not_found` lists the stops asked. Then one line, `Read as: approve`: a receipt,
   not a second question.
+- "Your call" about the treatment pick or the board's open items: `notes {action:"answer", id:"treatments", words:"<their words>", read_as:"your call"}` (`id:"board"` for the board). No quote is needed, and the answer lists what is now yours to decide; after one on the pick, the next call is your own `{pick, why}`, never `{pick, quote}`.
 - After a redo, fix only what they named, `check`, and ask that stop again (a new id).
 - An answer in kino shows in your inbox (`answered`): do not record it again. `reopened`: your
   reading was wrong; ask that stop again. A later stop that waited closes.

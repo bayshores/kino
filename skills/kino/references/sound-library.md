@@ -18,6 +18,15 @@ kino ships sound effects and music as a fallback: a video never waits for files 
 - `look {mode:"board"}` page 1 prints the pace on each side of the song's turn beside your references', then the song's beat times; facts only. To put the cuts after the drop on those beats: edit {ops:[{op:"board", snap:"beats"}]} (cut times only, the song stays; a move over 6 frames lapses an approval; a cut that would run a shot past its file's end is kept and named).
 - `fit_music` alone after a board, under a late payoff, gives the same payoff-shot offer as `board {music}`: shot cues plus the `fit_music` payoff edit. `fit_music` sent again without `payoff` falls back to 45% of the video: send the payoff again to keep the drop where it was.
 
+## Song cues and ending
+
+Measured facts after `check`'s mix line and the limiter line of `look {mode:"motion", ref:"sound"}`. None is a finding.
+
+- `cue: drop at 7.5 s ...` gives the mix in LUFS over the 1 s before and after each song cue (the drop first), the rise in LU, and the loudest kept line in the 2 s before it. It reads the mix as a default render plays it (`"auto"` gain, then the limiter) and says so: compare the rise there, not at loudness `"off"`.
+- `ending:` says whether the song stops hard (with or without an onset just before), fades (its length and the bar lines it crosses), plays to its own end, or is still up, and how long the picture runs after the sound. Bar lines come from the song's measured bars; with none the line says they are a guess from the beat grid.
+- When the song plays under half its own volume for over 40% of its heard time, the mix line says so with a `keep_line` dry-run call that prints the ways to keep it up under a line.
+- `end_on_fade` does not fire on a hard stop (0.1 s or less) placed within 0.1 s after a song onset.
+
 ## Placing sound
 
 - Quiet open: little or no effect in the first second or two. Impact finish: one hit on the final reveal or logo, then let it ring out.
