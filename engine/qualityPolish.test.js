@@ -684,6 +684,22 @@ test("speech_captions: a text shows the line of a clip that is muted there", asy
   assert.deepEqual((await check("speech_captions", document, mix)).findings, []);
 });
 
+test("speech_unplayed: every clip muted where its saved lines are said warns once with the keep_line call for the best line", async () => {
+  const clip = (id, props) => ({ type: "video", id, name: id, src: `/api/media/${id}.mp4`, x: 0, y: 0, width: 1920, height: 1080, mediaStart: 0, mediaOffset: 0, mediaDuration: 4, volume: 0, ...props });
+  const lines = [{ layer: "a", layerId: "a", text: "Kill you.", from: 1, to: 1.6 }, { layer: "b", layerId: "b", text: "I can't, I can't!", from: 2, to: 3 }];
+  const run = async (layers) => { const document = scene({ layers }); return (await check("speech_unplayed", document, { speechScene: document.scenes[0], savedLines: lines })).findings; };
+  const [found] = await run([clip("a"), clip("b")]);
+  assert.equal(found.severity, "warn");
+  assert.match(found.message, /the clips say 2 lines and the edit plays none/);
+  assert.match(found.fix.text, /^edit \{"ops":\[\{"op":"keep_line","layer":"b","line":"I can't, I can't!"\}\]\}.*waive_check \{code:"speech_unplayed"/);
+  // One line heard (a keep_line volume animation) clears it.
+  const heard = { animations: [{ id: "u", name: "Line up", kind: "custom", easing: "smooth", start: 0.9, duration: 0.1, from: { volume: 0 }, to: { volume: 1 } }] };
+  assert.deepEqual(await run([clip("a", heard), clip("b")]), []);
+  // Only part of a line plays (a trimmed clip): kept by its seconds with its words as the subtitle.
+  lines.splice(0, 2, { layer: "a", layerId: "a", text: "Hahaha, I can't,", from: 0.3, to: 1.6, partial: true });
+  assert.match((await run([clip("a")]))[0].fix.text, /^edit \{"ops":\[\{"op":"keep_line","layer":"a","from":0\.3,"to":1\.6,"text":"Hahaha, I can't,"\}\]\}/);
+});
+
 // The sound rules (engine/quality/rules/sound.js): each layer's transcript or song loudness comes in as ctx.speech.
 async function soundFindings(code, layers, entryOf) {
   const document = scene({ duration: 6, layers });

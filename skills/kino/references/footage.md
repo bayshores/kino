@@ -84,9 +84,11 @@ captions):` and `0:41 "..." (F1.12-F1.13)` rows. Auto captions are a guess (time
   A line the trim cuts off is named `plays 5.3-7.4, line at 7.1-9.2` (file seconds); its call
   moves mediaOffset first.
 - An import of a clip of 1.5 s or more adds `says "..." 0.3-2.1 s` (seconds in the clip).
-- Keep a said line with `keep_line {layer:"clip", line:"the words said", duck:"music"}`: the rest
-  of that clip's sound goes silent, a small subtitle shows the line, and the music dips to half
-  (`dip` sets it). Speech whisper cannot read: `from`, `to` (scene seconds) and `text`.
+- A line said in a clip can open or set up a moment. Keep it with
+  `keep_line {layer:"clip", line:"the words said", duck:"music"}` (case, apostrophes and repeats
+  ignored): the rest of the clip goes silent, a subtitle shows the line, the music dips to 0.7 of
+  its volume (`dip` sets it). Unread speech: `from`, `to` (scene seconds) and `text`.
+- compose {footage} keeps the clips' best lines heard (one per 6 s; `lines`: a number, [texts] or false).
 
 ## Note a video
 

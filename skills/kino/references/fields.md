@@ -8,7 +8,7 @@ Contents: Building blocks · Layers · Layout · Text · Animations · Scenes ·
 
 ## Building blocks
 
-- `compose {footage:[media or {media, in?, out?}], music?, voice?, treatment?: calm|story|punchy|loud, pace?: promo|velocity, accents?, cards?, cardGap?, duration?, format?, seed?, title?, end?} or {format?, duration?, look?, brand?, feel?, type?: promo|ad|clip|explainer|sting|other, seed?, fps?, reduced?, beats:[{recipe, copy or its fields, media?, dur?, slot?, transition?, id?, seed?, hero?, region?}], scene?, id?, name?}`
+- `compose {footage:[media or {media, in?, out?}], music?, voice?, treatment?: calm|story|punchy|loud, pace?: promo|velocity, accents?, cards?, cardGap?, lines?, duration?, format?, seed?, title?, end?} or {format?, duration?, look?, brand?, feel?, type?: promo|ad|clip|explainer|sting|other, seed?, fps?, reduced?, beats:[{recipe, copy or its fields, media?, dur?, slot?, transition?, id?, seed?, hero?, region?}], scene?, id?, name?}`
 - `recipe {name, scene?, id?, at?, dur?, slot?, copy or its fields (text, sub, …), media?, look?, brand?, feel?, seed?, align?, enter?, uppercase?, hero?, box?, color?, corner?, role?, reduced?}`
 - `move {name, at, align?, dur?, scene?, id?, seed?, reduced?, look?, brand?, …its fields}`
 - `set_brand {name, colors?: {bg, surface, text, accent, accent2}, fonts?: [{family, weight?}] (headlines, then body), logos?: [{media}|{text}], motion?: snappy|smooth|calm}`

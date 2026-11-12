@@ -16,6 +16,7 @@ import { editStyle } from "./treatments.js";
 import { CARD_GAP, cardLines, placeCards } from "./cards.js";
 import { accentTimes, burstPassages, FREE_BEAT, PACES, phrasePlan, rateAt, runsOf, songSections } from "./pace.js";
 import { round as round3 } from "../numbers.js";
+import { LINE_EVERY, pickLines } from "./lines.js";
 
 const sum = (list) => list.reduce((total, value) => total + value, 0);
 export const END_CARD = 2.8;
@@ -120,7 +121,8 @@ export function planEdit(input) {
   for (const clip of clips) if (clip.kind !== "picture") clip.kind = isScreenRecording(clip) ? "screen" : "camera";
   const lines = [];
   // With a voice-over, the voice speaks and the clips only show.
-  const ranked = rankMoments(voice ? clips.map((clip) => ({ ...clip, words: null })) : clips);
+  // lines:false keeps every clip silent too (the opening included).
+  const ranked = rankMoments(voice || input.lines === false ? clips.map((clip) => ({ ...clip, words: null })) : clips);
   let moments = ranked.moments;
   const strong = moments.filter((moment) => moment.score >= KEEP_BAR);
   if (strong.filter((moment) => moment.kind === "visual").length >= 3 || strong.some((moment) => moment.kind === "speech")) moments = strong;
@@ -294,16 +296,12 @@ export function planEdit(input) {
     }
   }
 
-  // 2. The body: speech in its order (within the budget), pictures between.
+  // 2. The body: speech in its order (within the budget), pictures between. The spoken lines kept
+  // (lines.js): by default up to one per 6 s, ranked so a short clear or repeated line can win.
   const budget = (bodyEnd - titleAt) * SPEECH_SHARE;
-  const speechChosen = [];
-  let spoken = 0;
-  for (const moment of [...speechAll].sort((a, b) => b.score - a.score)) {
-    const length = moment.out - moment.in;
-    if (spoken + length > budget) continue;
-    speechChosen.push(moment);
-    spoken += length;
-  }
+  const lineCandidates = voice ? [] : ranked.moments.filter((moment) => moment.kind === "speech" && moment !== opening);
+  const linePick = pickLines(lineCandidates, { option: input.lines, duration, opening, budget, all: ranked.moments.filter((moment) => moment.kind === "speech"), message: input.message ?? "", least: speechAll.length });
+  const speechChosen = linePick.chosen.map((entry) => entry.moment);
   const order = (moment) => clips.findIndex((clip) => clip.key === moment.clip) * 1e6 + moment.in;
   speechChosen.sort((a, b) => order(a) - order(b));
   // Pictures: the clips take turns (best moment first in each), so the edit moves between them.
@@ -657,9 +655,14 @@ export function planEdit(input) {
   const captions = [];
   for (const shot of shots) {
     if (!shot.speech) continue;
+    const until = round3(shot.end - 0.05);
+    // A word said after the caption leaves is not shown, and a word whisper timed to no length (run
+    // 6's scream clip ends on "can't!" at 2.987-2.987 s) shows for 0.04 s, so the caption move takes it.
     const words = shot.moment.words.filter((word) => word.start >= shot.in - 0.05 && word.end <= shot.moment.out + 0.05)
-      .map((word) => ({ text: word.text, at: round3(shot.start + word.start - shot.in), end: round3(shot.start + word.end - shot.in) }));
-    if (words.length) captions.push({ shot: shot.n, energy: style.captions, words, until: round3(shot.end - 0.05) });
+      .map((word) => ({ text: word.text, at: round3(shot.start + word.start - shot.in), end: round3(shot.start + word.end - shot.in) }))
+      .filter((word) => word.at < until)
+      .map((word) => (word.end > word.at ? word : { ...word, end: round3(word.at + 0.04) }));
+    if (words.length) captions.push({ shot: shot.n, energy: style.captions, words, until });
   }
   let voicePlan = null;
   if (voice) {
@@ -746,6 +749,21 @@ export function planEdit(input) {
   lines.push(...cardLines(cards));
   const left = moments.filter((moment) => !used.has(moment)).length;
   lines.push(`moments: ${moments.length} over the bar (${KEEP_BAR}), ${shots.length} used, ${left} left out`);
+  // The spoken lines: which are heard (with scene times), which were left out and the call that keeps each.
+  const quote = (text, most = 50) => `"${String(text).replaceAll('"', "'").slice(0, most)}${String(text).length > most ? "..." : ""}"`;
+  const layerOf = (shot) => (shot.layout.kind === "fill" || shot.layout.loose ? `shot-${shot.n}` : `shot-${shot.n}-clip`);
+  const heardShots = shots.filter((shot) => shot.speech);
+  const spokenLines = [];
+  if (heardShots.length) spokenLines.push(`lines heard: ${heardShots.slice(0, 5).map((shot) => `${quote(shot.moment.text)} ${shot.start}-${round3(Math.min(shot.end, shot.start + shot.moment.out - shot.in))} s (${layerOf(shot)})`).join(" · ")}${heardShots.length > 5 ? ` +${heardShots.length - 5} more` : ""}; up to one per ${LINE_EVERY} s, compose lines:<number, [texts] or false> sets it`);
+  else if (lineCandidates.length) spokenLines.push(`lines heard: none of ${lineCandidates.length} (${input.lines === false ? "lines is false" : `none scored ${SPEECH_BAR}+ or fit the time`}); compose lines:[<text>] keeps one`);
+  const leftOut = linePick.left.filter((entry) => !used.has(entry.moment)).slice(0, 3).map(({ moment }) => {
+    // A shot that plays the line's file seconds can keep it as it is; else compose names it.
+    const host = shots.find((shot) => !shot.speech && shot.clip === moment.clip && shot.freezeAt === undefined && !shot.ramp && moment.in >= shot.in - 0.05 && moment.out <= shot.in + shot.end - shot.start + 0.05);
+    const text = moment.text.replaceAll('"', "'");
+    return host ? `${quote(text)} edit {"ops":[{"op":"keep_line","layer":"${layerOf(host)}","line":"${text}"}]}` : `${quote(text)} compose lines:["${text}"]`;
+  });
+  if (leftOut.length) spokenLines.push(`lines left out (${linePick.left.filter((entry) => !used.has(entry.moment)).length}): ${leftOut.join(" · ")}`);
+  if (linePick.missing.length) spokenLines.push(`lines not heard in the clips: ${linePick.missing.slice(0, 3).map((text) => quote(text)).join(", ")}; look {mode:"source"} lists what each clip says`);
 
   let runs = null;
   if (paced) {
@@ -765,5 +783,5 @@ export function planEdit(input) {
     if (snaps.length) lines.push(`cuts on footage impacts: ${snaps.length}${snaps.length > 4 ? ", the first 4" : ""} (${snaps.slice(0, 4).map((snap) => `shot ${snap.shot} ${snap.at} s (impact on the hit at ${snap.hit} s${snap.early ? `, ${snap.early} frames early` : ""})`).join(", ")})`);
   }
 
-  return { duration, treatment, style, frame, music: musicPlan, voice: voicePlan, shots, captions, title, endCard, hits, setPiece, cards, words: lines, opening: opening.kind, pace, runs, song: songPlan, burst, snaps };
+  return { duration, treatment, style, frame, music: musicPlan, voice: voicePlan, shots, captions, title, endCard, hits, setPiece, cards, words: lines, spokenLines, opening: opening.kind, pace, runs, song: songPlan, burst, snaps };
 }

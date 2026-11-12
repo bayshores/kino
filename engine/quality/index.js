@@ -17,7 +17,7 @@ import { blurredBackdrop, ownWords, sameEntrance, softCuts, stackedLabel, stockC
 import { driftOnEveryShot, evenShotLengths, fadeOnlyEntrances, pageChrome, splitCardLayout } from "./rules/aiTells.js";
 import { cutOffAtRest, fontFallback, heldStatic, offBrandFont, renderArtifact, smallOnEmpty, textCollision, textGhost, textOnBusy, textWrap } from "./rules/polish.js";
 import { frozenScreen, screenUnreadable } from "./rules/screens.js";
-import { speechCaptions, speechCut, speechQuotes } from "./rules/speech.js";
+import { speechCaptions, speechCut, speechQuotes, speechUnplayed } from "./rules/speech.js";
 import { bedJump, endOnFade, muteWord, musicHardStop, musicStall, musicTurn, noMusic, sfxRestraint, speechFragment, voiceLevelSpread, voiceUnderBed, volumeChurn } from "./rules/sound.js";
 import { textLoad } from "./rules/load.js";
 import { cutMidMove, edgeLinger, loneZoom, transitionDip } from "./rules/camera.js";
@@ -94,6 +94,7 @@ export const RULES = [
   rule("small_on_empty", "warn", smallOnEmpty, "a picture shown on a flat frame fills 25% of it or more (over 1.5 s)", true),
   rule("render_artifact", "warn", renderArtifact, "an RGB split draws no flat saturated slabs (3% of the frame or more)", true),
   rule("speech_captions", "warn", speechCaptions, "captions shown over a voice include every word it says, and a text that shows a line a muted clip says (a full check, from saved transcripts) is heard from that clip or another sound"),
+  rule("speech_unplayed", "warn", speechUnplayed, "when the video's clips say lines (saved transcripts), at least one is heard: a scene whose clips are all muted where they speak warns once with the keep_line call for its best line; waive a silent edit"),
   rule("speech_quotes", "warn", speechQuotes, "captions of heard speech look different from caption-like text nobody says (quotes, another font, style or color)"),
   rule("speech_fragment", "warn", speechFragment, "a sound does not start on the tail (up to 3 words, within 1.5 s) of a sentence said before its in point, unless a voice as loud covers it or its volume is 0.25 or lower; needs a transcript"),
   rule("mute_word", "warn", muteWord, "a ramp of 0.5 s or less that ducks a voice to 35% or less ends 0.03 s before the word it hides, and the ramp back up starts after it (auto when no other word is lowered); end fades and duck_audio dips that do not mute aside"),

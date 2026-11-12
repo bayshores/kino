@@ -10,7 +10,12 @@
 //             stretch: the receipt says what it heard next to what was typed (notes, heard)
 //   subtitle  false: no subtitle. look: add_captions look (default "subtitle"); name: its group
 //   duckId    the music layer (default: the audio layer named music or song, else the only other one);
-//             duckNone: no dip. dip: the music's volume under the line (default half its own, about 6 dB down)
+//             duckNone: no dip. dip: the music's volume under the line (default 0.7 of its own, about 3 dB down)
+//
+// line matches leniently: case, punctuation and apostrophes ("cant" is "can't"), a repeat said more
+// or fewer times ("I can't, I can't" finds "I can't, I can't, I can't"), a last word typed short,
+// and the first words of a longer typed line (a note says which words were kept). A miss lists
+// the lines heard in that layer.
 //
 // It is built from what exists: speechWords and captionWordsFromSpeech (the words), add_captions
 // (the subtitle) and duck_audio (the dip). The silence is two Volume animations per line, "Line up"
@@ -21,12 +26,14 @@ import { mediaPlaybackRange, mediaSoundTime } from "./playback.js";
 import { applyAddCaptions } from "./captionLayers.js";
 import { applyDuckAudio } from "./audioDucking.js";
 import { captionWordsFromSpeech, checkSpeechLayer, speechPieces, speechWords, withoutGluedTag } from "./speech.js";
-import { lineWords } from "./blocks/moves/footage.js";
 import { round } from "./numbers.js";
 
 export const LINE_NAMES = Object.freeze({ mute: "Line mute", up: "Line up", down: "Line down" });
-// The music's volume under the line, as a share of its own volume (half is about 6 dB down).
-export const DEFAULT_DIP = 0.5;
+// The music's volume under the line, as a share of its own volume. 0.7 is about 3 dB down. It was
+// 0.5 (6 dB): a director keeping lines over a song's drop reported the song sank to 0.4 and raised
+// it to dip 0.8 by hand to keep the drop's energy (.scratch/ceiling/a/result.md, FRICTION 10).
+// 0.7 sits between the two; a guess, so dip sets it per call.
+export const DEFAULT_DIP = 0.7;
 // The fade up starts this long before the first word (the breath), the fade down after the last.
 const UP_PAD = 0.08;
 const DOWN_PAD = 0.12;
@@ -36,6 +43,70 @@ const isLineMark = (animation) => Object.values(LINE_NAMES).includes(animation?.
 
 function fail(message) {
   throw new Error(`keep_line: ${message}`);
+}
+
+// A word as a match key: lower case, letters and digits only (apostrophes, curly or straight, go too).
+const matchKey = (text) => String(text).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+
+// Tokens with an immediate repeat of the 1 to 4 tokens before it folded in: [{key, from, to}],
+// from/to the indices of the first and last original token it covers.
+function folded(keys) {
+  const out = [];
+  for (let index = 0; index < keys.length; index += 1) {
+    let size = 0;
+    for (let n = Math.min(4, out.length); n >= 1 && !size; n -= 1)
+      if (index + n <= keys.length && out.slice(-n).every((entry, offset) => entry.key === keys[index + offset])) size = n;
+    if (size) { out.at(-1).to = index + size - 1; index += size - 1; }
+    else out.push({ key: keys[index], from: index, to: index });
+  }
+  return out;
+}
+
+/**
+ * The words of `line` in `words` ([{text, start, end}], scene seconds), matched leniently:
+ * {words: [{text, at, end}], note?} or null. Tried in order: the exact words; the last typed word
+ * as a prefix (3+ letters) of the heard one; repeats folded on both sides; the longest run of the
+ * typed line's first words (3 or more, at least half of them), with a note.
+ */
+export function findLine(words, line) {
+  const wanted = String(line).split(/\s+/).map(matchKey).filter(Boolean);
+  if (!wanted.length || !words.length) return null;
+  const said = words.map((word) => matchKey(word.text));
+  const span = (from, to) => words.slice(from, to + 1).map((word) => ({ text: word.text, at: word.start, end: word.end }));
+  const same = (heard, typed, last) => heard === typed || (last && typed.length >= 3 && heard.startsWith(typed));
+  const runIn = (keys, want, prefix = false) => {
+    for (let index = 0; index + want.length <= keys.length; index += 1)
+      if (want.every((key, offset) => same(keys[index + offset], key, prefix && offset === want.length - 1))) return index;
+    return -1;
+  };
+  const exact = runIn(said, wanted);
+  const at = exact >= 0 ? exact : runIn(said, wanted, true);
+  if (at >= 0) return { words: span(at, at + wanted.length - 1) };
+  const heardFold = folded(said);
+  const wantedFold = folded(wanted).map((entry) => entry.key);
+  const foldAt = runIn(heardFold.map((entry) => entry.key), wantedFold);
+  if (foldAt >= 0) return { words: span(heardFold[foldAt].from, heardFold[foldAt + wantedFold.length - 1].to) };
+  for (let count = wanted.length - 1; count >= Math.max(3, Math.ceil(wanted.length / 2)); count -= 1) {
+    const start = runIn(said, wanted.slice(0, count));
+    if (start >= 0) {
+      const found = span(start, start + count - 1);
+      return { words: found, note: `kept the first ${count} of ${wanted.length} typed words, as heard: "${found.map((word) => word.text).join(" ")}"` };
+    }
+  }
+  return null;
+}
+
+// The lines heard in `words` (split at a sentence end or a 0.6 s pause), for a miss: at most 4.
+function heardLines(words) {
+  const lines = [];
+  let current = [];
+  for (const [index, word] of words.entries()) {
+    current.push(word);
+    const next = words[index + 1];
+    if (!next || /[.!?…]["')\]]*$/.test(word.text) || next.start - word.end >= 0.6) { lines.push(current); current = []; }
+  }
+  const shown = lines.slice(0, 4).map((line) => `"${line.map((word) => word.text).join(" ").replaceAll('"', "'")}" ${round(line[0].start, 1)}-${round(line.at(-1).end, 1)} s`);
+  return `${shown.join(" · ")}${lines.length > 4 ? ` +${lines.length - 4} more` : ""}`;
 }
 
 // The stretches (scene seconds) an earlier keep_line left audible on the layer, from its animations.
@@ -116,10 +187,13 @@ export function applyKeepLine(document, operation, { fonts } = {}) {
   let start;
   let end;
   let said;
+  let lineNote = null;
   if (operation.line !== undefined) {
     if (!heard.length) fail(`"${layer.name}" has no words heard to find "${operation.line}" in; give from and to (scene seconds) and text instead.`);
-    const found = lineWords(heard, operation.line);
-    if (!found) fail(`"${operation.line}" is not said in ${layer.name} in this scene; inspect speech:${layer.name} shows its words, or give from and to.`);
+    const match = findLine(heard, operation.line);
+    if (!match) fail(`"${operation.line}" is not said in ${layer.name} in this scene. Heard there: ${heardLines(heard)}. Give one of those, or from and to (scene seconds) and text.`);
+    const found = match.words;
+    if (match.note) lineNote = match.note;
     start = found[0].at;
     end = found.at(-1).end;
     said = found.map((item) => ({ text: item.text, start: item.at, end: item.end }));
@@ -149,7 +223,7 @@ export function applyKeepLine(document, operation, { fonts } = {}) {
   const ranges = owner.ranges;
 
   // The subtitle, timed to the words (or to the line when the text is given).
-  const notes = [];
+  const notes = lineNote ? [lineNote] : [];
   // What kino heard in the kept stretch, said next to the typed subtitle when they differ (one line, no refusal):
   // a typed text over audio heard as other words is how a wrong line gets kept.
   const heardText = said.map((item) => item.text).join(" ").trim();
@@ -178,6 +252,7 @@ export function applyKeepLine(document, operation, { fonts } = {}) {
     const level = music.layer.volume ?? 1;
     const dip = operation.dip ?? round(level * DEFAULT_DIP);
     if (dip > level) notes.push(`dip ${dip} is above the music's volume ${level}, so the music gets louder under the line`);
+    if (operation.dip === undefined) notes.push(`the music dips to ${dip} under the line (${DEFAULT_DIP} of its volume ${level}, about 3 dB); dip:<0 to 1> sets it`);
     const under = kept.filter((entry) => entry.ranges.length);
     const speech = {};
     for (const { piece, play, ranges: stretches } of under)

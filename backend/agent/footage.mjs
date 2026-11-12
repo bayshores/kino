@@ -11,7 +11,14 @@ import { isRecord } from "../../engine/numbers.js";
 
 const kindOf = (record) => String(record?.mime ?? "").split("/")[0];
 const bare = (name) => String(name ?? "").toLowerCase().replace(/\.[a-z0-9]{2,5}$/, "");
-export const FOOTAGE_FIELDS = ["footage", "music", "voice", "treatment", "pace", "accents", "title", "end", "match", "cards", "cardGap"];
+export const FOOTAGE_FIELDS = ["footage", "music", "voice", "treatment", "pace", "accents", "title", "end", "match", "cards", "cardGap", "lines"];
+
+/** Reads compose's lines: a whole number 0 to 20, a list of 1 to 10 line texts, or false. Throws a plain message. */
+export function readLines(value) {
+  if (value === false || (Number.isInteger(value) && value >= 0 && value <= 20)) return value;
+  if (Array.isArray(value) && value.length >= 1 && value.length <= 10 && value.every((text) => typeof text === "string" && text.trim() && text.length <= 200)) return value.map((text) => text.trim());
+  throw new Error("lines is how many spoken lines of the clips stay heard (0 to 20), a list of their texts [\"I can't\", ...], or false for none (left out: up to one per 6 s).");
+}
 export const MAX_FOOTAGE = 12;
 
 /** Reads the footage list: [{media, in?, out?}] (a bare string is {media}). Throws a plain message. */
@@ -56,8 +63,15 @@ export function createFootageFacts({ listMedia, mediaRoot, transcripts, beatAnal
   }
   // The words of a sound file, heard with the names of `document`'s brief (or the transcript a cut
   // voice of it was cut on: service.mjs transcripts).
+  // A saved transcript comes first, also one heard before the brief's names changed: the one status,
+  // check, look source and keep_line read. Hearing a clip again with new names can lose its words: on
+  // the run 6 copy it read the "I can't," status named as "(unclear)", so compose kept no line
+  // (.scratch/defaults/compose-speech-review/run1.md).
   async function words(file, notes, name, document, src) {
-    try { return (await transcripts.get(file, document, { src })).words ?? []; }
+    try {
+      const shown = transcripts.saved ? await transcripts.saved(file, document, { src }, { any: true }).catch(() => null) : null;
+      return (shown ?? await transcripts.get(file, document, { src })).words ?? [];
+    }
     catch (error) {
       notes.push(`no words for ${name}: ${String(error.message).split(". ")[0]}`);
       return null;

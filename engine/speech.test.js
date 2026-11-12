@@ -311,9 +311,17 @@ test("keep_line keeps the named words audible, silences the rest, subtitles the 
   assert.equal(volumeAt(kept, 3), 1, "in the line: the layer's own volume");
   assert.equal(volumeAt(kept, 5), 0, "after the line: silent");
   assert.ok(scene.layers.some((layer) => layer.role === "caption" && /we will, we will/.test(layer.text)), "a subtitle holds the words");
-  assert.equal(volumeAt(music, 3), 0.5, "the music dips by half under the line");
+  assert.equal(volumeAt(music, 3), 0.7, "the music dips to 0.7 of its volume under the line (about 3 dB)");
   assert.equal(volumeAt(music, 8), 1, "and is at full away from it");
-  assert.match(report.duck.summary, /music ducked to 0\.5/);
+  assert.match(report.duck.summary, /music ducked to 0\.7/);
+  assert.ok(report.notes.some((note) => /dips to 0\.7 .*dip:<0 to 1> sets it/.test(note)), "the receipt states the dip and its parameter");
+  // Lenient: case, punctuation, a missing apostrophe-free spelling, a repeat said fewer times, a last word typed short.
+  const find = (line) => { const found = new Map(); const op = { type: "keep_line", sceneId: "s", layerId: "clip", line, transcript, subtitle: false }; applyOperations(document, [op], { reports: found, fonts: defaultFonts }); return found.get(op); };
+  assert.deepEqual(find("WE WILL").scene, [2.3, 2.7], "case and punctuation");
+  assert.deepEqual(find("we will we will we will").scene, [2.3, 3.2], "a repeat typed more times than heard takes the whole repeat");
+  assert.deepEqual(find("like the oak").scene, [7, 7.9], "a last word typed short");
+  assert.match(find("the Oaks app is the best").notes[0], /kept the first 3 of 6 typed words/);
+  assert.throws(() => find("we never said this"), /Heard there: "So we will, we will.*try\." 2-4\.1 s · "Like, the Oaks app\." 7-8\.3 s/);
   // A second line on the same layer keeps the first.
   const second = parseDocument(applyOperations(next, [{ type: "keep_line", sceneId: "s", layerId: "clip", line: "the Oaks app", transcript, subtitle: false }], { fonts: defaultFonts })).scenes[0];
   const again = second.layers.find((layer) => layer.id === "clip");
@@ -329,15 +337,15 @@ test("keep_line keeps the named words audible, silences the rest, subtitles the 
   const reportsTyped = new Map();
   applyOperations(document, [typedOver], { reports: reportsTyped, fonts: defaultFonts });
   assert.equal(reportsTyped.get(typedOver).heard, "we will, we will");
-  assert.deepEqual(reportsTyped.get(typedOver).notes, ['kino heard "we will, we will" in that stretch; the subtitle shows your text "Where do you say?"']);
+  assert.equal(reportsTyped.get(typedOver).notes[0], 'kino heard "we will, we will" in that stretch; the subtitle shows your text "Where do you say?"');
   // The same words with other case and punctuation say nothing extra.
   const sameWords = { ...typedOver, text: "We will we will." };
   const reportsSame = new Map();
   applyOperations(document, [sameWords], { reports: reportsSame, fonts: defaultFonts });
-  assert.equal(reportsSame.get(sameWords).notes, undefined);
+  assert.ok(!(reportsSame.get(sameWords).notes ?? []).some((note) => /kino heard/.test(note)));
 });
 
-test("keep_line on a voice cut into pieces silences every piece but the part that plays the line, and a quiet bed dips by half", () => {
+test("keep_line on a voice cut into pieces silences every piece but the part that plays the line, and a quiet bed dips to 0.7 of itself", () => {
   const document = documentWith([voice(), createLayer("audio", { id: "music", name: "music", src: "/api/media/song.mp3", mediaSourceDuration: 30, volume: 0.3 })]);
   const cut = parseDocument(applyOperations(document, [{ type: "cut_speech", sceneId: "s", layerId: "vo", transcript, words: [5], pauses: "tight" }], {}));
   const operation = { type: "keep_line", sceneId: "s", layerId: "vo", line: "the Oaks app", transcript, subtitle: false };
@@ -351,7 +359,7 @@ test("keep_line on a voice cut into pieces silences every piece but the part tha
   assert.deepEqual(audible(1), [0]);
   const report = reports.get(operation);
   assert.ok(report.file[1] - report.file[0] > 0.5, "the receipt gives the file seconds of the line on the piece that plays it");
-  assert.equal(volumeAt(scene.layers.find((layer) => layer.id === "music"), 4.5), 0.15, "half of the music's own 0.3, not a raise to 0.5");
+  assert.equal(volumeAt(scene.layers.find((layer) => layer.id === "music"), 4.5), 0.21, "0.7 of the music's own 0.3, not a raise to 0.7");
 });
 
 test("keep_line with from, to and text works with no transcript and takes duck none and subtitle false", () => {
@@ -365,7 +373,7 @@ test("keep_line with from, to and text works with no transcript and takes duck n
   assert.equal(volumeAt(scene.layers[0], 5), 0.8);
   assert.equal(volumeAt(scene.layers[0], 2), 0);
   assert.match(scene.layers.find((layer) => layer.role === "caption").text, /I will see you there\./);
-  assert.equal(volumeAt(scene.layers.find((layer) => layer.id === "music"), 5), 0.5);
+  assert.equal(volumeAt(scene.layers.find((layer) => layer.id === "music"), 5), 0.7);
   const plain = new Map();
   const quiet = { type: "keep_line", sceneId: "s", layerId: "clip", from: 4, to: 6, subtitle: false, duckNone: true };
   const bare = parseDocument(applyOperations(document, [quiet], { reports: plain })).scenes[0];

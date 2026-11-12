@@ -693,7 +693,7 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
     return hit;
   }
 
-  async function sceneFindings(document, scene, { fonts, codes, pixels, outputFps, signal, refs = [], seenRefs = refs, closeRefs = [], houseMoments = [], styleSpec = null, deck = null, briefFonts = [], length = null, asks = null, speech = [], sceneLines = [], people = null, soundSearch = false, media = { sizes: {}, names: {} }, isVideo = false, origin = null, playsOn = null, sourceLooks = null, base = sceneBase(document, scene, { fonts, codes, styleSpec, deck, briefFonts, length, asks }) }) {
+  async function sceneFindings(document, scene, { fonts, codes, pixels, outputFps, signal, refs = [], seenRefs = refs, closeRefs = [], houseMoments = [], styleSpec = null, deck = null, briefFonts = [], length = null, asks = null, speech = [], sceneLines = [], savedLines = [], people = null, soundSearch = false, media = { sizes: {}, names: {} }, isVideo = false, origin = null, playsOn = null, sourceLooks = null, base = sceneBase(document, scene, { fonts, codes, styleSpec, deck, briefFonts, length, asks }) }) {
     const key = keyOf(base, { pixels, outputFps });
     if (pixels && renderFrames) {
       const at = baseKey(base);
@@ -765,6 +765,8 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
       speech, speechScene: scene,
       // The lines the video's clips say (heard or muted), for reference_range's fix.
       clipLines: sceneLines,
+      // Every saved line of the video's clips, in every check (speech_unplayed: muted clips count too).
+      savedLines,
       // Whether sound search is on in Settings: no_music says the next call by it.
       soundSearch,
       // The people Apple Vision found in each clip (head_cut_off, overlay_covers_subject).
@@ -879,9 +881,11 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
       // The lines the video's clips say, heard or muted (reference_range names them in its fix).
       // Read for every check of the video scene: a transcript saved after a full check (look source
       // {layer}) changes its lines, so the stamp below is in the cache key (a quick check hands the rules none).
-      const knownLines = clipLines && isVideo ? await clipLines(document, scene).catch(() => []) : [];
+      // savedLines adds lines a layer plays any 0.3 s of (speech_unplayed); knownLines are the whole ones.
+      const savedLines = clipLines && isVideo ? await clipLines(document, scene, { partial: true }).catch(() => []) : [];
+      const knownLines = savedLines.filter((line) => !line.partial);
       const sceneLines = pixels ? knownLines : [];
-      const linesStamp = knownLines.length ? createHash("sha256").update(JSON.stringify(knownLines.map((line) => [line.layerId, line.text, line.from, line.to, line.slowed ?? false]))).digest("hex").slice(0, 12) : "";
+      const linesStamp = savedLines.length ? createHash("sha256").update(JSON.stringify(savedLines.map((line) => [line.layerId, line.text, line.from, line.to, line.slowed ?? false]))).digest("hex").slice(0, 12) : "";
       const { people, stamp: peopleStamp, why: peopleWhy } = await peopleIn(scene, peopleOf, pixels);
       if (peopleWhy && !notes.includes(peopleWhy)) notes.push(peopleWhy);
       if (isVideo) {
@@ -899,7 +903,7 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
       if (!pixels && !full && renderFrames) unchecked.push(scene.id);
       // A rule without its input (a transcript, the people found) finds nothing: no waiver is judged stale then.
       if (speech.some((entry) => entry.missing) || peopleWhy) measuredAll = false;
-      const { model, findings: found, notes: sceneNotes, techniques: used = {}, pending } = full ?? await sceneFindings(document, scene, { fonts, codes, pixels, outputFps, signal, refs, seenRefs: listed, closeRefs, houseMoments, styleSpec: sceneStyle, deck: sceneDeck, briefFonts, length: sceneLength, asks: sceneAsks, speech, sceneLines, people, soundSearch, media, isVideo, origin, playsOn, sourceLooks, base });
+      const { model, findings: found, notes: sceneNotes, techniques: used = {}, pending } = full ?? await sceneFindings(document, scene, { fonts, codes, pixels, outputFps, signal, refs, seenRefs: listed, closeRefs, houseMoments, styleSpec: sceneStyle, deck: sceneDeck, briefFonts, length: sceneLength, asks: sceneAsks, speech, sceneLines, savedLines, people, soundSearch, media, isVideo, origin, playsOn, sourceLooks, base });
       if (pending) measuredAll = false;
       for (const [tag, count] of Object.entries(used)) techniques[tag] = (techniques[tag] ?? 0) + count;
       for (const note of sceneNotes) if (!notes.includes(note)) notes.push(note);
