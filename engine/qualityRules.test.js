@@ -20,6 +20,7 @@ import { aliveDuring } from "./quality/motionPixels.js";
 import { onscreenKinds } from "./quality/rules/referenceKinds.js";
 import { referenceChoices } from "./quality/referenceChoices.js";
 import { gradeFrame, gradeTable, matchShot, referenceLevels } from "./quality/exposureMatch.js";
+import { gammaToMean, liftShot, lumaStats } from "./quality/liftDark.js";
 
 // ---------------------------------------------------------------- builders
 
@@ -2447,6 +2448,34 @@ test("matchShot: a dark shot is lifted into the lower part of its references' ra
   assert.ok(matchShot([frame(170, 200)], levels, { lower: true }).stops < 0);
   // One measured reference is no range.
   assert.equal(matchShot([frame(30, 230)], referenceLevels(refs.slice(0, 1))), null);
+});
+
+test("liftShot: a dark frame lifted to a mean keeps its black point and gains more contrast than a plain gamma to the same mean, with grain matched to the lift", () => {
+  // A dark test frame: a near-black third (5 to 7), a wall in 8 x 8 blocks (luma 14 to 42), a lit
+  // figure (70 to 120) and a highlight (210). Mean 33 of 255, like the stair shots that went gray.
+  const width = 320, height = 180, pixels = new Uint8ClampedArray(width * height * 4);
+  for (let y = 0; y < height; y += 1) for (let x = 0; x < width; x += 1) {
+    let value = 16 + Math.round(24 * (x / width)) + (((x >> 3) * 7 + (y >> 3) * 3) % 5) - 2;
+    if (x < width / 3) value = 5 + ((x >> 3) + (y >> 3)) % 3;
+    else if (x > width * 0.6 && x < width * 0.75 && y > height * 0.2) value = 70 + Math.round(50 * (y / height));
+    if (x > width * 0.9 && y < height * 0.1) value = 210;
+    pixels.fill(value, (y * width + x) * 4, (y * width + x) * 4 + 3);
+    pixels[(y * width + x) * 4 + 3] = 255;
+  }
+  const frame = { width, height, pixels };
+  const lift = liftShot([frame], 70 / 255);
+  const plain = gammaToMean([frame], lift.after.mean);
+  const levels = (stats) => [stats.mean, stats.p2, stats.contrast, stats.p98].map((value) => Math.round(value * 255));
+  // [mean, black (p2), contrast (p90 - p10), p98]: before, the lift, a gamma of the same mean.
+  assert.deepEqual(levels(lumaStats([frame])), [33, 5, 84, 116]);
+  assert.deepEqual(levels(lift.after), [70, 5, 183, 214]);
+  assert.deepEqual([plain.gamma, ...levels(plain.stats)], [1.72, 70, 26, 112, 161]);
+  assert.deepEqual([lift.stops, lift.grain], [2.5, { amount: 0.11, size: 1 }]);
+  // The curve is what the curves effect draws: 16 points at most, white stays white.
+  assert.ok(lift.curve.length <= 16 && lift.curve.at(-1)[1] === 1);
+  // A small lift adds no grain; a shot at or above the target is left alone.
+  assert.equal(liftShot([frame], 40 / 255).grain, null);
+  assert.equal(liftShot([frame], 30 / 255), null);
 });
 
 test("reference_range: no clip speech before the loudest song change warns when most references have a voice there; the song's singer does not count", async () => {

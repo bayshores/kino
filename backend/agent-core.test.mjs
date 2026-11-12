@@ -16,6 +16,9 @@ import { inspectTargets, MAX_INSPECT } from "./agent/inspect.mjs";
 import { adviceLine, checkDocument, checkReport, checkSummary, groupFixLines, liveWaivers, MAX_FINDINGS, mergeFindings, openFindingLines, staleWaiverLine, waiverNotes } from "./agent/checks.mjs";
 import { staleWaivers, waiversFor } from "./agent/quality.mjs";
 import { matchReferences } from "./agent/exposure-match.mjs";
+import { liftDark } from "./agent/lift-dark.mjs";
+import { applyTables } from "../engine/quality/liftDark.js";
+import { curvesTables } from "../engine/effects/colorMath.js";
 import { defaultFonts } from "../engine/fonts.js";
 
 // A one-scene document ("main", 640×360) with the given engine operations applied.
@@ -898,4 +901,41 @@ test("match_references grades only the shot outside the references' range, repla
   // layer (one) works as layers does, the way a first guess sends it.
   const [picked] = translateOperations([{ op: "match_references", layer: "dark", lower: true }], createResolver(document), document);
   assert.deepEqual([picked.layerIds, picked.layerId, picked.lower], [["dark"], undefined, true]);
+});
+
+test("lift_dark aims a dark shot at the other shots' median, adds a curve and grain, reports the render's numbers and replaces its own effects", async () => {
+  const shot = (id, start) => createLayer("video", { id, name: id, src: `/api/media/${id}.mp4`, x: 0, y: 0, width: 1920, height: 1080, start, duration: 5, mediaStart: start, mediaDuration: 5, mediaSourceDuration: 20 });
+  const document = parseDocument(createDocument({ scenes: [createScene({ id: "main", width: 1920, height: 1080, duration: 10, layers: [shot("dark", 0), shot("lit", 5)] })] }));
+  // The dark shot is a ramp from 6 to 60 of 255 (mean 33), drawn through its lift curve when it has
+  // one; the lit shot is 90 everywhere.
+  const curveOf = (scene) => scene.layers.find((layer) => layer.id === "dark")?.animations.find((animation) => animation.id === "dark.lift")?.parameters?.master;
+  const render = async (scene, times, { width }) => times.map((time) => {
+    const height = Math.round((width * 9) / 16);
+    const pixels = new Uint8ClampedArray(width * height * 4);
+    for (let at = 0; at < pixels.length; at += 4) pixels.fill(time >= 5 ? 90 : 6 + Math.round(54 * ((at / 4) % width) / width), at, at + 3), pixels[at + 3] = 255;
+    const curve = time < 5 && curveOf(scene);
+    return curve ? applyTables([{ width, height, pixels }], curvesTables({ master: curve }))[0] : { width, height, pixels };
+  });
+  const sent = [];
+  const runOps = async (doc, ops) => {
+    sent.push(...ops);
+    const next = structuredClone(doc);
+    for (const op of ops) for (const layer of next.scenes[0].layers) {
+      if (op.op === "delete_animation") layer.animations = layer.animations.filter((animation) => animation.id !== op.animationId);
+      if (op.op === "add_animation" && layer.id === op.layerId) layer.animations.push({ id: op.id, effect: { key: op.effect }, parameters: op.parameters });
+    }
+    return next;
+  };
+  const first = await liftDark(document, { layerIds: ["dark"], fonts: defaultFonts, render, runOps });
+  assert.deepEqual(sent.map((op) => [op.op, op.layerId, op.id, op.effect]), [["add_animation", "dark", "dark.lift", "curves"], ["add_animation", "dark", "dark.lift-grain", "grain"]]);
+  assert.match(first.lines[0], /^lift_dark target 90 \(median of 1 other shot\): dark mean 33 to (8[89]|9[0-2]), contrast \(p90-p10\) 43 to \d+, black 7 to 7 \(a plain gamma [\d.]+ to the same mean: contrast \d+, black \d+\); \+[\d.]+ stops, grain [\d.]+\./);
+  // The black point stays, the contrast grows past the gamma's.
+  const [lift] = first.lifted;
+  assert.ok(lift.after.contrast > lift.gamma.stats.contrast && lift.gamma.stats.p2 > lift.after.p2);
+  // Sent again with grain:false and a target: the old effects go first, then only the curve.
+  sent.length = 0;
+  await liftDark(first.document, { layerIds: ["dark"], target: 60, grain: false, fonts: defaultFonts, render, runOps });
+  assert.deepEqual(sent.map((op) => op.op === "delete_animation" ? op.animationId : op.id), ["dark.lift", "dark.lift-grain", "dark.lift"]);
+  const [picked] = translateOperations([{ op: "lift_dark", layer: "dark", target: 80 }], createResolver(document), document);
+  assert.deepEqual([picked.layerIds, picked.target], [["dark"], 80]);
 });

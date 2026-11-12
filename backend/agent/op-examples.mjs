@@ -140,6 +140,7 @@ export const OP_EXAMPLES = {
   split_image: { op: { op: "split_image", layer: "shot", boxes: [{ name: "bar", rect: [0, 0, 100, 20] }, { name: "row1", rect: [0, 20, 100, 40] }] }, setup: [{ op: "add_layer", layerType: "image", name: "shot", properties: { src: "/api/media/<image>.png" } }], media: ["image"] },
   mark_subject: { op: { op: "mark_subject", layer: "footage", t: 1, box: [30, 10, 40, 80] }, setup: [{ op: "add_layer", layerType: "video", name: "footage", properties: { src: "/api/media/<video>.mp4" } }], media: ["video"] },
   match_references: { op: { op: "match_references" } },
+  lift_dark: { op: { op: "lift_dark", layer: "footage", target: 120 }, setup: [{ op: "add_layer", layerType: "video", name: "footage", properties: { src: "/api/media/<video>.mp4" } }], media: ["video"] },
   frame_shot: { op: { op: "frame_shot", layer: "footage" }, setup: [{ op: "add_layer", layerType: "video", name: "footage", properties: { src: "/api/media/<video>.mp4" } }], media: ["video"] },
   // A board covers the whole video (6 s here) or its music: one shot of the 2 s clip needs a 2 s scene
   // (an example stays under 400 characters, so it has one shot). The speaker's shot keeps its clip's

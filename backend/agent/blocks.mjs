@@ -234,6 +234,10 @@ const OPERATIONS = {
     fields: ["sceneId", "layerId", "layerIds", "remove", "lower"],
     rules: 'match_references {scene?, layer? | layers?, remove?, lower?}: brings each shot\'s mean brightness inside your saved references\' range (2 or more measured): a dark shot to the lower third of it (never above their median); a shot brighter than every reference is brought down only with lower:true; contrast only when a shot is flatter than every reference, never past its highlights. Exposure only, never a reference\'s color. Each grade is a color-grade <layer>.match-ref (stops with a soft shoulder); shots inside the range are left alone; sending it again replaces its grades; remove:true takes them off. compose {footage} runs it unless match:false.',
   },
+  lift_dark: {
+    fields: ["sceneId", "layerId", "layerIds", "target", "grain", "remove"],
+    rules: 'lift_dark {layer | layers, target?, grain?, remove?}: brightens dark shots with a curve read from each shot\'s own tones: the black point stays, the mids rise to target (mean luma 0 to 255; left out, the median of the scene\'s other shots), the highlights roll off; from a 1 stop lift a small grain matched to the curve breaks up compression blocks (grain:false leaves it off, a number sets its amount). Effects <layer>.lift (curves) and <layer>.lift-grain; again replaces them; remove:true takes them off. The receipt: mean and contrast (p90-p10) before and after, beside a plain gamma to the same mean.',
+  },
   split_image: {
     fields: ["layerId", "sceneId", "boxes"],
     rules: 'split_image {layer, boxes:[{name, rect:[x, y, w, h]}]}: cuts a picture layer (a screenshot, a still of a screen recording) into pieces in place, real pixels: each piece <layer>-<name> is a clipping group (rect in % of the picture\'s box) holding the picture, so nothing moves until you animate it (move build-in). The picture is replaced by its pieces; a part in no box is no longer shown, so give a box for the background too. Split before animating; warns when the picture shows above 1.3x its pixels.',
@@ -244,7 +248,7 @@ const OPERATIONS = {
   },
   board: {
     fields: ["music", "shots", "calls", "open", "snap"],
-    rules: 'board {music, shots:[{cue, dur, pacing, media, in, crop, subject, follow, text, sound, move, why, speed?, alts?, id?}], calls?, open?}: the storyboard (undo and rev as any edit); each call replaces it. Shots in time order, no gaps: over the music layer, or the whole video when music is "none"; music may be an imported sound\'s src or id (kino adds its audio layer). While the board stop waits, a board edit saves and refreshes its ask. Every layer given, "none" when empty: media (an imported video or picture, or a video layer), in (file seconds), speed (the clip\'s playback speed, default 1: a shot uses dur × speed seconds of the file), crop [x, y, w, h] (% of the source, the video\'s shape) or "whole" (shown whole, such as a phone screen beside other things), subject {what, box, eyes?} (% of the source; eyes: the eye line\'s y), follow steady|track|sweep, text {text, family, weight?, size?, y?, fill?} (y: center, % from the top), sound {media, what} (a sound to add) and/or {keep:"all" | [from, to]} (the clip\'s own sound, file seconds: the layer you place for the shot keeps it, keep_line). move: the designed move {kind type|transition|camera|ui, name (a move, transition, recipe or preset; planned:true for a craft-plan move not built yet), ref "<reference key>@<seconds>"}, or {none:"<reason>"}; without one the shot is plain (footage plus words). pacing beat_cut|phrase_flow|free; why: one line; calls: your own calls and your decisions on open items left to you (≤ 6); open: questions for the person (≤ 3). A shot sent without id keeps the id of the shot it continues (same clip and nearest in, or same text). look {mode:"board"} shows it; notes checkpoint {id:"board"} asks the person. board {snap:"beats"} moves the saved board\'s cuts after the song\'s turn onto its measured beats (the times look board lists); sent with shots, it saves them first.',
+    rules: 'board {music, shots:[{cue, dur, pacing, media, in, crop, subject, follow, text, sound, move, why, speed?, lift?, alts?, id?}], calls?, open?}: the storyboard (undo and rev as any edit); each call replaces it. Shots in time order, no gaps: over the music layer, or the whole video when music is "none"; music may be an imported sound\'s src or id (kino adds its audio layer). While the board stop waits, a board edit saves and refreshes its ask. Every layer given, "none" when empty: media (an imported video or picture, or a video layer), in (file seconds), speed (the clip\'s playback speed, default 1: a shot uses dur × speed seconds of the file), lift (true or a mean luma 1 to 255: compose from board runs lift_dark on the shot), crop [x, y, w, h] (% of the source, the video\'s shape) or "whole" (shown whole, such as a phone screen beside other things), subject {what, box, eyes?} (% of the source; eyes: the eye line\'s y), follow steady|track|sweep, text {text, family, weight?, size?, y?, fill?} (y: center, % from the top), sound {media, what} (a sound to add) and/or {keep:"all" | [from, to]} (the clip\'s own sound, file seconds: the layer you place for the shot keeps it, keep_line). move: the designed move {kind type|transition|camera|ui, name (a move, transition, recipe or preset; planned:true for a craft-plan move not built yet), ref "<reference key>@<seconds>"}, or {none:"<reason>"}; without one the shot is plain (footage plus words). pacing beat_cut|phrase_flow|free; why: one line; calls: your own calls and your decisions on open items left to you (≤ 6); open: questions for the person (≤ 3). A shot sent without id keeps the id of the shot it continues (same clip and nearest in, or same text). look {mode:"board"} shows it; notes checkpoint {id:"board"} asks the person. board {snap:"beats"} moves the saved board\'s cuts after the song\'s turn onto its measured beats (the times look board lists); sent with shots, it saves them first.',
   },
 };
 const FIELD_ALIASES = [["scene", "sceneId"], ["layer", "layerId"], ["layers", "layerIds"]];
@@ -773,6 +777,17 @@ const TRANSLATE = {
     if (operation.remove !== undefined && typeof operation.remove !== "boolean") throw problem("remove is true (take the match grades off) or left out.");
     if (operation.lower !== undefined && typeof operation.lower !== "boolean") throw problem("lower is true (also bring shots brighter than every reference down) or left out.");
   },
+  lift_dark(operation, resolver) {
+    if (operation.sceneId !== undefined) operation.sceneId = sceneRef(resolver, operation.sceneId);
+    if (operation.layerIds !== undefined && !Array.isArray(operation.layerIds)) throw problem("layers is a list of video or picture layer names or codes.");
+    const list = [...(operation.layerId !== undefined ? [operation.layerId] : []), ...(operation.layerIds ?? [])];
+    if (!list.length || list.length > 50) throw problem("lift_dark needs layer, a video or picture layer's name or code (or layers, a list of up to 50).");
+    operation.layerIds = [...new Set(list.map((ref) => layerRef(resolver, ref)))];
+    delete operation.layerId;
+    if (operation.target !== undefined && !(Number.isFinite(operation.target) && operation.target > 0 && operation.target <= 255)) throw problem("target is the mean luma to reach, 1 to 255 (left out: the median of the scene's other shots).");
+    if (operation.grain !== undefined && operation.grain !== false && !(Number.isFinite(operation.grain) && operation.grain >= 0 && operation.grain <= 1)) throw problem("grain is false (no grain) or an amount 0 to 1 (left out: matched to the lift).");
+    if (operation.remove !== undefined && typeof operation.remove !== "boolean") throw problem("remove is true (take the lift effects off) or left out.");
+  },
   // The board's names (music, media) are looked up when it runs: they may be layers this edit makes.
   board() {},
   source() {},
@@ -1022,7 +1037,7 @@ function copyText(value, depth = 0) {
 // or null), type (style.type or the picked treatment's type direction, or null)}, or null.
 // subjectSamples(layer): the faces (and where the eye goes) saved for a video layer's file, as
 // samples [{t, faces, subjects?}], the same ones check reads; [] when none were saved. frame_shot uses them.
-export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationContext, deckDeals = null, footageFacts = null, footageDeck = null, runOps = null, pictureAlpha = null, clipEvents = null, styleType = null, savedRefs = null, subjectSamples = null, shotColor = null, matchExposure = null, boardPace = null }) {
+export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationContext, deckDeals = null, footageFacts = null, footageDeck = null, runOps = null, pictureAlpha = null, clipEvents = null, styleType = null, savedRefs = null, subjectSamples = null, shotColor = null, matchExposure = null, liftShots = null, boardPace = null }) {
   async function fontsOf(document, work) { return work.fonts ??= await fontsFor(document); }
   const layout = createLayoutOps({ fontsOf, problem, sceneOf, faceTarget });
   async function mediaOf(document, work) {
@@ -1694,6 +1709,23 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
       if (!op) { unplaced.push(`shot ${n} ${name}: library {topic:"op", name:"move"} for its fields`); continue; }
       try { next = await runOps(next, [{ ...op, ...where }]); placed.push(`${name} (shot ${n})`); }
       catch (error) { unplaced.push(`shot ${n} ${name}: ${String(error.message).slice(0, 120)} edit {ops:[${JSON.stringify(op)}]}`); }
+    }
+    // A shot's lift: lift_dark on its layer, the shots with lift:true in one call (one median), each target its own.
+    const lifts = new Map();
+    for (const shot of board.shots) {
+      if (shot.lift === undefined || shot.media === NONE) continue;
+      const layer = next.scenes.find((item) => item.id === scene.id)?.layers.find((entry) => entry.name === `${BUILT_PREFIX}${shot.id}`);
+      if (!layer) continue;
+      const key = shot.lift === true ? "median" : shot.lift;
+      lifts.set(key, [...(lifts.get(key) ?? []), layer.id]);
+    }
+    for (const [key, layerIds] of lifts) {
+      if (!liftShots) { work.notes.push("shot lift not run: lift_dark needs kino's renderer, which this server does not have"); break; }
+      try {
+        const result = await liftShots(parseDocument(next), { sceneId: scene.id, layerIds, ...(key === "median" ? {} : { target: key }) });
+        next = result.document;
+        work.notes.push(...result.lines);
+      } catch (error) { work.notes.push(`shot lift not run: ${String(error.message).slice(0, 120)}`); }
     }
     const music = board.music !== NONE ? next.scenes.find((item) => item.id === scene.id)?.layers.find((layer) => layer.id === board.music) : null;
     const last = board.shots.at(-1);
@@ -2532,7 +2564,7 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
   // One shot, checked and filled in (text defaults), or what is wrong with it (`add`).
   async function boardShot(document, scene, shot, n, { media, add, work, refHelp, last = false }) {
     if (!isRecord(shot)) { add("bad_shot", `shot ${n} is {cue, dur, pacing, media, in, crop, subject, follow, text, sound, why}.`); return {}; }
-    const keys = ["id", "cue", "dur", "pacing", ...SHOT_LAYERS, "move", "why", "speed", "alts"];
+    const keys = ["id", "cue", "dur", "pacing", ...SHOT_LAYERS, "move", "why", "speed", "lift", "alts"];
     const extra = Object.keys(shot).filter((key) => !keys.includes(key));
     if (extra.length) add("bad_shot", `shot ${n} has no field "${extra[0]}"; a shot has ${keys.join(", ")}.`, closest(extra[0], keys));
     const missing = SHOT_LAYERS.filter((layer) => shot[layer] === undefined || shot[layer] === null);
@@ -2550,7 +2582,9 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     for (const message of wrong) add("bad_shot", message, /name "/.test(message) ? closest(String(shot.move.name), [...BOARD_MOVE_NAMES]) : []);
     const move = shot.move !== undefined && !wrong.length ? shot.move : null;
     if (missing.length) return {};
-    const result = { id: shot.id, cue: number(shot.cue) ? round(shot.cue) : 0, dur: number(shot.dur) ? round(shot.dur) : 0, pacing: shot.pacing, ...(speed !== 1 ? { speed: round(speed) } : {}) };
+    const lift = shot.lift === true || (number(shot.lift) && shot.lift > 0 && shot.lift <= 255) ? (shot.lift === true ? true : Math.round(shot.lift)) : null;
+    if (shot.lift !== undefined && shot.lift !== false && lift === null) add("bad_shot", `shot ${n} lift is true (lift_dark toward the other shots' median brightness) or the mean luma to reach, 1 to 255.`);
+    const result = { id: shot.id, cue: number(shot.cue) ? round(shot.cue) : 0, dur: number(shot.dur) ? round(shot.dur) : 0, pacing: shot.pacing, ...(speed !== 1 ? { speed: round(speed) } : {}), ...(lift !== null ? { lift } : {}) };
     const footage = boardFootage(shot, `shot ${n}`, { media, add, frame: scene });
     if (shot.follow !== NONE && !FOLLOW.includes(shot.follow)) add("bad_shot", `shot ${n} follow is steady, track, sweep or "none".`, closest(String(shot.follow), FOLLOW));
     if (shot.media === NONE && [shot.in, shot.crop, shot.subject, shot.follow].some((value) => value !== NONE))
@@ -2737,6 +2771,13 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     async match_references(document, operation, work) {
       if (!matchExposure) throw problem("match_references needs kino's renderer, which this server does not have.");
       const result = await matchExposure(parseDocument(document), operation);
+      document.scenes = result.document.scenes;
+      work.notes.push(...result.lines);
+    },
+    // lift_dark: the service renders and builds the curve (backend/agent/lift-dark.mjs).
+    async lift_dark(document, operation, work) {
+      if (!liftShots) throw problem("lift_dark needs kino's renderer, which this server does not have.");
+      const result = await liftShots(parseDocument(document), operation);
       document.scenes = result.document.scenes;
       work.notes.push(...result.lines);
     },
