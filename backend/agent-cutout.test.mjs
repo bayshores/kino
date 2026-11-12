@@ -377,6 +377,7 @@ test("cut_out refusals say what is wrong and what to send, and change nothing", 
   const behind = await agent("edit", { project: "refusals", ops: [{ op: "cut_out", layer: "clip", behind: "words" }] });
   assert.equal(behind.isError, undefined, behind.text);
   assert.equal(behind.data.cutout.engine, "person");
+  assert.match(behind.data.cutout.note, /behind used the person engine[^:]*: the clip has no people scan yet/);
   assert.equal(behind.data.cutout.behind, "words");
   const order = names((await sceneLayers(server, "refusals")).layers);
   assert.deepEqual(order.slice(order.indexOf("clip"), order.indexOf("clip") + 3), ["clip", "words", "clip-subject"]);
@@ -564,7 +565,7 @@ test("behind picks the engine from the clip's people scan, and a person pass tha
   assert.deepEqual(started, ["person", "subject"]);
   assert.deepEqual(unscanned.receipt.tried, ["person", "subject"]);
   assert.equal(unscanned.receipt.engine, "subject");
-  assert.match(unscanned.receipt.note, /person engine found no one in "clip".*behind used the subject engine \(one more pass/);
+  assert.match(unscanned.receipt.note, /the person engine found no one in "clip" \([\d.]+ s\); behind kept the subject engine's cut-out \([\d.]+ s\)/);
   assert.deepEqual(unscanned.order.slice(0, 3), ["clip", "title", "clip-cut"]);
   // A scan with no person in its samples: the subject engine alone.
   started.length = 0;

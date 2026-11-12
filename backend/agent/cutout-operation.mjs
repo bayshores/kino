@@ -57,7 +57,7 @@ export function behindEngines({ people, available = [] } = {}) {
   const drawn = samples.length > 0 && withPeople / samples.length < PEOPLE_SHARE;
   const order = drawn
     ? [{ engine: "subject", why: `the people scan found a person or face in ${withPeople} of ${samples.length} samples of the clip` }]
-    : [{ engine: "person", why: samples.length ? "the people scan found people in the clip" : "the clip has no people scan yet" }, { engine: "subject", why: "the person engine found no one" }];
+    : [{ engine: "person", why: samples.length ? `the people scan found a person or face in ${withPeople} of ${samples.length} samples of the clip` : "the clip has no people scan yet (a full check makes one)" }, { engine: "subject", why: "the person engine found no one" }];
   const usable = order.filter((entry) => available.find((item) => item.engine === entry.engine)?.available !== false);
   // The person engine is missing here: only the subject engine is left, and the note says why.
   if (usable.length === 1 && usable[0].engine === "subject" && order.length > 1) return [{ engine: "subject", why: "the person engine is not available on this computer" }];
@@ -318,15 +318,16 @@ async function cutOut(document, operation, { mediaRoot, cutoutMedia, operationCo
   // Past the deadline the job is still started (or joined), so it is made while the agent waits.
   // The engines of one cut-out share that one wait.
   const stopAt = deadline === undefined ? performance.now() + waitSeconds * 1000 : deadline;
-  let made = null, job, engine = engines[0].engine, lastError = null;
-  const tried = [];
-  let extraStart = 0, extraSeconds = 0;
+  let made = null, job, engine = engines[0].engine;
+  // Each pass's engine, time and what it found, for the receipt's note.
+  const tried = [], passes = [];
   for (let index = 0; index < engines.length; index += 1) {
     engine = engines[index].engine;
-    const last = index === engines.length - 1;
-    if (index > 0) extraStart = performance.now();
+    const last = index === engines.length - 1, began = performance.now();
+    const pass = { engine };
     job = startWith(engine);
     tried.push(engine);
+    passes.push(pass);
     let result;
     try {
       result = await within(job.done, Math.max(0, (stopAt - performance.now()) / 1000));
@@ -338,14 +339,18 @@ async function cutOut(document, operation, { mediaRoot, cutoutMedia, operationCo
         if (more <= graceSeconds) result = await within(job.done, graceSeconds);
       }
     } catch (error) {
+      pass.seconds = (performance.now() - began) / 1000;
+      pass.none = error.code === "CUTOUT_NO_SUBJECT";
       // This engine found no one: the next one tries (behind only), else it is the error below.
-      if (error.code === "CUTOUT_NO_SUBJECT" && !last) { lastError = error; if (index > 0) extraSeconds += (performance.now() - extraStart) / 1000; continue; }
-      if (error.code === "CUTOUT_NO_SUBJECT" && made) break;
-      // behind with no subject anywhere in the clip: the text stays in front, and the receipt says so.
-      if (operation.behindText && error.code === "CUTOUT_NO_SUBJECT") {
+      if (pass.none && !last) continue;
+      if (pass.none && made) break;
+      // behind with no subject anywhere in the clip: the text stays in front, and the receipt says so
+      // (naming only the engines that ran: "auto" and "subject" both look for any subject).
+      if (operation.behindText && pass.none) {
         const text = scene.layers.find((item) => item.id === operation.referenceId);
+        const looked = [...new Set(tried.map((name) => (name === "person" ? "person" : "subject")))].join(" or ");
         reports?.set(operation, { engine, ...(tried.length > 1 ? { tried } : {}), behind: text?.name ?? operation.referenceId,
-          fallback: `no ${own ? (own === "person" ? "person" : "subject") : "person or subject"} was found in "${layer.name}", so "${text?.name ?? "the text"}" stays in front` });
+          fallback: `no ${looked} was found in "${layer.name}", so "${text?.name ?? "the text"}" stays in front` });
         return document;
       }
       const said = error.code === "CUTOUT_NO_SUBJECT" ? `${error.message.replace(/\.$/, "")} of "${layer.name}".` : error.message;
@@ -353,7 +358,7 @@ async function cutOut(document, operation, { mediaRoot, cutoutMedia, operationCo
       throw Object.assign(new Error(next ? `${said} ${next}` : said), error.code ? { cutoutError: error.code } : {});
     }
     if (result === STILL_RUNNING) { made = STILL_RUNNING; break; }
-    if (index > 0) extraSeconds += (performance.now() - extraStart) / 1000;
+    Object.assign(pass, { seconds: (performance.now() - began) / 1000, found: result.frames - result.empty, frames: result.frames });
     // Mostly empty (over half the frames): the next engine may do better; keep the fuller one.
     if (!last && result.empty > result.frames / 2) { if (!made || result.empty < made.empty) made = result; continue; }
     if (made && made !== STILL_RUNNING && made.empty <= result.empty) break;
@@ -413,13 +418,19 @@ async function cutOut(document, operation, { mediaRoot, cutoutMedia, operationCo
   aliasClipLinks(next, layer.src, next.scenes.find((item) => item.id === sceneId)?.layers.find((item) => item.id === operation.cutoutId)?.src);
 
   const notes = made.note ? [made.note] : [];
-  // Which engine behind used and why (the receipt states the engine kept, and the time of any extra pass).
+  // Which engine behind used and why, and with two passes what each found and the time it took
+  // (the pass not kept is the time the second engine cost).
   if (!own && operation.behindText) {
-    const first = engines[0];
-    if (tried.length === 1 && first.engine === "subject") notes.push(`behind used the subject engine: ${first.why.replace(/ of the clip$/, ` of "${layer.name}"`)}`);
-    else if (tried.length > 1 && made.engine !== tried[0])
-      notes.push(`the ${tried[0]} engine found no one in "${layer.name}" (or in over half its frames); behind used the ${made.engine} engine (one more pass, ${Math.round(extraSeconds * 10) / 10} s)`);
-    else if (tried.length > 1) notes.push(`the ${tried[1]} engine found no more in "${layer.name}" than the ${tried[0]} engine, so behind kept the ${tried[0]} matte`);
+    const timed = (pass) => `${Math.round((pass.seconds ?? 0) * 10) / 10} s`;
+    // A person matte with empty frames on a clip with no scan may be a drawn or partial figure
+    // (run 8 review: 99 of 111 frames, patchy, where the subject engine found 110): say how to try the other engine.
+    const other = made.engine === "person" && made.empty > 0 ? ` (engine:"subject" finds any subject)` : "";
+    if (tried.length === 1) notes.push(`behind used the ${made.engine} engine${other}: ${engines[0].why.replace(/ of the clip$/, ` of "${layer.name}"`)}`);
+    else {
+      const other = passes.find((pass) => pass.engine !== made.engine), kept = passes.find((pass) => pass.engine === made.engine);
+      const found = other.none ? `found no one in "${layer.name}"` : `found ${other.engine === "person" ? "a person" : "a subject"} in only ${other.found} of ${other.frames} frames of "${layer.name}"`;
+      notes.push(`the ${other.engine} engine ${found} (${timed(other)}); behind kept the ${made.engine} engine's cut-out (${timed(kept)})`);
+    }
   }
   // The person engine can leave a silhouette or a dark figure half see-through (gray over a title
   // behind it); the subject engine gives it a solid body.

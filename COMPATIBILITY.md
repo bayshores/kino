@@ -933,8 +933,9 @@ How to read it:
   clip's people scan (few people: subject engine; else person, then subject when it finds no one;
   receipt `tried`); none found leaves it in front with `cutout.fallback`. Evidence:
   `backend/agent-cutout.test.mjs`. Measured on 3 drawn clips (Apple Vision): subject in 43 of 53,
-  110 of 111 and 188 of 196 frames with the scan (main: none, 99 and 8). Gap: with no scan a
-  person pass that finds a partial figure in over half the frames is kept (99 of 111, patchy).
+  110 of 111 and 188 of 196 frames with the scan (main: none, 99 and 8); a filmed people clip keeps
+  one person pass (47 of 48, as main). Gap: with no scan a person pass that finds a partial figure in
+  over half the frames is kept (99 of 111, patchy); its note names `engine:"subject"`.
 - **Tracing a picture into vector shapes** (`trace_image {layer or media, region, colors:4}`): Verified. One flat-color
   path per region, largest first, background dropped (holes kept), in a named group later ops can use; look draws it.
   Evidence: `backend/agent-reach-geometry.test.mjs` ("trace_image"), `engine/svgImport.test.js` ("traceImage").
