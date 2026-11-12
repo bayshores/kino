@@ -307,6 +307,21 @@ test("the mix fix line says which places were turned down, which were not, what 
   assert.equal(edit, 'edit {ops:[{op:"update_layer", layer:"Song", properties:{volume:0.557}}]}');
   assert.equal(restCallFor(after.places, { ops: [{}] }, layers), 'check {fix:"auto"}');
   assert.equal(restCallFor([], null, layers), "");
+  // A plan that turns down only a smaller place than the worst one: one edit for the worst, not check again.
+  assert.match(restCallFor(after.places, { ops: [{}], trimmed: [{ at: 1.7 }] }, layers), /^edit /);
+  // A song heard past the place dips there only (dm4-b rev 13: 14.3 s, song 0.8 beside a kept line, x0.31),
+  // instead of coming down whole; with its volume moving there it takes update_layer.
+  const worst = { at: 14.3, from: 13.5, to: 14.8, peakDbtp: 8.5, overDb: 10, factor: 0.31, playing: [{ layerId: "song", name: "Song", volume: 0.8 }] };
+  const steadySong = { id: "song", name: "Song", volume: 0.8, animations: [] };
+  assert.equal(restCallFor([worst], null, [steadySong], { bed: () => true }),
+    'edit {ops:[{op:"add_animation", layer:"Song", animation:{name:"Peak down", kind:"custom", easing:"smooth", start:13.45, duration:0.05, from:{volume:0.8}, to:{volume:0.248}}}, ' +
+    '{op:"add_animation", layer:"Song", animation:{name:"Peak up", kind:"custom", easing:"smooth", start:14.8, duration:0.05, from:{volume:0.248}, to:{volume:0.8}}}]}');
+  const fading = createLayer("audio", { ...steadySong, src: "/api/media/song.wav", animations: [{ id: "f", name: "Fit out", kind: "custom", easing: "linear", start: 14.45, duration: 0.55, from: { volume: 0.8 }, to: { volume: 0 } }] });
+  assert.equal(restCallFor([worst], null, [fading], { bed: () => true }), 'edit {ops:[{op:"update_layer", layer:"Song", properties:{volume:0.248}}]}');
+  // With the scene's length, a dip that follows its fade out (a few straight pieces) instead.
+  const followed = restCallFor([worst], null, [fading], { bed: () => true, duration: 15 });
+  assert.match(followed, /^edit \{ops:\[\{op:"add_animation", layer:"Song", animation:\{name:"Peak down"/);
+  assert.ok(!followed.includes("update_layer") && followed.split("add_animation").length - 1 === 9, followed);
   // A name with a quote mark stays one string in the call.
   assert.equal(restCallFor(after.places, { ops: [] }, [{ id: "song", name: 'the "big" one', volume: 1 }]), 'edit {ops:[{op:"update_layer", layer:"the \\"big\\" one", properties:{volume:0.96}}]}');
   // A line keep_line leveled and kept there is named when the call lowers it.

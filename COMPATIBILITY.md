@@ -1185,8 +1185,10 @@ How to read it:
   churns, it dips at the places it can without churning and is named at the rest; where only a song plays beside a
   kept line and x0.3 would not clear the place, the song keeps its level. Replayed on a copy of dm4-b rev 13: song 0.8
   whole x0.3 (-9.5 to -12.6 LUFS) before, now 0.8 outside dips at 6.85-7.05 and 9.45-11.75 s (-9.5 to -10.4 LUFS).
-  With rules, fix:auto turns the mix down only with "mix" named; the applied line names each fix. Evidence:
-  `engine/volumeAnimation.test.js`, `backend/agent-polish-fix.test.mjs`. Gap: not rendered; follow dips use straight
+  With rules, fix:auto turns the mix down only with "mix" named; the applied line names each fix. The rest call
+  dips a song at the worst place left (dm4-b: was update_layer song 0.248 whole) and names check {fix:"auto"}
+  only when a rerun would reach that place (dm4-b: a rerun only dipped 6.9 s again). Evidence:
+  `engine/volumeAnimation.test.js`, `backend/agent-polish-fix.test.mjs`, `backend/audio-levels.test.mjs`. Gap: not rendered; follow dips use straight
   0.05 s ramps, not measured for clicks; the rules filter on the mix has no server test.
 - **Kept line evened and peak-held** (`keep_line {even}`, receipt `even`, `peak`): Rendered once in a test on
   generated stereo speech-like audio over pink noise. Words over 3 LU off the line's median word come back to 3 LU

@@ -4,6 +4,8 @@
 import { join } from "node:path";
 import { BED_VOLUME } from "../engine/mixLevels.js";
 import { keepLineStretches } from "../engine/audioDucking.js";
+import { volumeAt } from "../engine/animation.js";
+import { followDip } from "../engine/peakTrim.js";
 import { runExportProcess } from "./export-process.mjs";
 
 const ffmpeg = () => process.env.KINO_FFMPEG ?? process.env.OPEN_MOTION_FFMPEG ?? "ffmpeg";
@@ -375,16 +377,38 @@ export function describeMixFix(before, after, trimmed = [], { restCall = "" } = 
  * `plan` (peakTrims of the scene as it is now over those places) changes anything, else one edit
  * that multiplies every layer playing at the worst place by its xN. "" when nothing is left.
  */
-export function restCallFor(places, plan, layers) {
+export function restCallFor(places, plan, layers, { bed = () => false, duration = null } = {}) {
   if (!places.length) return "";
-  if (plan?.ops?.length) return 'check {fix:"auto"}';
   const worst = places.reduce((high, place) => (!high || place.overDb > high.overDb ? place : high), null);
+  // Another check {fix:"auto"} only when its plan turns the worst place down (else it would only
+  // nibble at the small ones again).
+  if (plan?.ops?.length && (!plan.trimmed || plan.trimmed.some((place) => place.at === worst.at))) return 'check {fix:"auto"}';
   const ids = [...new Set((worst.playing ?? []).map((clip) => clip.layerId).filter(Boolean))];
   const found = ids.map((id) => layers.find((layer) => layer.id === id)).filter(Boolean);
-  const ops = found.map((layer) => `{op:"update_layer", layer:${JSON.stringify(String(layer.name ?? layer.id))}, properties:{volume:${Math.round(1000 * (layer.volume ?? 1) * worst.factor) / 1000}}}`);
+  const ops = found.map((layer) => (bed(layer) && dipCall(layer, worst, duration)) || `{op:"update_layer", layer:${JSON.stringify(String(layer.name ?? layer.id))}, properties:{volume:${Math.round(1000 * (layer.volume ?? 1) * worst.factor) / 1000}}}`);
   // A line keep_line leveled and kept there comes down with the rest: said, so the agent decides.
   const kept = found.filter((layer) => Number.isFinite(layer.voiceLevel) && keepLineStretches(layer).some((line) => line.start < worst.to && line.end > worst.from));
   return ops.length ? `edit {ops:[${ops.join(", ")}]}${kept.length ? ` (it lowers ${kept.map((layer) => String(layer.name ?? layer.id)).join(", ")} under the level keep_line set)` : ""}` : "";
+}
+
+// A song or bed at a place left over: a dip there only ("Peak down" in the 0.05 s before it, "Peak
+// up" in the 0.05 s after it, as check {fix:"auto"} makes them), so the rest of it keeps its level.
+// Where its volume moves there (a fade, a duck), the dip follows that curve in at most 12 straight
+// pieces (engine/peakTrim.js followDip); else "" (update_layer instead).
+function dipCall(layer, place, duration) {
+  const ramp = 0.05;
+  const start = Math.max(0, place.from - ramp);
+  const level = volumeAt(layer, start);
+  const r3 = (value) => Math.round(1000 * value) / 1000;
+  const name = JSON.stringify(String(layer.name ?? layer.id));
+  const piece = (title, at, length, from, to, easing = "smooth") => `{op:"add_animation", layer:${name}, animation:{name:"${title}", kind:"custom", easing:"${easing}", start:${r3(at)}, duration:${r3(length)}, from:{volume:${from}}, to:{volume:${to}}}}`;
+  if (level > 0 && [place.at, place.to + ramp].every((time) => Math.abs(volumeAt(layer, time) - level) <= 0.001)) {
+    const low = r3(level * place.factor);
+    return `${piece("Peak down", start, ramp, r3(level), low)}, ${piece("Peak up", place.to, ramp, low, r3(level))}`;
+  }
+  const pieces = Number.isFinite(duration) ? followDip(layer, [{ from: place.from, to: place.to, factor: place.factor }], duration) : null;
+  if (!pieces?.length || pieces.length > 12) return "";
+  return pieces.map((item) => piece(item.name, item.start, item.duration, item.from.volume, item.to.volume, item.easing)).join(", ");
 }
 
 /** The loudest of `windows` ([{t, peak}] per 0.1 s) from `from` to `to` (s), or null when all are silent. */

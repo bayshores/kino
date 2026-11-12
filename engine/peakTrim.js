@@ -82,7 +82,7 @@ const pieceAt = (a, b, share) => a === b ? a : a === 0 ? b * Math.sin(share * Ma
  * way (its moves run past FOLLOW_REACH, more than FOLLOW_PIECES pieces, or the result strays more
  * than 3% from the curve anywhere).
  */
-function followDip(layer, places, duration) {
+export function followDip(layer, places, duration) {
   const first = Math.min(...places.map((place) => place.from));
   const last = Math.max(...places.map((place) => place.to));
   const start = round(Math.max(0, first - PEAK_RAMP));

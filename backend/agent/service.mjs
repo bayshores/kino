@@ -3685,7 +3685,8 @@ export function createAgentService(deps) {
     // The mix before check {fix:"auto"} turned its limiter places down, and whether it did.
     let mixBefore = null, mixTrimmed = false;
     if (input.fix === "auto") {
-      const keep = placedByYou(await agentState.read(projectId), codes, record.document);      // The missing_glyphs fix (a range in a font that has the characters) is worked out first so it can be applied.
+      const keep = placedByYou(await agentState.read(projectId), codes, record.document);
+      // The missing_glyphs fix (a range in a font that has the characters) is worked out first so it can be applied.
       await explainMissingGlyphs(result.findings, record.document, { fonts, catalog: fontCatalog, codes });
       const outcome = await autoFix(record.document, result.findings, { ...options, fonts, keep });
       // The mix's limiter places (the "mix:" line): each place's xN on the layers playing there,
@@ -3725,7 +3726,13 @@ export function createAgentService(deps) {
         const afterScene = scene ? record.document.scenes.find((item) => item.id === scene.id) : videoScene(record.document);
         const mixAfter = mixTrimmed ? await mixPeaksOf(afterScene, { projectId }) : null;
         // The places left, and the one call that clears them (another check {fix:"auto"}, or one edit).
-        const restCall = mixAfter?.places.length ? restCallFor(mixAfter.places, await mixPlan(afterScene, record.document, mixAfter.places), afterScene.layers) : "";
+        // A place nothing changed at keeps the layers' own peaks measured before (the fix's rerun measures them the same).
+        const samePlaying = (a, b) => JSON.stringify((a.playing ?? []).map((clip) => [clip.layerId, clip.volume])) === JSON.stringify((b.playing ?? []).map((clip) => [clip.layerId, clip.volume]));
+        const placesLeft = (mixAfter?.places ?? []).map((place) => {
+          const measured = mixBefore.places.find((item) => item.at === place.at && samePlaying(item, place));
+          return measured ? { ...place, playing: measured.playing, restDbfs: measured.restDbfs } : place;
+        });
+        const restCall = placesLeft.length ? restCallFor(placesLeft, await mixPlan(afterScene, record.document, placesLeft), afterScene.layers, { bed: await bedOf(afterScene, record.document), duration: afterScene.duration }) : "";
         if (mixAfter) applied.mix = describeMixFix(mixBefore, mixAfter, mixTrimmed, { restCall });
       } else applied = { ops: 0, fixed: [], dropped: outcome.dropped };
       // Whether the last fix:"auto" applied anything: next: names a plain check after one that
@@ -3798,7 +3805,7 @@ export function createAgentService(deps) {
         (wholes.length ? ` (${wholes.map((name) => `${name} whole`).join(", ")}: its dips would churn or meet a fade; the fix sizes it from each layer measured alone)` : "");
       // The places the fix leaves (a line keep_line leveled, a fade): the one call that clears the worst of them.
       const done = new Set(plan.trimmed.map((place) => place.at));
-      const rest = restCallFor(mix.places.filter((place) => !done.has(place.at)), null, returnsScene.layers);
+      const rest = restCallFor(mix.places.filter((place) => !done.has(place.at)), null, returnsScene.layers, { bed: await bedOf(returnsScene, record.document), duration: returnsScene.duration });
       if (rest) mixTail += `; the rest: ${rest}`;
     }
     if (mix) lines.push(describeMixPeaks(mix, { tail: "; all of them: look {mode:\"motion\", ref:\"sound\"}" }) + mixTail);
@@ -5791,8 +5798,13 @@ export function createAgentService(deps) {
   // song (a beat was found), {layer, transcript} for a voice with a saved transcript.
   // peakTrims over a scene's limiter places, with songs and beds told apart by their saved kinds.
   async function mixPlan(scene, document, places) {
+    return peakTrims(scene, places, { bed: await bedOf(scene, document) });
+  }
+
+  // Whether a layer of `scene` is a song or bed, from its saved sound kinds.
+  async function bedOf(scene, document) {
     const kinds = await savedSoundKinds(scene, document);
-    return peakTrims(scene, places, { bed: (layer) => isMusicLayer(layer, scene, kinds.find((entry) => entry.layer.id === layer.id)) });
+    return (layer) => isMusicLayer(layer, scene, kinds.find((entry) => entry.layer.id === layer.id));
   }
 
   async function savedSoundKinds(scene, document) {
