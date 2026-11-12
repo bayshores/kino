@@ -58,6 +58,12 @@ test("effect_fit: untriggered, and a gate at the final render", async () => {
   const raw = { id: "hit", name: "impact-accent", settings: { kind: "hit" }, tags: ["flash", "shake"], start: 5 - 1 / 30, end: 5.6 };
   const loose5 = await runQuality(kinoTimeline(edit(lift(5, 2, ["hit.impact-flash-up", "hit.impact-flash-down"]), [], { moves: [raw] }), "s", { fonts: defaultFonts }), { codes: ["effect_fit"], pixels: false, context: { triggerCues: [accent("hit", 2)] } });
   assert.deepEqual(loose5.findings.map((finding) => [finding.reason, finding.fix]), [["untriggered", { kind: "remove", move: { name: "impact-accent", id: "hit" }, auto: true }]]);
+  // The same raw hit on a cut (compose's hit on its shot's first frame) has the cut under it; a cut 0.3 s off does not count.
+  const cutAt = (at) => ({ type: "video", id: "next", name: "next", src: "/api/media/next.mp4", mediaSourceDuration: 30, mediaStart: at, x: 0, y: 0, width: 1920, height: 1080 });
+  assert.deepEqual(await reasons(edit(lift(5, 2, ["hit.impact-flash-up", "hit.impact-flash-down"]), [cutAt(5)], { moves: [raw] }), [accent("hit", 2)]), []);
+  assert.deepEqual(await reasons(edit(lift(5, 2, ["hit.impact-flash-up", "hit.impact-flash-down"]), [cutAt(5.3)], { moves: [raw] }), [accent("hit", 2)]), ["untriggered"]);
+  // A hand flash on that cut is still asked for its cue (only a hit takes any moment).
+  assert.deepEqual(await reasons(edit(lift(5), [cutAt(5)]), [accent("hit", 2)]), ["untriggered"]);
   // A hit that names a beat number as its cue is on it; a hand shake on the same beat (no move names it) is not.
   const beat = { name: "beat-8", kind: "beat", time: 5 };
   const onBeat = { ...raw, trigger: { cue: "beat-8", at: 5, motive: "beat", weight: 0.3, kind: "hit" } };

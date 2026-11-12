@@ -646,7 +646,12 @@ const TRANSLATE = {
       return;
     }
     const sides = ["below", "above", "left_of", "right_of"].filter((key) => operation[key] !== undefined);
-    if (sides.length + (operation.slot !== undefined ? 1 : 0) !== 1) throw problem("place needs one of below, above, left_of, right_of (a layer) or slot.");
+    if (sides.length + (operation.slot !== undefined ? 1 : 0) !== 1) {
+      // side is a form of around (the room beside a subject), so a side alone names around.
+      if (operation.side !== undefined && !sides.length && operation.slot === undefined)
+        throw problem(`place {layers, side} needs around: the layer, or "subject" for the marked one, whose room the text goes in, such as place {layers, around:"subject", side:${JSON.stringify(operation.side)}}. Without around, place takes below, above, left_of or right_of (a layer) or slot.`);
+      throw problem("place needs around (a layer or \"subject\", with side?), on + of, one of below, above, left_of, right_of (a layer) or slot.");
+    }
     for (const key of sides) operation[key] = layerRef(resolver, operation[key]);
     if (operation.slot !== undefined) slotBox({ width: 1920, height: 1080 }, operation.slot);
     checkGap(operation);

@@ -294,9 +294,13 @@ export function librarySoundsText({ query, results }, { searchOn = false, action
     const near = nearest.length ? `Nearest kinds: ${nearest.join(", ")}. ` : "";
     return `No library sound matches ${asked}. ${near}Find one: library {topic:"inspire", search:${asked}, kind:"sounds"}${searchOn ? ` or library {topic:"sounds", name:"openverse", search:${asked}}` : ""}, then project {action:"import", file:"<its id>"}. Or try a plainer word (whoosh, swish, click, tap, pop, impact, boom, glitch, chime, error, zap, footstep).`;
   }
+  // A sound kino makes in code (sound-synth.mjs) is not a CC0 file: the header counts it apart and its line says so.
+  // The count is of every match, as "N of M" is: a made sound past the first 10 is still not CC0.
+  const shown = results.slice(0, 10), made = results.filter((sound) => sound.synth).length;
+  const kind = !made ? "CC0 library sounds" : made === results.length ? "library sounds made by kino" : `library sounds (${made} made by kino, the rest CC0)`;
   return [
-    `${Math.min(results.length, 10)} of ${results.length} CC0 library sounds for "${query}" (seconds, loudness):`,
-    ...results.slice(0, 10).map((sound) => `sfx:${sound.id} ${sec(sound.seconds)}s ${levelWords(sound)}: ${sound.words}`),
+    `${shown.length} of ${results.length} ${kind} for "${query}" (seconds, loudness):`,
+    ...shown.map((sound) => `sfx:${sound.id} ${sec(sound.seconds)}s ${levelWords(sound)}: ${sound.words}${sound.synth ? " (made by kino)" : ""}`),
     'Import one: project {action:"import", file:"sfx:<id>"} (credit kept). Put each on a visible action only.',
     ...(actions > 0 ? [`This cut has ${actions} visible actions: library {topic:"sounds", actions:true}.`] : []),
   ].join("\n");

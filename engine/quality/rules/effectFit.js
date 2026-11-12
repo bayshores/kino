@@ -5,7 +5,8 @@
 //   untriggered  a loud effect (flash, shake, impact frame, strobe, glitch, RGB split, zoom punch)
 //                with no cue that motivates it on its frame (it may come up to 2 frames early,
 //                never late): a footage impact or light (a cue pinned to a clip), a fitted song seam
-//                or rest, a top accent, a drum fill. A text animation or sound effect with no cue,
+//                or rest, a top accent, a drum fill (an impact-accent hit at a raw time: also a shot
+//                change under its first part). A text animation or sound effect with no cue,
 //                shot change or heard word start under it (a text may follow a cut or a named
 //                marker cue by 0.1 to 0.3 s).
 //   strength     a stronger effect on a weaker trigger than another effect has (strength ranks with
@@ -69,9 +70,18 @@ export function songSections(cues, duration) {
   }).filter((section) => section.to > section.from);
 }
 
+// The impact-accent move at a raw time (no cue recorded) a loud effect belongs to, or null.
+const rawAccentOf = (model, use) => (!use.cue && (model.moves ?? []).find((move) => move.name === "impact-accent" && !move.trigger
+  && ((use.animationIds ?? []).some((id) => id.startsWith(`${move.id}.`)) || (!use.itemId && use.at >= move.start - 0.1 && use.at <= move.end)))) || null;
+// A hit's reason when it has no cue: the shot change under its first part, weighed as a moment kino
+// measured nothing at (impact.js WEAK).
+const CUT_WEIGHT = 0.3;
+
 // The loud effects, each with its trigger: [{tag, at, itemId, strength, frames, shape, rate, cue, weight, motive}].
-// `motivated` is every cue with its strongest reason, worked out once: [{cue, best}].
-function loudEffects(model, cues, motivated) {
+// `motivated` is every cue with its strongest reason, worked out once: [{cue, best}]. `changes` are the
+// shot changes (plateChanges times): an impact-accent hit at a raw time (kind hit "takes any moment",
+// compose places one on its shot's first frame) whose first part lands on one has that cut under it.
+function loudEffects(model, cues, motivated, changes = []) {
   // A flat frame on a cut (techniques.js flatJoins) is part of the join, as a cut is: not a loud effect.
   const used = Object.fromEntries(Object.entries(techniquesUsed(model)).map(([tag, list]) => [tag, list.filter((use) => !use.join)]));
   // Zoom punches one at a time, of any size, timed from where they start to rise; a punch a move
@@ -99,6 +109,17 @@ function loudEffects(model, cues, motivated) {
     }
     list.push({ tag, ...use, ...(trigger ? { trigger } : {}) });
   }
+  // A raw-time hit is one effect: its parts start a frame apart, so the cut is read under the first.
+  const hits = new Map();
+  for (const use of list.filter((entry) => !entry.trigger)) {
+    const move = rawAccentOf(model, use);
+    if (move?.settings?.kind === "hit") hits.set(move.id, [...(hits.get(move.id) ?? []), use]);
+  }
+  for (const uses of hits.values()) {
+    const first = Math.min(...uses.map((use) => use.at));
+    const cut = changes.find((time) => onCue(first, time));
+    if (cut !== undefined) for (const use of uses) use.trigger = { cue: `the cut at ${sec(cut)}s`, weight: CUT_WEIGHT, motive: "cut" };
+  }
   return list.sort((a, b) => a.at - b.at);
 }
 
@@ -108,8 +129,7 @@ function removal(model, use) {
   // An impact-accent hit at a raw time has no cue (moves/impact.js): it goes whole, its light,
   // blur, particles and shake, not only the light the hand scan finds (measured on run 8's copy:
   // the old fix left the blur and the particle layer).
-  const hit = !use.cue && (model.moves ?? []).find((move) => move.name === "impact-accent" && !move.trigger
-    && ((use.animationIds ?? []).some((id) => id.startsWith(`${move.id}.`)) || (!use.itemId && use.at >= move.start - 0.1 && use.at <= move.end)));
+  const hit = rawAccentOf(model, use);
   if (hit) return { kind: "remove", move: { name: hit.name, id: hit.id }, auto: true };
   const item = use.itemId && itemById(model, use.itemId);
   if (item?.source?.componentPath) return null;
@@ -177,7 +197,8 @@ export function effectFit(model, ctx) {
   // A beat number is no reason by itself: it counts only for a move that names it (loudEffects).
   const motivated = cues.filter((cue) => cue.kind !== "beat").map((cue) => ({ cue, best: motivesOf(cue, cues)[0] })).filter((entry) => entry.best);
   const nearest = (at) => motivated.reduce((near, entry) => (!near || Math.abs(entry.cue.time - at) < Math.abs(near.time - at) ? entry.cue : near), null);
-  const effects = loudEffects(model, cues, motivated);
+  const changes = plateChanges(model).map((change) => change.at);
+  const effects = loudEffects(model, cues, motivated, changes);
 
   // untriggered: a loud effect with no reason on its frame. Its fix takes it off (check fix:"auto").
   const takenOff = new Set();
@@ -241,7 +262,6 @@ export function effectFit(model, ctx) {
   }
 
   // a text animation or sound effect needs something under it too: a cue, a shot change or a word.
-  const changes = plateChanges(model).map((change) => change.at);
   const words = heardEdges(ctx).filter((edge) => edge.words?.length).flatMap((edge) => heardWords({ words: edge.words, range: edge.range }).map((word) => word.start));
   const placed = (at) => cues.some((cue) => cue.kind !== "onset" && cue.kind !== "beat" && onCue(at, cue.time) && (cue.kind !== "marker" || !SONG.test(cue.name ?? "") || fitted(cue)))
     || changes.some((time) => Math.abs(time - at) <= EARLY + step) || words.some((time) => Math.abs(time - at) <= 0.1);

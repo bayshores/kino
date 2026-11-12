@@ -253,6 +253,10 @@ test("place {around} sets a word beside the marked subject of the shot under it 
   const unmarked = await agent("around-place", "edit", { ops: [{ op: "place", layers: ["payoff"], around: "subject" }] });
   assert.equal(unmarked.isError, true);
   assert.match(unmarked.text, /mark_subject \{layer:\\"<shot>\\", t:0, box:\[x, y, w, h\]\}/);
+  // A side with no around names around, not only the below/above forms.
+  const noAround = await agent("around-place", "edit", { ops: [{ op: "place", layers: ["payoff"], side: "left" }] });
+  assert.equal(noAround.isError, true);
+  assert.match(noAround.text, /place \{layers, side\} needs around: .*around:\\"subject\\", side:\\"left\\"/);
   const placed = await agent("around-place", "edit", { ops: [
     { op: "mark_subject", layer: "shot", t: 0, box: [40, 18, 20, 82] },
     { op: "place", layers: ["payoff"], around: "subject" },

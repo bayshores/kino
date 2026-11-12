@@ -2425,13 +2425,13 @@ const rangeRun = async (level, context = {}) => {
   return (await runQuality(modelOf(document), { codes: ["reference_range"], pixels: true, context: { sceneName: "s1", renderFrames: flatFrames(level), rangeRefs: RANGE_REFS, ...context } })).findings;
 };
 
-test("reference_range: a video darker than its saved references warns with the dark stretch and a gamma fix; inside their range it is quiet", async () => {
+test("reference_range: a video darker than its saved references warns with the dark stretch and a lift_dark fix; inside their range it is quiet", async () => {
   const [dark] = await rangeRun(31);
   assert.equal(dark.severity, "warn");
   assert.equal(dark.measured, "median brightness 31 of 255; under 38 for 100% of the video, 0.3-10 s");
   assert.equal(dark.required, "inside your 2 saved references: median 48 to 56, under 38 for 2% to 24%");
   assert.match(dark.message, /s1 is darker than its saved references \(yt:aaa, yt:bbb\): median 31 of 255 against 48 to 56/);
-  assert.match(dark.fix.text, /color-wheels", parameters:\{gamma:1\.3\}.*waive_check \{code:"reference_range", target:"s1", reason\}/);
+  assert.match(dark.fix.text, /op:"lift_dark", layer:"[^"]+"}.*gamma lift grays the blacks.*waive_check \{code:"reference_range", target:"s1", reason\}/);
   // check {fix:"auto"} grades each shot toward the range: match_references.
   assert.equal(dark.fix.kind, "match_references");
   assert.equal(dark.fix.auto, true);
@@ -2439,6 +2439,7 @@ test("reference_range: a video darker than its saved references warns with the d
   const [bright] = await rangeRun(120);
   assert.deepEqual([bright.fix.auto, bright.fix.lower], [false, true]);
   assert.match(bright.fix.text, /\{op:"match_references", lower:true\}/);
+  assert.match(bright.fix.text, /color-wheels", parameters:\{gamma:0\.8\}/, "only brightening points to lift_dark; darkening keeps its gamma");
   assert.deepEqual(await rangeRun(52), []);
   // The fix names every clip in the dark stretch, not only the first.
   const two = scene({ duration: 10, layers: [footage("a", { duration: 5, mediaDuration: 5 }), footage("b", { start: 5, duration: 5, mediaDuration: 5 })] });
