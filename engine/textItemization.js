@@ -10,6 +10,7 @@ export function textStyleRuns(layer) {
   const runs = textStyleSegments(layer, 0, source.rawText.length, { preserveBoundaries: true, runtime: true }).map((segment) => ({
     start: offsets.get(segment.start), end: offsets.get(segment.end),
     style: { ...layer, ...segment.style, _textRangeFill: segment.overrides.fill,
+      _textRangeRotation: segment.overrides.rotation, _textRangeShift: segment.overrides.baselineShift,
       // A range's own weight wins over the layer's variable axes (fontAxes.js), so a bold word stays bold.
       ...(segment.overrides.fontWeight !== undefined && layer.axes?.wght !== undefined
         ? { axes: { ...layer.axes, wght: Number(segment.overrides.fontWeight) } } : {}) },

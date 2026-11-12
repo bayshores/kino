@@ -743,6 +743,13 @@ test("type-on types each letter at its keystroke, the caret steps to the last le
   assert.equal(made.animations.find((entry) => entry.animation.id === "type-on.field-gone")?.animation.start, gone(made));
   const kept = runMove(definition, { ...options, input: readMoveInput(definition, { layer: "prompt", until: 4.2 }) });
   assert.deepEqual([gone(kept), kept.end], [4.2, 4.2]);
+  // highlight: the newest letter lands in the highlight color and is on its own fill after highlightFor.
+  const lit = runMove(definition, { ...options, input: readMoveInput(definition, { layer: "prompt", highlight: "#FFD23F", highlightFor: 0.1 }) });
+  const flash = lit.animations.find((entry) => entry.animation.id === "type-on.text-highlight").animation;
+  const litLetters = lit.animations.find((entry) => entry.animation.id === "type-on.text-letters").animation;
+  assert.deepEqual([flash.from.fill, flash.to.fill, flash.unit, flash.start], ["#FFD23F", sceneFor(1920, 1080).layers.find((layer) => layer.id === "prompt").fill, "letters", round3(litLetters.start + 0.1)]);
+  assert.deepEqual(flash.delays, litLetters.delays);
+  assert.ok(!made.animations.some((entry) => entry.animation.id === "type-on.text-highlight"), "off unless asked");
 });
 
 test("stream holds the hot color on the newest words and settles the rest; rewrite blurs the old words out; decode settles random same-case letters into any text", () => {

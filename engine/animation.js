@@ -705,7 +705,7 @@ export function evaluateLayer(
       const keys = ["fill", "letterSpacing"].filter((key) => Object.hasOwn(range.style, key));
       if (!keys.length) return range;
       const styled = { ...layer, ...range.style }, values = { ...range.style };
-      applyOperations(values, styled, ordered, time, unitOptions, { onlyKeys: keys });
+      applyOperations(values, styled, rangeRestFill(ordered, layer.fill, range.style.fill), time, unitOptions, { onlyKeys: keys });
       return { ...range, style: Object.fromEntries(Object.keys(range.style).map((key) => [key, values[key]])) };
     });
   }
@@ -733,6 +733,20 @@ export function evaluateLayer(
   if (layer.type === "text" && layer.textLoop && options.textUnit) applyTextLoop(evaluated, layer, time, unitOptions);
   if (layer.pin) applyPin(evaluated, layer, pinTime);
   return evaluated;
+}
+
+// A color entrance (In) or exit (Out) rests on the layer's fill. A styled run with its own fill
+// rests on that fill instead, so a letter that flashes red lands on its own orange, not on the
+// layer's white. Only an endpoint equal to the layer's fill is swapped; explicit others stay shared.
+function rangeRestFill(ordered, layerFill, rangeFill) {
+  if (rangeFill === undefined || layerFill === undefined) return ordered;
+  const same = (value) => JSON.stringify(value) === JSON.stringify(layerFill);
+  return ordered.map((item) => {
+    const { animation } = item;
+    const side = animation?.kind === "in" ? "to" : animation?.kind === "out" ? "from" : null;
+    if (!side || !animation[side] || !Object.hasOwn(animation[side], "fill") || !same(animation[side].fill)) return item;
+    return { ...item, animation: { ...animation, [side]: { ...animation[side], fill: rangeFill } } };
+  });
 }
 
 // The text loop (textLoop.js) for the unit being drawn: it runs from the end of this unit's

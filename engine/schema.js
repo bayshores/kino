@@ -22,7 +22,7 @@
  *   Optional on a layer; missing members use the Glass defaults documented in backdropStyles.js.
  * @typedef {{start:number,end:number,style:{fontFamily?:string,fontSource?:string,
  *   fontWeight?:number,fontStyle?:'normal'|'italic',fontSize?:number,fill?:Paint,
- *   letterSpacing?:number}}} TextStyleRange
+ *   letterSpacing?:number,rotation?:number,baselineShift?:number}}} TextStyleRange
  *   Range offsets use UTF-16 positions in stored text, on grapheme boundaries.
  * @typedef {{x?:number,y?:number,width?:number,height?:number,rotation?:number,
  *   scaleX?:number,scaleY?:number,opacity?:number,blur?:number,backgroundBlur?:BackgroundBlur,
@@ -136,6 +136,7 @@
  *   strokes?:Array<{color:string,width:number,align?:'center'|'inside'|'outside',opacity?:number,dash?:number[],join?:'miter'|'round'|'bevel'}>, (stackedStrokes.js; static, drawn after stroke)
  *   text:string,fontFamily:string,fontSource:string,fontSize:number,fontWeight:number,fontStyle:'normal'|'italic',
  *   textStyleRanges?:TextStyleRange[],
+ *   jitter?:{rotation?:number,baseline?:number,seed?:number}, (letterJitter.js; fixed per-letter tilt and lift)
  *   textLoop?:{style:'wave'|'float'|'pulse'|'jitter',amount?:number,speed?:number,stagger?:number,
  *     unit?:'letters'|'words'|'lines',seed?:number,ramp?:number}, (textLoop.js; per unit between in and out)
  *   lineHeight:number,letterSpacing:number,textAlign:'left'|'center'|'right',

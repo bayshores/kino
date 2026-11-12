@@ -20,6 +20,11 @@ const MOST_LETTERS = 120;
 const JITTER = 0.25;
 // A letter cuts on over this long (a soft edge on the cut, like a screen redraw).
 const LETTER_IN = 0.03;
+// The newest letter keeps the highlight color about this long before it turns to its own fill, then
+// settles over HIGHLIGHT_SETTLE. Source: the type-on study's final pass, where the lit letter read
+// as "the letter just struck" at about 2 frames of 30 fps; the settle length is a guess.
+const HIGHLIGHT_FOR = 0.07;
+const HIGHLIGHT_SETTLE = 0.05;
 
 const isSpace = (text) => /^\s+$/u.test(text);
 
@@ -70,7 +75,7 @@ export const typeOn = {
   name: "type-on",
   // A text (and its field) inside a group works as itself: the caret goes beside it in its group.
   nested: ["layer", "field"],
-  about: "your text layer is typed on letter by letter with a caret after the last letter; an input box can grow with it",
+  about: "your text layer is typed on letter by letter with a caret after the last letter; an input box can grow with it; highlight lights the newest typed letter in another color for a moment",
   fits: "a prompt typed into a search bar, chat or command box; a name typed into a field",
   tags: ["type-letters"],
   length: 2,
@@ -84,6 +89,8 @@ export const typeOn = {
     wait: { kind: "number", low: 0, high: 3, about: "seconds the caret blinks in the empty field before the first letter (default 0.5)" },
     hold: { kind: "number", low: 0, high: 6, about: "seconds the caret blinks after the last letter (default 1.6: solid, off, on)" },
     until: { kind: "number", low: 0, high: 600, about: "scene seconds the typed text and caret go (default: after the hold, or sooner when a caption comes on; the scene's length keeps them)" },
+    highlight: { kind: "color", about: "the newest letter lands in this color, then turns to its own fill (the layer's, or its textStyleRanges color) after highlightFor; off by default" },
+    highlightFor: { kind: "number", low: 0.02, high: 1, about: `seconds each letter keeps the highlight color (default ${HIGHLIGHT_FOR}); only with highlight` },
   },
   example: { layer: "prompt", field: "prompt-field", cps: 14, at: 0.3 },
   setup: "a left-aligned text layer (the prompt) on top of a rounded box (the field); set role:\"ui\" on the prompt text (it is the product's own UI, so type_min allows small type); type-on hides the letters until they are typed",
@@ -130,6 +137,13 @@ export const typeOn = {
     // The letters: hidden until typed, each cutting on at its keystroke.
     ctx.animate(layer.id, "letters", { ...motion({ name: "Type on", kind: "in", start: typeAt, duration: LETTER_IN, easing: CURVES.fade, from: { opacity: 0 }, to: { opacity: 1 } }),
       unit: "letters", textAnchor: "letters", delays: keys.times }, "text");
+    // The highlight: a second animation (color apart from the opacity cut) that holds the highlight
+    // color for highlightFor, then settles to each letter's own fill (engine/animation.js rangeRestFill).
+    if (input.highlight !== undefined) {
+      const hold = input.highlightFor ?? HIGHLIGHT_FOR;
+      ctx.animate(layer.id, "highlight", { ...motion({ name: "Type highlight", kind: "in", start: typeAt + hold, duration: HIGHLIGHT_SETTLE, easing: CURVES.fade, from: { fill: input.highlight }, to: { fill: layer.fill } }),
+        unit: "letters", textAnchor: "letters", delays: keys.times }, "text");
+    }
 
     // The caret: a bar from the ascender to below the baseline, the text's own color.
     const { before, stops } = caretStops(layout, units);

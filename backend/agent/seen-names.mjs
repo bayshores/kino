@@ -37,10 +37,10 @@ const SEEN_AS = {
   rim: ["glow", "cut_out"], "rim light": ["glow", "cut_out"], "rim lighting": ["glow", "cut_out"], "edge light": ["glow", "cut_out"], backlight: ["glow", "light-rays"],
   streak: ["speed-lines", "rain", "light-rays"], "light streak": ["lens-flare", "light-rays"], anamorphic: ["lens-flare"], "lens streak": ["lens-flare"],
   "soft glow": ["glow"], dreamy: ["glow", "fog"],
-  scrawl: ["set_font", "outline_text"], brush: ["set_font", "outline_text"], handwritten: ["set_font", "outline_text"], handwriting: ["set_font", "outline_text"],
-  "hand lettering": ["set_font", "outline_text"], marker: ["set_font", "outline_text"], graffiti: ["set_font", "outline_text"], stencil: ["set_font"], blackletter: ["set_font"],
+  scrawl: ["text-ranges", "set_font", "outline_text"], brush: ["set_font", "outline_text"], handwritten: ["set_font", "outline_text"], handwriting: ["set_font", "outline_text"],
+  "hand lettering": ["text-ranges", "set_font", "outline_text"], marker: ["set_font", "outline_text"], graffiti: ["set_font", "outline_text"], stencil: ["set_font"], blackletter: ["set_font"],
   typed: ["type-on", "voice-type"], typing: ["type-on", "voice-type"], typewriter: ["type-on", "set_font"], "type on": ["type-on"],
-  highlight: ["accent-hit", "luma-highlight"], highlighter: ["accent-hit", "luma-highlight"],
+  highlight: ["type-on", "accent-hit", "luma-highlight", "caption-words"], highlighter: ["accent-hit", "luma-highlight"],
   // A look over the whole frame is one scene field (finish, letterbox); the effect does one layer.
   letterbox: ["scene-background"], letterboxed: ["scene-background"], "black bars": ["scene-background"], "cinema bars": ["scene-background"], "cinematic bars": ["scene-background"],
   "lifted blacks": ["scene-background", "color-look"], "film look": ["scene-background", "color-look"], "frame finish": ["scene-background"],
@@ -48,6 +48,10 @@ const SEEN_AS = {
   font: ["set_font"], fonts: ["set_font"], typeface: ["set_font"], lettering: ["set_font"], typography: ["set_font"],
   rim: ["rim-light"], "rim light": ["rim-light"], electric: ["rim-light"], lightning: ["rim-light"],
   outline: ["outline_text", "rim-light", "glow", "cut_out"], outlined: ["outline_text", "rim-light", "glow", "cut_out"], stroke: ["outline_text", "glow", "cut_out"],
+  "typed highlight": ["type-on"], jitter: ["text-ranges"], "hand set": ["text-ranges"],
+  hollow: ["layer-style"], "outline glow": ["layer-style", "glow"], "glow outline": ["layer-style", "glow"],
+  "glowing outline": ["layer-style", "glow"], "neon text": ["layer-style", "glow"], "neon outline": ["layer-style", "glow"],
+  "baseline shift": ["text-ranges"], "letter rotation": ["text-ranges"], "rotated letters": ["text-ranges"],
   duotone: ["duotone"], tritone: ["tritone"],
   "text behind": ["masked-type", "cut_out"], "behind text": ["masked-type", "cut_out"],
   "3d": ["card-flip", "3d-orbit"], "3d text": ["card-flip", "3d-orbit"], "3d type": ["card-flip", "3d-orbit"],
@@ -92,6 +96,8 @@ const GROUP_TOPIC = { Light: "light", Generate: "particles", Color: "color", Blu
 export const ruleTopicOf = (group) => GROUP_TOPIC[group] ?? "effects";
 // Guide topics an agent reads instead of an op, effect or move (clip speed is layer properties).
 const TOPICS = { "clip-speed": "layer properties mediaSpeed and speed animations",
+  "text-ranges": "textStyleRanges (rotation, baselineShift, fill) and the layer field jitter",
+  "layer-style": "layer properties fill, strokes, shadows and outlineGlow (hollow letters with a glowing outline)",
   "scene-background": 'the whole frame in one op: {op:"update_scene", properties:{finish:true, letterbox:2.35}} (grain, lifted blacks, halation, vignette, bars)' };
 // An op whose call needs a lookup first: a font is picked by its look.
 const OP_USE = { set_font: 'library {topic:"fonts", search:"<the look: brush, handwritten, marker, stencil, slab, blackletter, condensed bold sans, a script such as japanese>"} then set_font {layerIds, family, weight}' };
