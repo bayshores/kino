@@ -976,12 +976,13 @@ export async function soundCurve(clips, duration, signal, { gainDb = null, ceili
  * Those are render loudness "off". `auto` is what the default "auto" target does first (clips read
  * with sceneSoundClips lead: true name their songs and words): { target, targetLufs, gainDb, held,
  * places, worst } (worst: the place most over the ceiling after that gain), or null when no gain applies.
- * The gain is its first trial's; a render corrects it by a few tenths of a dB when the limiter gives some back.
+ * With heard, `auto` names the gain fitted as a render fits it (trials, first: the first trial's gain).
  * `windows` are the mix's 0.1 s peaks ([{t, peak}], dBFS). With perLayer, each playing entry at a
  * place shared by two or more layers gets peakDbfs: that layer's own peak over the place, alone.
- * With heard, one more run gives `heard`: { gainDb, windows: [{t, m, s}] }, the momentary loudness
- * every 0.1 s of the mix as a default render plays it ("auto"'s gain, 0 when none applies, then the
- * limiter), so a drop the limiter holds down reads as the file will.
+ * With heard, the trial encodes and one more run give `heard`: { gainDb, first, trials, ceiling,
+ * windows: [{t, m, s}] }, the momentary loudness every 0.1 s of the mix as a default render plays it
+ * ("auto"'s fitted gain, 0 when none applies, then the limiter at the fitted ceiling), so a drop the
+ * limiter holds down reads as the file will.
  */
 export async function measureMixPeaks(clips, duration, signal, { perLayer = false, references = [], heard: readHeard = false } = {}) {
   const heard = audibleClips(clips, duration);
@@ -1039,7 +1040,7 @@ export async function measureMixPeaks(clips, duration, signal, { perLayer = fals
   }
   // heard: the gain a render lands on, fitted the way it fits it (fitGain: the limiter gives back
   // part of each gain, so the render corrects it over up to 5 trials; dm5-a: first trial -0.2 dB,
-  // the render +2.4 dB), measured on the limited mix at the starting ceiling (no trial encode).
+  // the render +2.4 dB), each trial an encode as the render runs it (below).
   let rendered = null;
   if (readHeard && gain) {
     // Each trial encodes the limited sound with this computer's MP4 sound encoder (as a default MP4

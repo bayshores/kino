@@ -1375,7 +1375,8 @@ How to read it:
   it and the song's dips in that second. Replayed on two real drafts, the drop reads as their files do
   (+2.1 and +3.7 LU, was +4.6 and +7.4). Evidence: `engine/mixReadout.test.js`,
   `engine/qualityPolish.test.js`, `backend/audio-levels.test.mjs`. Gap: no saved reference keeps a drop rise;
-  a render with another sound encoder than this computer's default can land a few tenths away.
+  the dip clause reads the song layer's own volume only (dm5-a's hole at 8.0-8.5 s comes from another
+  music layer, not named), and a WebM or MOV render's sound encode is not modeled.
 - **Limiter places fixed in one call**: Verified on generated audio. `check {fix:"auto"}` measures each
   layer at a shared place alone and turns down only the one that makes the peak, by its measured share
   of the peak (all of them by xN when none can clear it alone; a short clip whole, a long one over the
