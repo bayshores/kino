@@ -14,6 +14,7 @@ import { ffmpeg, skipWithoutMediaTools } from "./media.test.support.mjs";
 import { measureAbilities, measureVideo } from "./measure/measure.mjs";
 import { soundHelper } from "./footage/sounds.mjs";
 import { burnedTextLine, NOT_READ, readBurnedText } from "./footage/burned-text.mjs";
+import { staticOverlays } from "./footage/static-overlay.mjs";
 
 const skipWithoutVision = skipWithoutMediaTools
   || (process.platform !== "darwin" && "Apple Vision measure test skipped: it needs macOS")
@@ -154,4 +155,25 @@ test("burned-in text: the reader's lines become a mark and subtitles on the reco
   const unread = await readBurnedText("clip.mp4", { width: 1920, height: 1080, duration: 1.19 }, { readFrames: async () => null });
   assert.equal(unread.unread, NOT_READ);
   assert.equal(burnedTextLine(unread), "burned-in text: not read on this system.");
+});
+
+test("static overlay: a translucent mark over a changing picture is boxed without reading letters; a still picture gives none", () => {
+  const size = { width: 160, height: 90 };
+  // A picture of moving bars (it changes every frame) with a 35% white block mark at 10-30% across, 80-95% down.
+  const frame = (shift, mark = true) => {
+    const gray = new Uint8Array(size.width * size.height);
+    for (let y = 0; y < size.height; y += 1) for (let x = 0; x < size.width; x += 1) {
+      const picture = ((x + y + shift * 7) % 20) < 10 ? 70 : 110;
+      const inMark = mark && x >= 16 && x < 48 && y >= 72 && y < 86;
+      gray[y * size.width + x] = inMark ? Math.round(picture * 0.65 + 255 * 0.35) : picture;
+    }
+    return gray;
+  };
+  const found = staticOverlays(Array.from({ length: 8 }, (_, index) => frame(index)), size);
+  assert.equal(found.overlays.length, 1, JSON.stringify(found.overlays));
+  const [x, y, w, h] = found.overlays[0].box;
+  assert.ok(Math.abs(x - 0.1) < 0.02 && Math.abs(y - 0.8) < 0.03 && Math.abs(x + w - 0.3) < 0.02 && Math.abs(y + h - 0.955) < 0.03, `box ${found.overlays[0].box}`);
+  assert.equal(found.overlays[0].frames, 8);
+  // The same picture standing still: nothing changes behind, so nothing is named.
+  assert.deepEqual(staticOverlays(Array.from({ length: 8 }, () => frame(0)), size).overlays, []);
 });
