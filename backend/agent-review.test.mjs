@@ -984,3 +984,35 @@ test("match_references {made:true} through the edit tool: the references' moves 
   const splats = (await wired.store.getProject("made-clips")).document.scenes[0].layers.filter((layer) => layer.id.startsWith("match-made-"));
   assert.equal(new Set(splats.map((layer) => `${layer.x},${layer.y}`)).size, 3, JSON.stringify(splats.map((layer) => [layer.x, layer.y])));
 });
+
+test("the edit receipt and check name a shifted full-frame picture's bare strip and a scene's bare end; a longer scene moves the last shot's Hide and says so", async (t) => {
+  const mediaRoot = await mkdtemp(path.join(os.tmpdir(), "kino-strips-"));
+  t.after(() => rm(mediaRoot, { recursive: true, force: true }));
+  const card = createCanvas(64, 36);
+  card.getContext("2d").fillStyle = "#506070";
+  card.getContext("2d").fillRect(0, 0, 64, 36);
+  await writeFile(path.join(mediaRoot, "card.png"), card.toBuffer("image/png"));
+  // One picture 704 x 380 at x -64 covers the 640 x 360 frame, and hides at 5.85 s.
+  const pic = createLayer("image", { id: "pic", name: "pic", src: "/api/media/card.png", x: -64, y: -10, width: 704, height: 380, animations: [{ id: "pic.hide", name: "Hide", kind: "hide", start: 5.85 }] });
+  const document = createDocument({ id: "strips", name: "Strips", scenes: [createScene({ id: "main", width: 640, height: 360, duration: 5.85, background: "#15191e", layers: [pic] })] });
+  const { call } = await serviceFor(t, { document, mediaRoot });
+  const line = (text, start) => String(text).split("\n").find((entry) => entry.startsWith(start));
+  assert.equal(line((await call("check", { pixels: false })).text, "bare "), undefined);
+  // Moved 36 px too far left: the receipt and check name the edge, the px, the scale and the position that cover it.
+  const moved = await call("edit", { ops: [{ op: "update_layer", layer: "pic", properties: { x: -100 } }] });
+  assert.equal(moved.isError, undefined, moved.text);
+  const strip = /bare strip: pic leaves 36 px at the right of the frame uncovered for its whole shot \(0–5\.85 s; nothing else covers it, 5 samples\); scale it ×1\.1 about its pivot: \{op:"update_layer", layer:"pic", properties:\{scaleX:1\.102, scaleY:1\.102\}\} or move it: \{op:"update_layer", layer:"pic", properties:\{x:-64\}\}/;
+  assert.match(moved.data.notes.join("\n"), strip, moved.text);
+  assert.match(line((await call("check", { pixels: false })).text, "bare strip:") ?? "", strip);
+  const back = await call("edit", { ops: [{ op: "update_layer", layer: "pic", properties: { x: -64 } }] });
+  assert.doesNotMatch(String(back.data.notes), /bare strip/, back.text);
+  // A longer scene: the picture's Hide follows to the new end, the receipt names it, and the end is not bare.
+  const longer = await call("edit", { ops: [{ op: "update_scene", properties: { duration: 6 } }] });
+  assert.equal(longer.isError, undefined, longer.text);
+  assert.deepEqual(longer.data.sceneLength.lastShot, { moved: ["pic Hide 5.85 to 6 s"] });
+  assert.equal(line((await call("check", { pixels: false })).text, "bare background"), undefined);
+  // A Hide that stays 0.15 s short of the end (set by hand) is the bare end: frames, seconds and the two calls that close it.
+  const short = await call("edit", { ops: [{ op: "update_animation", animation: "pic.hide", properties: { start: 5.85 } }] });
+  assert.equal(short.isError, undefined, short.text);
+  assert.match(line((await call("check", { pixels: false })).text, "bare background") ?? "", /^bare background @5\.87s: 4 frames \(5\.87–6 s\) at the end of the scene show the scene background #15191e \(brightness 25\) after pic.*close it with \{op:"update_animation", animation:"[^"]+", properties:\{start:6\}\} keeps pic to the end, or \{op:"update_scene", properties:\{duration:5\.85\}\} ends the scene where pic does$/);
+});

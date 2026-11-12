@@ -423,6 +423,32 @@ test("a waiver on a layer lapses when the layer is deleted or its file changes",
   assert.deepEqual(targets(applyOperations(deleted, [{ type: "add_layer", sceneId: "s", layerType: "audio", properties: { id: "music", src: "/api/media/b.wav" } }])), []);
 });
 
+test("a scene given another length (update_scene, fit_music) moves the Hide of the full-frame picture that ended at the old end, and names the layers it moved and left", () => {
+  const picture = (id, props, hide) => createLayer("image", { id, name: id, src: `/api/media/${id}.png`, x: 0, y: 0, width: 1920, height: 1080, animations: [{ id: `${id}.hide`, kind: "hide", name: "Hide", start: hide }], ...props });
+  const words = createLayer("text", { id: "words", name: "words", text: "END", fontFamily: "Inter", x: 100, y: 400, width: 600, height: 100, animations: [{ id: "words.hide", kind: "hide", name: "Hide", start: 13.85 }] });
+  const early = picture("early", {}, 10);
+  const source = createDocument({ scenes: [createScene({ id: "s", width: 1920, height: 1080, duration: 13.85, layers: [early, picture("last", {}, 13.85), words] })] });
+  const reports = new Map();
+  const next = applyOperations(source, [{ type: "update_scene", sceneId: "s", properties: { duration: 14 } }], { reports });
+  const hides = Object.fromEntries(next.scenes[0].layers.map((layer) => [layer.id, layer.animations[0].start]));
+  assert.deepEqual(hides, { early: 10, last: 14, words: 13.85 }, "only the full-frame picture that ended at the old end follows");
+  const { layerFollow } = [...reports.values()].find((report) => report.layerFollow);
+  assert.deepEqual([layerFollow.was, layerFollow.now, layerFollow.moved, layerFollow.left], [13.85, 14, [{ layerId: "last", animationId: "last.hide", from: 13.85, to: 14 }], [{ layerId: "words", why: "not a full-frame picture" }]]);
+  // The same length again moves nothing and reports nothing.
+  const same = new Map();
+  applyOperations(next, [{ type: "update_scene", sceneId: "s", properties: { duration: 14 } }], { reports: same });
+  assert.equal([...same.values()].find((report) => report.layerFollow), undefined);
+  // fit_music takes a phrase end 6 frames before the scene end (120 bpm, phrase ends at 16 s): the same follow, through the audio path.
+  const music = createLayer("audio", { id: "music", name: "music", src: "/api/media/0b8e3f8e-1111-4222-8333-444455556666.mp3", mediaDuration: 16.2, volume: 0.8 });
+  const fitted = createDocument({ scenes: [createScene({ id: "s", width: 1920, height: 1080, duration: 16.2, layers: [music, picture("last", {}, 16.2)] })] });
+  const sections = [{ at: 0, kind: "intro" }, { at: 24, kind: "build" }, { at: 32, kind: "drop" }, { at: 64, kind: "break" }, { at: 72, kind: "build" }, { at: 80, kind: "drop" }, { at: 112, kind: "outro" }];
+  const beats = Array.from({ length: 240 }, (_, index) => index * 0.5);
+  const fits = new Map();
+  const out = applyOperations(fitted, [{ type: "fit_music", sceneId: "s", layerId: "music", payoff: 8, shape: { sections, seconds: 120, whole: true }, analysis: { bpm: 120, period: 0.5, beats, confidence: 0.9, duration: 120 } }], { reports: fits });
+  assert.deepEqual([out.scenes[0].duration, out.scenes[0].layers.find((layer) => layer.id === "last").animations[0].start], [16, 16]);
+  assert.deepEqual([...fits.values()].find((report) => report.layerFollow).layerFollow.moved.map((entry) => [entry.layerId, entry.from, entry.to]), [["last", 16.2, 16]]);
+});
+
 test("update_scene duration lengthens whole-scene animations and the board's last shot, and lists them", () => {
   const effect = (id, start, duration) => ({ id, kind: "custom", name: id, start, duration, easing: "linear", from: { opacity: 0.5 }, to: { opacity: 1 } });
   const shot = (id, cue, dur) => ({ id, cue, dur, pacing: "free", media: "none", in: "none", crop: "none", subject: "none", follow: "none", text: "none", sound: "none", why: "a line" });

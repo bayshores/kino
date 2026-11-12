@@ -350,6 +350,11 @@ How to read it:
   `move ... remove:true` call; a board shot that fades in starts under the shot before. Gap: moves that
   design the background (carry, card-tilt) are reported as facts.
   Evidence: `engine/qualityPolish.test.js`, `engine/moves.test.js`, `backend/agent-core.test.mjs`, `backend/agent-review.test.mjs`, `backend/agent-board.test.mjs`.
+- **Bare scene edges and picture strips**: Verified. The bare-background fact also names the scene's first
+  or last stretch with the call that closes it; a longer scene moves the last full-frame picture's Hide
+  to the new end (`sceneLength.lastShot`); a full-frame picture that leaves an edge uncovered for its whole
+  shot prints "bare strip" (edge, px, scale that covers it). Facts only. Evidence: `engine/qualityPolish.test.js`,
+  `engine/operations.test.js`, `backend/agent-review.test.mjs`.
 ## Building blocks
 
 - **Slots**: Verified. A 6x6 grid over the safe area (`"B2:E5"`) plus names (`full`, `center`) in

@@ -106,7 +106,7 @@ import { createQualityChecker, qualityRulesText, videoScene } from "./quality.mj
 import { houseMoments, houseStructure, houseType } from "../house-memory.mjs";
 import { plateChanges, techniquesLine, techniquesUsed } from "../../engine/quality/techniques.js";
 import { sceneReturnsLine } from "../../engine/quality/returns.js";
-import { bareGaps, closeGap } from "../../engine/quality/bareGaps.js";
+import { bareGaps, bareStrips, closeGap } from "../../engine/quality/bareGaps.js";
 import { madeLine } from "../../engine/quality/madeShare.js";
 import { catalogLevel, KIND_WORDS as SOUND_KIND_WORDS, visibleActions } from "../../engine/soundActions.js";
 import { footageCueTime } from "../../engine/footageCues.js";
@@ -2648,6 +2648,20 @@ export function createAgentService(deps) {
         };
         continue;
       }
+      // A scene's length changed (update_scene, fit_music): the full-frame pictures that hid at its old end hide at the new one; the others are named.
+      if (found.layerFollow) {
+        const { was, now: length, moved, left, more } = found.layerFollow;
+        const name = (id) => refName(id, codes);
+        fields.sceneLength = {
+          was, now: length, ...fields.sceneLength,
+          lastShot: {
+            ...(moved.length ? { moved: moved.map((entry) => `${name(entry.layerId)} Hide ${entry.from} to ${entry.to} s`) } : {}),
+            ...(left.length ? { left: left.map((entry) => `${name(entry.layerId)} (${entry.why})`) } : {}),
+            ...(more ? { more } : {}),
+          },
+        };
+        continue;
+      }
       // The edit changed the video's or the music's length under a board that tiled it: its last shot followed, or the one call that does it.
       if (found.boardFollow) {
         const board = found.boardFollow;
@@ -3228,12 +3242,15 @@ export function createAgentService(deps) {
     const value = Number.parseInt(match[1], 16);
     return Math.round(0.2126 * (value >> 16) + 0.7152 * ((value >> 8) & 255) + 0.0722 * (value & 255));
   };
-  async function bareGapLines(scene, codes) {
+  async function bareGapLines(scene, codes, { only = null } = {}) {
     let gaps;
-    try { gaps = bareGaps(scene, { fps: 30 }); } catch { return []; }
+    try { gaps = bareGaps(scene, { fps: 30, edges: true }); } catch { return []; }
+    // The scene's first and last stretch come first: an edge is easy to miss in a list of cuts.
+    gaps = [...gaps.filter((gap) => gap.edge), ...gaps.filter((gap) => !gap.edge)].filter((gap) => !only || gap.edge === only);
     if (!gaps.length) return [];
     const whole = { x: 0, y: 0, width: scene.width, height: scene.height };
     const lit = async (side) => {
+      if (!side) return null;
       const color = side.layer.type === "rectangle" ? (typeof side.layer.fill === "string" ? side.layer.fill : null) : await boxColor(deps.mediaRoot, side.layer, side.time, whole).catch(() => null);
       return brightness(color);
     };
@@ -3243,6 +3260,21 @@ export function createAgentService(deps) {
       const background = gap.background ? `the scene background ${gap.background} (brightness ${brightness(gap.background) ?? "?"})` : "the scene's background";
       const shot = (side, value) => `${refName(side.layer.id, codes)}${value === null ? "" : ` (brightness ${value})`}`;
       const closes = closeGap(gap, 30);
+      const frames = `${gap.frames} ${gap.frames === 1 ? "frame" : "frames"}`;
+      const measured = "30 fps, measured on the layers' own animations";
+      if (gap.edge === "end") {
+        const calls = [
+          closes.extend ? `{op:"update_animation", animation:"${refName(closes.extend.animation, codes)}", properties:{start:${closes.extend.start}}} keeps ${refName(closes.extend.layer.id, codes)} to the end` : null,
+          `{op:"update_scene", properties:{duration:${closes.shorten}}} ends the scene where ${refName(gap.before.layer.id, codes)} does`,
+        ].filter(Boolean);
+        lines.push(`bare background @${sec(gap.start)}s: ${frames} (${sec(gap.start)}–${sec(gap.end)} s) at the end of the scene show ${background} after ${shot(gap.before, before)}, cover ${Math.round(gap.cover * 100)}% at the lowest (${measured}); close it with ${calls.join(", or ")}`);
+        continue;
+      }
+      if (gap.edge === "start") {
+        lines.push(`bare background @0s: ${frames} (0–${sec(gap.end)} s) at the start of the scene show ${background} before ${shot(gap.after, after)}, cover ${Math.round(gap.cover * 100)}% at the lowest (${measured}); close it with `
+          + (closes.earlier ? `{op:"update_animation", animation:"${refName(closes.earlier.animation, codes)}", properties:{start:0}} shows ${refName(closes.earlier.layer.id, codes)} from the first frame` : `a picture shown from the first frame, or words on the background`));
+        continue;
+      }
       const calls = [
         closes.extend ? `{op:"update_animation", animation:"${refName(closes.extend.animation, codes)}", properties:{start:${closes.extend.start}}} keeps ${refName(closes.extend.layer.id, codes)} until ${refName(gap.after.layer.id, codes)} is whole` : null,
         closes.full ? `{op:"delete_animation", animation:"${refName(closes.full.animation, codes)}"} starts ${refName(closes.full.layer.id, codes)} at full opacity` : null,
@@ -3251,6 +3283,31 @@ export function createAgentService(deps) {
         + (calls.length ? `; close it with ${calls.join(", or ")}` : "; extend the shot before or start the next at full opacity"));
     }
     if (gaps.length > BARE_LINES) lines.push(`+${gaps.length - BARE_LINES} more bare stretches: ${gaps.slice(BARE_LINES, BARE_LINES + 6).map((gap) => `${sec(gap.start)}s`).join(", ")}`);
+    return lines;
+  }
+  // A full-frame picture that leaves a strip of the frame uncovered for its whole shot (engine/quality/bareGaps.js
+  // bareStrips): a fact line a picture (at most STRIP_LINES), with the edge, the px, the scale that covers it
+  // and the call. `ids` limits it to some layers; `than` is the scene as it was: a layer prints only when its
+  // strips are bigger than there.
+  const STRIP_LINES = 2;
+  function bareStripLines(scene, codes, { ids = null, than = null } = {}) {
+    let strips;
+    try { strips = bareStrips(scene, { fps: 30, ids }); } catch { return []; }
+    if (!strips.length) return [];
+    const total = (entry) => Object.values(entry.strips).reduce((sum, px) => sum + px, 0);
+    let was = new Map();
+    if (than) try { was = new Map(bareStrips(than, { fps: 30, ids }).map((entry) => [entry.layer.id, total(entry)])); } catch { was = new Map(); }
+    strips = strips.filter((entry) => total(entry) > (was.get(entry.layer.id) ?? 0) + 1);
+    const lines = strips.slice(0, STRIP_LINES).map((entry) => {
+      const name = refName(entry.layer.id, codes);
+      const sides = Object.entries(entry.strips).map(([side, px]) => `${px} px at the ${side}`).join(", ");
+      const calls = [
+        entry.scale ? `scale it ×${entry.scale.factor} about its pivot: {op:"update_layer", layer:"${name}", properties:{scaleX:${entry.scale.scaleX}, scaleY:${entry.scale.scaleY}}}` : null,
+        entry.shift ? `or move it: {op:"update_layer", layer:"${name}", properties:{${Object.entries(entry.shift).map(([key, value]) => `${key}:${value}`).join(", ")}}}` : null,
+      ].filter(Boolean);
+      return `bare strip: ${name} leaves ${sides} of the frame uncovered for its whole shot (${sec(entry.start)}–${sec(entry.end)} s; nothing else covers it, 5 samples)${calls.length ? `; ${calls.join(" ")}` : ""}`;
+    });
+    if (strips.length > STRIP_LINES) lines.push(`+${strips.length - STRIP_LINES} more pictures with a bare strip: ${strips.slice(STRIP_LINES, STRIP_LINES + 6).map((entry) => refName(entry.layer.id, codes)).join(", ")}`);
     return lines;
   }
   // A face's advance in ems for a line of words: the installed face nearest the family and weight (typeRoles fit).
@@ -3530,6 +3587,13 @@ export function createAgentService(deps) {
       work.notes.push(...await spanCutNotes({ before, after, ids: [...changes.created, ...changes.changed], nameOf, fileShots: async (src) => (await fileShots(src, { saved: true })).shots }));
       // A footage layer slowed over drawn footage: its interpolation, why, and the measured hold.
       work.notes.push(...await drawnSpeedNotes({ before, after, ids: [...changes.created, ...changes.changed], nameOf, holdsOf: async (src) => (await mediaRecord(src))?.holds ?? null }));
+      // Bare background at the end of a scene given another length, and a picture this edit moved or scaled so that it leaves a strip uncovered (engine/quality/bareGaps.js).
+      const touched = new Set([...changes.created, ...changes.changed]);
+      for (const scene of after.scenes ?? []) {
+        const was = (before.scenes ?? []).find((item) => item.id === scene.id);
+        if (was && was.duration !== scene.duration) work.notes.push(...await bareGapLines(scene, afterCodes, { only: "end" }));
+        if (touched.size && scene.layers?.some((layer) => touched.has(layer.id))) work.notes.push(...bareStripLines(scene, afterCodes, { ids: touched, than: was }));
+      }
       const receipt = {
         ...(input.dry_run ? { dryRun: true, wouldBeRev: record.revision + 1 } : {}),
         created: created.named,
@@ -3778,7 +3842,7 @@ export function createAgentService(deps) {
     const returnsScene = scene ? record.document.scenes.find((item) => item.id === scene.id) : videoScene(record.document);
     if (returnsScene) lines.push(sceneReturnsLine(returnsScene, { scenes: record.document.scenes }));
     // Where the background shows between two full-frame shots, measured: a fact beside it, never a finding.
-    if (returnsScene) lines.push(...await bareGapLines(returnsScene, codes));
+    if (returnsScene) lines.push(...await bareGapLines(returnsScene, codes), ...bareStripLines(returnsScene, codes));
     // And how much of it is designed, with the deck's unused cards and the references' own share.
     const madeText = returnsScene ? madeTextOf(result) : "";
     if (madeText) lines.push(madeText);
@@ -5704,7 +5768,7 @@ export function createAgentService(deps) {
     const wide = shown.filter((finding) => finding.at == null).slice(0, 3);
     // The findings of the whole scene, and what is left to review, come before the per-page lines
     // (an agent that reads the first 8 lines of a review sees them: trace-code section 5).
-    const bare = await bareGapLines(scene, codes);
+    const bare = [...await bareGapLines(scene, codes), ...bareStripLines(scene, codes)];
     const first = [
       ...(wide.length ? [`whole scene: ${wide.map(findingWords).join(", ")}`] : []),
       left ? `${left} more moments to review.` : "Every moment is reviewed. Fix what you saw in one edit; the next review shows only what it changed.",
