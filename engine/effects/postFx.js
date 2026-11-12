@@ -280,25 +280,56 @@ export function renderDotGrid(frame) {
 export const DOT_GRID_WHERE = Object.freeze(["shadows", "highlights"]);
 const HALFTONE_PITCH_SHARE = 5.7 / 540;
 
+/**
+ * The dot grid's repeating tile: a rotated square grid repeats along x and y only when its
+ * angle has tan = b / a for whole a and b; it then repeats every pitch x sqrt(a² + b²). The
+ * angle snaps to the nearest such direction with a and b up to 4 (45 stays 45, 35 becomes 33.7)
+ * and the pitch to a whole-pixel tile (5.7 at 45 degrees: tile 8, pitch 5.66).
+ */
+export function halftoneTile(pitch, degrees) {
+  const turn = ((degrees % 90) + 90) % 90;
+  let best = { a: 1, b: 0, error: Infinity };
+  for (let a = 0; a <= 4; a += 1) for (let b = 0; b <= 4; b += 1) {
+    if (!a && !b) continue;
+    const at = Math.atan2(b, a) * 180 / Math.PI;
+    const error = Math.min(Math.abs(at - turn), 90 - Math.abs(at - turn));
+    if (error < best.error - 1e-9) best = { a, b, error };
+  }
+  const length = Math.hypot(best.a, best.b);
+  const tile = Math.max(2, Math.round(pitch * length));
+  return { tile, pitch: tile / length, cos: best.a / length, sin: best.b / length };
+}
+
 function renderShadowHalftone(frame) {
-  const { width, height } = frame.bounds;
+  const { x, y, width, height } = frame.bounds;
   const given = number(frame, "dotPitch", 0, 0, 512);
-  const pitch = Math.max(2, given > 0 ? given : height * HALFTONE_PITCH_SHARE);
-  const angle = number(frame, "angle", 45, -360, 360) * Math.PI / 180;
+  // One exact tile repeated over the layer (feTile, as pixelate does): a whole-layer map is at
+  // most 256 px wide, which drew 5.7 px dots as clumped square pixels with a moire beat (the
+  // first proof measured 5.7 px in one crop, 12 in another).
+  const { tile, pitch, cos, sin } = halftoneTile(Math.max(2, given > 0 ? given : height * HALFTONE_PITCH_SHARE),
+    number(frame, "angle", 45, -360, 360));
   const dotScale = number(frame, "dotScale", 7, 0, 8);
   const threshold = number(frame, "threshold", 0.42, 0, 1);
   const highlights = frame?.parameters?.where === "highlights";
   const maxRadius = pitch * dotScale / 16;
-  const cos = Math.cos(angle), sin = Math.sin(angle);
-  const radiusUri = luminanceMap(frame,
-    JSON.stringify(["postfx-halftone-v1", fmt(pitch), fmt(angle), dotScale, width, height]),
-    (x, y, mapWidth, mapHeight) => {
-      const localX = (x + 0.5) * width / mapWidth, localY = (y + 0.5) * height / mapHeight;
-      const u = localX * cos + localY * sin, v = -localX * sin + localY * cos;
-      const du = u - (Math.floor(u / pitch) + 0.5) * pitch, dv = v - (Math.floor(v / pitch) + 0.5) * pitch;
-      // At least 0.03: a tone of 0 (ties count as a dot) draws no pixel at the cell centers.
-      return maxRadius > 0 ? clamp(Math.hypot(du, dv) / maxRadius, 0.03, 1) : 1;
-    });
+  const cellBounds = { x, y, width: tile, height: tile };
+  const fullField = Boolean(frame.helpers?.raster) && pixelateNeedsAffinePrewarp(cellBounds, frame.helpers?.transform);
+  const radiusAt = (pixelX, pixelY, mapWidth, mapHeight) => {
+    const localX = (pixelX + 0.5) * tile / mapWidth, localY = (pixelY + 0.5) * tile / mapHeight;
+    const u = localX * cos + localY * sin, v = -localX * sin + localY * cos;
+    const du = u - (Math.floor(u / pitch) + 0.5) * pitch, dv = v - (Math.floor(v / pitch) + 0.5) * pitch;
+    // At least 0.03: a tone of 0 (ties count as a dot) draws no pixel at the cell centers.
+    const value = maxRadius > 0 ? clamp(Math.hypot(du, dv) / maxRadius, 0.03, 1) : 1;
+    const byte = Math.round(value * 255);
+    return [byte, byte, byte, 255];
+  };
+  const key = JSON.stringify(["postfx-halftone-v2", fullField ? "full-field" : "tile", tile, fmt(cos), dotScale, width, height]);
+  const tileMap = effectMapImage({ ...frame, bounds: fullField ? frame.bounds : cellBounds }, key, radiusAt,
+    { outside: [255, 255, 255, 255], ...(fullField ? { repeatBounds: cellBounds } : {}) });
+  const radiusField = fullField ? [imagePrimitive(frame, tileMap, "postFxDotRadius")] : [
+    `<feImage href="${tileMap}" x="${fmt(x)}" y="${fmt(y)}" width="${fmt(tile)}" height="${fmt(tile)}" preserveAspectRatio="none" result="postFxDotCell"/>`,
+    `<feTile in="postFxDotCell" x="${fmt(x)}" y="${fmt(y)}" width="${fmt(width)}" height="${fmt(height)}" result="postFxDotRadius"/>`,
+  ];
   // Tone: 0 (no dot) at the threshold, up to 0.7 of dotScale's radius: the reference's dots are
   // about half the pitch across in its darkest shadow (looked at 4x; a first proof at 0.98 merged
   // a dark blob into one solid patch at 540 high).
@@ -313,7 +344,7 @@ function renderShadowHalftone(frame) {
   const primitives = [
     grayFor(frame, { opaque: true }),
     `<feComponentTransfer in="postFxGray" result="postFxTone"><feFuncR type="table" tableValues="${table(tone)}"/><feFuncG type="table" tableValues="${table(tone)}"/><feFuncB type="table" tableValues="${table(tone)}"/></feComponentTransfer>`,
-    imagePrimitive(frame, radiusUri, "postFxDotRadius"),
+    ...radiusField,
     ...binaryMaskPrimitives("postFxTone", "postFxDotRadius"),
     dotColor,
     // A half-pixel soft edge so dots a few pixels wide read round, not as stair steps (a guess).
