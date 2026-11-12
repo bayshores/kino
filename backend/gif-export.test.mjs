@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { createLayer, createScene } from "../engine/model.js";
 import { parseGif } from "../engine/gifDecode.js";
 import { exportScene, gifPlayFrames } from "./export.mjs";
+import { layerClocks } from "../engine/render.js";
 import { createDecodeSlots, gifDecodeSlots } from "./gif-decode-slots.mjs";
 import { makeAnimatedGif, readImage } from "./media.test.support.mjs";
 
@@ -61,6 +62,17 @@ test("a still export encodes only the one GIF frame it shows, and none for a hid
   const shared = await gifPlayFrames([playing, offset, notYet], gif, { folder: both, sceneTimes: [5.25] });
   assert.deepEqual((await readdir(both)).sort(), ["000052.png", "000082.png"], "frame 52 for the first layer, frame 82 (3 s later) for the second");
   assert.equal(shared.frames.filter(Boolean).length, 2);
+});
+
+test("a still of a GIF inside a frameRate group shows the picture of the group's held time", async (t) => {
+  const mediaRoot = await folder(t);
+  await writeFile(join(mediaRoot, "many.gif"), manyFrameGif());
+  const group = createLayer("group", { id: "held", name: "Held", x: 0, y: 0, width: 16, height: 16, frameRate: 2 });
+  const playing = { ...gifLayer("many.gif", { mediaStart: 0, mediaDuration: 20 }), parentId: "held" };
+  assert.deepEqual(layerClocks([group, playing], playing), [2]);
+  const scene = createScene({ id: "s", name: "S", width: 16, height: 16, duration: 30, layers: [group, playing] });
+  const image = await readImage((await exportScene(scene, { format: "png", time: 5.35 }, { mediaRoot })).buffer);
+  assert.deepEqual(image.pixel(8, 8), [0, 0, 255, 255], "5.35 s on a 2 per second clock shows frame 50 (blue), the picture of 5.0 s");
 });
 
 /**

@@ -63,7 +63,7 @@ import { lowpassFilters, lowpassPlan, writeLowpassPlan } from "./lowpass-track.m
 import { createLoudnessCurves, readMomentary, savedWordsOf } from "./loudness-curve.mjs";
 import { leveledVoice, loudnessOver, voiceLeveling } from "../engine/mixLevels.js";
 import { maskStyle, maskSwitchedOff } from "../engine/maskVisibility.js";
-import { captureLayerSvg, escapeXml, EXPORT_FRAME_URL, normalizeMediaHref, renderSceneSvg } from "../engine/render.js";
+import { captureLayerSvg, escapeXml, EXPORT_FRAME_URL, heldSceneTime, layerClocks, normalizeMediaHref, renderSceneSvg } from "../engine/render.js";
 import { backgroundLayer, isBackgroundEnabled, withoutBackground } from "../engine/sceneBackground.js";
 import { ffmpegRate, readFps } from "../engine/frameRate.js";
 import { exportFrameCount, exportFrameTime, exportFrameTimes, exportProfile, resolveExportDimensions, validateExportDimensions } from "../engine/exportOptions.js";
@@ -346,15 +346,17 @@ async function mediaStep(signal, step) {
  * frame `frameTime` at a nearby `time` (shutterSamples): the layer is drawn or hidden by `time`,
  * but its footage shows the picture of `frameTime`, as render.js mediaClock does. A video that
  * blends or flows between its file frames (mediaInterpolation) shows the blend of `frameTime` too.
+ * A layer on held clocks (`clocks`, render.js layerClocks: frameRate on it or a group around it)
+ * is drawn at its held times, so its picture comes from them too.
  * Returns [{at (the scene time the picture is taken at), clock (resolvePlayback), state (mediaFrameState)}].
  */
-function mediaMoments(layer, sceneTimes) {
+function mediaMoments(layer, sceneTimes, clocks = []) {
   const moments = [];
   for (const entry of sceneTimes) {
-    const time = typeof entry === "number" ? entry : entry.time;
+    const time = heldSceneTime(typeof entry === "number" ? entry : entry.time, clocks);
     const drawn = resolvePlayback(layer, time);
     if (!drawn.visible || !mediaFrameState(layer, drawn.time).visible) continue;
-    const at = typeof entry === "number" ? time : entry.frameTime;
+    const at = typeof entry === "number" ? time : heldSceneTime(entry.frameTime, clocks);
     const clock = at === time ? drawn : resolvePlayback(layer, at);
     moments.push({ at, clock, state: mediaFrameState(layer, clock.time) });
   }
@@ -366,10 +368,10 @@ function mediaMoments(layer, sceneTimes) {
  * the layer is hidden. The design view (`design`) shows only the frame where Play starts, as the
  * Design canvas does.
  */
-function gifFramesShown(layer, durations, sceneTimes, design = false) {
+function gifFramesShown(layer, durations, sceneTimes, design = false, clocks = []) {
   if (design) return new Set([gifFrameIndex(durations, mediaDesignTime(layer))]);
   const shown = new Set();
-  for (const { state } of mediaMoments(layer, sceneTimes)) shown.add(gifFrameIndex(durations, state.sourceTime));
+  for (const { state } of mediaMoments(layer, sceneTimes, clocks)) shown.add(gifFrameIndex(durations, state.sourceTime));
   return shown;
 }
 
@@ -388,12 +390,12 @@ function isGifError(error) {
  * Returns { durations, frames } for the renderer, shared by the layers (frames none of them shows
  * stay empty), or null when no export frame shows any of the layers.
  * A frame file is read from disk the first time an export frame shows it, and only once.
- * Exported for tests.
+ * `clocksFor(layer)` gives a layer's held clocks (render.js layerClocks). Exported for tests.
  */
-export async function gifPlayFrames(layers, gif, { folder, sceneTimes, design = false, signal, slots = gifDecodeSlots }) {
+export async function gifPlayFrames(layers, gif, { folder, sceneTimes, design = false, signal, slots = gifDecodeSlots, clocksFor = () => [] }) {
   const shown = new Set();
   for (const layer of layers)
-    for (const index of gifFramesShown(layer, gif.durations, sceneTimes, design)) shown.add(index);
+    for (const index of gifFramesShown(layer, gif.durations, sceneTimes, design, clocksFor(layer))) shown.add(index);
   if (!shown.size) return null;
   await mkdir(folder, { mode: 0o700 });
   await mediaStep(signal, () => slots.run(() => writeGifFrames(gif, folder, { frames: shown, signal }), { signal }));
@@ -420,10 +422,10 @@ export async function gifPlayFrames(layers, gif, { folder, sceneTimes, design = 
  * holds give held frames. The design view (`design`) shows one held frame where Play starts, as
  * the Design canvas does.
  */
-function videoSourceTimes(layer, sceneTimes, design = false) {
+function videoSourceTimes(layer, sceneTimes, design = false, clocks = []) {
   if (design) return [{ time: mediaDesignTime(layer), playing: false }];
   const times = [];
-  for (const { at, clock, state } of mediaMoments(layer, sceneTimes)) {
+  for (const { at, clock, state } of mediaMoments(layer, sceneTimes, clocks)) {
     // A component hold stops the clock before or after its window, so the video shows one held
     // frame there. Any change counts, even a tiny one: a time held by less than 1 ms is not on the
     // playing frames' grid, and anchoring the grid on it would shift every playing frame.
@@ -534,8 +536,8 @@ function videoStretches(sortedTimes) {
  * export would.
  * Returns { frameFor(sourceTime) -> PNG path }, or null when the layer is never visible.
  */
-async function extractVideoFrames(layer, videoPath, { folder, fps, sceneTimes, design = false, width, height, decoderArgs, signal, warnings, limits = VIDEO_LIMITS, flowCacheDir, shared = {}, allNeeded, checkCache = null }) {
-  const needed = videoSourceTimes(layer, sceneTimes, design);
+async function extractVideoFrames(layer, videoPath, { folder, fps, sceneTimes, design = false, width, height, decoderArgs, signal, warnings, limits = VIDEO_LIMITS, flowCacheDir, shared = {}, allNeeded, checkCache = null, clocks = [] }) {
+  const needed = videoSourceTimes(layer, sceneTimes, design, clocks);
   if (!needed.length) return null;
   await mkdir(folder, { mode: 0o700 });
   const label = `Video layer “${layer.name ?? layer.id}”`;
@@ -1096,12 +1098,14 @@ async function prepareMedia(
           limits: videoLimits,
           flowCacheDir,
           checkCache,
+          // A clip inside a frameRate group shows the pictures of the group's held times.
+          clocks: layerClocks(scene.layers, layer),
         };
         const folder = `video-${videoFolders++}`;
         videoSources.set(layer.id, { layer, videoPath, extraction });
         // A long export whose video shows more pictures than one window holds extracts them a
         // window at a time while it draws (videoPictureWindows); the others are extracted now.
-        const allNeeded = windowFrames ? videoSourceTimes(layer, samples, design) : null;
+        const allNeeded = windowFrames ? videoSourceTimes(layer, samples, design, extraction.clocks) : null;
         if (allNeeded && new Set(allNeeded.map((item) => sampleKey(item.time))).size > windowFrames) {
           videoPlans.push({ layer, videoPath, folder, extraction: { ...extraction, shared: {}, allNeeded } });
         } else {
@@ -1126,7 +1130,8 @@ async function prepareMedia(
   for (const gif of gifs.values()) {
     if (!gif.layers.length) continue;
     const frames = await gifPlayFrames(gif.layers, gif.parsed ?? gif.still,
-      { folder: join(directory, `gif-${gifFolders++}`), sceneTimes: samples, design, signal, slots: gifSlots });
+      { folder: join(directory, `gif-${gifFolders++}`), sceneTimes: samples, design, signal, slots: gifSlots,
+        clocksFor: (layer) => layerClocks(scene.layers, layer) });
     if (frames) for (const layer of gif.layers) imageFrames.set(layer.id, frames);
   }
   if (format === "lottie") {
@@ -1188,7 +1193,7 @@ async function measureSceneLevels(scene, videoSources, { directory, signal, warn
     if (!source || !(layer.animations ?? []).some(normalizesLevels)) continue;
     const duration = Math.max(0.001, Number(scene.duration) || 1);
     const times = Array.from({ length: LEVEL_SAMPLES }, (_, index) => duration * (index + 0.5) / LEVEL_SAMPLES);
-    const key = `${source.videoPath}|${JSON.stringify(videoSourceTimes(layer, times).map((entry) => entry?.time ?? null))}`;
+    const key = `${source.videoPath}|${JSON.stringify(videoSourceTimes(layer, times, false, source.extraction.clocks).map((entry) => entry?.time ?? null))}`;
     if (!measuredLevels.has(key)) {
       const pictures = [];
       // extractVideoFrames makes each picture's own folder, so only the parent is made here
@@ -1216,7 +1221,7 @@ async function measureSceneLevels(scene, videoSources, { directory, signal, warn
 // One picture of a video layer at scene time `time`, as {width, height, data} RGBA.
 async function videoPictureAt({ layer, videoPath, extraction }, time, folder) {
   const frames = await extractVideoFrames(layer, videoPath, { ...extraction, folder, sceneTimes: [time] });
-  const source = frames && videoSourceTimes(layer, [time])[0];
+  const source = frames && videoSourceTimes(layer, [time], false, extraction.clocks)[0];
   if (!source) return null;
   const image = await loadImage(await readFile(frames.frameFor(source.time)));
   const canvas = createCanvas(image.width, image.height);
