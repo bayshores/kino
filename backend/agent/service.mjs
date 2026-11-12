@@ -177,7 +177,7 @@ import { renderRange, rangeCaptions, fastPreviewOptions } from "../render-range.
 import { cueListText, isCueTarget } from "./cue-list.mjs";
 import { cutListText, cutTargetFrom, isCutTarget } from "./cut-list.mjs";
 import { soundLevels } from "../../engine/quality/loudness.js";
-import { createTranscriptCache, TRANSCRIPT_VERSION } from "../speech/transcribe.mjs";
+import { createTranscriptCache, languageSetup, TRANSCRIPT_VERSION } from "../speech/transcribe.mjs";
 import { projectNames, speechNamesFor } from "../speech/name-hint.mjs";
 import { createSyncEnvelopeCache } from "../clip-sync.mjs";
 import { currentLag, matchEnvelopes, SYNC_FALLBACK, syncLayers } from "../../engine/clipSync.js";
@@ -5695,7 +5695,7 @@ export function createAgentService(deps) {
       let file;
       try { file = mediaFileOf(layer); } catch { continue; }
       const transcript = await transcripts.saved?.(file, document, layer, { any: true }).catch(() => null);
-      lines.push(...keptLines(scene, layer, transcript, { name: refName(layer.id, codes), guess: await languageGuessOf(file).catch(() => null) }));
+      lines.push(...keptLines(scene, layer, transcript, { name: refName(layer.id, codes), guess: await languageGuessOf(file, deps.linesLanguages ? { languages: deps.linesLanguages } : {}).catch(() => null) }));
     }
     lines.sort((a, b) => a.start - b.start);
     let heard;
@@ -5704,7 +5704,8 @@ export function createAgentService(deps) {
     } catch (error) {
       throw new AgentError("failed", `The lines could not be heard: ${String(error.message).split("\n")[0].slice(0, 200)}`);
     }
-    return linesHeardText(heard, { scene: refName(scene.id, codes) });
+    const languageModel = Boolean((deps.linesLanguages ?? languageSetup)());
+    return linesHeardText(heard, { scene: refName(scene.id, codes), languageModel });
   }
 
   // look {mode:"sound"} (sound-map.mjs): the scene's mix measured three ways (all, the music

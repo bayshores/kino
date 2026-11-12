@@ -3,7 +3,8 @@
 // the line's stretch, with whisper on this computer in the language the line was heard in. Each
 // line prints the words heard there, their confidence and how many of the line's own words (its
 // clip's transcript over the stretch) are among them, so a director can see a buried line without
-// ears. One FFmpeg run writes the mix (up to the last line's end) and one decodes it; one whisper
+// ears. The render's own sound steps (voice leveling, cleanup) run first, then one FFmpeg run writes
+// the mix (up to the last line's end) and one decodes it, one run at a time; one whisper
 // run per language hears every line in it. Nothing is played.
 import path from "node:path";
 import { readFile } from "node:fs/promises";
@@ -23,6 +24,9 @@ import { makeTempFolder, removeTempFolder } from "./temp-folders.mjs";
 export const MATCH_SHARE = 0.5;
 // Seconds of the mix kept around each line, so its first and last word are not clipped.
 const MARGIN = 0.15;
+// The call that fetches the multilingual model (service.mjs savedLinesOf, transcribe.mjs heard): look
+// source on a clip whose voice whisper tags as another language starts its one download.
+const FETCH_CALL = `look {mode:"source", layer:"<clip>"} on a clip whose voice whisper tags as another language fetches it once (${Math.round(LANGUAGE_MODEL.bytes / 1e6)} MB)`;
 
 const plain = (text) => String(text ?? "").toLowerCase().normalize("NFKC").replace(/[^\p{L}\p{N}']/gu, "");
 
@@ -51,7 +55,9 @@ export function unitsMatched(own, heard, language = "en") {
  * `guess` the clip's language guess ({language, p}) when it was unsure (under LANG_SURE).
  */
 export function keptLines(scene, layer, transcript, { name = layer.name, guess = null } = {}) {
-  const stretches = keepLineStretches(layer).map((stretch) => ({ start: Math.max(0, stretch.start), end: Math.min(scene.duration, stretch.end) }))
+  // Only the "Line up"/"Line down" stretches: a "Sound up"/"Sound down" stretch keeps a sound, not words.
+  const lineMarks = { animations: (layer.animations ?? []).filter((animation) => /^Line (?:up|down)$/.test(animation?.name ?? "")) };
+  const stretches = keepLineStretches(lineMarks).map((stretch) => ({ start: Math.max(0, stretch.start), end: Math.min(scene.duration, stretch.end) }))
     .filter((stretch) => stretch.end - stretch.start >= 0.2);
   const language = typeof transcript?.language === "string" ? transcript.language : "en";
   let words = [];
@@ -84,7 +90,7 @@ export async function languageGuessOf(file, { languages = () => languageSetup() 
 export async function listenPieces(pieces, language, { english = () => whisperSetup(), other = () => languageSetup() } = {}) {
   let setup;
   try { setup = language === "en" ? english() : other(); } catch (error) { return { missing: String(error.message).split(". ")[0] }; }
-  if (!setup) return { missing: `${LANGUAGE_MODEL.file} is not in ~/.kino/models/ (or KINO_WHISPER_LANG_MODEL), so ${language} cannot be heard` };
+  if (!setup) return { missing: `${LANGUAGE_MODEL.file} is not in ~/.kino/models/ (or KINO_WHISPER_LANG_MODEL), so ${language} cannot be heard; ${FETCH_CALL}` };
   const lists = await whisperTurn(() => whisperSegments(pieces, setup, { language }));
   return {
     model: setup.modelName,
@@ -136,11 +142,15 @@ export async function hearKeptLines(lines, { mix, listen = listenPieces }) {
 
 const quote = (text) => `"${String(text).replaceAll('"', "'").slice(0, 120)}"`;
 
-/** The answer: one line per kept line. */
-export function linesHeardText(lines, { scene = "the scene" } = {}) {
+/**
+ * The answer: one line per kept line. `languageModel: false` (languageSetup found no multilingual
+ * model) adds a line: every line was read and heard in English, no clip's language was checked.
+ */
+export function linesHeardText(lines, { scene = "the scene", languageModel = true } = {}) {
   if (!lines.length) return `lines heard ${scene}: no kept lines here (keep_line keeps one; this listens to each in the mix)`;
   const models = [...new Set(lines.map((line) => line.model).filter(Boolean))];
   const head = `lines heard ${scene}: each kept line's stretch of the scene's mix, heard by whisper on this computer${models.length ? ` (${models.join(", ")})` : ""}; a line counts as heard when ${Math.round(MATCH_SHARE * 100)}% of its own words are among the words heard (a starting guess)`;
+  const noModel = languageModel ? [] : [`  ${LANGUAGE_MODEL.file} is not in ~/.kino/models/: each line was read and heard in English and no clip's language was checked (speech in another language reads as English sound-alikes); ${FETCH_CALL}`];
   const rows = lines.slice(0, 16).map((line) => {
     const unit = NO_SPACE_LANGUAGES.has(line.language) ? "characters" : "words";
     const guess = line.guess ? `; language guess ${line.guess.language} p ${line.guess.p} (under ${LANG_SURE}: unsure, the line's words may be sound-alikes)` : "";
@@ -151,5 +161,5 @@ export function linesHeardText(lines, { scene = "the scene" } = {}) {
       : `${line.found} of ${line.of} ${unit} match: ${line.found / line.of >= MATCH_SHARE ? "the line is heard" : "other sound than the line (buried, cut or misheard)"}`;
     return `  ${line.layer} ${line.start}-${line.end} s: ${heard} · ${own} · ${match}`;
   });
-  return [head, ...rows, ...(lines.length > 16 ? [`  and ${lines.length - 16} more`] : [])].join("\n");
+  return [head, ...noModel, ...rows, ...(lines.length > 16 ? [`  and ${lines.length - 16} more`] : [])].join("\n");
 }
