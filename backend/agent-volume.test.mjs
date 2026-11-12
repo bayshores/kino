@@ -284,3 +284,46 @@ test("a Volume animation can start on a cue, and a text layer refuses one in pla
   assert.equal(notSound.isError, true);
   assert.match(notSound.text, /duck_audio: \\"title\\" is a text layer and has no sound; duck an audio or video layer/);
 });
+
+test("place_sounds what:\"footstep\" places four steps against the bed; an unknown word names the finder call; a held import is used", { skip: skipWithoutMediaTools }, async () => {
+  const music = await importTone("steps-bed.wav", 220, 6);
+  await agent("project", { action: "create", id: "steps", name: "Steps", width: 640, height: 360, duration: 6 });
+  await agent("edit", { project: "steps", ops: [{ op: "add_layer", layerType: "audio", name: "music", properties: { src: music, mediaDuration: 6 } }] });
+  const scene = (await (await server.api("/api/projects/steps")).json()).document.scenes[0].id;
+  const placed = await agent("edit", { project: "steps", ops: [{ op: "place_sounds", sceneId: scene, at: [1, 2, 3, 4].map((at) => ({ at, what: "footstep" })) }] });
+  assert.equal(placed.isError, undefined, placed.text);
+  assert.equal(placed.data.sounds.placed, 4);
+  // Each step is read against the bed (a 220 Hz tone at -22 LUFS) and sits 3 LU under it.
+  assert.equal(placed.data.sounds.summary.match(/3 LU under the song \(-22 LUFS\)/g).length, 4, placed.data.sounds.summary);
+  const layers = (await (await server.api("/api/projects/steps")).json()).document.scenes[0].layers.filter((layer) => layer.id.startsWith("sfx-footstep-"));
+  assert.equal(layers.length, 4);
+  assert.ok(layers.every((layer) => layer.volume > 0.05 && layer.volume <= 2), JSON.stringify(layers.map((layer) => layer.volume)));
+
+  // A word the library lacks: the nearest library kinds and the finder call, filled in with the same word.
+  const missing = await agent("edit", { project: "steps", ops: [{ op: "place_sounds", sceneId: scene, at: [{ at: 5, what: "marimba" }] }] });
+  assert.equal(missing.isError, true);
+  assert.match(missing.text, /no library sound for \\"marimba\\"\. Nearest library kinds: .*library \{topic:\\"inspire\\", search:\\"marimba\\", kind:\\"sounds\\"\}/);
+  // The project holds an imported sound with that word in its name: it is used.
+  await importTone("marimba hit.wav", 440, 0.4);
+  const held = await agent("edit", { project: "steps", ops: [{ op: "place_sounds", sceneId: scene, at: [{ at: 5, what: "marimba" }] }] });
+  assert.equal(held.isError, undefined, held.text);
+  assert.match(held.data.sounds.summary, /sfx-marimba-1 at 5/);
+  // The person's import named for the word comes before the library's own footstep; the bed (a
+  // short file the scene already plays) is never taken for an effect.
+  const ownStep = await importTone("footstep gravel.wav", 300, 0.3);
+  const own = await agent("edit", { project: "steps", ops: [{ op: "place_sounds", sceneId: scene, at: [{ at: 5.5, what: "footsteps" }] }] });
+  const ownLayer = (await (await server.api("/api/projects/steps")).json()).document.scenes[0].layers.find((layer) => layer.id === "sfx-footsteps-1");
+  assert.equal(ownLayer?.src, ownStep, own.text);
+  await agent("edit", { project: "steps", ops: [{ op: "place_sounds", sceneId: scene, at: [{ at: 5, what: "bed" }] }] });
+  const after = (await (await server.api("/api/projects/steps")).json()).document.scenes[0].layers;
+  assert.equal(after.filter((layer) => layer.id.startsWith("sfx-") && layer.src === music).length, 0);
+  // library sounds with no match says the same, with the nearest kinds.
+  const none = await agent("library", { project: "steps", topic: "sounds", search: "marimba" });
+  assert.match(none.text, /No library sound matches \"marimba\"\. Nearest kinds: .*library \{topic:"inspire", search:"marimba", kind:"sounds"\}/);
+  // A 9:16 project with no music: the step still lands, its level read from its own peak.
+  await agent("project", { action: "create", id: "quiet-steps", name: "Quiet steps", width: 360, height: 640, duration: 3 });
+  const quietScene = (await (await server.api("/api/projects/quiet-steps")).json()).document.scenes[0].id;
+  const quiet = await agent("edit", { project: "quiet-steps", ops: [{ op: "place_sounds", sceneId: quietScene, at: [{ at: 1, what: "footstep" }] }] });
+  assert.equal(quiet.isError, undefined, quiet.text);
+  assert.equal(quiet.data.sounds.placed, 1, quiet.text);
+});

@@ -65,6 +65,7 @@ import { moveRetry } from "./move-retry.mjs";
 import { opFromWord, PRESET_LAYER, PRESET_SAMPLE_TO, PRESET_VALUE_KEYS } from "./common-mistakes.mjs";
 import { animationSpan, isRandomId, layerAnimations, refName, sec } from "./describe.mjs";
 import { fontsLibraryText, missingCharactersHelp } from "./font-help.mjs";
+import { heldSoundFor, missingSoundText } from "./sound-find.mjs";
 import { EFFECT_KEYS, effectDetailText, effectsListText, nearestTools, plainKey } from "./effects-help.mjs";
 import { projectOutline } from "./outline.mjs";
 import { applyBrief, aspectLabel, asksOf, plainWordsProblem, storedQuoteProblem,BriefError, briefChanges, briefData, briefText, compareNeed, compareStep, hasBrief, isSettled, lengthTarget, lockNeeded, notBuilt, orderSteps, pickOpen, referenceSearches, SUBJECT_SLOT, songTitleOf, REFERENCE_SKIP_UNDER, realEdit, REFERENCES_WANTED, savedText, TREATMENTS_WAIVER, videoFacts } from "./brief.mjs";
@@ -2262,14 +2263,22 @@ export function createAgentService(deps) {
       } else {
         const words = entry.what ?? (kind ? SOUND_KIND_WORDS[kind] : null);
         if (!words) throw new AgentError("bad_input", `place_sounds at ${at}: say what the sound is ({at:${at}, what:"whoosh"}) or give sound (sfx:<id> or a file).`);
-        const pool = entry.what !== undefined
+        // The person's own import whose name or credit has every word comes before the library.
+        const played = new Set(scene.layers.filter((layer) => !/^sfx-/.test(layer.id)).map((layer) => mediaIdFromSource(layer.src)).filter(Boolean));
+        file = entry.what !== undefined ? heldSoundFor(words, media, { skip: played, all: true }) : null;
+        const pool = file ? [] : entry.what !== undefined
           ? deps.soundLibrary?.offerSounds?.(entry.what, { seed: document.id, low: true, count: 6 }) ?? []
           : action ? [...(offered[action.id] ?? []), ...offersFor(kind, document, scene, media, 6)] : offersFor(kind, document, scene, media, 6);
         const pick = pool.find((sound) => !taken.has(sound.id)) ?? pool[0];
-        if (!pick) throw new AgentError("not_found", `no library sound for "${words}": library {topic:"inspire", search:${JSON.stringify(String(words))}, kind:"sounds"}`);
-        taken.add(pick.id);
-        file = await librarySoundMedia(`sfx:${pick.id}`, media);
-        kind ??= String(entry.what).split(/\s+/)[0];
+        if (pick) {
+          taken.add(pick.id);
+          file = await librarySoundMedia(`sfx:${pick.id}`, media);
+        } else if (!file) {
+          // Not in the library: a held sound with some of the words, else the finder call.
+          file = heldSoundFor(words, media, { skip: played });
+          if (!file) throw new AgentError("not_found", missingSoundText(String(words), deps.soundLibrary?.nearestKinds?.(words) ?? [], soundSearchOn()));
+        }
+        kind ??= String(entry.what ?? words).split(/\s+/)[0];
       }
       const src = file.src ?? `/api/media/${file.id}`;
       const fileOnDisk = mediaFileOf({ src });
@@ -7563,7 +7572,8 @@ export function createAgentService(deps) {
         const found = deps.soundLibrary.searchSounds(search || input.name, { maxSeconds: input.full === true ? SOUND_LIMITS.maxSeconds : SOUND_LIMITS.defaultSeconds });
         const scene = record?.document?.scenes?.[0];
         const actions = scene ? (await sceneSoundActions(record.document, scene).catch(() => null))?.all?.length ?? 0 : 0;
-        return { text: librarySoundsText(found, { searchOn: soundSearchOn(), actions }), data: { sounds: found.results.slice(0, 10).map(({ id, words, seconds, lufs }) => ({ id: `sfx:${id}`, words, seconds, lufs })) } };
+        const nearest = found.results.length ? [] : deps.soundLibrary.nearestKinds?.(found.query) ?? [];
+        return { text: librarySoundsText(found, { searchOn: soundSearchOn(), actions, nearest }), data: { sounds: found.results.slice(0, 10).map(({ id, words, seconds, lufs }) => ({ id: `sfx:${id}`, words, seconds, lufs })) } };
       } catch (error) { throw soundError(error); }
     }
     // music: the built-in mood-tagged tracks, in this project's own order (never one default song).
