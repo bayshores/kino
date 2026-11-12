@@ -12,6 +12,7 @@ import {
   normalizeEffectParameters,
 } from "./catalog.js";
 import { IDENTITY_CURVE } from "./colorMath.js";
+import { createEffectAnimation, effectsAt } from "./animation.js";
 
 // The lut effect needs the src of an imported .cube file; every other default is complete.
 const LUT_SOURCE = "/api/media/0a1b2c3d-0000-4000-8000-000000000001.cube";
@@ -143,12 +144,19 @@ test("Post FX uses the observed catalog order, starting values and typed color i
         parameters: { ...effectDefaults(key), ...parameters }, time: 0, progress: 0, helpers: { id: (kind) => kind, defs, ...(levels ? { levels } : {}) } });
       return defs.join("") + output;
     };
-    assert.equal(effectDefaults(key).normalize, true);
+    // A new effect stores normalize true; one saved before the field existed has none and draws
+    // as it did, even with levels measured.
+    const layer = { id: "l", type: "rectangle", animations: [] };
+    const created = createEffectAnimation(key, layer, 0, { duration: 2 }, "a", {});
+    assert.equal(created.to.normalize, true);
     assert.equal(effectDefaults(key).keep, "none");
-    const plain = drawn({}), stretched = drawn({}, [0.1, 0.6]);
+    const saved = { ...created, to: Object.fromEntries(Object.entries(created.to).filter(([name]) => name !== "normalize")) };
+    assert.equal(effectsAt({ ...layer, animations: [saved] }, 1)[0].parameters.normalize, undefined);
+    const plain = drawn({ normalize: true }), stretched = drawn({ normalize: true }, [0.1, 0.6]);
     assert.notEqual(plain, stretched);
     assert.equal(drawn({ normalize: false }, [0.1, 0.6]), plain);
-    assert.match(drawn({ keep: "skin" }, [0.1, 0.6]), /feComposite in="lut"/);
+    assert.equal(drawn({}, [0.1, 0.6]), plain);
+    assert.match(drawn({ normalize: true, keep: "skin" }, [0.1, 0.6]), /feComposite in="lut"/);
   }
   assert.throws(() => normalizeEffectParameters("pixelate", { pixelSizeStep: 0 }), /from 1 to 128/);
   assert.throws(() => normalizeEffectParameters("dithering", { subdivisions: 2049 }), /from 1 to 2048/);

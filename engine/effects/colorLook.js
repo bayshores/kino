@@ -48,26 +48,29 @@ function hsl(hue, saturation, lightness) {
 // The three stops of the ramp for one hue (HSL degrees: red 0, green 120, blue 240). Shadow and
 // mid lightness and saturation from the streak-field reference (#0E3A30 is about L 0.14, #2A6B5A
 // about S 0.44 L 0.29; shadow taken deeper so the grade keeps a black). Highlights turn up to 30
-// degrees toward yellow and near white: the reference face highlight #D8F59A sits at hue 80
-// under a hue 165 backdrop, and the blue type-on reference keeps white rim light (a guess
-// from two references).
+// degrees toward yellow: the reference face highlight #D8F59A (hue 79, S 0.81, L 0.78) sits
+// under a hue 165 backdrop (the 30 degree turn is a guess from two references). The light stop
+// takes that highlight's S 0.8 and L 0.78, not white: at L 0.86 plus the bloom the lit brow of
+// the streak-field re-run clipped to #FFFFFF where the reference stays #D8F59A.
 export function sectionGradeStops(hue) {
   const h = ((hue % 360) + 360) % 360;
   const toward = ((60 - h + 540) % 360) - 180;
   const lightHue = h + Math.sign(toward) * Math.min(30, Math.abs(toward));
-  return [hsl(h, 0.65, 0.05), hsl(h, 0.5, 0.3), hsl(lightHue, 0.8, 0.86)];
+  // Mid S 0.4 rather than the backdrop's 0.44: the reference face mids are paler (#B3CB90, S 0.35).
+  return [hsl(h, 0.65, 0.05), hsl(h, 0.4, 0.3), hsl(lightHue, 0.8, 0.78)];
 }
 
 /** The section-grade pixel function: r, g, b 0..1 and {stops, levels, keep, blackLift}. */
 export function sectionGradeColor(r, g, b, { stops, levels, keep, blackLift }) {
   const source = [r, g, b];
   const normalized = normalizeLuma(luma(source), levels);
-  // Two linear segments meeting at the mid stop, at normalized luma 0.45 (guess: a touch below
-  // half so faces sit on the lighter segment).
+  // Two linear segments meeting at the mid stop, at normalized luma 0.4 (guess tuned on the
+  // streak-field re-run: at 0.45 the lower face read #538B40 against the reference's #B3CB90, so
+  // more of the range goes to the lighter segment).
   const [low, mid, high] = stops;
-  const graded = normalized < 0.45
-    ? low.map((value, channel) => value + (mid[channel] - value) * (normalized / 0.45))
-    : mid.map((value, channel) => value + (high[channel] - value) * ((normalized - 0.45) / 0.55));
+  const graded = normalized < 0.4
+    ? low.map((value, channel) => value + (mid[channel] - value) * (normalized / 0.4))
+    : mid.map((value, channel) => value + (high[channel] - value) * ((normalized - 0.4) / 0.6));
   const kept = withKeep(source, graded, keep, normalized);
   return kept.map((value) => blackLift + (1 - blackLift) * value);
 }
@@ -137,12 +140,13 @@ function renderSectionGrade(frame, amount) {
     parameters: { stops, levels: levelsFor(frame), keep, blackLift: numberParameter(frame, "blackLift", SECTION_GRADE.blackLift, 0, 0.2) } });
   const bloom = numberParameter(frame, "bloom", SECTION_GRADE.bloom, 0, 1) * amount;
   if (bloom === 0) return graded;
-  // The soft bloom: a wide, low glow from the highlights in the light stop's color. Strength 2 x
-  // bloom (0.6 at the default) and radius 18 are guesses scaled down from the streak-field final
-  // glow (strength 1.4, radius 5, threshold 0.3), which read too bright next to its reference.
+  // The soft bloom: a wide, low glow from the top highlights only, in the light stop's color.
+  // Guesses tuned on the streak-field re-run: strength 2 x bloom from threshold 0.55 added up to
+  // white over the whole lit brow, so strength equals bloom (0.3 at the default) and only luma
+  // above about 0.7 feeds it; radius 24 keeps it a haze rather than a second outline.
   const light = `#${stops[2].map((value) => Math.round(value * 255).toString(16).padStart(2, "0")).join("")}`;
   return renderGlow({ ...frame, content: graded,
-    parameters: { strength: bloom * 2, radius: 18, passes: 2, threshold: 0.55, softness: 0.35, color: light, colorMix: 0.5 } });
+    parameters: { strength: bloom, radius: 24, passes: 2, threshold: 0.7, softness: 0.25, color: light, colorMix: 0.5 } });
 }
 
 export function renderColorLook(frame) {

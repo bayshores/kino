@@ -269,7 +269,7 @@ export function renderDuotone(frame) {
   const contrast = number(frame, "contrast", 0.9, 0, 4);
   const shadow = color(frame?.parameters?.shadowColor, "#1400FF");
   const highlight = color(frame?.parameters?.highlightColor, "#FFE4E4");
-  const levels = levelsFor(frame);
+  const levels = levelsFor(frame, { whenMissing: false });
   const keep = keepOf(frame?.parameters, hexRgb01);
   if (keep) {
     const tables = [0, 1, 2].map((channel) => Array.from({ length: 65 }, (_, index) => {
@@ -530,7 +530,7 @@ export function renderTritone(frame) {
   const highlight = color(frame?.parameters?.highlightColor, "#FFE9B0");
   const [low, high] = threshold1 <= threshold2 ? [threshold1, threshold2] : [threshold2, threshold1];
   const colors = [shadow, midtone, highlight];
-  const levels = levelsFor(frame);
+  const levels = levelsFor(frame, { whenMissing: false });
   const keep = keepOf(frame?.parameters, hexRgb01);
   const tables = [0, 1, 2].map((channel) => Array.from({ length: 65 }, (_, index) => {
     // Kept grades normalize inside their 3D LUT (keptGradeColor), so their tables stay plain.

@@ -63,10 +63,14 @@ export function createEffectAnimation(key, layer, start, scene, id, parameters =
   if (typeof start !== "number" || !Number.isFinite(start) || start < 0) throw new RangeError("Effect start must be a finite nonnegative number");
   const from = effectInitialValues(key);
   const at = effect.kind === "ranged" ? 0 : Math.min(start, Math.max(0, sceneDuration - 0.001));
+  const to = normalizeEffectParameters(key, parameters);
+  // Optional fields marked `created` (duotone and tritone normalize, catalog.js) start on for new
+  // effects only.
+  for (const [name, field] of Object.entries(effect.parameters)) if (field.created && !Object.hasOwn(to, name)) to[name] = field.default;
   // Timeline labels already prepend the owning layer's name.
   return normalizeEffectAnimation({ id, name: effect.label, kind: "effect", effect: key,
     start: at, duration: effect.kind === "ranged" ? sceneDuration : Math.min(effect.duration, Math.max(0.001, sceneDuration - at)),
-    easing: effect.easing, to: normalizeEffectParameters(key, parameters),
+    easing: effect.easing, to,
     ...(Object.keys(from).length ? { from } : {}), ...(effect.kind === "ranged" ? { keepStill: effect.keepStill ?? "both" } : {}) });
 }
 

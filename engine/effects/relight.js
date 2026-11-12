@@ -17,8 +17,11 @@ export const luma = ([r, g, b]) => LUMA[0] * r + LUMA[1] * g + LUMA[2] * b;
  * whole clip (backend/export.mjs layerLevels), so the mapping holds still from frame to frame;
  * the live preview and shapes have none and draw without normalizing.
  */
-export function levelsFor(frame) {
-  if (frame?.parameters?.normalize === false) return null;
+export function levelsFor(frame, { whenMissing = true } = {}) {
+  // whenMissing false (duotone, tritone): an effect saved before normalize existed has no value
+  // and keeps drawing without it.
+  const normalize = frame?.parameters?.normalize ?? whenMissing;
+  if (normalize === false) return null;
   const levels = frame?.helpers?.levels;
   if (!Array.isArray(levels) || levels.length !== 2 || !levels.every(Number.isFinite)) return null;
   const [low, high] = levels;

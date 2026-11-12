@@ -18,7 +18,9 @@ test("normalize levels: the 2nd and 98th luma percentile of opaque pixels, for g
   const [low, high] = lumaLevels([{ data }]);
   assert.deepEqual([Math.round(low * 255), Math.round(high * 255)], [50, 146]);
   assert.equal(lumaLevels([{ data: new Uint8ClampedArray(16) }]), null);
-  assert.equal(normalizesLevels({ kind: "effect", effect: "duotone", to: {} }), true);
+  assert.equal(normalizesLevels({ kind: "effect", effect: "duotone", to: { normalize: true } }), true);
+  // A duotone saved before normalize existed is not measured (it draws as it did).
+  assert.equal(normalizesLevels({ kind: "effect", effect: "duotone", to: {} }), false);
   assert.equal(normalizesLevels({ kind: "effect", effect: "tritone", to: { normalize: false } }), false);
   assert.equal(normalizesLevels({ kind: "effect", effect: "color-look", to: { look: "section-grade" } }), true);
   assert.equal(normalizesLevels({ kind: "effect", effect: "color-look", to: { look: "ember" } }), false);

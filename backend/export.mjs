@@ -1137,7 +1137,7 @@ async function prepareMedia(
     });
   }
   const luts = await loadSceneLuts(scene, mediaRoot, renderedIds, signal);
-  const levels = await measureSceneLevels(scene, videoSources, { directory, signal });
+  const levels = await measureSceneLevels(scene, videoSources, { directory, signal, warnings });
   // `morph` false: check and look draw morph joins as morphDissolveScene's dissolve, without the flow.
   const morphs = design || !morph ? new Map() : await morphPictures(scene, videoSources, { directory, fps, frameTimes, signal, warnings });
   return { images, imageSources, imageFrames, videos, videoPlans, audio, lottieVideoIds, lottieVideoLayerIds, luts, levels, directory, morphs };
@@ -1147,7 +1147,8 @@ async function prepareMedia(
 // map the layer's own luma range to the full range before their colors.
 export function normalizesLevels(animation) {
   if (animation?.kind !== "effect" || animation.enabled === false || animation.to?.normalize === false) return false;
-  return animation.effect === "duotone" || animation.effect === "tritone" ||
+  // A duotone or tritone saved before normalize existed has none and is not measured.
+  return ((animation.effect === "duotone" || animation.effect === "tritone") && animation.to?.normalize === true) ||
     (animation.effect === "color-look" && animation.to?.look === "section-grade");
 }
 
@@ -1178,7 +1179,7 @@ const LEVEL_SAMPLES = 6;
  * from LEVEL_SAMPLES pictures spread over the scene and pooled, so every frame of an export and
  * every look at the layer get the same mapping: the grade does not flicker as the shot changes.
  */
-async function measureSceneLevels(scene, videoSources, { directory, signal }) {
+async function measureSceneLevels(scene, videoSources, { directory, signal, warnings }) {
   const levels = new Map();
   let folders = 0;
   for (const layer of scene.layers) {
@@ -1189,14 +1190,20 @@ async function measureSceneLevels(scene, videoSources, { directory, signal }) {
     const key = `${source.videoPath}|${JSON.stringify(videoSourceTimes(layer, times).map((entry) => entry?.time ?? null))}`;
     if (!measuredLevels.has(key)) {
       const pictures = [];
-      for (const time of times) {
+      // extractVideoFrames makes each picture's own folder, so only the parent is made here
+      // (as morphPictures does).
+      const folder = join(directory, `levels-${folders++}`);
+      await mkdir(folder, { mode: 0o700 });
+      for (const [index, time] of times.entries()) {
         aborted(signal);
-        const folder = join(directory, `levels-${folders++}`);
-        await mkdir(folder, { mode: 0o700 });
-        const picture = await videoPictureAt(source, time, folder).catch(() => null);
+        const picture = await videoPictureAt(source, time, join(folder, String(index))).catch(() => null);
         if (picture) pictures.push(picture);
       }
-      measuredLevels.set(key, lumaLevels(pictures));
+      // A failed read is not remembered (the next render measures again) and is said out loud:
+      // the grade then draws without normalize.
+      if (pictures.length) measuredLevels.set(key, lumaLevels(pictures));
+      else warnings?.push({ code: "grade-levels-unmeasured", layerId: layer.id,
+        message: `Could not read pictures of “${layer.name ?? layer.id}” to measure its levels; its grade is drawn without normalize.` });
       if (measuredLevels.size > 64) measuredLevels.delete(measuredLevels.keys().next().value);
     }
     const measured = measuredLevels.get(key);

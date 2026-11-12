@@ -30,6 +30,10 @@ import { compileExpression, ExpressionError } from "../expression.js";
 const number = (label, value, min, max, step, unit = "", extra = {}) =>
   ({ type: "number", label, default: value, min, max, step, unit, ...extra });
 const boolean = (label, value) => ({ type: "boolean", label, default: value });
+// `created`: an optional field that createEffectAnimation stores with its default on every new
+// effect, so new effects get it while documents saved before the field existed keep drawing the
+// same (their effect has no value, and parametersAt leaves an absent optional field out).
+const NORMALIZE_NEW = Object.freeze({ ...boolean("Normalize", true), optional: true, created: true });
 // A noise seed: another whole number gives another pattern. It holds for the whole effect and,
 // like mix, is stored only when given (its default is the pattern from before it existed).
 const seed = (value) => number("Seed", value, 0, 1_000_000, 1, "", { integer: true, animatable: false, optional: true });
@@ -108,8 +112,9 @@ const definitions = [
       midpoint: number("Midpoint", 0.5, 0, 1, 0.01), contrast: number("Contrast", 0.9, 0, 4, 0.05),
       shadowColor: color("Shadow Color", "#1400FF"), highlightColor: color("Highlight Color", "#FFE4E4"),
       // Stretch the layer's own 2nd..98th percentile luma to 0..1 first; keep: a hue range that
-      // stays partly in its own color (relight.js says where both come from).
-      normalize: boolean("Normalize", true), ...keepFields(number, color),
+      // stays partly in its own color (relight.js says where both come from). NORMALIZE_NEW is
+      // stored on every new duotone; one saved before it existed has none and draws as it did.
+      normalize: NORMALIZE_NEW, ...keepFields(number, color),
     } },
   { key: "luma-highlight", label: "Luma Highlight", group: "Post FX", kind: "ranged", render: renderLumaHighlight,
     parameters: {
@@ -151,7 +156,7 @@ const definitions = [
       softness: number("Softness", 0.35, 0, 1, 0.01), contrast: number("Contrast", 1, 0, 4, 0.05),
       shadowColor: color("Shadow Color", "#1A1033"), midtoneColor: color("Midtone Color", "#E94F64"),
       highlightColor: color("Highlight Color", "#FFE9B0"),
-      normalize: boolean("Normalize", true), ...keepFields(number, color),
+      normalize: NORMALIZE_NEW, ...keepFields(number, color),
     } },
   { key: "rgb-shift", label: "RGB Shift", group: "Post FX", kind: "ranged", render: renderRgbShift,
     parameters: {
