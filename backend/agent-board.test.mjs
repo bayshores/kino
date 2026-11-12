@@ -224,6 +224,21 @@ test("the shots cover the music when there is a music layer, else the whole vide
   const byId = await editBoard("board-song", [motion(0, 2.5), motion(2.5, 2.5)], { music: song.id });
   assert.equal(byId.isError, undefined, byId.text);
   assert.equal((await record("board-song")).document.scenes[0].layers.filter((layer) => layer.type === "audio").length, 1, "the same song reuses its layer");
+  // On a briefed video whose board stop waits, the board op with a song by its src is the board,
+  // not a build, even when fit_music places the song and fades it: it saves (run dm2-a answered
+  // board_needed "save the storyboard" four times). The song's measured shape: a drop at 4 s.
+  const tone = path.join(folder, "drop.wav");
+  await run(ffmpeg, ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=262:sample_rate=44100:duration=12", "-ac", "1", tone]);
+  const drop = await upload(server, tone, "audio/wav");
+  const dropFile = path.join(server.dataDirectory, "media", path.basename(drop.src));
+  await writeFile(`${dropFile}.song`, JSON.stringify({ version: SONG_SHAPE_VERSION, seconds: 12, whole: true, sections: [{ at: 0, kind: "intro" }, { at: 4, kind: "drop", weight: 1 }], seams: [], bars: null }));
+  await writeFile(`${dropFile}.beats`, JSON.stringify({ version: BEAT_ANALYSIS_VERSION, duration: 12, bpm: 120, period: 0.5, beats: Array.from({ length: 24 }, (_, index) => index * 0.5), onsets: [] }));
+  await stopProject("board-song-stop");
+  const briefed = await editBoard("board-song-stop", [footage(0, 1.25, 0, 20), footage(1.25, 2.083, 1.25, 38), footage(3.333, 1.084, 3.333, 55), motion(4.417, 4.383)], { music: drop.src });
+  assert.equal(briefed.isError, undefined, briefed.text);
+  assert.ok(briefed.data.notes.some((note) => note.startsWith("board music: placed with fit_music")), briefed.text);
+  const faded = (await record("board-song-stop")).document.scenes[0].layers.filter((layer) => layer.type === "audio");
+  assert.ok(faded.some((layer) => layer.animations.length), "fit_music faded the song");
 
   await project("board-whole");
   assertRefused(await editBoard("board-whole", [motion(0, 2), motion(2, 3)]), "gap", "the shots end at 5 s, before the video ends (6 s): make the last shot 1 s longer.");
