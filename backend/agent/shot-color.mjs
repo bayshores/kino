@@ -30,7 +30,51 @@ export function dominantHue(data) {
   return { h: (best + 0.5) * (360 / BINS), s: sat[best] / weight[best], l: light[best] / weight[best] };
 }
 
-/** The dominant hue of `layer`'s picture at scene time `time` (its file in mediaRoot). */
+/**
+ * Where the picture's luma splits into its darkest, middle and lightest thirds, for an
+ * impact-accent hit's recolor (moves/impact.js recolorSplit): {at: [low, high], gaps: [g1, g2]},
+ * luma 0 to 1 (Rec.709 on sRGB bytes of opaque pixels, as the tritone reads luma,
+ * engine/effects/postFx.js). Each split is the boundary of a 256-level histogram whose share of
+ * pixels below is nearest 1/3 (then 2/3, above the first), put in the middle of the empty luma
+ * range there; its gap is that range's width. A flat area (a page's white, a dark UI's background)
+ * is never cut in two: a percentile on a flat area would put half of it in each tone (measured
+ * on a dark screenshot: its 33rd and 67th percentiles were 0.046 and 0.073, both on its background).
+ * null for an empty picture.
+ */
+export function lumaSplit(data) {
+  const bins = new Uint32Array(256);
+  let total = 0;
+  for (let index = 0; index + 3 < data.length; index += 4) {
+    if (data[index + 3] < 128) continue;
+    bins[Math.round(0.2126 * data[index] + 0.7152 * data[index + 1] + 0.0722 * data[index + 2])] += 1;
+    total += 1;
+  }
+  if (!total) return null;
+  // below[k]: the share of pixels in bins under k (boundary k sits between bins k - 1 and k).
+  const below = new Float64Array(257);
+  for (let k = 1; k <= 256; k += 1) below[k] = below[k - 1] + bins[k - 1] / total;
+  const nearest = (share, from) => {
+    let best = from;
+    for (let k = from; k <= 256; k += 1) if (Math.abs(below[k] - share) < Math.abs(below[best] - share) - 1e-12) best = k;
+    return best;
+  };
+  const split = (k) => {
+    let a = k - 1, b = k;
+    while (a >= 0 && !bins[a]) a -= 1;
+    while (b <= 255 && !bins[b]) b += 1;
+    const low = Math.max(0, a), high = Math.min(255, b);
+    return { at: Math.round(((low + high) / 2 / 255) * 1000) / 1000, gap: Math.round(((high - low) / 255) * 1000) / 1000 };
+  };
+  const first = nearest(1 / 3, 1);
+  const second = nearest(2 / 3, first + 1);
+  const [one, two] = [split(first), split(Math.min(256, second))];
+  return { at: [one.at, two.at], gaps: [one.gap, two.gap] };
+}
+
+/**
+ * The dominant hue of `layer`'s picture at scene time `time` (its file in mediaRoot), with the
+ * picture's luma split into thirds (`tones`, lumaSplit); a gray picture gives {h: null, s: 0, tones}.
+ */
 export async function shotColor(mediaRoot, layer, time) {
   const id = /^\/api\/media\/([A-Za-z0-9._-]+)$/.exec(String(layer?.src ?? ""))?.[1];
   if (!mediaRoot || !id || id.includes("..")) return null;
@@ -50,5 +94,6 @@ export async function shotColor(mediaRoot, layer, time) {
   const height = Math.max(1, Math.round((WIDTH * image.height) / Math.max(1, image.width)));
   const canvas = createCanvas(WIDTH, height);
   canvas.getContext("2d").drawImage(image, 0, 0, WIDTH, height);
-  return dominantHue(canvas.getContext("2d").getImageData(0, 0, WIDTH, height).data);
+  const data = canvas.getContext("2d").getImageData(0, 0, WIDTH, height).data;
+  return { ...(dominantHue(data) ?? { h: null, s: 0, l: null }), tones: lumaSplit(data) };
 }

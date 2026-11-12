@@ -24,6 +24,7 @@ import { flashCandidates } from "./quality/pixels.js";
 import { runQuality } from "./quality/index.js";
 import { createDocument, parseDocument } from "./model.js";
 import { rampTimes } from "./blocks/moves/roll.js";
+import { recolorSplit } from "./blocks/moves/impact.js";
 import { hide as hideAt } from "./blocks/moves/kit.js";
 import { frameTransform } from "./camera.js";
 import { homeCamera } from "./blocks/moves/plane.js";
@@ -1377,16 +1378,26 @@ test("impact-accent runs only at a cue that motivates its kind; a shake peaks on
   assert.ok(lit.every((at) => lit.filter((other) => other >= at && other < at + 1).length <= 3), `at most 3 flashes a second (${lit})`);
   // kind hit: parts one frame apart, as many and as strong as the cue's weight; a weak accent gets 2 small ones, not a refusal.
   const hit = (at, start) => runMove(definition, { id: "hit", input: readMoveInput(definition, { kind: "hit", layer: "clip" }), scene, style: styleFor({ look: "crisp", frame: { width: 1920, height: 1080 } }), fonts: defaultFonts, start, media,
-    shotColor: () => ({ h: 170, s: 0.6, l: 0.5 }), samples: () => [0, 1, 2, 3, 4, 5].map((t) => ({ t, faces: [[0.45, 0.3, 0.1, 0.15]] })),
+    shotColor: () => ({ h: 170, s: 0.6, l: 0.5, tones: { at: [0.1, 0.2], gaps: [0.02, 0.004] } }), samples: () => [0, 1, 2, 3, 4, 5].map((t) => ({ t, faces: [[0.45, 0.3, 0.1, 0.15]] })),
     cueFacts: { at, cues: [...cues, { name: "accent-3", time: 1.5, kind: "accent", rank: 3, weight: 0.3 }], events } });
   const parts = (made) => {
     const on = (pattern) => made.animations.filter((entry) => pattern.test(entry.animation.id)).map((entry) => entry.animation);
     const light = on(/flash-up$/)[0];
     const burst = made.added[0]?.layer.animations.find((animation) => animation.id.endsWith(".burst"));
-    return { peak: light?.to.stops, starts: [light && light.start + light.duration, on(/hit-blur$/)[0]?.start, on(/hit-recolor$/)[0]?.start, burst?.start, on(/-shake$/)[0]?.start].filter((at) => at !== undefined).map(round3) };
+    return { peak: light?.to.stops, recolor: on(/hit-recolor$/)[0]?.to, starts: [light && light.start + light.duration, on(/hit-blur$/)[0]?.start, on(/hit-recolor$/)[0]?.start, burst?.start, on(/-shake$/)[0]?.start].filter((at) => at !== undefined).map(round3) };
   };
-  const drop = parts(hit("cue:song-drop-1", 3));
-  assert.deepEqual(drop.starts, [0, 1, 2, 3, 4].map((frame) => round3(3 + frame / 30)));
+  const dropHit = hit("cue:song-drop-1", 3);
+  const drop = parts(dropHit);
+  // The shake starts on the cue's frame at the shot's place (no jump there), and swings from the next frame.
+  assert.deepEqual(drop.starts, [0, 1, 2, 3, 0].map((frame) => round3(3 + frame / 30)));
+  const y = (t) => evaluateLayer({ ...scene.layers.find((layer) => layer.id === "clip"), animations: dropHit.animations.map((entry) => entry.animation) }, t).y;
+  assert.ok(Math.abs(y(3) - y(3 - 1e-6)) <= 0.5 && Math.abs(y(3 + 1 / 30) - y(3)) > 0.5 * 0.02 * 1920, `no jump on the cue's frame, a swing after it (${[y(3 - 1e-6), y(3), y(3 + 1 / 30)].map(round3)})`);
+  // The recolor splits its tones where the shot's own luma splits in thirds, its blend inside the empty range there,
+  // as the light leaves them lifted at its middle frame; without a measurement it keeps the first guess.
+  assert.deepEqual(recolorSplit({ at: [0.1, 0.2], gaps: [0.02, 0.03] }), { threshold1: 0.1, threshold2: 0.2, softness: 0.02, contrast: 1 });
+  assert.equal(recolorSplit(undefined), null);
+  assert.ok(drop.recolor.threshold1 > 0.1 && drop.recolor.threshold2 > drop.recolor.threshold1 + 0.04 && drop.recolor.contrast === 1, `lifted thirds (${drop.recolor.threshold1}, ${drop.recolor.threshold2})`);
+  assert.match(dropHit.notes.join(" "), /tones split at luma [\d.]+ and [\d.]+, nearest the thirds of clip's picture lifted [\d.]+ stops by the light/);
   const weak = parts(hit("cue:accent-3", 1.5));
   assert.equal(weak.starts.length, 2);
   assert.ok(drop.peak > weak.peak, `the drop's light (${drop.peak} stops) is above the weak accent's (${weak.peak})`);

@@ -365,7 +365,7 @@ export function renderDuotone(frame) {
   const levels = levelsFor(frame, { whenMissing: false });
   const keep = keepOf(frame?.parameters, hexRgb01);
   if (keep) {
-    const tables = [0, 1, 2].map((channel) => Array.from({ length: 65 }, (_, index) => {
+    const tables = [0, 1, 2].map((channel) => Array.from({ length: 256 }, (_, index) => {
       const adjusted = clamp((index / 64 - midpoint) * contrast + midpoint, 0, 1);
       return (shadow[channel] + (highlight[channel] - shadow[channel]) * adjusted) / 255;
     }));
@@ -625,9 +625,12 @@ export function renderTritone(frame) {
   const colors = [shadow, midtone, highlight];
   const levels = levelsFor(frame, { whenMissing: false });
   const keep = keepOf(frame?.parameters, hexRgb01);
-  const tables = [0, 1, 2].map((channel) => Array.from({ length: 65 }, (_, index) => {
+  // One table entry per 8-bit luma level: a split measured on the picture (an impact-accent hit's
+  // recolor puts its splits 0.024 apart on a dark screenshot) lands where it was set, not blended
+  // across a 1/64 step (65 entries rendered that screenshot 52.6 / 6.9 / 40.5 % instead of 42.6 / 17.8 / 39.6).
+  const tables = [0, 1, 2].map((channel) => Array.from({ length: 256 }, (_, index) => {
     // Kept grades normalize inside their 3D LUT (keptGradeColor), so their tables stay plain.
-    const input = keep ? index / 64 : normalizeLuma(index / 64, levels);
+    const input = keep ? index / 255 : normalizeLuma(index / 255, levels);
     const adjusted = clamp((input - 0.5) * contrast + 0.5, 0, 1);
     const mix = tritoneAt(adjusted, [low, high], softness);
     const firstStart = low - Math.min(softness, high - low) / 2;

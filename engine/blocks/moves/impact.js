@@ -34,6 +34,8 @@
 import { IMPACT_KINDS } from "../../blockFields.js";
 import { createLayer } from "../../model.js";
 import { PARTICLE_LOOKS } from "../../effects/particles.js";
+import { toLinear, toSrgb } from "../../effects/colorUtility.js";
+import { easingAt } from "../../easing.js";
 import { parseAt } from "../timing.js";
 import { hslToHex, shotHue, shotTint } from "./backdrop.js";
 import { subjectIn } from "./composite.js";
@@ -165,10 +167,9 @@ export function hitMotive(facts, time, input = {}) {
   let note = null;
   if (!best) {
     best = { motive: cue.kind === "beat" || cue.kind === "onset" ? "beat" : "cue", weight: WEAK };
+    // effect_fit reads a beat number a move names as its cue (effectFit.js loudEffects), so a hit
+    // on beat-8 stays (it came back untriggered before, and its auto fix took it off).
     note = `cue:${cue.name} has nothing measured at it: a small hit (weight ${WEAK}); weight:<0.1 to 1> sizes a moment kino did not measure`;
-    // effect_fit reads markers, accents and onsets, not beat numbers (measured on run 8's copy: a
-    // hit on beat-8 came back untriggered, and its auto fix takes it off).
-    if (cue.kind === "beat") note += `; effect_fit reads no beat number as a reason and will ask for a cue: set_cues {cues:[{name:"hit-1", time:${round(cue.time, 3)}}]}, then at "cue:hit-1"`;
   }
   const measured = clamp(best.weight ?? 0.5, 0.2, 1);
   return { cue, at: cue.time + offset, motive: weighed(best, measured), measured, fill, rest: best === rest ? rest : null, note };
@@ -201,7 +202,7 @@ const build = {
     exposure(ctx, shot, "flash", { from, at: t, down, peak: round(0.6 + 1.4 * weight, 2), label: `Flash (${motive.motive} ${round(motive.weight, 2)})` });
     return { start: from, end: t + down, tags: ["flash"] };
   },
-  shake(ctx, shot, { motive }, t) {
+  shake(ctx, shot, { motive, still = false }, t) {
     if (ctx.reduced) { ctx.note("impact-accent shake: none in reduced motion"); return { start: t, end: t + FRAME, tags: [] }; }
     // A footage hit shakes along its own direction; a song seam or accent has none, so it bumps down.
     const dir = motive.dir ?? (motive.motive === "impact" ? "right" : "down");
@@ -209,7 +210,11 @@ const build = {
     const size = ctx.frame.width * (0.01 + 0.01 * motive.weight) / (axes.length > 1 ? Math.SQRT2 : 1);
     // A cosine wave (phase a quarter) 0.1 s a cycle, decaying 14 a second: full on the cue's frame,
     // under 30% by the 4th frame; it ends at 0.125 s, where the wave is at rest, so nothing is held.
-    const length = 0.125;
+    // `still` (a hit's shake): a sine (phase 0) that is at the shot's place on the cue's frame and
+    // swings from the next one (54% of the size there, then -34%, then 0 at 0.1 s, where it ends),
+    // so the cue's frame does not jump: the full-size first step of the cosine (38.4 px at weight 1
+    // in 1080p) was a jump off any cut (measured on a run's copy and a promo, hit-accent review).
+    const length = still ? 0.1 : 0.125;
     // A move of the same axis that starts inside the shake would cut it short.
     const cut = (shot.animations ?? []).find((animation) => animation.kind !== "effect" && (animation.start ?? 0) > t + 1e-6 && (animation.start ?? 0) < t + length
       && axes.some((axis) => [...Object.keys(animation.from ?? {}), ...Object.keys(animation.to ?? {})].includes(axis)));
@@ -222,7 +227,7 @@ const build = {
     const here = ctx.stateAt(shot.id, t);
     const rest = Object.fromEntries(axes.map((axis) => [axis, round(here[axis] ?? shot[axis], 2)]));
     const shake = { ...motion({ name: `Shake (${motive.motive} ${round(motive.weight, 2)} ${dir})`, start: t, duration: length, easing: SNAP, from: rest, to: {} }),
-      fromCurrent: true, behavior: { oscillate: { amount, period: 0.1, phase: 0.25, wave: "sine", decay: 14 } } };
+      fromCurrent: true, behavior: { oscillate: { amount, period: 0.1, phase: still ? 0 : 0.25, wave: "sine", decay: 14 } } };
     ctx.animate(shot.id, "shake", shake, "impact");
     return { start: t, end: t + length, tags: ["shake"] };
   },
@@ -268,6 +273,8 @@ const build = {
     const hue = shotHue(ctx, shot);
     const subject = subjectAt(ctx, shot, t);
     const said = [], skipped = [], tags = new Set();
+    // The light part writes its lift here, so the recolor after it splits the lifted picture.
+    const lit = {};
     let start = t, end = t + FRAME;
     for (const part of order) {
       if (said.length >= count) break;
@@ -278,7 +285,7 @@ const build = {
         : part === "strobe" && !found.fill ? "no fill measured before the cue" : null;
       if (why) { skipped.push(`${part} (${why})`); continue; }
       let made;
-      try { made = HIT_PARTS[part](ctx, shot, { ...found, hue, subject, input }, at, w); } catch (error) { skipped.push(`${part} (${error.message.replace(/^impact-accent [a-z-]+: /, "")})`); continue; }
+      try { made = HIT_PARTS[part](ctx, shot, { ...found, hue, subject, input, lit, cueAt: t }, at, w); } catch (error) { skipped.push(`${part} (${error.message.replace(/^impact-accent [a-z-]+: /, "")})`); continue; }
       said.push(made.said);
       for (const tag of made.tags ?? []) tags.add(tag);
       start = Math.min(start, made.start ?? at);
@@ -301,6 +308,33 @@ export const HIT_PART_NAMES = Object.freeze(["light", "blur", "recolor", "partic
 export const HIT_LOOKS = Object.freeze(["sparks", "dust", "embers", "snow", "bokeh"]);
 /** How many parts a hit of `weight` gets: floor(1 + 4w), 1 to 5 (0.3 gives 2, 0.5 3, 0.75 4, 1 5). The ladder is a guess. */
 export const hitCount = (weight) => clamp(Math.floor(1 + 4 * weight + 1e-9), 1, 5);
+// The recolor's split when the shot's brightness was not measured (the live preview, a file that
+// cannot be read): the first guess, kept. It put a dark screenshot almost all in the shadow tone
+// and a flat drawn face in one tone (hit-accent review), which recolorSplit fixes where it can measure.
+const GUESSED_SPLIT = Object.freeze({ threshold1: 0.18, threshold2: 0.48, softness: 0.5, contrast: 1.1 });
+// The least blend at a split: one level of 255.
+const LEAST_SOFTNESS = 0.004;
+
+/**
+ * The tritone split for a shot whose luma was measured (`tones` {at: [low, high], gaps: [g1, g2]},
+ * sRGB luma 0 to 1: the boundaries nearest its darkest and lightest thirds, each in the middle of
+ * an empty luma range g wide, backend/agent/shot-color.mjs lumaSplit), seen through an exposure
+ * lift of `stops` (the hit's light, the same sRGB to linear gain and back as color-grade, applied
+ * to the luma as a guess for each channel): {threshold1, threshold2, softness, contrast}, or null
+ * without a measurement. Contrast 1, so the splits are the picture's own lumas. The blend fits
+ * inside the narrower empty range (and half the distance between the splits), so no flat area of
+ * the picture is blended across two tones; a picture with no empty range there gets a near-hard split.
+ */
+export function recolorSplit(tones, stops = 0) {
+  const at = tones?.at, gaps = tones?.gaps ?? [0, 0];
+  if (!Array.isArray(at) || at.length < 2 || ![...at, ...gaps].every(Number.isFinite)) return null;
+  const gain = 2 ** stops;
+  const lift = (value) => clamp(toSrgb(Math.min(1, gain * toLinear(clamp(value, 0, 1)))), 0, 1);
+  // Each split and its empty range, through the lift.
+  const [one, two] = [0, 1].map((index) => ({ at: lift(at[index]), gap: lift(at[index] + gaps[index] / 2) - lift(at[index] - gaps[index] / 2) })).sort((a, b) => a.at - b.at);
+  const softness = Math.max(LEAST_SOFTNESS, Math.min(one.gap, two.gap, (two.at - one.at) / 2));
+  return { threshold1: round(one.at, 3), threshold2: round(two.at, 3), softness: round(softness, 3), contrast: 1 };
+}
 // The burst's count falls fast: 96% gone by the window's middle (a cubic-bezier, worked out by hand).
 const BURST = Object.freeze([0.3, 1, 0.3, 1]);
 
@@ -320,15 +354,21 @@ function subjectAt(ctx, shot, t) {
 const HIT_PARTS = {
   light(ctx, shot, found, t, w) {
     const made = build.flash(ctx, shot, { motive: { ...found.motive, weight: w } }, t);
-    return { ...made, said: `light ${round(0.6 + 1.4 * w * (ctx.reduced ? 0.5 : 1), 2)} stops` };
+    const peak = round(0.6 + 1.4 * w * (ctx.reduced ? 0.5 : 1), 2);
+    Object.assign(found.lit, { at: t, down: made.end - t, peak });
+    return { ...made, said: `light ${peak} stops` };
   },
   strobe(ctx, shot, found, t) {
+    // Its last light, on the cue, is 1.6 stops back down in one frame (build.strobe).
+    Object.assign(found.lit, { at: t, down: FRAME, peak: 1.6 });
     return { ...build.strobe(ctx, shot, { motive: found.fill }, t), said: `strobe on the fill (${found.fill.onsets.length} onsets)` };
   },
+  // The shake starts on the cue's frame whatever its place in the order (a camera hit is felt on
+  // the beat; 4 frames late it was off any cut), from the shot's place (still), so it never jumps.
   shake(ctx, shot, found, t, w) {
-    const made = build.shake(ctx, shot, { motive: { ...found.motive, weight: w } }, t);
+    const made = build.shake(ctx, shot, { motive: { ...found.motive, weight: w }, still: true }, found.cueAt);
     const dir = found.motive.dir ?? (found.motive.motive === "impact" ? "right" : "down");
-    return { ...made, said: `shake ${round(100 * (0.01 + 0.01 * w), 1)}% ${dir}` };
+    return { ...made, said: `shake ${round(100 * (0.01 + 0.01 * w), 1)}% ${dir} from the cue's frame` };
   },
   // A blur that falls off over 2 to 5 frames: along an impact's direction, else a zoom out of the
   // subject (the frame's middle without one).
@@ -348,13 +388,21 @@ const HIT_PARTS = {
   },
   // The shot in three tones of its own hue for 1 to 4 frames: backdrop-flash's tone "field" turns
   // (shadow +30°, midtone -26°, highlight -44°, backdrop.js), here from the shot's hue (a guess).
+  // Where the tones split follows the shot's own brightness (recolorSplit): about its darkest third
+  // goes to the shadow, its middle to the midtone, its lightest third to the highlight.
   recolor(ctx, shot, found, t, w) {
     const frames = Math.round(1 + 3 * w);
     const h = found.hue.hue;
+    // The light part before it is still coming down here: the split reads the picture as lifted
+    // at the recolor's middle frame.
+    const middle = t + ((frames - 1) / 2) * FRAME;
+    const lift = found.lit.peak ? found.lit.peak * (1 - easingAt(CURVES.settle, clamp((middle - found.lit.at) / Math.max(1e-6, found.lit.down), 0, 1))) : 0;
+    const split = recolorSplit(ctx.shotColor(shot.id)?.tones, lift);
     const to = { shadowColor: hslToHex({ h: h + 30, s: 0.44, l: 0.07 }), midtoneColor: hslToHex({ h: h - 26, s: 0.49, l: 0.52 }), highlightColor: hslToHex({ h: h - 44, s: 0.99, l: 0.86 }),
-      threshold1: 0.18, threshold2: 0.48, softness: 0.5, contrast: 1.1, normalize: false };
+      ...(split ?? GUESSED_SPLIT), normalize: false };
     ctx.animate(shot.id, "hit-recolor", effect({ name: "Hit recolor", effect: "tritone", start: t, duration: frames * FRAME, easing: [0, 0, 1, 1], to, keepStill: "off" }), "impact");
-    return { start: t, end: t + frames * FRAME, said: `recolor tritone ${to.midtoneColor} (${frames} frames, ${shot.id}'s hue from ${found.hue.from})` };
+    const where = split ? `tones split at luma ${to.threshold1} and ${to.threshold2}, nearest the thirds of ${shot.id}'s picture${lift > 0.05 ? ` lifted ${round(lift, 2)} stops by the light` : ""}` : `no brightness measured on ${shot.id}: tones split at luma 0.18 and 0.48`;
+    return { start: t, end: t + frames * FRAME, said: `recolor tritone ${to.midtoneColor} (${frames} frames, ${shot.id}'s hue from ${found.hue.from}; ${where})` };
   },
   // A burst out of the subject: count, speed and size by w, in the shot's hue (shotTint at
   // lightness 0.75). Each particle lives half the window; the count falls to 0 by about the
