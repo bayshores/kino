@@ -10,7 +10,7 @@
 //   count    satellite drops, 0..80 (spray draws 6 times as many fine dots)             (12)
 //   spread   0..1: how far the drops reach from the body toward the box edge           (0.6)
 //   angle    degrees, the direction a splash is thrown and its streaks run (0 = right)   (0)
-//   streaks  thin tapered streaks out of the body, 0..12     (splat 2, splash 4, drip and spray 0)
+//   streaks  thin tapered streaks out of the body, 0..12     (splat 2, splash 6, drip and spray 0)
 //   drips    runs down from the body, 0..12                           (drip 4, the others 0)
 //   width, height: the layer's box; the shape fills it (drops reach the edge at spread 1).
 //
@@ -24,7 +24,7 @@ import { serializePath } from "./vectorPath.js";
 
 export const SPLATTER_STYLES = ["splat", "splash", "drip", "spray"];
 export const SPLATTER_DEFAULTS = Object.freeze({ style: "splat", seed: 0, count: 12, spread: 0.6, angle: 0 });
-const STYLE_EXTRAS = { splat: { streaks: 2, drips: 0 }, splash: { streaks: 4, drips: 0 }, drip: { streaks: 0, drips: 4 }, spray: { streaks: 0, drips: 0 } };
+const STYLE_EXTRAS = { splat: { streaks: 2, drips: 0 }, splash: { streaks: 6, drips: 0 }, drip: { streaks: 0, drips: 4 }, spray: { streaks: 0, drips: 0 } };
 const KEYS = ["style", "seed", "count", "spread", "angle", "streaks", "drips"];
 const RANGES = { seed: [0, 9999], count: [0, 80], spread: [0, 1], angle: [-360, 360], streaks: [0, 12], drips: [0, 12] };
 // A splat with no size given: a square box (a guess; the path layer's own 320 x 180 box would
@@ -103,7 +103,9 @@ function bodyOutline(rand, style, radius, angle, arms, stretch) {
     let r = radius * (1 + 0.1 * edge(theta));
     for (const arm of arms) {
       const gap = Math.abs(((theta - arm.angle + Math.PI * 3) % TAU) - Math.PI);
-      if (gap < arm.width) r += arm.length * Math.pow(1 - gap / arm.width, 2.2);
+      // A round splat's arms end in round tips (contest-a p875: bulges, no needles); a thrown
+      // splash's arms taper to points (fan-fast f150: jagged shards).
+      if (gap < arm.width) r += arm.length * (style === "splash" ? Math.pow(1 - gap / arm.width, 2.2) : Math.pow(0.5 + 0.5 * Math.cos((Math.PI * gap) / arm.width), 1.6));
     }
     const a = Math.cos(theta - angle) * r * stretch, b = Math.sin(theta - angle) * r / Math.sqrt(stretch);
     points.push([along[0] * a + across[0] * b, along[1] * a + across[1] * b]);
@@ -136,13 +138,15 @@ export function splatterPath(given = {}, width = SPLATTER_SIZE, height = SPLATTE
   const rand = random(Math.round(seed) + 1);
   const angle = (degrees * Math.PI) / 180;
   const thrown = style === "splash";
-  const radius = style === "spray" ? BODY * 0.35 : style === "drip" ? BODY * 0.9 : thrown ? BODY * 0.7 : BODY;
+  // A splash's body is thin and long: fan-fast f150's ink marks are about 4 to 6 times as long as
+  // they are wide (measured on the frame); stretch 2.4 with the narrower radius gives about 4.
+  const radius = style === "spray" ? BODY * 0.35 : style === "drip" ? BODY * 0.9 : thrown ? BODY * 0.55 : BODY;
   const reach = radius + spread * (1 - radius) * 0.95;
   // Thrown splats aim near the angle; a round splat aims anywhere.
   const aim = () => thrown ? angle + (rand() + rand() + rand() - 1.5) * 0.7 : rand() * TAU;
   const arms = style === "spray" ? [] : Array.from({ length: thrown ? 7 : 5 + Math.floor(rand() * 4) }, () =>
-    ({ angle: aim(), length: radius * (thrown ? 0.3 + 0.8 * rand() : 0.12 + 0.45 * Math.pow(rand(), 1.5)), width: 0.12 + 0.18 * rand() }));
-  const stretch = thrown ? 1.45 : 1;
+    ({ angle: aim(), length: radius * (thrown ? 0.3 + 0.8 * rand() : 0.12 + 0.45 * Math.pow(rand(), 1.5)), width: thrown ? 0.12 + 0.18 * rand() : 0.24 + 0.26 * rand() }));
+  const stretch = thrown ? 2.4 : 1;
   const contours = [bodyOutline(rand, style, radius, angle, arms, stretch)];
   const tipOf = (theta, distance) => {
     const a = Math.cos(theta - angle) * distance * stretch, b = Math.sin(theta - angle) * distance / Math.sqrt(stretch);

@@ -413,12 +413,14 @@ function bump(seed, x) {
 // Torn paper (style "torn"): GAPS item 12 and contest-a blind rows 11, 12, 20 found the teeth
 // above read as "a regular row of sharp triangular spikes" where the reference tears are
 // "organic ragged ... rounded, irregular, with paint clumps". So the offset is smooth noise in four
-// octaves (lobes over 5, 2 and 0.8 sizes of outline, fibers over 0.2), every one spread over
-// several points, so no single point sticks out. Weights are a guess, checked by eye against
-// contest-a f839 and f841 (.scratch/recreate/wave/splatter-torn/pair-*.jpg).
+// octaves (lobes over 5, 1.6 and 0.55 sizes of outline, fibers over 0.15), every one spread over
+// several points, so no single point sticks out. Measured on contest-a f841 (960 px frame, the
+// director's roughenSize 40): clumps about 15 to 25 px wide (about 0.5 size) and 40 to 60 px deep
+// (1 to 1.5 sizes) on a slow drift, so the 0.55 octave carries as much as the slowest one. The
+// split between the octaves is a guess checked by eye.
 function tornOffset(seed, distance, size, detail) {
-  return 0.55 * bump(seed, distance / (size * 5)) + 0.32 * bump(seed + 5, distance / (size * 2)) +
-    0.2 * bump(seed + 9, distance / (size * 0.8)) + (0.06 + 0.08 * detail) * bump(seed + 13, distance / (size * 0.2));
+  return 0.45 * bump(seed, distance / (size * 5)) + 0.35 * bump(seed + 5, distance / (size * 1.6)) +
+    0.45 * bump(seed + 9, distance / (size * 0.55)) + (0.08 + 0.1 * detail) * bump(seed + 13, distance / (size * 0.15));
 }
 
 // Dry brush (style "brush"): contest-a f838 shows a white blob pulled sideways whose front and back

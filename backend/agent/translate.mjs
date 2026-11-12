@@ -310,9 +310,18 @@ function showWindowOnUpdate(operation, fixes, resolver, document) {
 // On add_layer the layer becomes a path; on update_layer the splat fills the layer's own box.
 // A roughen added without a style is torn paper: every roughen the five recreated edits asked for
 // was a torn or dry-brush edge, and the first style's spikes matched none (GAPS item 12).
+// update_layer that first gives a saved layer a roughen does the same; a layer that already has one keeps its look.
 function splatterShorthand(operation, properties, fixes, resolver, document) {
-  if (operation.type === "add_layer" && properties.roughenSize !== undefined && properties.roughenStyle === undefined)
-    properties = { ...properties, roughenStyle: "torn" };
+  const savedLayer = () => {
+    let id = null;
+    try { id = resolver.resolve(operation.layerId, "layer"); } catch { /* refused later */ }
+    return document.scenes.flatMap((scene) => scene.layers).find((entry) => entry.id === id);
+  };
+  if (properties.roughenSize !== undefined && properties.roughenStyle === undefined) {
+    const before = operation.type === "update_layer" ? savedLayer() : null;
+    if (operation.type === "add_layer" || (before && before.roughenStyle === undefined && !(before.roughenSize > 0)))
+      properties = { ...properties, roughenStyle: "torn" };
+  }
   if (properties.generate !== undefined) {
     const { generate, ...rest } = properties;
     if (generate !== "splatter") throw new Error(`generate makes "splatter" only; for other shapes use layerType rectangle, ellipse, star or path.`);
@@ -325,10 +334,13 @@ function splatterShorthand(operation, properties, fixes, resolver, document) {
   }
   if (operation.type !== "update_layer") throw new Error("splatter works on add_layer and update_layer.");
   const { layerType } = layerContext(operation, resolver, document);
-  if (layerType && layerType !== "path") throw new Error(`splatter draws a path layer; ${operation.layerId} is a ${layerType}. Add one: add_layer {layerType:"path", properties:{splatter:true}}.`);
-  let id = null;
-  try { id = resolver.resolve(operation.layerId, "layer"); } catch { /* refused later */ }
-  const layer = document.scenes.flatMap((scene) => scene.layers).find((entry) => entry.id === id);
+  // The retry is that add_layer (the same splatter, the old layer's box), not the usual update example.
+  if (layerType && layerType !== "path") {
+    const old = savedLayer(), box = old ? { x: old.x, y: old.y, width: old.width, height: old.height } : {};
+    throw Object.assign(new Error(`splatter draws a path layer; ${operation.layerId} is a ${layerType}. Add one: add_layer {layerType:"path", properties:{splatter:true}}.`),
+      { example: { op: "add_layer", layerType: "path", name: `${old?.name ?? "splat"} splat`, properties: { ...box, splatter: properties.splatter } } });
+  }
+  const layer = savedLayer();
   return withSplatter(properties, layer ? { width: layer.width, height: layer.height } : null);
 }
 

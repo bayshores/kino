@@ -59,5 +59,11 @@ test("edit sets and animates zig zag and offset fields, and refuses them on text
   assert.equal(reseed.isError, undefined, reseed.text);
   assert.notEqual((await layers()).find((layer) => layer.name === "Ink").path, (await ink).path);
   const wrong = await agent("edit", { project: "badge", ops: [{ op: "update_layer", layer: "Swirl", properties: { splatter: true } }] });
+  // The refusal's next call is that add_layer, not an update of the star.
   assert.match(wrong.text, /path layer/);
+  assert.match(JSON.parse(wrong.text).next, /"op":"add_layer","layerType":"path","name":"Swirl splat"/);
+  // The first roughen an update gives a saved layer is torn too; one that has a roughen keeps its look.
+  const ragged = await agent("edit", { project: "badge", ops: [{ op: "update_layer", layer: "Badge", properties: { roughenSize: 5 } }] });
+  assert.equal(ragged.isError, undefined, ragged.text);
+  assert.equal((await layers()).find((layer) => layer.name === "Badge").roughenStyle, "torn");
 });
