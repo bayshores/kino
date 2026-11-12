@@ -5,8 +5,8 @@
 //   untriggered  a loud effect (flash, shake, impact frame, strobe, glitch, RGB split, zoom punch)
 //                with no cue that motivates it on its frame (it may come up to 2 frames early,
 //                never late): a footage impact or light (a cue pinned to a clip), a fitted song seam
-//                or rest, a top accent, a drum fill (an impact-accent hit at a raw time: also a shot
-//                change under its first part). A text animation or sound effect with no cue,
+//                or rest, a top accent, a drum fill (an impact-accent move of any kind at a raw time: also
+//                a shot change within 3 frames either side of its first part). A text animation or sound effect with no cue,
 //                shot change or heard word start under it (a text may follow a cut or a named
 //                marker cue by 0.1 to 0.3 s).
 //   strength     a stronger effect on a weaker trigger than another effect has (strength ranks with
@@ -22,7 +22,7 @@
 // (fit_music). Warns while editing, blocks the final render; a waiver names the cue (translate.mjs).
 // ctx.triggerCues: the document's marker, accent, onset and beat cues. A beat number is a reason
 // only for a move that names it as its cue (an impact-accent hit at "cue:beat-8"), never found by time.
-import { cueMotives } from "../../blocks/moves/impact.js";
+import { cueMotives, SNAP_FRAMES } from "../../blocks/moves/impact.js";
 import { mediaFrameState } from "../../playback.js";
 import { sec } from "../analysis.js";
 import { itemById } from "../model.js";
@@ -109,16 +109,17 @@ function loudEffects(model, cues, motivated, changes = []) {
     }
     list.push({ tag, ...use, ...(trigger ? { trigger } : {}) });
   }
-  // A raw-time hit is one effect: its parts start a frame apart, so the cut is read under the first.
-  const hits = new Map();
+  // An impact-accent move at a raw time is one effect: its parts start a frame apart, so the cut is
+  // read under the first, up to SNAP_FRAMES either side (the move snaps to a cue the same way).
+  const accents = new Map();
   for (const use of list.filter((entry) => !entry.trigger)) {
     const move = rawAccentOf(model, use);
-    if (move?.settings?.kind === "hit") hits.set(move.id, [...(hits.get(move.id) ?? []), use]);
+    if (move) accents.set(move.id, { kind: move.settings?.kind, uses: [...(accents.get(move.id)?.uses ?? []), use] });
   }
-  for (const uses of hits.values()) {
+  for (const [id, { kind, uses }] of accents) {
     const first = Math.min(...uses.map((use) => use.at));
-    const cut = changes.find((time) => onCue(first, time));
-    if (cut !== undefined) for (const use of uses) use.trigger = { cue: `the cut at ${sec(cut)}s`, weight: CUT_WEIGHT, motive: "cut" };
+    const cut = changes.find((time) => Math.abs(time - first) <= SNAP_FRAMES * FRAME + 1e-6);
+    if (cut !== undefined) for (const use of uses) Object.assign(use, { trigger: { cue: `the cut at ${sec(cut)}s`, weight: CUT_WEIGHT, motive: "cut" }, move: id, hitKind: kind, hitAt: first, cutAt: cut });
   }
   return list.sort((a, b) => a.at - b.at);
 }
@@ -248,7 +249,9 @@ export function effectFit(model, ctx) {
   const step = 1 / model.fps;
   const texts = textEntrances(model).filter((entry) => entry.tag && entry.tag !== "type-cut" && itemById(model, entry.itemId)?.role !== "caption");
   // A hit (impact-accent kind hit) is one effect, and a sound on its cue is part of it.
-  const hits = (model.moves ?? []).filter((move) => move.trigger?.kind === "hit").map((move) => ({ id: move.id, time: cues.find((cue) => cue.name === move.trigger.cue)?.time ?? move.trigger.at }));
+  // A hit at a raw time that a cut explains is the same one effect, on the time its first part lands.
+  const hits = [...(model.moves ?? []).filter((move) => move.trigger?.kind === "hit").map((move) => ({ id: move.id, time: cues.find((cue) => cue.name === move.trigger.cue)?.time ?? move.trigger.at })),
+    ...effects.filter((entry) => entry.hitKind === "hit").flatMap((entry) => [{ id: entry.move, time: entry.hitAt }, { id: entry.move, time: entry.cutAt }])];
   const sounds = soundEffectsOf(ctx).filter((entry) => !hits.some((hit) => onCue(entry.at, hit.time)));
   const whatOf = (entry) => (hits.some((hit) => hit.id === entry.move) ? "hit" : TAG_WORDS[entry.tag]);
   const all = [...oneEach(effects).map((entry) => ({ at: entry.at, what: whatOf(entry) })), ...texts.map((entry) => ({ at: entry.at, what: entry.tag })),

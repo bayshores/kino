@@ -246,6 +246,22 @@ test("a text card held to 6 s that a transition leaves at 1 s is untouched until
     checked += 1;
   }
   assert.ok(checked >= 10, `${checked} transitions checked`);
+  // The move starts at 5.5 s, before the card's own 6 s hold ends: the card stays until the move hides it.
+  let late = 0;
+  for (const name of SWEPT) {
+    const definition = MOVES[name];
+    if (!definition.fields.from || !definition.fields.to || ["smear", "shatter", "cursor"].includes(name)) continue;
+    const { at: _at, dur = null, ...fields } = definition.example;
+    const made = runMove(definition, { id: name, input: readMoveInput(definition, { ...fields, from: "card", to: "shot-b" }), scene, style: styleFor({ look: "crisp", frame: { width: 1920, height: 1080 } }), fonts: defaultFonts, start: 5.5, dur, media });
+    const own = made.animations.filter((entry) => entry.layerId === "card").map((entry) => entry.animation);
+    const hides = own.filter((animation) => animation.kind === "hide").map((animation) => animation.start);
+    if (!hides.length) continue;
+    const drawn = [...card.animations, ...own];
+    assert.ok(visibleByOperations(drawn, Math.max(...hides) - 0.02),`${name}: the card shows until the move hides it at ${Math.max(...hides)} s`);
+    assert.ok(!visibleByOperations(drawn, Math.max(...hides) + 0.02), `${name}: and is gone after`);
+    late += 1;
+  }
+  assert.ok(late >= 10, `${late} late transitions checked`);
 });
 
 test("every example builds at 16:9 and 9:16 and in reduced motion, the same way for the same seed", () => {
@@ -1147,6 +1163,12 @@ test("carry tweens one layer's box, radius and fill into the next's, crossfades 
   phone.layers.push(createLayer("rectangle", { id: "pill", name: "pill", x: 760, y: 495, width: 400, height: 90, radius: 45, fill: "#F2F2F2" }));
   const again = runMove(MOVES.carry, { id: "carry-2", input: readMoveInput(MOVES.carry, { from: "phone", to: "pill" }), scene: phone, style: styleFor({ look: "crisp", frame: { width: 1920, height: 1080 } }), fonts: defaultFonts, start: 2.1, dur: 0.5, media });
   assert.match(again.notes.join(" "), /app-card rides along/);
+  // Both held to 2.3 s, inside the carry: each stays until the move hides it, and the two shows have their own IDs (the document reads).
+  const held = structuredClone(phone);
+  for (const layer of held.layers) if (layer.id === "phone" || layer.id === "app-card") layer.animations.push({ id: `${layer.id}.held`, name: "Hide", kind: "hide", start: 2.3 });
+  placeMove(held, { id: "carry-2", name: "carry", settings: {} }, runMove(MOVES.carry, { id: "carry-2", input: readMoveInput(MOVES.carry, { from: "phone", to: "pill" }), scene: held, style: styleFor({ look: "crisp", frame: { width: 1920, height: 1080 } }), fonts: defaultFonts, start: 2.1, dur: 0.5, media }));
+  const heldLayers = parseDocument(createDocument({ id: "d", name: "held", scenes: [held] })).scenes[0].layers;
+  for (const id of ["phone", "app-card"]) assert.ok(visibleByOperations(heldLayers.find((layer) => layer.id === id).animations, 2.5), `${id} shows until the carry hides it`);
   placeMove(phone, { id: "carry-2", name: "carry", settings: {} }, again);
   const box = (id, time) => { const state = evaluateLayer(phone.layers[order(id)], time); const w = state.width * state.scaleX, h = state.height * state.scaleY; return { cx: state.x + state.width / 2, cy: state.y + state.height / 2, w, h, opacity: state.opacity, visible: state.visible }; };
   const [ridden, landed] = [box("app-card", 2.55), box("phone", 2.55)];
@@ -1367,7 +1389,7 @@ test("impact-accent runs only at a cue that motivates its kind; a shake peaks on
   assert.match(bare.notes.join(" "), /at 2\.06 s → an impact in clip at 2\.03 s .*set_cues \{cues:\[\{name:"hit-1", layer:"clip", media:2\.03\}\]\}, then at "cue:hit-1"/);
   const far = run("flash", 1.4, 1.4);
   assert.equal(far.trigger, undefined);
-  assert.match(far.notes.join(" "), /at 1\.4 s: no measured reason within 3 frames, a small flash \(weight 0\.3\); the nearest flash reason, cue:song-drop-1 \(a song seam\), is 1\.6 s later/);
+  assert.match(far.notes.join(" "), /at 1\.4 s: no measured reason within 3 frames, a small flash \(weight 0\.3\); the nearest flash reason, cue:song-drop-1 \(a song seam\), is 1\.6 s later; a cut within 3 frames is its reason for effect_fit/);
   assert.throws(() => run("dip", 2, 2), /at 2 is a time, not a reason/);
   assert.throws(() => run("shake", "cue:beat-5", 2), /beat number, not a reason.*cue:hit-1/);
   assert.throws(() => run("flash", "cue:hit-1", 2), /an impact in the footage; flash needs .*try at "cue:song-drop-1"/);

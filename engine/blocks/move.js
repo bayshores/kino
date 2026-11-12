@@ -401,6 +401,17 @@ export function runMove(definition, options) {
       if (keys.has(animationId)) throw new Error(`${definition.name}: animation ${animationId} is made twice.`);
       keys.add(animationId);
       animations.push({ layerId: target, animation: { id: animationId, ...animation } });
+      // A card the move carries out stays until the move hides it: a hold that ends while the move
+      // still runs (a hide step of the card's own inside the move) is shown again at that time. The
+      // show is named after the move's hide, so two layers the move carries out (carry's riders) keep apart.
+      if (role === "from" && animation.kind === "hide") {
+        const holds = enabledAnimations(ctx.layer(target).animations).filter((step) => step?.kind === "hide" && step.start >= ctx.start - 1e-6 && step.start < animation.start - 1e-6);
+        holds.forEach((step, index) => {
+          const keep = `${animationId}-keep${holds.length > 1 ? index + 1 : ""}`;
+          keys.add(keep);
+          animations.push({ layerId: target, animation: { id: keep, name: "Show", kind: "show", start: step.start } });
+        });
+      }
     },
     /** The animations this move has put on one of the scene's layers so far. */
     ownAnimations(layerId) { return animations.filter((entry) => entry.layerId === layerId).map((entry) => entry.animation); },

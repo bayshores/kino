@@ -62,6 +62,11 @@ test("effect_fit: untriggered, and a gate at the final render", async () => {
   const cutAt = (at) => ({ type: "video", id: "next", name: "next", src: "/api/media/next.mp4", mediaSourceDuration: 30, mediaStart: at, x: 0, y: 0, width: 1920, height: 1080 });
   assert.deepEqual(await reasons(edit(lift(5, 2, ["hit.impact-flash-up", "hit.impact-flash-down"]), [cutAt(5)], { moves: [raw] }), [accent("hit", 2)]), []);
   assert.deepEqual(await reasons(edit(lift(5, 2, ["hit.impact-flash-up", "hit.impact-flash-down"]), [cutAt(5.3)], { moves: [raw] }), [accent("hit", 2)]), ["untriggered"]);
+  // Up to 3 frames either side of the cut counts (the move snaps to a cue the same way); 4 frames after does not, and any impact-accent kind reads the cut.
+  const after = (frames) => ({ ...raw, start: 5 - 1 / 30 + frames / 30 });
+  assert.deepEqual(await reasons(edit(lift(5 + 5 / 30, 2, ["hit.impact-flash-up", "hit.impact-flash-down"]), [cutAt(5)], { moves: [after(4)] }), [accent("hit", 2)]), [], "3 frames after");
+  assert.deepEqual(await reasons(edit(lift(5 + 6 / 30, 2, ["hit.impact-flash-up", "hit.impact-flash-down"]), [cutAt(5)], { moves: [after(5)] }), [accent("hit", 2)]), ["untriggered"], "4 frames after");
+  assert.deepEqual(await reasons(edit(lift(5, 2, ["hit.impact-flash-up", "hit.impact-flash-down"]), [cutAt(5)], { moves: [{ ...raw, settings: { kind: "flash" } }] }), [accent("hit", 2)]), []);
   // A hand flash on that cut is still asked for its cue (only a hit takes any moment).
   assert.deepEqual(await reasons(edit(lift(5), [cutAt(5)]), [accent("hit", 2)]), ["untriggered"]);
   // A hit that names a beat number as its cue is on it; a hand shake on the same beat (no move names it) is not.
@@ -148,6 +153,12 @@ test("effect_fit: stacked, at most 2 effects within 0.15 s", async () => {
   const hitEdit = edit([], [title, sound], { moves: [hit] });
   assert.deepEqual(await reasons(hitEdit, cues), []);
   assert.deepEqual(await reasons(edit([], [title, sound], { moves: [{ ...hit, trigger: { ...hit.trigger, kind: "flash" } }] }), cues), ["stacked"]);
+  // A hit at a raw time that a cut explains (no cue) is one effect with its sound too.
+  const raw = { id: "hit", name: "impact-accent", settings: { kind: "hit" }, tags: ["flash"], start: 2 - 1 / 30, end: 2.2 };
+  const cut = { type: "video", id: "next", name: "next", src: "/api/media/next.mp4", mediaSourceDuration: 30, mediaStart: 2, x: 0, y: 0, width: 1920, height: 1080 };
+  const rawEdit = (moves) => edit(lift(2, 2, ["hit.impact-flash-up", "hit.impact-flash-down"]), [cut, title, sound], { moves });
+  assert.deepEqual(await reasons(rawEdit([raw]), [accent("far", 9)]), []);
+  assert.deepEqual(await reasons(rawEdit([{ ...raw, settings: { kind: "flash" } }]), [accent("far", 9)]), ["stacked"], "a flash is no hit: its sound counts alone");
 });
 
 test("effect_fit: jitter, a shake faster than a third of the frame rate or held steady", async () => {

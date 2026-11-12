@@ -600,6 +600,16 @@ test("opaque full-frame footage added or moved over words that show at the same 
   assert.equal(liftFootage(doc(video("clip", 0, 8), title, video("clip-cutout", 0, 8, { cutoutOf: "clip" })), doc(video("clip", 0, 8), title, video("clip-cutout", 0, 8, { cutoutOf: "clip" }), video("late", 2, 5))).ops.length, 0, "title behind a subject stays");
   // Other opaque footage between the title and the new shot at the same time: the title is not lifted over it.
   assert.equal(liftFootage(doc(title, video("mid", 3, 6)), doc(title, video("mid", 3, 6), video("shot2", 3, 6))).ops.length, 0);
+  // A duplicated scene has fresh layer IDs: it takes the order of the scene it matches, so words covered on purpose there stay covered.
+  const named = (layer, id, name) => ({ ...layer, id, name });
+  const source = { id: "s", width: 960, height: 540, duration: 8, layers: [named(title, "title", "Words"), named(video("x", 0, 3), "shot", "Shot")] };
+  const copy = (layers) => ({ id: "s-copy", width: 960, height: 540, duration: 8, layers });
+  const duplicate = copy([named(title, "t2", "Words"), named(video("x", 0, 3), "v2", "Shot")]);
+  assert.equal(liftFootage({ scenes: [source] }, { scenes: [source, duplicate] }).ops.length, 0, "a duplicate keeps the clip over the words");
+  const plain = { ...source, layers: [named(video("x", 0, 3), "shot", "Shot"), named(title, "title", "Words")] };
+  assert.equal(liftFootage({ scenes: [plain] }, { scenes: [plain, copy([named(video("x", 0, 3), "v2", "Shot"), named(title, "t2", "Words")])] }).ops.length, 0, "and the words over the clip");
+  const extra = copy([duplicate.layers[0], named(video("y", 1, 3), "late2", "Late"), duplicate.layers[1]]);
+  assert.deepEqual(liftFootage({ scenes: [source] }, { scenes: [source, extra] }).moves.map((move) => move.footage), ["late2"], "a clip added to the duplicate is still lifted");
 });
 
 test("a picture added full-frame over a held title goes under it in the saved order, and the receipt says so", async () => {

@@ -115,7 +115,7 @@ function render(sections, note, limit = MAX_ANSWER_CHARS) {
 // One topic read by name: the whole topic, or, when it is longer than an answer may be, its lines
 // up to the limit and how to read the rest by a word (a topic too long once answered only "More
 // topics match ...: <itself>", so none of it could be read whole).
-function topicAnswer(entry) {
+export function topicAnswer(entry) {
   const head = `## ${entry.id}: ${entry.title}\n`;
   if (head.length + entry.text.length + 2 <= MAX_ANSWER_CHARS) return render([entry]);
   const lines = entry.text.split("\n");

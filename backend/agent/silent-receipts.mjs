@@ -102,6 +102,26 @@ const overlaps = (one, other, scene) => {
 };
 
 /**
+ * A scene that is new in an edit (a duplicate) has fresh layer IDs. Its layers are matched, by type,
+ * name, file and words, to those of the earlier scene they match most, and take that layer's place
+ * in its order, so footage that was above words there is not counted as added. Returns Map(id, place).
+ */
+function orderInSource(before, scene) {
+  const sign = (layer) => `${layer.type}|${layer.name}|${layer.src ?? ""}|${layer.text ?? ""}`;
+  let best = new Map();
+  for (const source of before?.scenes ?? []) {
+    const left = (source.layers ?? []).map((layer, index) => [sign(layer), index]);
+    const found = new Map();
+    for (const layer of scene.layers ?? []) {
+      const at = left.findIndex(([key]) => key === sign(layer));
+      if (at >= 0) found.set(layer.id, left.splice(at, 1)[0][1]);
+    }
+    if (found.size > best.size) best = found;
+  }
+  return best;
+}
+
+/**
  * The default for words and footage: opaque full-frame footage that an edit added (or moved to
  * above words it was under) goes under any text that is on screen at the same time, because the
  * words would not show otherwise. Returns { ops, moves, sources }: `ops` are engine move_layers
@@ -119,7 +139,7 @@ export function liftFootage(before, after, { seeThrough = new Set(), kept = new 
   const ops = [], moves = [], sources = new Set();
   for (const scene of after.scenes ?? []) {
     const earlier = (before?.scenes ?? []).find((entry) => entry.id === scene.id);
-    const was = new Map((earlier?.layers ?? []).map((layer, index) => [layer.id, index]));
+    const was = earlier ? new Map((earlier.layers ?? []).map((layer, index) => [layer.id, index])) : orderInSource(before, scene);
     const work = [...(scene.layers ?? [])];
     for (const footage of [...work]) {
       if (!fullFrame(footage, scene) || footage.cutoutOf || footage.isMask || kept.has(footage.id)) continue;

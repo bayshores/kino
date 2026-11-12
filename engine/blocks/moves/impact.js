@@ -145,7 +145,7 @@ function timeMotive(kind, facts, time, raw) {
   }
   if (kind === "dip" || kind === "strobe") throw refuse(kind, `at ${JSON.stringify(raw ?? time)} is a time, not a reason`, facts, time);
   const far = near ? `the nearest ${kind} reason, ${name(near)} (${SAYS[near.motive.motive]}), is ${round(Math.abs(near.time - time), 3)} s ${near.time < time ? "earlier" : "later"}` : `nothing in this edit measures ${NEEDS[kind].map((motive) => SAYS[motive]).join(" or ")}`;
-  return { cue: null, at: time, motive: { motive: "time", weight: WEAK }, snapped: true, note: `${said}: no measured reason within ${SNAP_FRAMES} frames, a small ${kind} (weight ${WEAK}); ${far}` };
+  return { cue: null, at: time, motive: { motive: "time", weight: WEAK }, snapped: true, note: `${said}: no measured reason within ${SNAP_FRAMES} frames, a small ${kind} (weight ${WEAK}); ${far}; a cut within ${SNAP_FRAMES} frames is its reason for effect_fit` };
 }
 
 /** The cue the move was given and the reason it gives for `kind`, or throws a refusal that names a better cue. */
@@ -201,7 +201,7 @@ export function hitMotive(facts, time, input = {}) {
     const near = at ? cues.filter((entry) => entry.kind !== "beat" && entry.kind !== "onset" && Math.abs(entry.time - time) <= SNAP_FRAMES * FRAME + 1e-6)
       .sort((a, b) => Math.abs(a.time - time) - Math.abs(b.time - time))[0] : null;
     if (!near) {
-      const note = `at ${JSON.stringify(raw ?? time)} is a time with no cue: in a music edit effect_fit reads a cut under its first frame as its reason, else asks for one: pin it with set_cues {cues:[{name:"hit-1", time:${round(time)}}]} (or layer + media for a clip's moment), then at "cue:hit-1"`;
+      const note = `at ${JSON.stringify(raw ?? time)} is a time with no cue: in a music edit effect_fit reads a cut within ${SNAP_FRAMES} frames of it as its reason, else asks for one: pin it with set_cues {cues:[{name:"hit-1", time:${round(time)}}]} (or layer + media for a clip's moment), then at "cue:hit-1"`;
       return { cue: null, at: time, motive: weighed({ motive: "time" }, WEAK), measured: WEAK, fill: null, rest: null, note };
     }
     cue = near;
