@@ -1416,6 +1416,11 @@ test("impact-accent runs only at a cue that motivates its kind; a shake peaks on
   const weak = parts(hit("cue:accent-3", 1.5));
   assert.equal(weak.starts.length, 2);
   assert.ok(drop.peak > weak.peak, `the drop's light (${drop.peak} stops) is above the weak accent's (${weak.peak})`);
+  // A raw time within 3 frames of a cue is that cue (its trigger is recorded, so effect_fit reads it); farther it stays a bare time.
+  const snapped = hit(3.08, 3.08);
+  assert.deepEqual([snapped.trigger?.cue, snapped.trigger?.at, snapped.start >= 3 - 3 / 30], ["song-drop-1", 3, true]);
+  assert.match(snapped.notes.join(" "), /3\.08 → cue:song-drop-1 at 3 s \(0\.08 s earlier\)/);
+  assert.equal(hit(3.5, 3.5).trigger, undefined, "a time far from every cue has no trigger");
 });
 
 test("speed-ramp slows the clip into the cue, lands the new speed on it and comes back to its own speed; it refuses a cue the clip does not reach", () => {

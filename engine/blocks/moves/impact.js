@@ -193,15 +193,27 @@ export function hitMotive(facts, time, input = {}) {
   try { at = raw === undefined ? null : parseAt(raw); } catch { at = null; }
   const given = Number.isFinite(input.weight) ? clamp(input.weight, 0.1, 1) : null;
   const weighed = (motive, measured) => ({ ...motive, weight: clamp(given ?? measured, 0.2, 1) });
-  if (!at || at.kind !== "cue") {
-    const note = `at ${JSON.stringify(raw ?? time)} is a time with no cue, so effect_fit will ask for one: pin it with set_cues {cues:[{name:"hit-1", time:${round(time)}}]} (or layer + media for a clip's moment), then at "cue:hit-1"`;
-    return { cue: null, at: time, motive: weighed({ motive: "time" }, WEAK), measured: WEAK, fill: null, rest: null, note };
-  }
   const cues = facts.cues ?? [];
-  const cue = cues.find((entry) => entry.name === at.whole) ?? cues.find((entry) => entry.name === at.target);
-  if (!cue) throw new Error(`impact-accent hit: there is no cue "${at.whole}"; give one of the document's cues, or a time.`);
-  const offset = cue.name === at.whole ? 0 : at.offset;
-  if (offset > 1e-6 || offset < -EARLY) throw new Error(`impact-accent hit: the picture may come up to 2 frames (${round(EARLY, 3)} s) early, never late; ${at.whole} is off by ${round(offset)} s.`);
+  let cue, offset, snapNote = null;
+  if (!at || at.kind !== "cue") {
+    // A time in seconds (or a frame) within SNAP_FRAMES of a cue is that cue (as timeMotive does for
+    // the other kinds): effect_fit then reads the hit's cue, not a bare time. A beat or onset number is no cue.
+    const near = at ? cues.filter((entry) => entry.kind !== "beat" && entry.kind !== "onset" && Math.abs(entry.time - time) <= SNAP_FRAMES * FRAME + 1e-6)
+      .sort((a, b) => Math.abs(a.time - time) - Math.abs(b.time - time))[0] : null;
+    if (!near) {
+      const note = `at ${JSON.stringify(raw ?? time)} is a time with no cue, so effect_fit will ask for one: pin it with set_cues {cues:[{name:"hit-1", time:${round(time)}}]} (or layer + media for a clip's moment), then at "cue:hit-1"`;
+      return { cue: null, at: time, motive: weighed({ motive: "time" }, WEAK), measured: WEAK, fill: null, rest: null, note };
+    }
+    cue = near;
+    offset = 0;
+    const gap = round(Math.abs(near.time - time), 3);
+    snapNote = `at ${JSON.stringify(raw ?? time)} → cue:${near.name} at ${round(near.time, 3)} s (${gap ? `${gap} s ${near.time < time ? "earlier" : "later"}` : "the same frame"})`;
+  } else {
+    cue = cues.find((entry) => entry.name === at.whole) ?? cues.find((entry) => entry.name === at.target);
+    if (!cue) throw new Error(`impact-accent hit: there is no cue "${at.whole}"; give one of the document's cues, or a time.`);
+    offset = cue.name === at.whole ? 0 : at.offset;
+    if (offset > 1e-6 || offset < -EARLY) throw new Error(`impact-accent hit: the picture may come up to 2 frames (${round(EARLY, 3)} s) early, never late; ${at.whole} is off by ${round(offset)} s.`);
+  }
   const motives = cueMotives(cue, facts);
   if (cue.kind === "accent" && !motives.some((entry) => entry.motive === "accent")) motives.push({ motive: "beat", weight: cue.weight ?? WEAK });
   if (cue.kind === "marker" && cue.layer && cue.media !== undefined && !/^song-/.test(cue.name)) motives.push({ motive: "footage", weight: Number.isFinite(cue.weight) ? cue.weight : 0.6 });
@@ -217,7 +229,7 @@ export function hitMotive(facts, time, input = {}) {
     note = `cue:${cue.name} has nothing measured at it: a small hit (weight ${WEAK}); weight:<0.1 to 1> sizes a moment kino did not measure`;
   }
   const measured = clamp(best.weight ?? 0.5, 0.2, 1);
-  return { cue, at: cue.time + offset, motive: weighed(best, measured), measured, fill, rest: best === rest ? rest : null, note };
+  return { cue, at: cue.time + offset, motive: weighed(best, measured), measured, fill, rest: best === rest ? rest : null, note: [snapNote, note].filter(Boolean).join("; ") || null, ...(snapNote ? { snapped: true } : {}) };
 }
 
 // The shot to accent: the layer given, else the clip the impact or light is in, else the top

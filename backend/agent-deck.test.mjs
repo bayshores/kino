@@ -180,6 +180,10 @@ test("check warns deck_unused when the video uses under half the deck, and recor
   // Both lines count the same cards (deck_unused's own list).
   const advised = plain.match(/^deck unused: ([^;]+);/m)[1];
   assert.equal(plain.match(/^made: .* cards unused \(([^)]+)\)/m)[1], advised);
+  // The same line where the agent decides: status, and the heads of look sheet and look review.
+  assert.match((await agent("status", { project: "deck-check" })).text, /^made: 0 of 20 moments \(0%\) carry a made element .* · deck: \d+ of \d+ cards unused/m);
+  assert.match((await agent("look", { project: "deck-check", mode: "sheet" })).text, /\nmade: 0 of 20 moments/);
+  assert.match((await agent("look", { project: "deck-check", mode: "review" })).text, /\nmade: 0 of 20 moments/);
   const checked = await agent("check", { project: "deck-check", rules: ["deck_unused"], pixels: false });
   const line = checked.text.split("\n").find((entry) => entry.startsWith("I deck_unused"));
   assert.ok(line, checked.text);

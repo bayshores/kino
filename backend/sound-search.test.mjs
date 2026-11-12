@@ -251,6 +251,11 @@ test("the cut's visible actions each get a library sound, low sounds only on imp
   assert.equal(lib.offerSounds("impact hit", { seed: "p" }).some((sound) => sound.id === "rumble-1"), false);
   assert.equal(lib.offerSounds("impact hit", { seed: "p", low: true }).some((sound) => sound.id === "rumble-1"), true);
   assert.match(librarySoundsText({ query: "swish", results: [catalog.sounds[0]] }, { actions: 2 }), /sfx:swish-1 0\.3s peak -0\.9 dB: swish whoosh[\s\S]*This cut has 2 visible actions: library \{topic:"sounds", actions:true\}/);
+  // A sound kino makes in code is not called CC0; a mixed list counts both.
+  const made = { id: "footstep-1", words: "footstep step", seconds: 0.3, lufs: -70, peak: -1.4, synth: "footstep-1" };
+  assert.match(librarySoundsText({ query: "step", results: [made] }), /^1 of 1 library sounds made by kino for "step"[\s\S]*footstep step \(made by kino\)$/m);
+  assert.match(librarySoundsText({ query: "step", results: [made, catalog.sounds[0]] }), /^2 of 2 library sounds \(1 made by kino, the rest CC0\) for/);
+  assert.match(librarySoundsText({ query: "swish", results: [catalog.sounds[0]] }), /^1 of 1 CC0 library sounds for/);
   const text = actionSoundsText({ scene: "s1", actions: [{ id: "a1", at: 1.5, kind: "whoosh", tags: ["zoom-through"] }, { id: "a2", at: 5.3, kind: "glitch", tags: ["glitch-hit"], songHit: true }],
     offers: { a1: [catalog.sounds[0], catalog.sounds[1]] }, unmeasured: 3 });
   assert.match(text, /^2 visible actions in s1 .*clip events not measured for 3 clips.*sound effects on them now: 0/);

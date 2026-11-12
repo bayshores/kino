@@ -192,7 +192,7 @@ export async function referenceRange(model, ctx) {
         // {fix:"auto"} applies it when the edit is darker. Brighter than the references is a ready
         // call, not an auto fix: the owner called the edits dark, and match_references itself only
         // darkens with lower:true (engine/quality/exposureMatch.js aimFor). The hand fix stays in the text.
-        fix: { kind: "match_references", auto: !(higher && !lower), ...(higher && !lower ? { lower: true } : {}), text: `${lower ? "Lift" : higher ? "Bring down" : "Match"} ${lower && run ? "that stretch" : "the picture"}: edit {ops:[{op:"match_references"${higher && !lower ? ", lower:true" : ""}}]} (per shot, exposure only), or by hand edit {ops:[{op:"add_animation", layer:"${target}", effect:"color-wheels", parameters:{gamma:${gamma}}}]}${shown.length > 1 ? ` (and ${shown.slice(1).join(", ")})` : ""}, or keep it this way on purpose: ${waive}.` },
+        fix: { kind: "match_references", auto: !(higher && !lower), ...(higher && !lower ? { lower: true } : {}), text: `${lower ? "Lift" : higher ? "Bring down" : "Match"} ${lower && run ? "that stretch" : "the picture"}: edit {ops:[{op:"match_references"${higher && !lower ? ", lower:true" : ""}}]} (per shot, exposure only), or by hand ${lower && !higher ? `edit {ops:[{op:"lift_dark", layer:"${target}"}]} (a curve read from the shot's own tones; a gamma lift grays the blacks)` : `edit {ops:[{op:"add_animation", layer:"${target}", effect:"color-wheels", parameters:{gamma:${gamma}}}]}`}${shown.length > 1 ? ` (and ${shown.slice(1).join(", ")})` : ""}, or keep it this way on purpose: ${waive}.` },
       });
     }
   }

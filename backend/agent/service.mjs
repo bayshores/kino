@@ -841,6 +841,9 @@ export function createAgentService(deps) {
     return { findings: rules ? findings.filter((finding) => rules.includes(finding.rule)) : findings, notes: checked.notes, ms: checked.ms, unchecked, techniques: checked.techniques ?? {}, styleSpec, stale: listen ? checked.stale ?? [] : [], crops: checked.crops ?? null, ask: checked.ask ?? "", made: checked.made ?? null };
   }
 
+  // The made line (engine/quality/madeShare.js) of a findingsFor result: "" with nothing measured.
+  const madeTextOf = (result) => (result?.made?.moments ? madeLine(result.made, { refs: result.made.refs, deck: result.made.deck }) : "");
+
   // The project's waivers that still silence a finding (stale ones left out): what the waived
   // counts at a stop and at the final render count.
   async function waiversInUse(document) {
@@ -3209,7 +3212,10 @@ export function createAgentService(deps) {
     const state = await agentState.read(projectId);
     const focus = sceneFor(document, codes, input.scene, state.focus);
     const fonts = await fontsFor(document);
-    const { findings, unchecked } = await findingsFor(document, { fonts, codes });
+    const checkedNow = await findingsFor(document, { fonts, codes });
+    const { findings, unchecked } = checkedNow;
+    // How much of the video carries a made element (a fact, beside the deck line).
+    const madeText = madeTextOf(checkedNow);
     // The dashboard's selection carries the line it showed you, word for word.
     const selected = deps.pointing?.(projectId);
     const pointing = selected ? (selected.line ?? pointingText(selected, { codes })) : null;
@@ -3236,7 +3242,7 @@ export function createAgentService(deps) {
     // after the direction block, before the plan and the layer rows.
     const outline = projectOutline(record, {
       codes, focus: focus.id, page: input.page ?? 1, seen: state.seen ?? {}, full: input.full === true, notices: extra,
-      plan: state.plan, checks: checkSummary(findings, { unchecked }), pointing, direction: [...statusLines(state, await directionFacts(document), stopRulesNow()), ...(controlsLine(state.brief?.controls) ? [controlsLine(state.brief.controls)] : []), ...(takes ? [takes] : []), ...(toFinal ? [toFinal] : []), ...(deckLine ? [deckLine] : []), ...(always ? [always] : []), ...(needs ? [needs] : []), ...(lineNote ? [lineNote.text] : [])],
+      plan: state.plan, checks: checkSummary(findings, { unchecked }), pointing, direction: [...statusLines(state, await directionFacts(document), stopRulesNow()), ...(controlsLine(state.brief?.controls) ? [controlsLine(state.brief.controls)] : []), ...(takes ? [takes] : []), ...(toFinal ? [toFinal] : []), ...(deckLine ? [deckLine] : []), ...(madeText ? [madeText] : []), ...(always ? [always] : []), ...(needs ? [needs] : []), ...(lineNote ? [lineNote.text] : [])],
     });
     const stop = waitingStop(state);
     noteLive({ sceneId: focus.id });
@@ -3374,7 +3380,7 @@ export function createAgentService(deps) {
     const returnsScene = scene ? record.document.scenes.find((item) => item.id === scene.id) : videoScene(record.document);
     if (returnsScene) lines.push(sceneReturnsLine(returnsScene, { scenes: record.document.scenes }));
     // And how much of it is designed, with the deck's unused cards and the references' own share.
-    const madeText = returnsScene ? madeLine(result.made, { refs: result.made?.refs, deck: result.made?.deck }) : "";
+    const madeText = returnsScene ? madeTextOf(result) : "";
     if (madeText) lines.push(madeText);
     // Where the mix passes the limiter, measured without a render: a fact line when the scene has sound.
     const mix = returnsScene && options.listen ? await mixPeaksOf(returnsScene) : null;
@@ -3800,6 +3806,8 @@ export function createAgentService(deps) {
         }
         for (const line of cuts.unknownLines) text += `\n${line}`;
         text += `\n${sceneReturnsLine(scene, { scenes: document.scenes })}`; // the saved scene: instances stay instances
+        const madeText = madeTextOf(await findingsFor(document, { fonts, codes, sceneId: scene.id, pixels: false }).catch(() => null));
+        if (madeText) text += `\n${madeText}`;
       }
     } else if (mode === "zoom") {
       if (!input.layer) throw new AgentError("bad_input", "zoom needs layer (a name or code).");
@@ -5181,7 +5189,8 @@ export function createAgentService(deps) {
       return done(projectId, { text: `review ${where} rev ${record.revision}: all ${plural(events.length, "moment")} reviewed as they are now; nothing changed since.`,
         data: { rev: record.revision, mode: "review", events: events.length, shown: 0, left: 0 } });
     }
-    const { findings } = await findingsFor(document, { fonts, codes, sceneId: scene.id, pixels: false });
+    const reviewed = await findingsFor(document, { fonts, codes, sceneId: scene.id, pixels: false });
+    const { findings } = reviewed;
     const shown = findings.filter((finding) => !finding.waived && finding.severity !== "info");
     const findingWords = (finding) => `${finding.severity === "error" ? "E" : "W"} ${finding.rule} ${finding.ref}`;
     const sizes = reviewSizes(events, shown);
@@ -5272,6 +5281,7 @@ export function createAgentService(deps) {
       ...(wide.length ? [`whole scene: ${wide.map(findingWords).join(", ")}`] : []),
       left ? `${left} more moments to review.` : "Every moment is reviewed. Fix what you saw in one edit; the next review shows only what it changed.",
       sceneReturnsLine(scene, { scenes: document.scenes }),
+      ...(madeTextOf(reviewed) ? [madeTextOf(reviewed)] : []),
     ];
     const keys = covered.map((event) => event.key);
     const nextCall = left ? { tool: "look", input: { mode: "review", ...sceneField, ...rangeFields } } : null;
@@ -7469,7 +7479,7 @@ export function createAgentService(deps) {
     // `query` is another name for `search` (kino library topic=fonts query=Roboto).
     const search = String(input.search ?? input.query ?? "");
     if (topic === "topics")
-      return { text: `library topics: op {name} (exact rules for one operation), rules {name, search?} (a guide topic; search keeps only its lines that mention a word; workspace covers projects, media, presets, comments and exports), search {search}, easings, presets, fonts {search: a name, or one character such as \"∞\" for the fonts that have it}, media, sounds {search, full?} (kino's built-in CC0 sound effects, sfx:<id>; name:\"openverse\" searches Openverse instead, 10 s or less, full:true up to 60 s, only when the person turned on sound search), music {search: moods, energy, bpm} (built-in mood-tagged tracks, music:<id>, a fallback), effects {name?} (every effect of the catalog; name gives its fields, ranges and defaults), text-effects (saved text effects), blocks {name?} (recipes, looks, slots, timing, tokens), moves {name?} (designed set pieces: zoom-through, whip-pan, caption-words, …), formats {name?} (whole videos to fill: product-launch, app-demo, social-promo, feature-announcement, testimonial; format {name, slots} builds one), guide {name?} (the kino skill, for agents without it; name: one of its references, such as edits or sound), inspire {search?, kind?, name?} (YouTube edits: kino measures their cuts, beat and fingerprint, and keeps frame strips; kind:\"shorts\" finds short vertical edits (YouTube Shorts); kind:\"sounds\" finds sound effects of 60 s or less instead, importable as project {action:\"import\", file:\"yt:…\"}; name: one ref, or \"save yt:…\" (take: what the edit takes from it), \"unsave yt:…\", \"measure yt:…\", \"forget <search n>\", \"copy <project>\" (its saved refs), \"cancel\"), soundtrack {song?, search?, explore?, like?, measure?, note?} (real songs from YouTube first, found by name with song:\"<title> by <artist>\"; Openverse and the Archive fill in when sound search is on; measured, lined up against the story beats and ranked by fit to the person's taste; like:\"yt:…\" adds YouTube's mix for a song; library {topic:\"guide\", name:\"soundtrack\"}), ${FOOTAGE_TOPIC_LINE}, techniques {name?} (the named editing techniques check finds and the style spec uses).`, data: { topics: LIBRARY_TOPICS.filter((name) => name !== "topics") } };
+      return { text: `library topics: op {name} (exact rules for one operation), rules {name, search?} (a guide topic; search keeps only its lines that mention a word; workspace covers projects, media, presets, comments and exports), search {search}, easings, presets, fonts {search: a name, or one character such as \"∞\" for the fonts that have it}, media, sounds {search, full?} (kino's built-in sound effects (CC0, plus a few kino makes), sfx:<id>; name:\"openverse\" searches Openverse instead, 10 s or less, full:true up to 60 s, only when the person turned on sound search), music {search: moods, energy, bpm} (built-in mood-tagged tracks, music:<id>, a fallback), effects {name?} (every effect of the catalog; name gives its fields, ranges and defaults), text-effects (saved text effects), blocks {name?} (recipes, looks, slots, timing, tokens), moves {name?} (designed set pieces: zoom-through, whip-pan, caption-words, …), formats {name?} (whole videos to fill: product-launch, app-demo, social-promo, feature-announcement, testimonial; format {name, slots} builds one), guide {name?} (the kino skill, for agents without it; name: one of its references, such as edits or sound), inspire {search?, kind?, name?} (YouTube edits: kino measures their cuts, beat and fingerprint, and keeps frame strips; kind:\"shorts\" finds short vertical edits (YouTube Shorts); kind:\"sounds\" finds sound effects of 60 s or less instead, importable as project {action:\"import\", file:\"yt:…\"}; name: one ref, or \"save yt:…\" (take: what the edit takes from it), \"unsave yt:…\", \"measure yt:…\", \"forget <search n>\", \"copy <project>\" (its saved refs), \"cancel\"), soundtrack {song?, search?, explore?, like?, measure?, note?} (real songs from YouTube first, found by name with song:\"<title> by <artist>\"; Openverse and the Archive fill in when sound search is on; measured, lined up against the story beats and ranked by fit to the person's taste; like:\"yt:…\" adds YouTube's mix for a song; library {topic:\"guide\", name:\"soundtrack\"}), ${FOOTAGE_TOPIC_LINE}, techniques {name?} (the named editing techniques check finds and the style spec uses).`, data: { topics: LIBRARY_TOPICS.filter((name) => name !== "topics") } };
     // op and rules take several names at once (a list, or "a, b"), answered one after another.
     const names = (Array.isArray(input.name) ? input.name : String(input.name ?? "").split(",")).map((name) => String(name).trim()).filter(Boolean);
     if ((topic === "op" || topic === "rules") && names.length > 1) {
