@@ -96,11 +96,13 @@ function normalizeSound(value, path) {
   if (value === NONE) return NONE;
   if (!isRecord(value) || Object.keys(value).some((key) => !["media", "what", "keep"].includes(key))) fail(path, 'must be "none", {media, what} or {keep}');
   const keep = value.keep;
-  if (keep !== undefined && keep !== "all" && !(Array.isArray(keep) && keep.length === 2 && keep.every(isNumber) && keep[0] >= 0 && keep[1] > keep[0]))
-    fail(`${path}.keep`, 'must be "all" or [from, to] in file seconds');
+  // A string other than "all" names a sound the clip readout lists ("laughter"): keep_line {sound}.
+  const named = typeof keep === "string" && keep !== "all" && keep.trim().length > 0 && keep.length <= 60;
+  if (keep !== undefined && keep !== "all" && !named && !(Array.isArray(keep) && keep.length === 2 && keep.every(isNumber) && keep[0] >= 0 && keep[1] > keep[0]))
+    fail(`${path}.keep`, 'must be "all", [from, to] in file seconds, or a sound the clip readout lists ("laughter")');
   const added = keep === undefined || value.media !== undefined || value.what !== undefined
     ? { media: text(value.media, `${path}.media`, 2048), what: text(value.what, `${path}.what`, BOARD_LIMITS.what) } : {};
-  return { ...added, ...(keep === undefined ? {} : { keep: keep === "all" ? keep : [round(keep[0], 3), round(keep[1], 3)] }) };
+  return { ...added, ...(keep === undefined ? {} : { keep: keep === "all" ? keep : named ? keep.trim() : [round(keep[0], 3), round(keep[1], 3)] }) };
 }
 
 /**

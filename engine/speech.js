@@ -899,6 +899,80 @@ export function readClipSound(transcript) {
   return { lines, voice: joined, otherLanguage };
 }
 
+// Sounds besides words, from the macOS sound classifier's 1 s windows (backend/footage/sounds.mjs).
+// SOUND_SURE is a guess: on run 8's 13 clips (.scratch/barwave/wave/scene-sounds/RESULT.md) a
+// clear dog bark read 0.75 and a duck quack 0.83, while the known laugh in one clip read only 0.43
+// (keep_line falls back to every listed label, SOUND_LISTED, and says how sure).
+export const SOUND_SURE = 0.5;
+export const SOUND_LISTED = 0.1;
+// A label in this share of a clip's windows (at SOUND_LISTED or more) is its bed, named once. A
+// guess: run 8's score clips list "music" in 100% of their windows, a one-off sound in 1 or 2 of 5+.
+export const BED_SHARE = 0.8;
+const BED_LEAST = 3; // windows (2 s): a shorter clip has no bed, every sound is an event (a guess)
+
+/**
+ * A clip's sounds from the classifier's windows ([{t, d, top: [[label, sure]], db}], file seconds):
+ * {events: [{label, start, end, sure, db}], bed: [label]}. Windows that overlap and share a label
+ * at `sure` or more join into one event (its best sure, its loudest db). No label is left out.
+ */
+export function soundEvents(windows = [], { sure = SOUND_SURE } = {}) {
+  const sorted = [...windows].filter((window) => Number.isFinite(window?.t)).sort((a, b) => a.t - b.t);
+  const counts = new Map();
+  for (const window of sorted) for (const [label, value] of window.top ?? []) if (value >= SOUND_LISTED) counts.set(label, (counts.get(label) ?? 0) + 1);
+  const bed = sorted.length >= BED_LEAST ? [...counts].filter(([, count]) => count / sorted.length >= BED_SHARE).sort((a, b) => b[1] - a[1]).map(([label]) => label) : [];
+  const open = new Map();
+  const events = [];
+  for (const window of sorted) {
+    const end = window.t + (window.d ?? 1);
+    for (const [label, value] of window.top ?? []) {
+      if (!(value >= sure)) continue;
+      const last = open.get(label);
+      if (last && window.t <= last.end + 1e-6) {
+        last.end = round(Math.max(last.end, end));
+        last.sure = round(Math.max(last.sure, value));
+        last.db = Math.max(last.db, window.db ?? -120);
+        continue;
+      }
+      const event = { label, start: round(window.t), end: round(end), sure: round(value), db: window.db ?? -120 };
+      open.set(label, event);
+      events.push(event);
+    }
+  }
+  return { events, bed };
+}
+
+/**
+ * Events as moments, loudest first: [{name: "mallet percussion / glockenspiel", labels, start, end, db}].
+ * Surest first, an event inside an earlier moment's span joins it, so a surer label is never hidden
+ * under a less sure one; a label with the very same span is named beside the first (2 at most).
+ */
+export function soundMoments(events = []) {
+  const moments = [];
+  for (const event of [...events].sort((a, b) => b.sure - a.sure)) {
+    const home = moments.find((moment) => event.start >= moment.start - 1e-6 && event.end <= moment.end + 1e-6);
+    const same = home && Math.abs(event.start - home.start) < 1e-6 && Math.abs(event.end - home.end) < 1e-6;
+    if (home) { if (same) home.labels.push(event.label); home.db = Math.max(home.db, event.db); }
+    else moments.push({ labels: [event.label], start: event.start, end: event.end, db: event.db });
+  }
+  return moments.sort((a, b) => b.db - a.db).map((moment) => ({ ...moment, name: moment.labels.slice(0, 2).map((label) => String(label).replaceAll("_", " ")).join(" / ") }));
+}
+
+/**
+ * `sounds laughter 0.5-2.0 s (-18 dB), mallet percussion / glockenspiel 5.0-6.5 s (-27 dB), … · bed music`:
+ * the loudest few moments. A less sure event inside a surer one's span is the same moment (the
+ * classifier names one sound several ways, and a window's db is the whole window's), so it joins
+ * that moment (a label with the very same span is shown beside the first, 2 at most) instead of taking a place: on a product clip measured in the
+ * skeptic proof (.scratch/barwave/wave/scene-sounds-review/RESULT.md) "mosquito buzz" and "insect"
+ * windows inside the speech took 2 of the 3 places and hid the chime after it.
+ */
+export function clipSoundsText({ events = [], bed = [] } = {}, most = 3) {
+  const moments = soundMoments(events.filter((item) => !bed.includes(item.label)));
+  const parts = [];
+  if (moments.length) parts.push(`sounds ${moments.slice(0, most).map((moment) => `${moment.name} ${moment.start.toFixed(1)}-${moment.end.toFixed(1)} s (${Math.round(moment.db)} dB)`).join(", ")}${moments.length > most ? ", …" : ""}`);
+  if (bed.length) parts.push(`bed ${bed.slice(0, 2).map((label) => String(label).replaceAll("_", " ")).join(", ")}`);
+  return parts.join(" · ");
+}
+
 /** `heard "Heh heh heh." 0.4-2.0 s, "I'm just gonna see." 7.1-9.2 s` for clipLines' answer, or "". */
 export function clipLinesText(lines = [], most = 2) {
   if (!lines.length) return "";
@@ -912,13 +986,16 @@ export function clipLinesText(lines = [], most = 2) {
  * `-15.8 LUFS · heard "What are you doing here?" 0.5-1.4 s`, `-18.2 LUFS · no voice heard`.
  * sound: {lufs (integrated, null when silent), lines, voice} (readClipSound plus a level).
  */
-export function clipSoundText({ lufs = null, lines = [], voice = [] } = {}, most = 2) {
+export function clipSoundText({ lufs = null, lines = [], voice = [], sounds = null } = {}, most = 2) {
   const level = Number.isFinite(lufs) ? `${lufs.toFixed(1)} LUFS` : "";
   const parts = [];
   if (lines.length) parts.push(clipLinesText(lines, most));
   if (voice.length) parts.push(`voice heard ${voice.slice(0, most).map((span) => `${span.start.toFixed(1)}-${span.end.toFixed(1)}`).join(", ")}${voice.length > most ? ", …" : ""} s, words not read`);
   if (!parts.length) parts.push(level ? "no voice heard" : "");
-  return [level, ...parts].filter(Boolean).join(" · ");
+  // Sounds besides words (soundEvents), when the clip was classified; a clip that could not be
+  // (sounds.why: not a Mac, no helper) reads as before.
+  const heard = sounds?.events ? clipSoundsText(sounds) : "";
+  return [level, ...parts, heard].filter(Boolean).join(" · ");
 }
 
 export function captionWordsFromSpeech(words, fix = {}) {

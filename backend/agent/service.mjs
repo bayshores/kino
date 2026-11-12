@@ -70,6 +70,7 @@ import { applyBrief, aspectLabel, asksOf, plainWordsProblem, storedQuoteProblem,
 import { createFootageFacts, MAX_FOOTAGE } from "./footage.mjs";
 import { createFootageCache } from "../footage/analyze.mjs";
 import { createPeopleCache } from "../footage/people.mjs";
+import { createSoundsCache } from "../footage/sounds.mjs";
 import { applySwap, cardCall, dealDue, deckData, deckInputs, deckRequest, deckStatusLine, deckText, loadMoves, mediaKeys, newDeal, RECENT_PROJECTS, swapProblem } from "./deck.mjs";
 import { madeNamesIn } from "../../engine/deck.js";
 import { answerStep, checkpointStep, dashboardAnswerStep, finalRefusal, openStops, reopenStep, settleWaiting, statusLines, statusMove, StopError, stopRules, stopsSummary, topRules, waitingData, waitingStop, waivedLine, workPrint } from "./stops.mjs";
@@ -156,6 +157,7 @@ import { createTranscriptCache, TRANSCRIPT_VERSION } from "../speech/transcribe.
 import { projectNames, speechNamesFor } from "../speech/name-hint.mjs";
 import { createSyncEnvelopeCache } from "../clip-sync.mjs";
 import { currentLag, matchEnvelopes, SYNC_FALLBACK, syncLayers } from "../../engine/clipSync.js";
+import { soundEvents, SOUND_LISTED } from "../../engine/speech.js";
 import { checkSpeechLayer, clipLines, clipLinesText, clipSoundText, readClipSound, cutSpeechIndices, fileWords, speechPieces, speechText, speechWords } from "../../engine/speech.js";
 import { access } from "node:fs/promises";
 import { REACH_HELP, REACH_OPERATIONS, applyReachOperation } from "./reach-operations.mjs";
@@ -207,7 +209,7 @@ const SHEET_GAP_HINT = 6;
 const TAKE_SHOWN = 70;
 // Agents pipe answers through `head -8` (trace-run6 section 3): what decides the next call sits in these lines.
 const FIRST_LINES = 8;
-const RENDER_RULES = 'render start defaults to draft: half each scene dimension at 30fps (or your fps up to 30, such as 24 or 25 to match the footage), the long side at most the person\'s draft size setting (960 by default). The person\'s export settings fill in format, fps and output folder when you leave them out. A final render over their frame limit, or one that would overwrite a file, answers awaiting_approval {id, rev}: the person answers it in the app, or tells you in the chat (then record their words: notes {action:"answer", id, words, read_as:"approve" or "deny"}), so tell them and do not poll; render {action:"wait", job:id} blocks until they answer (up to 55 s) and {action:"cancel", job:id} withdraws it. Allowing it renders that rev; an edit first makes it ask again, and the same start after an edit replaces the waiting request (replaced:id). final uses full scene dimensions and requested fps (default 30; 23.976, 29.97, 59.94, "30000/1001" or {num, den} too), motionBlur:0.5 and dither:true; override motionBlur:0..1 or dither:false. Motion blur comes from layer movement while the shutter is open: options {shutterAngle:0..360 (180 = motionBlur 0.5), motionSamples:2..16 (default: as many as the fastest move in each frame needs for copies at most 8 px apart)}; 2 samples show a fast move as two copies. Each sample draws a moving frame once more (frames that do not move are drawn once); footage keeps one picture per frame. The dashboard (cached playback too) and look show a preview of it (each fast-moving layer smeared along its path); a final png (options {time}) shows the real one. Unwaived check errors (and signature_missing, a warning while editing) block final, and so do open stops (stops_open; drafts render), a video of 5 s or more with no saved reference (find 2 with library inspire; with them, a final render with no look {mode:\"versus\"} in 10 revisions runs it and answers its rows) or a rev judged blind with the references winning (reference_needed; waive_check {code:\"reference\"} skips it), and a need not answered and done (needs_open) or such a video with a brief whose material was never checked (needs_unchecked; notes needs; waive_check {code:\"needs\"} skips both). Moments not yet seen in look {mode:\"review\"}, a missing or stale viewer report and open critic lines never refuse a final render: they are listed on its receipt as open notes. preview:"fast" caps drafts at 640px/15fps without blur or dither. from/to select one draft video excerpt, snapped outward to frames; sound and captions stay aligned. Replies give actual range. scene:"all" renders up to 20 scenes as separate files; unchanged scenes reuse checked segments, including after restart. Formats: mp4, webm, mov, gif, png, apng, png-sequence (ZIP), lottie (native vector canvas; no blur/dither). queue lists recent jobs; wait returns paths, cachedScenes/redrawnScenes and file checks. options passes existing export settings (transparent, profile, loop, GIF quality, PNG time, imageDPIRatio); the quality rung determines dimensions. Two exports run concurrently. Cancel stops workers/encoders; start again to reuse completed segments. A job whose scenes all finished is saved instead: cancel answers Nothing to cancel with its files. Output checks verify dimensions, codec, frame count, duration and audio start offset where the format supports them; unsupported checks are explicit. Final mp4, webm, mov and apng files are also compared frame by frame with the renderer; a file that runs a frame early or late fails with the frames where it slips: render again, and report it with the message if it fails again. Exported sound goes through a master limiter that keeps the encoded file\'s true peak at or under -1 dBTP: the sound is encoded and measured first, and the ceiling drops when AAC or Opus push peaks back up. Before it, every mp4, webm or mov (drafts too) brings the whole mix (after ducking) to a loudness target: options {loudness:"web" (-14 LUFS, the default)|"podcast" (-16)|"broadcast" (-23)|"off"}. It is one plain gain, so the balance never shifts; where the limiter would take peaks down more than 6 dB the gain holds and the file is quieter (the reply names that peak). Unleveled mixes well under -1 dBTP pass unchanged. wait gives each file\'s sound as integrated loudness (LUFS) with its target, loudness range (LU) and true peak (dBTP); audioPeak warns over -1 dBTP, audioLoudness over 2 LU off target. Without a loudness target, a mix that would have clipped by more than 0.5 dB gets a warning with the loudest moment and the sounds playing then: lower those volumes. Rendered scene caches are bounded by the person\'s render cache setting (512MiB by default). They include media/font bytes, renderer, graphics and quality settings. A new revision alone does not invalidate unchanged scenes. mp4 only: options {videoEncoder:"auto"|"software"|"videotoolbox"|"nvenc"|"qsv"|"amf"|"vaapi", videoQuality:"small"|"standard"|"high"} replace the person\'s defaults for this render (standard is 24 Mbps at 720p and up, high twice, small half); a named encoder that does not work on this computer is an error naming those that do. The graphics card, frames at once and memory to leave free are the person\'s dashboard settings; you cannot change them. wait says what drew each file (graphics card or processor) and which encoder wrote it.';
+const RENDER_RULES = 'render start defaults to draft: half each scene dimension at 30fps (or your fps up to 30, such as 24 or 25 to match the footage), the long side at most the person\'s draft size setting (960 by default). The person\'s export settings fill in format, fps and output folder when you leave them out. A final render over their frame limit, or one that would overwrite a file, answers awaiting_approval {id, rev}: the person answers it in the app, or tells you in the chat (then record their words: notes {action:"answer", id, words, read_as:"approve" or "deny"}), so tell them and do not poll; render {action:"wait", job:id} blocks until they answer (up to 55 s) and {action:"cancel", job:id} withdraws it. Allowing it renders that rev; an edit first makes it ask again, and the same start after an edit replaces the waiting request (replaced:id). final uses full scene dimensions and requested fps (default 30; 23.976, 29.97, 59.94, "30000/1001" or {num, den} too), motionBlur:0.5 and dither:true; override motionBlur:0..1 or dither:false. Motion blur comes from layer movement while the shutter is open: options {shutterAngle:0..360 (180 = motionBlur 0.5), motionSamples:2..16 (default: as many as the fastest move in each frame needs for copies at most 8 px apart)}; 2 samples show a fast move as two copies. Each sample draws a moving frame once more (frames that do not move are drawn once); footage keeps one picture per frame. The dashboard (cached playback too) and look show a preview of it (each fast-moving layer smeared along its path); a final png (options {time}) shows the real one. Unwaived check errors (and signature_missing, a warning while editing) block final, and so do open stops (stops_open; drafts render), a video of 5 s or more with no saved reference (find 2 with library inspire; with them, a final render with no look {mode:\"versus\"} in 10 revisions runs it and answers its rows) or a rev judged blind with the references winning (reference_needed; waive_check {code:\"reference\"} skips it), and a need not answered and done (needs_open) or such a video with a brief whose material was never checked (needs_unchecked; notes needs; waive_check {code:\"needs\"} skips both). Moments not yet seen in look {mode:\"review\"}, a missing or stale viewer report and open critic lines never refuse a final render: they are listed on its receipt as open notes. preview:"fast" caps drafts at 640px/15fps without blur or dither. from/to select one draft video excerpt, snapped outward to frames; sound and captions stay aligned. Replies give actual range. scene:"all" renders up to 20 scenes as separate files; unchanged scenes reuse checked segments, including after restart. Formats: mp4, webm, mov, gif, png, apng, png-sequence (ZIP), lottie (native vector canvas; no blur/dither). queue lists recent jobs; wait returns paths, cachedScenes/redrawnScenes and file checks. options passes existing export settings (transparent, profile, loop, GIF quality, PNG time, imageDPIRatio); the quality rung determines dimensions. Two exports run concurrently. Cancel stops workers/encoders; start again to reuse completed segments. A job whose scenes all finished is saved instead: cancel answers Nothing to cancel with its files. Output checks verify dimensions, codec, frame count, duration and audio start offset where the format supports them; unsupported checks are explicit. Final mp4, webm, mov and apng files are also compared frame by frame with the renderer; a file that runs a frame early or late fails with the frames where it slips: render again, and report it with the message if it fails again. Exported sound goes through a master limiter that keeps the encoded file\'s true peak at or under -1 dBTP: the sound is encoded and measured first, and the ceiling drops when AAC or Opus push peaks back up. Before it, every mp4, webm or mov (drafts too) brings the whole mix (after ducking) to a loudness target: options {loudness:"auto" (the default: a mix led by a song, a file with a steady beat at volume 0.5 or more over half the video with words under half its time, keeps the song\'s own LUFS when that is over -14, otherwise -14; the reply says which rule applied)|"web" (-14 LUFS)|"podcast" (-16)|"broadcast" (-23)|"off"}. It is one plain gain, so the balance never shifts; where the limiter would take peaks down more than 6 dB the gain holds and the file is quieter (the reply names that peak). Unleveled mixes well under -1 dBTP pass unchanged. wait gives each file\'s sound as integrated loudness (LUFS) with its target, loudness range (LU) and true peak (dBTP); audioPeak warns over -1 dBTP, audioLoudness over 2 LU off target. Without a loudness target, a mix that would have clipped by more than 0.5 dB gets a warning with the loudest moment and the sounds playing then: lower those volumes. Rendered scene caches are bounded by the person\'s render cache setting (512MiB by default). They include media/font bytes, renderer, graphics and quality settings. A new revision alone does not invalidate unchanged scenes. mp4 only: options {videoEncoder:"auto"|"software"|"videotoolbox"|"nvenc"|"qsv"|"amf"|"vaapi", videoQuality:"small"|"standard"|"high"} replace the person\'s defaults for this render (standard is 24 Mbps at 720p and up, high twice, small half); a named encoder that does not work on this computer is an error naming those that do. The graphics card, frames at once and memory to leave free are the person\'s dashboard settings; you cannot change them. wait says what drew each file (graphics card or processor) and which encoder wrote it.';
 
 // library op and rules: at most this many names in one call.
 const LIBRARY_NAMES = 8;
@@ -592,6 +594,15 @@ export function createAgentService(deps) {
   const footageCache = deps.footageCache ?? createFootageCache();
   // The people in each clip (head_cut_off, overlay_covers_subject), in a .people-v1 file beside it.
   const peopleCache = deps.peopleCache ?? createPeopleCache();
+  // A clip's sounds besides words (a laugh, steps, a door), in a .sounds-v1 file beside it.
+  const soundsCache = deps.soundsCache ?? createSoundsCache();
+  // {events, bed} (engine/speech.js soundEvents) for a clip, or {why} when it cannot be classified.
+  async function clipSounds(file, options) {
+    try {
+      const found = await soundsCache.get(file);
+      return found.unavailable ? { why: found.unavailable } : soundEvents(found.windows, options);
+    } catch (error) { return { why: error?.message ?? "the sounds could not be measured" }; }
+  }
   // A file's saved .subjects-v1 when saliency ran on it. A header that says saliency did not run
   // (saliency is not true) is not measured: an empty subjects list there is not "nothing stands
   // out", so its readers fall back to the faces in people-v1 and mark nothing as salient.
@@ -1912,6 +1923,14 @@ export function createAgentService(deps) {
       for (const item of sound.filter((entry) => entry.type === "audio")) {
         try { operation.beats[item.id] = JSON.parse(await readFile(`${mediaFileOf(item)}.beats`, "utf8")); } catch { /* no beats: the old release */ }
       }
+      // keep_line {sound}: the clip's classified sounds in file seconds, every label listed (SOUND_LISTED).
+      delete operation.events;
+      delete operation.eventsWhy;
+      if (operation.sound !== undefined && owner?.src) {
+        const found = await clipSounds(mediaFileOf(owner), { sure: SOUND_LISTED });
+        if (found.events) operation.events = found.events;
+        else operation.eventsWhy = found.why;
+      }
     }
     const layer = layers.find((item) => item.id === layerId);
     // place_broll starts each clip on one of its file's shots (backend/shot-detection.mjs).
@@ -1926,7 +1945,7 @@ export function createAgentService(deps) {
     // keep_line {from, to} needs the words only for its subtitle: not when it has its own text (or none),
     // and a clip whisper cannot read (speech in another language) still keeps its stretch.
     const wordsOptional = operation.type === "keep_line" && operation.line === undefined;
-    if (layer?.src && (layer.type === "audio" || layer.type === "video") && !(wordsOptional && (operation.text !== undefined || operation.subtitle === false))) {
+    if (layer?.src && (layer.type === "audio" || layer.type === "video") && !(wordsOptional && (operation.text !== undefined || operation.subtitle === false || operation.sound !== undefined))) {
       const file = mediaFileOf(layer);
       // keep_line finds the line in the transcript the agent was shown (linesToName, look source),
       // also one heard before the brief's names changed, instead of hearing the clip again.
@@ -1982,9 +2001,13 @@ export function createAgentService(deps) {
     for (const { n, operation } of planned) {
       try {
         next = await runWithTranscript(next, operation, work);
-        kept.push({ layerId: operation.layerId, from: operation.from, to: operation.to });
+        // A named sound's stretch is the one keep_line found (its receipt's scene seconds).
+        const [from, to] = operation.sound !== undefined ? work.reports?.get(operation)?.scene ?? [] : [operation.from, operation.to];
+        if (Number.isFinite(from)) kept.push({ layerId: operation.layerId, from, to });
         const duck = work.reports?.get(operation)?.duck;
-        if (duck && duck !== "none") dip = duck.to;
+        // A line too quiet to reach the music gets the music out (0) from keep_line; one shared dip
+        // then follows the last line that reaches the music, so those lines keep their measured dip.
+        if (duck && duck !== "none" && (duck.to > 0 || dip === null)) dip = duck.to;
       } catch (error) { work.notes.push(`board shot ${n} keeps its clip's sound, but keep_line was refused: ${error.message}`); }
     }
     const music = next.board.music !== NONE ? next.board.music : null;
@@ -5135,7 +5158,8 @@ export function createAgentService(deps) {
       const lufs = await clipLufs(file);
       if (lufs === null) return null;
       const saved = await transcripts.saved?.(file, document, { src }, { any: true });
-      return { lufs, voice: saved ? readClipSound(saved).voice : [] };
+      const sounds = await clipSounds(file);
+      return { lufs, voice: saved ? readClipSound(saved).voice : [], sounds };
     } catch { return null; }
   }
 
@@ -7478,6 +7502,8 @@ export function createAgentService(deps) {
         if (/install/i.test(String(error?.message))) missing = "no speech model";
       }
     }
+    // Sounds besides words for every clip with sound, short ones too (backend/footage/sounds.mjs).
+    for (const item of media) if (byId[item.id]) byId[item.id].sounds = await clipSounds(path.join(deps.mediaRoot, item.id));
     return Object.keys(byId).length || missing ? { byId, missing } : null;
   }
 

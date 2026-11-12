@@ -117,6 +117,8 @@ export async function measureAbilities() {
     saliency: info.saliency ? true : "saliency is missing",
     // false on macOS before 12; undefined from a helper built before people were found.
     people: info.people === true ? true : info.people,
+    // The sound classifier (--sounds): false before macOS 12, undefined from an older helper.
+    sounds: info.sounds === true ? true : info.sounds,
     helper, macOS: info.macOS,
   };
 }

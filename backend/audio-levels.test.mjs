@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createLayer, createScene } from "../engine/model.js";
 import { createAgentClient } from "./agent/client.mjs";
-import { describeLevels, loudMixWarning, loudnessGain, readLevels } from "./audio-levels.mjs";
+import { describeLevels, loudMixWarning, loudnessGain, mixLead, readLevels } from "./audio-levels.mjs";
 import { createLoudnessCurves, readMomentary } from "./loudness-curve.mjs";
 import { exportScene } from "./export.mjs";
 import { ffmpeg, makeToneAfterSilence, run, skipWithoutMediaTools, startTestServer } from "./media.test.support.mjs";
@@ -189,6 +189,20 @@ test("the meter reads loudness, true peak and the loudest moment from FFmpeg's p
     "-14.1 LUFS (target -14 web), range 4.2 LU, true peak -1.1 dBTP");
   assert.equal(describeLevels({ integratedLufs: -17, truePeakDbtp: -1 }, { target: "web", targetLufs: -14, held: true, loudestAt: 2.4 }),
     "-17 LUFS (target -14 web, held under by the peak at 2.4 s: lower that sound to reach it), true peak -1 dBTP");
+  // "auto": a song-led mix keeps the song's own level (run 8's shape: a 15 s song at -11.7 and 1.85 s of voice),
+  // a voice-led one or a song under -14 gets the web's; with no song the answer carries no reason.
+  const song = { seconds: 15, volume: 1, lufs: -11.7 };
+  assert.deepEqual(mixLead({ duration: 20, songs: [song], voiceSeconds: 1.85 }), { target: "song", targetLufs: -11.7, why: "the song's own level, no voice leads" });
+  assert.deepEqual(mixLead({ duration: 20, songs: [song], voiceSeconds: 9.2 }), { target: "web", targetLufs: -14, why: "a voice leads (9.2 s of words)" });
+  assert.deepEqual(mixLead({ duration: 20, songs: [{ ...song, lufs: -19.2 }] }), { target: "web", targetLufs: -14, why: "the song (-19.2) is under -14" });
+  assert.equal(mixLead({ duration: 20, songs: [{ ...song, seconds: 6 }] }).target, "web", "a song under half the video does not lead");
+  assert.match(mixLead({ duration: 20, songs: [{ ...song, volume: 0.3 }] }).why, /a bed/, "a bed is not a song-led mix");
+  assert.deepEqual(mixLead({ duration: 20, voiceSeconds: 12 }), { target: "web", targetLufs: -14 });
+  // Fitting aims at the song's own level and says why; the gain, cap and hold are the web's.
+  assert.deepEqual(loudnessGain({ integratedLufs: -14.1, truePeakDbtp: -3 }, "song", 0, -11.7, "the song's own level, no voice leads"),
+    { target: "song", targetLufs: -11.7, gainDb: 2.4, correction: 0, capped: false, held: false, loudestAt: null, filter: "volume=2.4dB", why: "the song's own level, no voice leads" });
+  assert.equal(describeLevels({ integratedLufs: -11.8, loudnessRangeLu: 6.2, truePeakDbtp: -1 }, { target: "song", targetLufs: -11.7, held: false, why: "the song's own level, no voice leads" }),
+    "-11.8 LUFS (target -11.7 song: the song's own level, no voice leads), range 6.2 LU, true peak -1 dBTP");
   assert.equal(describeLevels({ integratedLufs: -14.2, truePeakDbtp: -1.1 }), "-14.2 LUFS, true peak -1.1 dBTP");
   assert.equal(describeLevels({ integratedLufs: -9, truePeakDbtp: 1.4 }), "-9 LUFS, true peak +1.4 dBTP (clips)");
   assert.equal(describeLevels({ integratedLufs: null, truePeakDbtp: null }), "silent");
@@ -422,5 +436,7 @@ test("a final render brings a quiet mix to the web's -14 LUFS, and holds a peaky
   const peaky = join(server.dataDirectory, "peaky.wav");
   await run(ffmpeg, ["-v", "error", "-y", "-f", "lavfi", "-i",
     "aevalsrc=0.05*sin(2*PI*220*t)+if(lt(mod(t\\,1)\\,0.02)\\,0.6*sin(2*PI*440*t)\\,0):s=48000:d=6", "-ac", "2", peaky]);
-  await finalRender("peaky", peaky, 6, "mp4", /sound: -\d+(\.\d)? LUFS \(target -14 web, held under by the peak at [\d.]+ s/, true);
+  // Its clicks are a steady beat: the render finds that song itself (no beat op, no saved .beats
+  // needed) and says why the web's target stands.
+  await finalRender("peaky", peaky, 6, "mp4", /sound: -\d+(\.\d)? LUFS \(target -14 web: the song \(-\d+(\.\d)?\) is under -14, held under by the peak at [\d.]+ s/, true);
 });

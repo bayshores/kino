@@ -1,10 +1,12 @@
 // keep_line: one spoken line of a clip stays in the edit. The rest of that layer's sound is
 // silenced, a small subtitle shows the line, and the music dips under it.
 //
-//   keep_line {sceneId, layerId, line? | from?, to?, text?, subtitle?, look?, name?, duckId?, duckNone?, dip?, dropout?, transcript?, levels?, beats?}
+//   keep_line {sceneId, layerId, line? | from?, to? | sound?, text?, subtitle?, look?, name?, duckId?, duckNone?, dip?, dropout?, transcript?, levels?, beats?}
 //
 //   line      the words to keep, found in the clip's transcript as add_captions {speech} reads it
 //   from, to  or a stretch in scene seconds (works with no transcript, for speech in another language)
+//   sound     or a non-speech sound the clip readout lists ("laugh" finds laughter): the loudest match
+//             of operation.events (put in by the agent service), kept at its own level, no subtitle
 //   text      the subtitle's words instead of the transcript's (a fix, or a translation); shown over
 //             the whole line. kino does not refuse a text that differs from what it heard in the
 //             stretch: the receipt says what it heard next to what was typed (notes, heard)
@@ -16,7 +18,9 @@
 //             mix under the line at that music's level (mixLevels.js lineOverMusic); unmeasured, 0.7
 //             of the music's volume (about 3 dB) and the line at -16 LUFS. The release ends on the
 //             song's next beat (beats {layerId: beat analysis}, put in by the agent service).
-//   dropout   true: the music leaves for the line and hits back on the next downbeat
+//   dropout   true: the music leaves for the line and hits back on the next downbeat. Also the default
+//             (no dip, no dropout) for a line the +12 dB lift cannot bring to the music: a dip would
+//             dig a hole it cannot fill; the note gives the shortfall and the dip that holds the mix.
 // The receipt's mix {line, around, under, change} (LUFS, LU) says the total under the line next to
 // the 2 s around, for any dip, given or default: a fact, never a refusal.
 //
@@ -34,7 +38,9 @@ import { mediaPlaybackRange, mediaSoundTime } from "./playback.js";
 import { applyAddCaptions } from "./captionLayers.js";
 import { applyDuckAudio, DUCK_NAMES } from "./audioDucking.js";
 import { captionWordsFromSpeech, checkSpeechLayer, speechPieces, speechWords, withoutGluedTag } from "./speech.js";
-import { energyMean, heardLoudness, lineOverMusic, loudnessOver } from "./mixLevels.js";
+import { SOUND_SURE, soundMoments } from "./speech.js";
+import { energyMean, heardLoudness, lineOverMusic, loudnessOver, MAX_LEVEL_DB } from "./mixLevels.js";
+import { LINE_OVER_BED } from "./mixLevels.js";
 import { barLines } from "./songBars.js";
 import { round } from "./numbers.js";
 
@@ -232,6 +238,59 @@ function hitBack(scene, musicLayer, end, at) {
       }
 }
 
+// keep_line {sound}: the classifier's events in the clip (operation.events, file seconds, put in by
+// the agent service from soundEvents at SOUND_LISTED), as the layer plays them: [{label, sure, db,
+// start, end}] in scene seconds, under 0.1 s played left out.
+function playedSounds(scene, layer, events) {
+  const played = [];
+  for (const piece of checkSpeechLayer(scene, layer, "keep_line")) {
+    const range = mediaPlaybackRange(piece, scene.duration);
+    if (!range) continue;
+    const fileEnd = range.offset + range.duration;
+    for (const event of events) {
+      const from = Math.max(event.start, range.offset), to = Math.min(event.end, fileEnd);
+      if (to - from >= 0.1) played.push({ ...event, start: round(range.start + from - range.offset), end: round(range.start + to - range.offset) });
+    }
+  }
+  return played;
+}
+
+// "laugh" finds laughter and belly_laugh, "walking" person_walking: the whole label or the start of one of its words.
+const soundMatches = (label, key) => matchKey(label) === key || String(label).split(/[_\s]+/).some((word) => matchKey(word).startsWith(key));
+const soundName = (event) => `${String(event.label).replaceAll("_", " ")} ${round(event.start, 1)}-${round(event.end, 1)} s`;
+
+/** The sound keep_line {sound} keeps: the loudest match ({label, sure, db, start, end, note?}). */
+function keptSound(scene, layer, operation) {
+  const key = typeof operation.sound === "string" ? matchKey(operation.sound) : "";
+  if (!key) fail('sound is a sound the clip readout lists, for example "laughter".');
+  if (!Array.isArray(operation.events)) fail(`${layer.name}'s sounds are not measured here (${operation.eventsWhy ?? "no sound classifier on this computer"}); give from and to.`);
+  const played = playedSounds(scene, layer, operation.events);
+  // Sure events first (SOUND_SURE); else any the classifier listed, and the note says how sure.
+  const sure = played.filter((event) => event.sure >= SOUND_SURE);
+  const found = sure.filter((event) => soundMatches(event.label, key));
+  const matches = found.length ? found : played.filter((event) => soundMatches(event.label, key));
+  if (!matches.length) {
+    // As the readout names them (soundMoments): several names of one moment take one place.
+    const heard = soundMoments(sure.length ? sure : played);
+    fail(`no "${operation.sound}" heard where ${layer.name} plays. ${heard.length ? `Heard there: ${heard.slice(0, 4).map((moment) => `${moment.name} ${round(moment.start, 1)}-${round(moment.end, 1)} s`).join(", ")}${heard.length > 4 ? ", …" : ""}. Give one of those, or from and to.` : "No sound was classified there; give from and to."}`);
+  }
+  const [best, ...others] = [...matches].sort((a, b) => b.db - a.db);
+  const notes = [];
+  if (!found.length) notes.push(`the classifier was ${best.sure} sure of ${best.label} (under ${SOUND_SURE}): listen before you keep it`);
+  if (others.length) notes.push(`also heard ${others.slice(0, 2).map(soundName).join(", ")}; from/to keeps that one`);
+  return { label: best.label, sure: best.sure, db: best.db, start: best.start, end: best.end, ...(notes.length ? { note: notes.join("; ") } : {}) };
+}
+
+/**
+ * How far the music under a kept sound drops so the sound is not masked (dB, 0 or less): the
+ * music LINE_OVER_BED LU under the sound as measured (the same 6 LU voice_under_bed uses), no
+ * deeper than -20 dB. 0 when the sound already stands that far over it.
+ */
+function soundRoom({ line, under }) {
+  if (!Number.isFinite(line) || !Number.isFinite(under)) return 0;
+  return round(Math.max(-20, Math.min(0, line - LINE_OVER_BED - under)), 1);
+}
+
 /** Applies keep_line to `document` (changed in place). Returns the receipt. */
 export function applyKeepLine(document, operation, { fonts } = {}) {
   const scene = document.scenes.find((item) => item.id === operation.sceneId);
@@ -240,8 +299,10 @@ export function applyKeepLine(document, operation, { fonts } = {}) {
   if (!layer) fail(`layer ${operation.layerId} was not found.`);
   if ((layer.type !== "audio" && layer.type !== "video") || !layer.src) fail(`"${layer.name}" is a ${layer.type} layer; give the audio or video layer that plays the clip.`);
   const timed = operation.from !== undefined || operation.to !== undefined;
+  const bySound = operation.sound !== undefined;
+  if (bySound && (operation.line !== undefined || timed)) fail("give one of sound (a sound the clip readout lists), line, or from and to.");
   if (operation.line !== undefined && timed) fail("give line (words said in the clip) or from and to (scene seconds), not both.");
-  if (operation.line === undefined && !timed) fail("give line (words said in the clip) or from and to (scene seconds).");
+  if (operation.line === undefined && !timed && !bySound) fail("give line (words said in the clip) or from and to (scene seconds).");
   if (operation.line !== undefined && (typeof operation.line !== "string" || !operation.line.trim())) fail("line is the words to keep, as said.");
   if (operation.text !== undefined && (typeof operation.text !== "string" || !operation.text.trim())) fail("text is the subtitle's words, a string.");
   if (operation.dip !== undefined && (typeof operation.dip !== "number" || !(operation.dip >= 0 && operation.dip <= 1))) fail("dip is the music's volume under the line, a number from 0 to 1.");
@@ -259,7 +320,13 @@ export function applyKeepLine(document, operation, { fonts } = {}) {
   let end;
   let said;
   let lineNote = null;
-  if (operation.line !== undefined) {
+  let sound = null;
+  if (bySound) {
+    sound = keptSound(scene, layer, operation);
+    ({ start, end } = sound);
+    said = [];
+    if (sound.note) lineNote = sound.note;
+  } else if (operation.line !== undefined) {
     if (!heard.length) fail(`"${layer.name}" has no words heard to find "${operation.line}" in; give from and to (scene seconds) and text instead.`);
     const match = findLine(heard, operation.line);
     if (!match) fail(`"${operation.line}" is not said in ${layer.name} in this scene. Heard there: ${heardLines(heard)}. Give one of those, or from and to (scene seconds) and text.`);
@@ -303,7 +370,8 @@ export function applyKeepLine(document, operation, { fonts } = {}) {
   if (differs) notes.push(`kino heard "${heardText.length > 80 ? `${heardText.slice(0, 80)}...` : heardText}" in that stretch; the subtitle shows your text "${operation.text.length > 80 ? `${operation.text.slice(0, 80)}...` : operation.text}"`);
   let subtitle = null;
   const name = operation.name ?? `line-at-${round(start, 1)}s`;
-  if (operation.subtitle !== false) {
+  // A kept sound has no subtitle unless text is given.
+  if (operation.subtitle !== false && !(sound && operation.text === undefined)) {
     const look = operation.look ?? "subtitle";
     if (operation.text !== undefined) {
       // A page stays up long enough to read (20 characters a second, 5/6 s at least), past the line when it is short.
@@ -325,32 +393,65 @@ export function applyKeepLine(document, operation, { fonts } = {}) {
     const level = music.layer.volume ?? 1;
     // Over measured music: the line is leveled against the music around it and the dip holds the
     // mix (mixLevels.js lineOverMusic); the old fixed 0.7 dip and -16 LUFS line stay without measurements.
-    const over = lineOverMusicAt(scene, owner, music.layer, start, end, operation);
-    const dip = operation.dropout ? 0
+    let over = lineOverMusicAt(scene, owner, music.layer, start, end, operation);
+    // A kept sound keeps its own level (no leveling to the line target); with no dip or dropout given,
+    // the music makes room only as far as the measured sound would be masked (soundRoom).
+    if (sound && over) {
+      const room = operation.dip === undefined && operation.dropout === undefined ? soundRoom(over.measured) : null;
+      over = { ...over, own: true, short: undefined, dipDb: room ?? over.dipDb };
+    }
+    // A line the +12 dB lift cannot bring to the music (a dip would dig a hole the line cannot fill):
+    // with no dip or dropout given, the music goes out under it. The note says what each choice costs.
+    let out = operation.dropout === true;
+    let tooQuiet = null;
+    if (!out && operation.dip === undefined && operation.dropout === undefined && over?.short) {
+      tooQuiet = over;
+      out = true;
+      over = lineOverMusicAt(scene, owner, music.layer, start, end, { ...operation, dropout: true }) ?? over;
+    }
+    const dip = out ? 0
       : operation.dip ?? (over ? round(Math.max(0, Math.min(level, level * 10 ** (over.dipDb / 20)))) : round(level * DEFAULT_DIP));
     if (dip > level) notes.push(`dip ${dip} is above the music's volume ${level}, so the music gets louder under the line`);
-    if (over) {
+    if (over?.own) {
+      // Both levels as heard: the sound at its own level, the music under it before and after the dip.
+      for (const entry of kept) delete entry.piece.voiceLevel;
+      const { line: own, under: bed, around } = over.measured;
+      const dipDb = out ? -Infinity : 20 * Math.log10(Math.max(1e-6, dip / level));
+      const total = round(10 * Math.log10(10 ** (own / 10) + (Number.isFinite(dipDb) ? 10 ** ((bed + dipDb) / 10) : 0)), 1);
+      mix = { sound: own, music: bed, around, under: total, change: round(total - around, 1) };
+      notes.push(`sound kept at its own ${own} LUFS over the music at ${bed} LUFS (${round(own - bed, 1)} LU); ${out ? "music out under it" : dip >= level ? `not masked (${LINE_OVER_BED} LU or more over it), so the music stays; dip:<0 to 1> or dropout:true makes room anyway` : `the music makes room: dip ${dip} (${round(dipDb, 1)} dB) puts it ${LINE_OVER_BED} LU under the sound`}`);
+    } else if (over) {
       // The export levels the kept line to this (before the layer's volume).
       owner.piece.voiceLevel = round(over.target - 20 * Math.log10(Math.max(1e-6, volume)), 1);
       for (const entry of kept) if (entry !== owner) entry.piece.voiceLevel = owner.piece.voiceLevel;
       const given = operation.dip !== undefined ? lineOverMusic(over.measured, { dropDb: 20 * Math.log10(Math.max(1e-6, dip / level)) }) : over;
       const change = round(given.total - over.measured.around, 1);
       mix = { line: given.heard, around: over.measured.around, under: given.total, change };
-      notes.push(`line leveled to ${given.heard} LUFS against the music around it (${over.measured.around}); ${operation.dropout ? "music out under the line" : `dip ${dip} (${round(given.dipDb, 1)} dB)`}`);
+      notes.push(`line leveled to ${given.heard} LUFS against the music around it (${over.measured.around}); ${out ? "music out under the line" : `dip ${dip} (${round(given.dipDb, 1)} dB)`}`);
+      if (tooQuiet) {
+        // The cost of each choice, measured: the shortfall at the lift cap, and the dip that would hold the mix.
+        const hold = Number.isFinite(tooQuiet.holdDb) ? round(level * 10 ** (tooQuiet.holdDb / 20), 3) : null;
+        const buried = hold === null ? null : round(tooQuiet.measured.under + tooQuiet.holdDb - tooQuiet.heard, 1);
+        notes.push(`the line is ${tooQuiet.short} LU short of the music at the +${MAX_LEVEL_DB} dB lift (it reaches ${tooQuiet.heard} LUFS, the music around it ${tooQuiet.measured.around}), so the music goes out under it`
+          + (hold === null ? "" : `; dip:${hold} keeps the music in and holds the mix, the line ${buried} LU under the music`));
+      }
     } else for (const entry of kept) delete entry.piece.voiceLevel;
     if (!over && operation.dip === undefined && !operation.dropout) notes.push(`the music dips to ${dip} under the line (${DEFAULT_DIP} of its volume ${level}, about 3 dB; not measured); dip:<0 to 1> sets it`);
-    const under = kept.filter((entry) => entry.ranges.length);
-    const speech = {};
-    for (const { piece, play, ranges: stretches } of under)
-      speech[piece.id] = { words: stretches.map((item) => ({ text: "line", start: round(mediaSoundTime(piece, Math.max(item.start, play.start))), end: round(mediaSoundTime(piece, Math.min(item.end, play.end))), p: 1 })) };
-    // The release ends on the song's next beat (dropout: the music hits back on the next downbeat).
-    const back = returnTime(scene, music.layer, operation.beats?.[music.layer.id], end, operation.dropout);
-    const fadeUp = back ? round(back.at - end) : undefined;
-    duck = applyDuckAudio(document, { type: "duck_audio", sceneId: scene.id, layerId: music.layer.id, under: under.map((entry) => entry.piece.id), to: dip, speech, ...(fadeUp !== undefined ? { fadeUp } : {}) });
-    if (operation.dropout && back) hitBack(scene, music.layer, end, back.at);
-    if (back) notes.push(operation.dropout ? `the music drops out for the line and hits back on the downbeat at ${back.at} s (${round(back.at - end, 1)} s after the line)` : `the music comes back up on the beat at ${back.at} s`);
-    else if (operation.dropout) notes.push("no beats measured on the music: it comes back over 0.8 s after the line");
-    if (!operation.dropout && operation.dip === undefined && over) notes.push("dropout:true takes the music out under the line and hits back on the next downbeat");
+    // A kept sound the music does not mask: no dip at all.
+    if (!(over?.own && !out && dip >= level)) {
+      const under = kept.filter((entry) => entry.ranges.length);
+      const speech = {};
+      for (const { piece, play, ranges: stretches } of under)
+        speech[piece.id] = { words: stretches.map((item) => ({ text: "line", start: round(mediaSoundTime(piece, Math.max(item.start, play.start))), end: round(mediaSoundTime(piece, Math.min(item.end, play.end))), p: 1 })) };
+      // The release ends on the song's next beat (dropout: the music hits back on the next downbeat).
+      const back = returnTime(scene, music.layer, operation.beats?.[music.layer.id], end, out);
+      const fadeUp = back ? round(back.at - end) : undefined;
+      duck = applyDuckAudio(document, { type: "duck_audio", sceneId: scene.id, layerId: music.layer.id, under: under.map((entry) => entry.piece.id), to: dip, speech, ...(fadeUp !== undefined ? { fadeUp } : {}) });
+      if (out && back) hitBack(scene, music.layer, end, back.at);
+      if (back) notes.push(out ? `the music drops out for the line and hits back on the downbeat at ${back.at} s (${round(back.at - end, 1)} s after the line)` : `the music comes back up on the beat at ${back.at} s`);
+      else if (out) notes.push("no beats measured on the music: it comes back over 0.8 s after the line");
+      if (!out && operation.dip === undefined && over && !over.own) notes.push("dropout:true takes the music out under the line and hits back on the next downbeat");
+    }
   } else {
     for (const entry of kept) delete entry.piece.voiceLevel;
     notes.push(`the music does not dip: ${music.reason}`);
@@ -366,11 +467,12 @@ export function applyKeepLine(document, operation, { fonts } = {}) {
     file: [fileFrom, fileTo],
     volume,
     ...(differs ? { heard: heardText } : {}),
+    ...(sound ? { sound: { label: sound.label, sure: sound.sure, db: sound.db } } : {}),
     kept: ranges.length,
     subtitle: subtitle ? { name: subtitle.name, pages: subtitle.pages, look: subtitle.look ?? operation.look ?? "subtitle" } : (operation.subtitle === false ? "off" : "none"),
     duck: duck ? { layer: duck.layer, to: duck.to, summary: duck.summary } : "none",
     ...(mix ? { mix } : {}),
-    summary: `kept ${text ? `"${text.length > 60 ? `${text.slice(0, 60)}...` : text}" ` : ""}of ${layer.name} at ${start}-${end} s (file ${fileFrom}-${fileTo} s), the rest of its sound silenced; ${subtitle ? `subtitle ${subtitle.name}` : "no subtitle"}; ${duck ? duck.summary : "no music dip"}${mix ? `; mix under the line ${mix.under} vs ${mix.around} LUFS in the 2 s around (${mix.change >= 0 ? "+" : ""}${mix.change} LU)` : ""}`,
+    summary: `kept ${sound ? `${sound.label.replaceAll("_", " ")} (${sound.db} dB) ` : text ? `"${text.length > 60 ? `${text.slice(0, 60)}...` : text}" ` : ""}of ${layer.name} at ${start}-${end} s (file ${fileFrom}-${fileTo} s), the rest of its sound silenced; ${subtitle ? `subtitle ${subtitle.name}` : "no subtitle"}; ${duck ? duck.summary : "no music dip"}${mix ? `; mix under the ${sound ? "sound" : "line"} ${mix.under} vs ${mix.around} LUFS in the 2 s around (${mix.change >= 0 ? "+" : ""}${mix.change} LU)` : ""}`,
     ...(notes.length ? { notes } : {}),
   };
 }

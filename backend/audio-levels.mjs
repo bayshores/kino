@@ -2,6 +2,7 @@
 // the meter reads integrated loudness (LUFS) and true peak (dBTP) as EBU R128 and ITU-R BS.1770
 // define them, with FFmpeg's ebur128 filter.
 import { join } from "node:path";
+import { BED_VOLUME } from "../engine/mixLevels.js";
 import { runExportProcess } from "./export-process.mjs";
 
 const ffmpeg = () => process.env.KINO_FFMPEG ?? process.env.OPEN_MOTION_FFMPEG ?? "ffmpeg";
@@ -18,7 +19,8 @@ const TRIAL_ENCODES = 4;
 // Platform loudness targets in LUFS (integrated): the render option `loudness` picks one, and
 // "off" keeps the mix's own loudness. Every mp4, webm and mov render, drafts too, uses "web" unless told otherwise.
 export const LOUDNESS_TARGETS = { web: -14, podcast: -16, broadcast: -23 };
-export const LOUDNESS_OPTIONS = [...Object.keys(LOUDNESS_TARGETS), "off"];
+// "auto" (the default) picks web or a song's own level: see mixLead. LOUDNESS_TARGETS stays the fixed ones.
+export const LOUDNESS_OPTIONS = ["auto", ...Object.keys(LOUDNESS_TARGETS), "off"];
 // Plain gain raises a quiet mix by at most this much, so near silence is not turned into hiss.
 const MAX_GAIN_DB = 20;
 // The limiter takes peaks down by at most this much. When reaching the target would take more, the
@@ -102,8 +104,7 @@ export function measureMixLevels(inputs, graph, signal) {
  * Returns { target, targetLufs, gainDb, correction, capped, held, loudestAt, filter }, or null for
  * "off", an unknown target, or a mix too short or quiet to measure.
  */
-export function loudnessGain(levels, target, correction = 0) {
-  const targetLufs = LOUDNESS_TARGETS[target];
+export function loudnessGain(levels, target, correction = 0, targetLufs = LOUDNESS_TARGETS[target], why = undefined) {
   if (targetLufs === undefined || levels.integratedLufs === null || levels.truePeakDbtp === null) return null;
   correction = round1(correction);
   const wanted = targetLufs - levels.integratedLufs + correction;
@@ -111,7 +112,38 @@ export function loudnessGain(levels, target, correction = 0) {
   const gainDb = round1(Math.min(MAX_GAIN_DB, wanted, headroom));
   const held = headroom < Math.min(MAX_GAIN_DB, wanted);
   return { target, targetLufs, gainDb, correction, capped: wanted > MAX_GAIN_DB, held,
-    loudestAt: held ? levels.loudestAt ?? null : null, filter: `volume=${gainDb}dB` };
+    loudestAt: held ? levels.loudestAt ?? null : null, filter: `volume=${gainDb}dB`, ...(why ? { why } : {}) };
+}
+
+// A song-led mix is not turned down under the song it is built on. The thresholds are guesses (nothing
+// measured separates them): a song at volume BED_VOLUME or more (the line between a song and a bed,
+// engine/mixLevels.js) playing at least half the video, and under half of that time covered by
+// leveled speech. Reference edits made around a song sit at -12.9 to -8.8 LUFS (the song's own level),
+// a voice-led video at the web's -14 (.scratch/barwave/design/song-level.md).
+const SONG_SHARE = 0.5;
+const VOICE_SHARE = 0.5;
+
+/**
+ * Which loudness target "auto" means for a mix. `songs` are [{seconds, volume, lufs}] (a file's played
+ * seconds, its loudest volume, its own loudness over the played spans); `voiceSeconds` the seconds of
+ * leveled speech. Returns { target: "song"|"web", targetLufs, why? }: a song-led mix keeps the song's
+ * own level when that is over the web's -14, anything else gets -14. `why` appears only when a song plays.
+ */
+export function mixLead({ duration, songs = [], voiceSeconds = 0 }) {
+  const web = LOUDNESS_TARGETS.web;
+  const named = songs.filter((song) => song.seconds > 0 && Number.isFinite(song.lufs));
+  if (!named.length) return { target: "web", targetLufs: web };
+  const led = named.filter((song) => song.volume >= BED_VOLUME);
+  const played = led.reduce((sum, song) => sum + song.seconds, 0);
+  const seconds = (value) => round1(value);
+  if (!led.length) return { target: "web", targetLufs: web, why: `the song is a bed (volume under ${BED_VOLUME})` };
+  if (played < duration * SONG_SHARE)
+    return { target: "web", targetLufs: web, why: `the song plays ${seconds(played)} of ${seconds(duration)} s` };
+  if (voiceSeconds >= played * VOICE_SHARE)
+    return { target: "web", targetLufs: web, why: `a voice leads (${seconds(voiceSeconds)} s of words)` };
+  const own = round1(Math.max(...led.map((song) => song.lufs)));
+  if (own <= web) return { target: "web", targetLufs: web, why: `the song (${own}) is under ${web}` };
+  return { target: "song", targetLufs: own, why: "the song's own level, no voice leads" };
 }
 
 /**
@@ -122,8 +154,10 @@ export function loudnessGain(levels, target, correction = 0) {
  * that landed closest wins. Returns fitLimiterCeiling's result plus `loudness` (the loudnessGain
  * used, or null when the mix keeps its own loudness) and `graph` (the mix with it).
  */
-export async function fitLoudness(inputs, graph, levels, target, settings) {
-  let loudness = loudnessGain(levels, target);
+export async function fitLoudness(inputs, graph, levels, target, settings, lead = {}) {
+  // `lead` ({ targetLufs, why }) is what "auto" chose (mixLead): its own target, passed on every trial.
+  const gain = (correction = 0) => loudnessGain(levels, target, correction, lead.targetLufs ?? LOUDNESS_TARGETS[target], lead.why);
+  let loudness = gain();
   if (!loudness) return { ...(await fitLimiterCeiling(inputs, graph, settings)), loudness: null, graph };
   let best = null, previous = null;
   for (let trial = 1; ; trial += 1) {
@@ -135,9 +169,12 @@ export async function fitLoudness(inputs, graph, levels, target, settings) {
     const step = previous ? loudness.correction - previous.correction : 0;
     const slope = step ? Math.min(1, Math.max(0.25, (previous.off - off) / step)) : 1;
     previous = { correction: loudness.correction, off };
-    loudness = loudnessGain(levels, target, loudness.correction + off / slope);
+    loudness = gain(loudness.correction + off / slope);
   }
   const { off, ...result } = best;
+  // A peak that limited the gain but still let the mix land on target (a loud song's own level
+  // sits close to its peaks) is not named as the reason the target was missed.
+  if (result.loudness?.held && Math.abs(off) <= TARGET_TOLERANCE_LU) result.loudness = { ...result.loudness, held: false, loudestAt: null };
   return result;
 }
 
@@ -170,7 +207,8 @@ export async function fitLimiterCeiling(inputs, graph, { codecArgs, format, dire
 export function describeLevels({ integratedLufs, loudnessRangeLu = null, truePeakDbtp }, loudness = null) {
   if (truePeakDbtp === null) return "silent";
   const held = loudness?.held ? `, held under by the peak at ${loudness.loudestAt} s: lower that sound to reach it` : "";
-  const target = loudness ? ` (target ${loudness.targetLufs} ${loudness.target}${held})` : "";
+  const why = loudness?.why ? `: ${loudness.why}` : "";
+  const target = loudness ? ` (target ${loudness.targetLufs} ${loudness.target}${why}${held})` : "";
   const measured = integratedLufs === null ? "too short to measure LUFS" : `${integratedLufs} LUFS${target}`;
   const range = loudnessRangeLu === null ? "" : `, range ${loudnessRangeLu} LU`;
   return `${measured}${range}, true peak ${signed(truePeakDbtp)} dBTP${truePeakDbtp > 0 ? " (clips)" : ""}`;

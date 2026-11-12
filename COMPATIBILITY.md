@@ -1043,6 +1043,13 @@ How to read it:
   release ends on a beat; `dropout:true` takes the music out until the next downbeat; the receipt's `mix` states the
   total under the line for any dip. Render: line span -13.9 vs -13.8 LUFS around, line 5.9 LU over the bed (old
   default 0.6); quiet bed: line at -16, as before. Evidence: `engine/speech.test.js`. Gap: no owner listening test.
+- **Clip sounds besides words** (import answer, look source, `keep_line {sound}`, board `sound {keep:"<sound>"}`):
+  Test-verified on macOS 13+. The kino-measure helper's `--sounds` mode runs the macOS sound classifier on 1 s
+  windows (`.sounds-v1` beside the file); the readout lists the 3 loudest events and the bed; keep_line {sound}
+  keeps the loudest match at its own level, with no subtitle, and dips the music only when it would mask the sound.
+  Evidence: `engine/speech.test.js`, `engine/board.test.js`, `backend/measure-vision.test.mjs`. Render: the mix change
+  under a kept laugh read +3.3 LU (receipt +4.5), under a chime -4.7 LU (receipt -3.1). Gap: labels on drawn footage
+  under music are often instruments (a laugh read 0.43 sure, so the readout does not list it).
 - **Compose keeps spoken lines**: Verified on plans in engine tests and probed on a real project. With no voice,
   compose {footage} keeps the clips' best lines heard (up to one per 6 s; `lines` number, texts or false),
   captioned, music ducked; the receipt lists kept and left-out lines with calls. `speech_unplayed` warns when
@@ -1088,8 +1095,12 @@ How to read it:
 - **Loudness**: Verified on generated audio. Renders with sound report LUFS and true peak, limit to
   -1 dBTP and warn with the loudest moment. Evidence: `backend/audio-levels.test.mjs`.
 - **Loudness targets**: Verified on generated audio. Every mp4, webm and mov render brings the mix to
-  `loudness` web -14, podcast -16 or broadcast -23 LUFS with one plain gain, so lines keep their
-  balance; a peak that would need over 6 dB of limiting holds the gain and is named. Checks warn on
+  `loudness` auto (default: a song-led mix keeps the song's own LUFS when over -14, otherwise -14; a
+  song is an audio file with a steady beat, found at render when no beat op saved one; the reply says
+  which rule applied), web -14, podcast -16 or broadcast -23 LUFS with one plain gain, so
+  lines keep their balance; a peak that would need over 6 dB of limiting holds the gain and is named.
+  A kept line the +12 dB lift cannot bring to the music gets the music out under it, with the shortfall
+  in LU and the `dip:` that holds the mix in the note. Checks warn on
   peak (`audioPeak`) and target (`audioLoudness`). Volume goes to 4 (+12 dB). Evidence:
   `backend/audio-levels.test.mjs`, `engine/volumeAnimation.test.js`. Gap: the dashboard preview mix is
   not leveled and plays volume at most 1.

@@ -55,7 +55,13 @@ test("a shot keeps its clip's own sound (sound {keep}); building it keeps the st
   const song = createLayer("audio", { id: "song", name: "song", src: "/api/media/song.wav" });
   const before = parseDocument(createDocument({ id: "b", name: "Board", board, scenes: [createScene({ id: "s1", duration: 6, layers: [song] })] }));
   assert.deepEqual(before.board.shots.map((entry) => entry.sound), ["none", { keep: [21.004, 22] }, { media: "/api/media/hit.wav", what: "a hit", keep: "all" }]);
-  assert.throws(() => normalizeBoard({ board: { ...board, shots: [shot("S1", 0, 6, 0, { keep: [3, 2] })] } }), /shots\[0\]\.sound\.keep must be "all" or \[from, to\] in file seconds/);
+  assert.throws(() => normalizeBoard({ board: { ...board, shots: [shot("S1", 0, 6, 0, { keep: [3, 2] })] } }), /shots\[0\]\.sound\.keep must be "all", \[from, to\] in file seconds, or a sound/);
+  // A sound by name: the shot bounds it, and building it sends keep_line {sound}.
+  const named = parseDocument(createDocument({ id: "n", name: "Board", board: { ...board, shots: [shot("S1", 0, 2, 10, { keep: " laughter " })] }, scenes: [createScene({ id: "s1", duration: 6, layers: [song] })] }));
+  assert.deepEqual([named.board.shots[0].sound, keptSceneSpan(named.board.shots[0])], [{ keep: "laughter" }, [0, 2]]);
+  const namedAfter = structuredClone(named);
+  namedAfter.scenes[0].layers.push(layer("v1", 0, 10));
+  assert.deepEqual(boardKeepOps(named, namedAfter).map((entry) => [entry.operation.sound, entry.operation.from]), [["laughter", undefined]]);
   // File seconds to scene seconds: S2 plays file 20.5-22.5 from 2 s, so file 21.004-22 is 2.504-3.5 s.
   assert.deepEqual(before.board.shots.map(keptSceneSpan), [null, [2.504, 3.5], [4, 6]]);
   assert.equal(keptSeconds(before.board), 3, "0.996 + 2 s, to 2 decimals");
