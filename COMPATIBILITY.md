@@ -1445,7 +1445,8 @@ How to read it:
   Evidence: `backend/board-rules.test.mjs`, `backend/agent-board.test.mjs`.
 - **Build the approved board**: Test-verified. After approval `next:` is `compose {from:"board"}`: one layer per
   shot in board order (file, in-point, length, text card), the board's music kept; a refused compose offers it,
-  never the beats promo. Evidence: `backend/agent-board.test.mjs`.
+  never the beats promo, and a refused board no canned board. A board of pictures counts as built once
+  built. Evidence: `backend/agent-board.test.mjs`, `backend/board-rules.test.mjs`.
 - **After a redo**: Verified. The next ask lists what changed as asked, unasked, and not changed.
   Evidence: `backend/board-redo.test.mjs`.
 - **Graphics-only board**: Verified. The storyboard stop asks from 8 s with or without footage; a 20 s

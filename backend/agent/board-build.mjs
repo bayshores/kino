@@ -98,15 +98,28 @@ export function boardBuildOps(board, frame, fileOf) {
   return { ops, moves, footage, cards, missing };
 }
 
+// When a layer comes on screen: a video's mediaStart; a picture or text has no media start, so its
+// first show animation (what boardBuildOps gives it), else 0.
+function shownAt(layer) {
+  if (layer.type === "video") return layer.mediaStart ?? 0;
+  const show = (layer.animations ?? []).filter((animation) => animation.kind === "show").map((animation) => animation.start ?? 0);
+  return show.length ? Math.min(...show) : 0;
+}
+
 /**
- * Whether the board is already on the timeline: at least half of its footage shots have a layer
- * of the same file starting within a frame of the shot's cue (built by compose from:"board" or by
- * hand). A guess at "half": a hand build that kept most shots counts as built.
+ * Whether the board is already on the timeline: at least half of its shots are there (built by
+ * compose from:"board" or by hand). A footage shot is there when a layer of the same file comes
+ * on screen within a frame of its cue; a text-only shot when a text layer holds its words. Pictures
+ * count by their show time, so a board of screenshots is seen as built too (a picture has no
+ * mediaStart: matching on it alone named the build again after every build). A guess at "half":
+ * a hand build that kept most shots counts as built.
  */
 export function boardBuilt(document) {
-  const shots = (document?.board?.shots ?? []).filter((shot) => shot.media !== NONE);
+  const shots = (document?.board?.shots ?? []).filter((shot) => shot.media !== NONE || shot.text?.text);
   if (!shots.length) return true;
-  const layers = (mainScene(document)?.layers ?? []).filter((layer) => layer.type === "video" || layer.type === "image");
-  const found = shots.filter((shot) => layers.some((layer) => layer.src === shot.media && Math.abs((layer.mediaStart ?? 0) - shot.cue) <= ONE_FRAME));
-  return found.length * 2 >= shots.length;
+  const layers = mainScene(document)?.layers ?? [];
+  const there = (shot) => (shot.media !== NONE
+    ? layers.some((layer) => (layer.type === "video" || layer.type === "image") && layer.src === shot.media && Math.abs(shownAt(layer) - shot.cue) <= ONE_FRAME)
+    : layers.some((layer) => layer.type === "text" && layer.text === shot.text.text));
+  return shots.filter(there).length * 2 >= shots.length;
 }

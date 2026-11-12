@@ -112,9 +112,14 @@ function problem(message, suggestions = []) {
 // craft-plan move built as an edit op (frame, the 2D camera) or a scene setting (drift), added below OPERATIONS.
 const BOARD_MOVE_NAMES = new Set([...MOVE_NAMES, ...TRANSITION_NAMES, ...RECIPE_NAMES, ...Object.keys(PRESET_DEFINITIONS).filter((name) => name !== "custom-text")]);
 
-/** A refused board: `boardError` (missing_layer, gap, overlap, bad_shot) goes into the refusal's details. */
+/**
+ * A refused board: `boardError` (missing_layer, gap, overlap, bad_shot) goes into the refusal's details.
+ * No example: the op's usual one is a one-shot board of another video ("Ship faster", "<video>.mp4"),
+ * and a retry sent with it would replace the agent's own shots (run 8 T244, an 11-shot board). The
+ * message names each shot and field to change.
+ */
 function boardProblem(code, message, suggestions = []) {
-  return Object.assign(problem(message, suggestions), { boardError: code });
+  return Object.assign(problem(message, suggestions), { boardError: code, noExample: true });
 }
 
 /**
@@ -368,12 +373,15 @@ function translateFootage(operation, resolver, document) {
 
 // compose {from:"board"}: each refusal names the one condition that failed and the smallest fix,
 // with no example (the op's usual example is an unrelated promo; DESIGN.md D10, run 8 T324).
+// A wrong from or an extra field is fixed by the call itself, so with a board saved that call is
+// the retry (built from the op as sent, not an example of another video); without one, none.
 function translateFromBoard(operation, document) {
-  const refuse = (message) => Object.assign(problem(message), { noExample: true });
+  const hasBoard = Boolean(document.board?.shots?.length);
+  const refuse = (message, fixed = hasBoard) => Object.assign(problem(message), fixed ? { example: { ...BOARD_BUILD } } : { noExample: true });
   if (operation.from !== "board") throw refuse(`from is "board" (the storyboard); ${JSON.stringify(operation.from)} is not something compose builds from.`);
   const extra = Object.keys(operation).filter((key) => !["type", "from"].includes(key));
   if (extra.length) throw refuse(`compose {from:"board"} takes no ${extra.join(", ")}: the board holds the shots, text and music. Send {op:"compose", from:"board"}; change the board itself (edit board) to change them.`);
-  if (!document.board?.shots?.length) throw refuse('There is no storyboard to build: save one first, edit {ops:[{op:"board", music, shots}]} (library guide storyboard).');
+  if (!hasBoard) throw refuse('There is no storyboard to build: save one first, edit {ops:[{op:"board", music, shots}]} (library guide storyboard).', false);
 }
 
 // A refused compose never offers the op's usual example as its fix: that is a beats promo about

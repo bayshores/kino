@@ -9,6 +9,7 @@ import { keepShotIds, reframeBoard } from "../engine/board.js";
 import { reopenStep, stopRules } from "./agent/stops.mjs";
 import { answerStep, checkpointStep, dashboardAnswerStep, settleWaiting, stopPlan, statusLines } from "./stops.test.support.mjs";
 import { emptyAgentState } from "./agent/state.mjs";
+import { boardBuilt } from "./agent/board-build.mjs";
 
 const FRAME = { width: 1080, height: 1920 };
 const clip = "/api/media/clip.mp4";
@@ -498,4 +499,16 @@ test("a redo of a later stop names the storyboard first when footage made it due
     stops: [{ id: "C1", kind: "rough", rev: 3, status: "answered", answer: { read_as: "redo", words: "less AI" } }] };
   assert.equal(statusLines(state, VIDEO)[1], "step: fix what they named, check, ask board, then rough");
   assert.equal(statusLines(state, { ...VIDEO, footage: false })[1], "step: fix what they named, check, ask rough again");
+});
+
+// A board of pictures has no mediaStart to match: after compose {from:"board"} its next: named
+// the build again, forever (skeptic run, a 4-shot promo of one screenshot).
+test("a board counts as built by its shots' show times, pictures and text cards too", () => {
+  const picture = "/api/media/screen.png";
+  const shots = [card("S1", 0, 2), { ...footage("S2", 2, 3, 0, [10, 12, 24, 76]), media: picture }, { ...footage("S3", 5, 1, 0, [10, 12, 24, 76]), media: picture }];
+  const shown = (start) => [{ kind: "show", start }, { kind: "hide", start: start + 1 }];
+  const document = (layers) => ({ board: { shots }, scenes: [{ id: "s1", layers }] });
+  assert.equal(boardBuilt(document([])), false);
+  assert.equal(boardBuilt(document([{ type: "image", src: picture, animations: shown(2) }, { type: "text", text: "Orbit", animations: shown(0) }])), true);
+  assert.equal(boardBuilt(document([{ type: "image", src: picture, animations: shown(4) }])), false, "a picture shown at another time is not the shot");
 });

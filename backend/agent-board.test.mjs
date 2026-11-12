@@ -97,6 +97,9 @@ function assertRefused(reply, boardError, message) {
   assert.equal(reply.data.error, "op_failed", reply.text);
   assert.equal(reply.data.boardError, boardError, reply.text);
   assert.equal(reply.data.reason.replace(/^Operation \d+ \(board\) was refused: /, ""), message);
+  // Never the op's usual one-shot board of another video as the retry (run 8 T244).
+  assert.equal(reply.data.example, undefined, reply.text);
+  assert.ok(!reply.text.includes("Ship faster"), reply.text);
 }
 
 // These tests are about the board, not the frame's shape: the person's own words name the
@@ -434,7 +437,10 @@ test("after the approval, next: is compose {from:\"board\"}: it builds the shots
   const fields = { about: { text: "the dragon", by: "you", quote: "the dragon" }, message: "The dragon is back", look_sound: "dusk, the village sound", never: "none said", made_from: "the dragon clip" };
   assert.equal((await agent("notes", { project: id, action: "brief", fields })).isError, undefined);
   await agent("notes", { project: id, action: "set_plan", steps: ["Board", "Ask board", "Build the approved board", "Render final"] });
-  assert.equal((await editBoard(id, STOP_SHOTS(), DECIDED)).isError, undefined);
+  const saved = await editBoard(id, STOP_SHOTS(), DECIDED);
+  assert.equal(saved.isError, undefined);
+  // Saved, not asked yet: the receipt names the ask, not a build kino would refuse (run 8 T254, T299).
+  assert.equal(JSON.parse(saved.text).next, 'notes {"action":"checkpoint","id":"board"}', saved.text);
   const asked = await checkpoint(id);
   await gap(asked.at);
   const approved = await answer(id, { id: "C1", rev: asked.data.rev, words: "looks good, keep going", read_as: "approve" });
@@ -447,7 +453,9 @@ test("after the approval, next: is compose {from:\"board\"}: it builds the shots
   assert.ok(!refused.text.includes("Orbit"), refused.text);
   const wrong = await agent("edit", { project: id, ops: [{ op: "compose", from: "board", duration: 15 }] });
   assert.ok(wrong.data.reason.endsWith('compose {from:"board"} takes no duration: the board holds the shots, text and music. Send {op:"compose", from:"board"}; change the board itself (edit board) to change them.'), wrong.text);
-  assert.equal(wrong.data.example, undefined, wrong.text);
+  assert.deepEqual(wrong.data.example, { op: "compose", from: "board" }, "the retry is the call without the extra field");
+  const word = await agent("edit", { project: id, ops: [{ op: "compose", from: "storyboard" }] });
+  assert.equal(JSON.parse(word.text).next, 'edit {"retry":"' + word.data.retry + '","fix":{"0":{"op":"compose","from":"board"}}}', word.text);
   const built = await agent("edit", { project: id, ops: [{ op: "compose", from: "board" }] });
   assert.equal(built.isError, undefined, built.text);
   assert.ok(built.text.includes("compose from board r1: 4 shots in board order (3 footage, 1 text cards), 0–8.8 s"), built.text);

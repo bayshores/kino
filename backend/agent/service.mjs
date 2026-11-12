@@ -8165,6 +8165,10 @@ export function createAgentService(deps) {
     // footage compose that never read the board). The direction's own steps stay first: the
     // build's gates (references, treatments) would refuse it before them.
     if (activeApproval(state) && !boardBuilt(document)) return nextOf("edit", { ops: [{ ...BOARD_BUILD }] });
+    // A saved board the stop still asks about: the ask, even in an edit receipt (advice:false),
+    // where a build call would only be refused with board_needed (run 8 T254 and T299 named a
+    // footage compose here, after the board was saved and before it was asked).
+    if (document.board?.shots?.length && move.call?.input?.action === "checkpoint" && move.call.input.id === "board") return move.call;
     if (!hasLayers(document)) return await composeCall(document, state);
     if (state.checked?.rev !== record.revision) return checkCall(state);
     const codes = await syncCodes(document.id, document);
