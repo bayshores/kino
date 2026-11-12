@@ -76,7 +76,8 @@ function withSceneLayers(document, scene, layers) {
 
 // duplicate_layers {layers, offset?} makes one copy; with count, layout, spacing, columns,
 // radius or stagger it makes up to 50 real copies in a line, grid or ring (duplicate.js).
-const REPEAT_FIELDS = ["count", "layout", "spacing", "columns", "radius", "stagger"];
+// at (seconds, cues already resolved by blocks.mjs applyTiming) and vary place copies in time.
+const REPEAT_FIELDS = ["count", "layout", "spacing", "columns", "radius", "stagger", "at", "vary"];
 
 // translate.mjs copyNames chose each copy's ID and name ({original ID: {id, name}} per copy), so
 // later operations of the same edit can name the copies.
@@ -96,7 +97,7 @@ function duplicate(document, operation, fonts) {
   options.copies = copies;
   if (operation.offset !== undefined) options.offset = offset;
   const result = duplicateRepeated(document, scene.id, operation.layerIds, options, { fonts });
-  return { document: parseDocument(result.document) };
+  return { document: parseDocument(result.document), ...(result.first !== undefined ? { first: result.first } : {}) };
 }
 
 // split_layer {layer, at} cuts a timed layer in two; {layer, from, to} also skips the file

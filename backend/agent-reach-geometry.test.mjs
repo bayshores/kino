@@ -357,6 +357,8 @@ test("later ops of the same edit can name what duplicate_layers and split_layer 
     createLayer("rectangle", { id: "card", name: "card", x: 30, y: 100, width: 24, height: 24, fill: "#ff0000", strokeWidth: 0, radius: 0 }),
     createLayer("video", { id: "app", name: "app", src: "/api/media/app.mp4", width: 160, height: 90, mediaDuration: 4, mediaSourceDuration: 6, mediaFreeze: "none" }),
     createLayer("video", { id: "shot", name: "shot 1", src: "/api/media/app.mp4", width: 160, height: 90, mediaDuration: 4, mediaSourceDuration: 6, mediaFreeze: "none" }),
+    createLayer("rectangle", { id: "ring", name: "ring", x: 200, y: 160, width: 40, height: 40, fill: "#00ff00", strokeWidth: 0, radius: 0,
+      animations: [{ id: "ring-show", name: "Show", kind: "show", start: 0.2 }, { id: "ring-hide", name: "Hide", kind: "hide", start: 0.6 }] }),
   ]);
   await createProject(before.id, { ...before, scenes: [{ ...before.scenes[0], duration: 4 }] });
   const reply = await agent("edit", { project: before.id, ops: [
@@ -368,10 +370,21 @@ test("later ops of the same edit can name what duplicate_layers and split_layer 
     { op: "split_layer", layer: "app 2", at: 2 },
     { op: "update_layer", layer: "app 3", properties: { volume: 0.5 } },
     { op: "split_layer", layer: "shot 1", at: 2 },
+    // at: one copy per time, a cue resolved where the edit runs; vary steps the fill per place.
+    { op: "set_cue", name: "x", at: 2 },
+    { op: "duplicate_layers", layers: ["ring"], at: ["cue:x", 3], vary: { fill: ["#00ff00", "#0000ff"] } },
+    { op: "update_layer", layer: "ring 3", properties: { opacity: 0.5 } },
   ] });
   assert.equal(reply.isError, undefined, reply.text);
+  assert.match(reply.text, /ring: 3 places at 0\.2 2 3 s .*\(x at 2\); fill #00ff00 to #0000ff/);
   const layers = (await saved(before.id)).document.scenes[0].layers;
   const named = (name) => layers.find((layer) => layer.name === name);
+  assert.deepEqual(["ring", "ring 2", "ring 3"].map((name) => [named(name).animations[0].start, named(name).fill, named(name).x]),
+    [[0.2, "#00ff00", 200], [2, "#008080", 200], [3, "#0000ff", 200]]);
+  assert.equal(named("ring 3").opacity, 0.5, "a later op names the copy");
+  const frame = await agent("look", { project: before.id, mode: "frame", t: 2.1, width: 320 });
+  const pixel = (await readImage(Buffer.from(frame.images[0].data, "base64"))).pixel(210, 170);
+  assert.deepEqual(pixel.slice(0, 3), [0, 128, 128], "the copy shows at the cue in its own fill");
   assert.deepEqual([named("card copy").id, named("card copy").fill, named("card 3").fill], ["card-copy", "#00ff00", "#0000ff"]);
   assert.deepEqual(["app", "app 2", "app 3"].map((name) => [named(name).mediaStart, named(name).mediaOffset, named(name).mediaDuration]),
     [[0, 0, 1], [1, 1.5, 1], [2, 2.5, 1.5]], "a 0.5 s skip at 1 s, then a cut at 2 s");

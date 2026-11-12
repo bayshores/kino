@@ -569,8 +569,8 @@ function restValues(layer) {
 }
 
 // `values` (an animation's from or to) moved from the copied layer's resting values `source`
-// to the target layer's `target`.
-function rebaseValues(values, source, target) {
+// to the target layer's `target`. Also used by duplicate.js vary.
+export function rebaseValues(values, source, target) {
   if (!isRecord(values)) return values;
   const next = { ...values };
   for (const [key, value] of Object.entries(values)) {

@@ -20,6 +20,8 @@ const SEEN_AS = {
   "cut out": ["cut_out"], cutout: ["cut_out"], "crisp cutout": ["cut_out"], "cutout edge": ["cut_out"], "hard matte edge": ["cut_out"], silhouette: ["cut_out"], matte: ["cut_out"], "background removal": ["cut_out"], "remove background": ["cut_out"], "sharp cutout": ["cut_out"],
   // A clip's own line heard over the song, or the song cut out for it (keep_line dropout).
   "line over music": ["keep_line", "duck_audio"], "dialogue over music": ["keep_line", "duck_audio"], dropout: ["keep_line"], "music drops out": ["keep_line"], "music cuts out": ["keep_line"],
+  // A made element that comes back at chosen times, a little different (duplicate_layers at + vary).
+  motif: ["duplicate_layers"], callback: ["duplicate_layers"], "comes back": ["duplicate_layers"], recurring: ["duplicate_layers"], "returning element": ["duplicate_layers"],
   "speed ramp": ["speed-ramp", "clip-speed"], ramp: ["speed-ramp", "clip-speed"], "slow motion": ["speed-ramp", "clip-speed"],
   "slow mo": ["speed-ramp", "clip-speed"], slowmo: ["speed-ramp", "clip-speed"], "time remap": ["speed-ramp", "clip-speed"],
   "fast forward": ["clip-speed"], reverse: ["clip-speed"],

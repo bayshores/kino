@@ -7,6 +7,7 @@ import { createMask } from "./masking.js";
 import { renderSceneSvg } from "./render.js";
 import { presetAnimation } from "./animation.js";
 import { DUPLICATE_OFFSET, copyName, copyOffsets, duplicateRepeated, duplicateSelection } from "./duplicate.js";
+import { returningDevices, returnsLine } from "./quality/returns.js";
 
 function documentWith(layers) {
   return parseDocument(createDocument({ scenes: [createScene({ id: "main", layers })] }));
@@ -169,4 +170,39 @@ test("count makes numbered copies in a line, grid or ring, each copy's animation
   assert.throws(() => duplicateRepeated(document, "main", ["dot"], { count: 2, layout: "line", columns: 0 }), /columns works only with layout "grid", not "line"/);
   assert.throws(() => duplicateRepeated(document, "main", ["dot"], { count: 2, layout: "grid", offset: 10 }), /offset works only with no layout/);
   assert.throws(() => copyOffsets({ count: 1, layout: "spiral" }), /layout must be one of line, grid, radial/);
+});
+
+test("at puts each copy of a made element at its own time, footage included, and vary steps a value per place", () => {
+  const ring = createLayer("rectangle", { id: "ring", name: "Ring", parentId: "mark", width: 40, height: 40 });
+  ring.animations = [{ id: "show", name: "Show", kind: "show", start: 1 }, presetAnimation("preset-grow", ring, 1)];
+  const document = documentWith([
+    createLayer("group", { id: "mark", name: "Mark" }),
+    ring,
+    createLayer("video", { id: "clip", name: "Clip", parentId: "mark", src: "clip.mp4", mediaStart: 1, mediaDuration: 2 }),
+  ]);
+  const result = duplicateRepeated(document, "main", ["mark"], { at: [3, 6, 9], vary: { scaleX: [0.5, 2] } });
+  const layers = layersOf(parseDocument(result.document));
+  const rings = ["Ring", "Ring 2", "Ring 3", "Ring 4"].map((name) => byName(layers, name));
+  assert.deepEqual(rings.map((layer) => layer.animations[0].start), [1, 3, 6, 9]);
+  assert.deepEqual(["Clip 2", "Clip 3", "Clip 4"].map((name) => byName(layers, name).mediaStart), [3, 6, 9]);
+  assert.deepEqual(["Mark", "Mark 2", "Mark 3", "Mark 4"].map((name) => byName(layers, name).scaleX), [0.5, 1, 1.5, 2]);
+  assert.equal(byName(layers, "Mark 2").x, byName(layers, "Mark").x, "copies stay in place without an offset or layout");
+  const devices = returningDevices(result.document.scenes[0]);
+  assert.deepEqual(devices.map((device) => [device.label, device.places]), [["mark", [1, 3, 6, 9]]], "the shot inside the group is listed once, as the group");
+  assert.deepEqual(devices[0].changes[0], { key: "scaleX", first: 0.5, last: 2 });
+  assert.match(returnsLine(devices), /^returns: mark 4 at 1 3 6 9 \(scaleX 0\.5 to 2\)/);
+  assert.throws(() => duplicateRepeated(document, "main", ["mark"], { at: [3, 6], count: 3 }), /at lists 2 times, count says 3/);
+  assert.throws(() => duplicateRepeated(document, "main", ["mark"], { at: [3], stagger: 1 }), /two timings/);
+  assert.throws(() => duplicateRepeated(document, "main", ["mark"], { at: [3, 6], vary: { scaleX: [1, 2, 3, 4] } }), /or 3 values, one per place/);
+  const still = documentWith([createLayer("rectangle", { id: "bg", name: "Plate" })]);
+  assert.throws(() => duplicateRepeated(still, "main", ["bg"], { at: [3] }), /give “Plate” a Show, an animation or a play time first/);
+});
+
+test("vary rebases a grow, so each copy's grow ends at its own scale", () => {
+  const dot = createLayer("ellipse", { id: "dot", name: "Dot" });
+  dot.animations = [presetAnimation("preset-grow", dot, 1)];
+  const result = duplicateRepeated(documentWith([dot]), "main", ["dot"], { at: [2], vary: { scaleX: [0.5, 1.5], scaleY: [0.5, 1.5] } });
+  const layers = layersOf(result.document);
+  for (const layer of layers) assert.equal(layer.animations[0].to.scaleX, layer.scaleX);
+  assert.deepEqual(layers.map((layer) => layer.scaleX).sort(), [0.5, 1.5]);
 });
