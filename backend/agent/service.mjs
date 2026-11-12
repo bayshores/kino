@@ -54,7 +54,7 @@ import { mediaAllowedIn } from "../media-use.mjs";
 import { assignCodes, closest, createResolver, documentObjects, nearMiss, ReferenceError } from "./refs.mjs";
 import { SAMPLE_FRAME, sampleOps } from "./library-catalog.mjs";
 import { pictureAlpha, seeThrough } from "./picture-alpha.mjs";
-import { shotColor } from "./shot-color.mjs";
+import { filePalette, shotColor, shotPalette } from "./shot-color.mjs";
 import { libraryMedia, stripPng } from "./library-media.mjs";
 import { currentTurn, turnOver } from "./state.mjs";
 import { editFocus } from "./dashboard.mjs";
@@ -7071,8 +7071,16 @@ export function createAgentService(deps) {
       if (!names.length) return exposure;
       return { ...exposure, lines: [...exposure.lines, `made: ${seen.length ? "your references' labels name" : "your deck's unused cards are"} ${names.slice(0, 8).join(", ")} (none placed). match_references {made:true} places them on song cues and subject shots with each value printed; made:["${names[0]}"] places your pick.`] };
     }
+    // Palettes the placement measures its colors from: the shot under it, else a reference's strip frame nearest the label.
+    const layerById = (layerId) => exposure.document.scenes.flatMap((entry) => entry.layers).find((layer) => layer.id === layerId);
+    const colorsAt = (layerId, time) => shotPalette(deps.mediaRoot, layerById(layerId), time);
+    const refColors = async (refId, at) => {
+      const kept = await deps.inspire?.stripsFor?.(refId);
+      const near = (kept?.strips ?? []).reduce((best, strip) => (!best || Math.abs(strip.at - at) < Math.abs(best.at - at) ? strip : best), null);
+      return near ? filePalette(path.join(kept.folder, near.file)) : null;
+    };
     const placed = await placeMade(exposure.document, { sceneId, remove, refs: labeled, deck: state?.deck ?? null, names: Array.isArray(made) ? made : null,
-      faces: await faceLayers(exposure.document, sceneId), fonts, runOps });
+      faces: await faceLayers(exposure.document, sceneId), fonts, runOps, colorsAt, refColors });
     return { ...exposure, document: placed.document, lines: [...exposure.lines, ...placed.lines], made: placed.placed };
   }
 

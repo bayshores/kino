@@ -23,7 +23,14 @@ const on = (entry, time) => (entry.holdBefore || entry.start <= time) && (entry.
  * `graphic` is the same measure as a reference's "made" label (library inspire seen).
  */
 export function madeShare(model) {
+  const { moments, made, parts } = madeMoments(model);
+  return { moments: moments.length, made, parts };
+}
+
+/** madeShare with each moment: {moments: [{time, made}], made, parts}. */
+export function madeMoments(model) {
   const moments = onscreenKinds(model);
+  const flags = [];
   // designedTexts leaves out add_captions' text and its hook line; a role of caption or speech is a subtitle too.
   const designed = designedTexts(model).filter((item) => !SUBTITLE_ROLES.has(item.role) && drawnSize(model, item) >= DESIGNED_TYPE * model.height);
   const cutouts = model.items.filter((item) => item.cutoutOf && !item.isMask);
@@ -39,9 +46,11 @@ export function madeShare(model) {
       type: designed.some(shown),
     };
     for (const key of Object.keys(parts)) if (has[key]) parts[key] += 1;
-    if (Object.values(has).some(Boolean)) made += 1;
+    const any = Object.values(has).some(Boolean);
+    if (any) made += 1;
+    flags.push({ time: moment.time, made: any });
   }
-  return { moments: moments.length, made, parts };
+  return { moments: flags, made, parts };
 }
 
 /**

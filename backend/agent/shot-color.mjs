@@ -8,6 +8,7 @@ import path from "node:path";
 import { createCanvas, loadImage } from "@napi-rs/canvas";
 import { mediaFrameState } from "../../engine/playback.js";
 import { runMediaTool } from "../media-probe.mjs";
+import { palette } from "../measure/fingerprint.mjs";
 
 const WIDTH = 48;
 const BINS = 24;
@@ -76,24 +77,49 @@ export function lumaSplit(data) {
  * picture's luma split into thirds (`tones`, lumaSplit); a gray picture gives {h: null, s: 0, tones}.
  */
 export async function shotColor(mediaRoot, layer, time) {
-  const id = /^\/api\/media\/([A-Za-z0-9._-]+)$/.exec(String(layer?.src ?? ""))?.[1];
-  if (!mediaRoot || !id || id.includes("..")) return null;
-  const file = path.join(mediaRoot, id);
-  let image;
-  if (layer.type === "video") {
-    const folder = await mkdtemp(path.join(tmpdir(), "kino-hue-"));
-    try {
-      const at = Math.max(0, mediaFrameState(layer, time).sourceTime ?? 0);
-      const out = path.join(folder, "frame.png");
-      await runMediaTool("ffmpeg", ["-v", "error", "-ss", String(at), "-i", file, "-frames:v", "1", "-vf", `scale=${WIDTH}:-2`, "-y", out], { timeoutMs: 20_000 });
-      image = await loadImage(out);
-    } catch { return null; } finally { await rm(folder, { recursive: true, force: true }); }
-  } else {
-    try { image = await loadImage(file); } catch { return null; }
-  }
+  const data = await frameData(mediaRoot, layer, time);
+  return data ? { ...(dominantHue(data) ?? { h: null, s: 0, l: null }), tones: lumaSplit(data) } : null;
+}
+
+// RGBA bytes of a picture drawn WIDTH wide, or null.
+function imageData(image) {
   const height = Math.max(1, Math.round((WIDTH * image.height) / Math.max(1, image.width)));
   const canvas = createCanvas(WIDTH, height);
   canvas.getContext("2d").drawImage(image, 0, 0, WIDTH, height);
-  const data = canvas.getContext("2d").getImageData(0, 0, WIDTH, height).data;
-  return { ...(dominantHue(data) ?? { h: null, s: 0, l: null }), tones: lumaSplit(data) };
+  return canvas.getContext("2d").getImageData(0, 0, WIDTH, height).data;
+}
+
+// `layer`'s picture at scene time `time` as RGBA bytes WIDTH wide (one FFmpeg frame for a video), or null.
+async function frameData(mediaRoot, layer, time) {
+  const id = /^\/api\/media\/([A-Za-z0-9._-]+)$/.exec(String(layer?.src ?? ""))?.[1];
+  if (!mediaRoot || !id || id.includes("..")) return null;
+  const file = path.join(mediaRoot, id);
+  if (layer.type !== "video") {
+    try { return imageData(await loadImage(file)); } catch { return null; }
+  }
+  const folder = await mkdtemp(path.join(tmpdir(), "kino-hue-"));
+  try {
+    const at = Math.max(0, mediaFrameState(layer, time).sourceTime ?? 0);
+    const out = path.join(folder, "frame.png");
+    await runMediaTool("ffmpeg", ["-v", "error", "-ss", String(at), "-i", file, "-frames:v", "1", "-vf", `scale=${WIDTH}:-2`, "-y", out], { timeoutMs: 20_000 });
+    return imageData(await loadImage(out));
+  } catch { return null; } finally { await rm(folder, { recursive: true, force: true }); }
+}
+
+/** The main colors of RGBA bytes ([{hex, share}], biggest first; fingerprint.mjs palette, k 5). */
+export function palettePixels(data) {
+  const pixels = [];
+  for (let index = 0; index + 3 < data.length; index += 4) if (data[index + 3] > 128) pixels.push([data[index], data[index + 1], data[index + 2]]);
+  return palette(pixels);
+}
+
+/** The main colors of `layer`'s picture at scene time `time` ([{hex, share}]), or null. */
+export async function shotPalette(mediaRoot, layer, time) {
+  const data = await frameData(mediaRoot, layer, time);
+  return data ? palettePixels(data) : null;
+}
+
+/** The main colors of an image file (a saved reference's strip frame), or null. */
+export async function filePalette(file) {
+  try { return palettePixels(imageData(await loadImage(file))); } catch { return null; }
 }

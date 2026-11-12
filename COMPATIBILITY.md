@@ -1582,8 +1582,11 @@ How to read it:
   shots that differ most, and a file filling over half the edit. Evidence: `backend/agent-board.test.mjs`, `engine/footage.test.js`.
 - **Made techniques from references** (`match_references {made:true}` or `made:[names]`): Test-verified on a stub reference. Places
   the made techniques the saved references' labels name (else the deck's unused cards) on song cues and subject shots, prints each
-  value and the made share before and after; left out, the receipt only names what it would place. Evidence:
-  `backend/agent-core.test.mjs`. Gap: sizes, colors and positions are fixed starting values, not measured from the references.
+  value and the made share before and after; left out, the receipt only names what it would place. Overexpose and smear go on cuts,
+  color labels recolor in their hues, split-fields and splatters take colors from the label's words, the reference's strip frame or the
+  shot (each source printed), a splatter sits beside the marked subject box, a composite gets a background-behind-cut-out call, and
+  particles and splatters repeat toward the references' median made share. Evidence: `backend/agent-core.test.mjs`. Gap: moves are
+  not run end to end through the edit tool in a test; with no subject box a splatter's size and place stay a printed starting guess.
 - **Type by job** (`add_layer` text with `role`): Test-verified. Caption and label text get a subtitle treatment, headline, hero and
   cta a payoff one, from saved type labels when usable, else the scene's colors; a payoff's letters enter on a song cue. Evidence:
   `backend/agent-fonts.test.mjs`. Gap: labels are measured on small strip frames and can box the wrong area; board shot text is not covered.
