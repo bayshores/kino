@@ -22,6 +22,7 @@ import { sec } from "./agent/describe.mjs";
 import { ffmpegArgs, lowerIfBackground } from "./render-activity.mjs";
 import { heavyDecodeSlot } from "./process-slots.mjs";
 import { round as round3 } from "../engine/numbers.js";
+import { frameLevel } from "../engine/cutFacts.js";
 
 // FFmpeg's helpers (media-probe.mjs), loaded the first time FFmpeg runs. They load the canvas
 // library, and the kino command and the MCP client import this file only for shotsLine.
@@ -284,24 +285,60 @@ function frameClock(times, frames, duration) {
 // More than `maxFrames` frames stop the run with a "too long" error.
 // One video decode at a time in this process (process-slots.mjs): finding the shots of many new
 // videos queues instead of starting FFmpeg for each at once.
-function analyse(command, file, signal, maxFrames) {
-  return heavyDecodeSlot(() => analyseNow(command, file, signal, maxFrames));
+function analyse(command, file, signal, maxFrames, levels = false) {
+  return heavyDecodeSlot(() => analyseNow(command, file, signal, maxFrames, levels));
 }
 
-function analyseNow(command, file, signal, maxFrames) {
-  const args = [
-    "-hide_banner", "-nostdin", "-nostats", "-v", "info",
-    "-i", file, "-map", "0:v:0", "-an", "-sn", "-dn", "-fps_mode", "passthrough",
-    "-vf", `scale=${ANALYSIS_WIDTH}:-2,scdet=threshold=${SCDET_THRESHOLD},metadata=mode=print:key=lavfi.scd.score,` +
-      `scale=${THUMBNAIL_WIDTH}:${THUMBNAIL_HEIGHT}:flags=area,format=gray`,
-    "-f", "rawvideo", "pipe:1",
-  ];
+// Each frame's mean color, from a 32×18 rgb24 copy streamed in whole frames: only {y, hue} of each
+// frame is kept (frameLevel), never the pixels. `push(chunk)` takes any slicing of the stream.
+function levelReader() {
+  const size = THUMBNAIL_BYTES * 3;
+  const found = [];
+  let left = Buffer.alloc(0);
+  return {
+    found,
+    push(chunk) {
+      let data = left.length ? Buffer.concat([left, chunk]) : chunk;
+      let offset = 0;
+      for (; offset + size <= data.length; offset += size) {
+        let r = 0, g = 0, b = 0;
+        for (let pixel = offset; pixel < offset + size; pixel += 3) {
+          r += data[pixel];
+          g += data[pixel + 1];
+          b += data[pixel + 2];
+        }
+        found.push(frameLevel(r / THUMBNAIL_BYTES, g / THUMBNAIL_BYTES, b / THUMBNAIL_BYTES));
+      }
+      left = data.subarray(offset);
+    },
+  };
+}
+
+function analyseNow(command, file, signal, maxFrames, levels) {
+  const picture = `scale=${ANALYSIS_WIDTH}:-2,scdet=threshold=${SCDET_THRESHOLD},metadata=mode=print:key=lavfi.scd.score`;
+  const small = `scale=${THUMBNAIL_WIDTH}:${THUMBNAIL_HEIGHT}:flags=area`;
+  // With levels the same graph is split after scdet: the gray output on pipe:1 is the one the cuts
+  // come from, unchanged; the rgb24 copy on pipe:3 only feeds the brightness and hue of each frame.
+  const args = levels
+    ? [
+      "-hide_banner", "-nostdin", "-nostats", "-v", "info", "-i", file, "-an", "-sn", "-dn",
+      "-filter_complex", `[0:v:0]${picture},split=2[a][b];[a]${small},format=gray[gray];[b]${small},format=rgb24[rgb]`,
+      "-map", "[gray]", "-fps_mode", "passthrough", "-f", "rawvideo", "pipe:1",
+      "-map", "[rgb]", "-fps_mode", "passthrough", "-f", "rawvideo", "pipe:3",
+    ]
+    : [
+      "-hide_banner", "-nostdin", "-nostats", "-v", "info",
+      "-i", file, "-map", "0:v:0", "-an", "-sn", "-dn", "-fps_mode", "passthrough",
+      "-vf", `${picture},${small},format=gray`,
+      "-f", "rawvideo", "pipe:1",
+    ];
+  const reader = levels ? levelReader() : null;
   return new Promise((resolvePromise, rejectPromise) => {
     if (signal?.aborted) {
       rejectPromise(abortError(signal));
       return;
     }
-    const child = endWithService(spawn(command, ffmpegArgs(args), { shell: false, stdio: ["ignore", "pipe", "pipe"] }));
+    const child = endWithService(spawn(command, ffmpegArgs(args), { shell: false, stdio: levels ? ["ignore", "pipe", "pipe", "pipe"] : ["ignore", "pipe", "pipe"] }));
     lowerIfBackground(child);
     // Every frame's gray copy is kept (MAX_VIDEO_FRAMES of them are 41 MB): a file's frame count,
     // not its size in bytes, sets this, as a long, small file compresses well.
@@ -340,6 +377,7 @@ function analyseNow(command, file, signal, maxFrames) {
       }
       chunks.push(chunk);
     });
+    child.stdio[3]?.on("data", (chunk) => { if (!tooLong) reader.push(chunk); });
     child.stderr.setEncoding("utf8");
     child.stderr.on("data", (text) => {
       const lines = `${partLine}${text}`.split(/\r?\n/);
@@ -359,7 +397,7 @@ function analyseNow(command, file, signal, maxFrames) {
       readLine(partLine);
       if (signal?.aborted) rejectPromise(abortError(signal));
       else if (tooLong) rejectPromise(tooLongError(`it has more than ${maxFrames} frames`));
-      else if (code === 0) resolvePromise({ times, scores, thumbnails: Buffer.concat(chunks) });
+      else if (code === 0) resolvePromise({ times, scores, thumbnails: Buffer.concat(chunks), levels: reader?.found });
       else {
         // FFmpeg's last lines say what went wrong; the file's folder is left out of them.
         const lines = errorText.split(file).join(basename(file)).trim().split("\n");
@@ -391,12 +429,12 @@ export function shotsErrorReason(line) {
  * Also resolves with `flashes` ([{start, end}] file seconds, not saved with a record) and `fps` (the
  * file's usual frame rate). `minShotFrames` goes to shotsFromCuts (inspire reads 2-frame shots).
  */
-export async function findShots(file, { duration, signal, maxFrames = MAX_VIDEO_FRAMES, maxSeconds = MAX_VIDEO_SECONDS, minShotFrames = MIN_SHOT_FRAMES } = {}) {
+export async function findShots(file, { duration, signal, maxFrames = MAX_VIDEO_FRAMES, maxSeconds = MAX_VIDEO_SECONDS, minShotFrames = MIN_SHOT_FRAMES, levels = false } = {}) {
   const started = performance.now();
   if (duration > maxSeconds) throw tooLongError(`it is ${Math.round(duration / 60)} min`, maxSeconds);
   const { ffmpegCommand, probeFrameRate } = await mediaProbe();
   const command = ffmpegCommand();
-  const run = await analyse(command, file, signal, maxFrames);
+  const run = await analyse(command, file, signal, maxFrames, levels);
   const frames = Math.floor(run.thumbnails.length / THUMBNAIL_BYTES);
   if (!frames) throw new Error("FFmpeg decoded no frames from this file.");
   const mad = (first, second) => meanDifference(run.thumbnails, first, second);
@@ -424,6 +462,8 @@ export async function findShots(file, { duration, signal, maxFrames = MAX_VIDEO_
     found: { version: SHOTS_VERSION, frames, cuts: shots.length - 1, flashes, ms: Math.round(performance.now() - started) },
     flashes: flashSpans.filter((flash) => Number.isFinite(flash.start) && Number.isFinite(flash.end)),
     fps: span > 0 ? round3(clock[frames - 1] / span) : null,
+    // With `levels: true`: every frame's { t, y, hue } (file seconds; y of 255; hue in degrees or null).
+    ...(run.levels ? { levels: run.levels.slice(0, frames).flatMap((level, frame) => (Number.isFinite(run.times[frame]) ? [{ t: round3(run.times[frame]), ...level }] : [])) } : {}),
   };
 }
 

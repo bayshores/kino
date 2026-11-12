@@ -9,7 +9,7 @@ import { frameShot, shotLayout } from "./footage/layout.js";
 import { facePartPoint, pickFace } from "./footage/faceParts.js";
 import { accentTimes, burstPassages, phrasePlan, songSections } from "./footage/pace.js";
 import { defaultPace, nearestBeats, shotStats } from "./footage/refPace.js";
-import { beatLine, cutFacts, cutsOnBeats, frameLevel, paceFacts, paceLine } from "./cutFacts.js";
+import { beatLine, cutFacts, cutLines, cutsOnBeats, frameLevel, paceFacts, paceLine } from "./cutFacts.js";
 import { planEdit } from "./footage/plan.js";
 import { KINO_OWN_FAMILIES, KINO_PAIR_FAMILIES, footageBrand } from "./footage/treatments.js";
 import { footageCues, footageOps } from "./footage/ops.js";
@@ -562,4 +562,14 @@ test("cut facts: pace on each side of the turn, each cut's brightness and hue ju
   assert.deepEqual(snapped.shots.map((shot) => shot.cue), [0, 1, 2, 3.1, 4.1, 5.1]);
   assert.equal(snapped.shots.at(-1).cue + snapped.shots.at(-1).dur, 6, "the board's end stays");
   assert.deepEqual(snapped.moved.map((entry) => entry.id), ["S3", "S4", "S5"]);
+  // A shot that a move would lengthen past what its clip file has keeps its cut (S3's 3 to 3.1 grows S2).
+  const short = cutsOnBeats(shots, { turn: 3, times: [3.1, 3.6, 4.1, 4.6, 5.1, 5.6], fits: (shot, dur) => !(shot.id === "S2" && dur > 1.05) });
+  assert.deepEqual(short.shots.map((shot) => shot.cue), [0, 1, 2, 3, 4.1, 5.1]);
+  assert.deepEqual(short.kept, [{ id: "S3", at: 3, to: 3.1 }]);
+  // The render answer's two lines: ours beside the references' range, at most `listed` cuts.
+  const lines = cutLines({ ...facts, jumps: facts.jumps, cutCount: 20 }, [{ jumpMedian: 18, big10: 1.9 }, { jumpMedian: 41, big10: 14.9 }], { label: "draft R2", listed: 2 });
+  assert.match(lines[0], /^cuts \(draft R2, every frame\): brightness jump median \d+ of 255; 50\+ jumps 1\.7 per 10 s; range 0-3 s \d+-\d+, 3-6 s \d+-\d+ · your 2 measured references: median 18 to 41, 50\+ jumps 1\.9 to 14\.9 per 10 s$/);
+  assert.match(lines[1], /^per cut: 1\.00 \+\d+ -, 2\.00 \+\d+ -, \.\.\. \(18 more\)$/);
+  assert.deepEqual(cutLines({ jumps: [] }, []), [], "a file with no cuts has no lines");
+  assert.match(cutLines(facts, [], { older: 2 })[0], / · 2 saved references measured before cut facts were kept \(library \{topic:"inspire", name:"measure <id>"\} reads one again\)$/);
 });

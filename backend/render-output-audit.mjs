@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { stat } from "node:fs/promises";
 import { basename } from "node:path";
 import { MAX_TIME } from "../engine/schema.js";
+import { frameLevel } from "../engine/cutFacts.js";
 
 const THUMB_WIDTH = 32;
 const THUMB_HEIGHT = 18;
@@ -304,6 +305,14 @@ function luma(bytes) {
   return sum / (THUMB_BYTES / 3);
 }
 
+// The hue (degrees, null for a gray frame) of a frame's mean color (engine/cutFacts.js frameLevel).
+function frameHue(bytes) {
+  let r = 0, g = 0, b = 0;
+  for (let offset = 0; offset < THUMB_BYTES; offset += 3) { r += bytes[offset]; g += bytes[offset + 1]; b += bytes[offset + 2]; }
+  const pixels = THUMB_BYTES / 3;
+  return frameLevel(r / pixels, g / pixels, b / pixels).hue;
+}
+
 // Motion facts of a decoded file: a still is STILL_SECONDS or more of frames that change under
 // STILL_LEVELS on average; a brightness jump is more than JUMP_LEVELS of mean luma within
 // JUMP_SECONDS where the same picture gets lighter or darker (a shade or a light popping), not
@@ -325,8 +334,9 @@ const MOTION_LIST = 6;
 
 /**
  * Brightness (mean luma, 0 to 255) and change (mean absolute difference from the frame before,
- * 0 to 255) of every decoded 32×18 frame, and the stills and brightness jumps found in them:
- * {luma[], diff[], stills: [{from, to}], jumps: [{at, until, from, to}]} (times in seconds).
+ * 0 to 255) and hue (degrees, null when gray) of every decoded 32×18 frame, and the stills and
+ * brightness jumps found in them:
+ * {luma[], hue[], diff[], stills: [{from, to}], jumps: [{at, until, from, to}]} (times in seconds).
  */
 export function motionFacts(thumbnails, frameCount, fps, planned = null) {
   const frames = Math.min(frameCount, Math.floor(thumbnails.length / THUMB_BYTES));
@@ -367,7 +377,7 @@ export function motionFacts(thumbnails, frameCount, fps, planned = null) {
     }
   }
   const round = (value, places) => Math.round(value * 10 ** places) / 10 ** places;
-  return { luma: levels.map((value) => round(value, 1)), diff: diff.map((value) => round(value, 2)), stills: stills.slice(0, MOTION_LIST), jumps };
+  return { luma: levels.map((value) => round(value, 1)), hue: Array.from({ length: frames }, (_, index) => frameHue(frame(index))), diff: diff.map((value) => round(value, 2)), stills: stills.slice(0, MOTION_LIST), jumps };
 }
 
 function frameTime(index, fps) {
@@ -681,4 +691,28 @@ export async function inspectRenderedOutput(file, expectedInput, { signal } = {}
     ...compared.checks,
     ...audio.checks,
     }, { sizeBytes: fileInfo.size, fps, method: expectedInput.hasAudio === true ? "FFmpeg decoded 32×18 RGB thumbnails and measured audio with EBU R128/astats." : "FFmpeg decoded 32×18 RGB thumbnails.", ...compared.facts, ...audio.facts }, audio.warnings) };
+}
+
+/**
+ * The motion facts (motionFacts) of a rendered mp4, webm or mov, with no frame references and no
+ * verdict: what a draft gets. Null when the format is another or FFmpeg cannot decode it (a draft
+ * never fails for this). `frameCount` frames at `fps` are read.
+ */
+export async function inspectMotion(file, { format, fps, frameCount, planned = null, signal } = {}) {
+  const kind = String(format ?? "").toLowerCase();
+  if (!["mp4", "webm", "mov"].includes(kind) || !(fps > 0) || !(frameCount > 0)) return null;
+  throwIfAborted(signal);
+  const limit = Math.floor(frameCount) + 1;
+  const args = ["-hide_banner", "-nostdin", "-loglevel", "error", "-i", file,
+    "-filter_complex", stripGraph(LOSSLESS_FORMATS.has(kind) ? LOSSLESS_COLOUR_FLAGS : COLOUR_FLAGS), "-map", "[strip]",
+    "-fps_mode", "passthrough", "-frames:v", String(limit), "-pix_fmt", "rgb24", "-c:v", "ppm", "-f", "image2pipe", "pipe:1"];
+  const strips = stripReader(limit);
+  try {
+    await runBounded(boundedCommand("ffmpeg"), args, { signal, onStdout: strips.read, timeoutMs: Math.min(15 * 60_000, Math.max(30_000, (frameCount / fps + 1) * 4_000)) });
+  } catch {
+    if (signal?.aborted) throw abortError(signal);
+    return null;
+  }
+  const decoded = strips.result();
+  return decoded.frames ? motionFacts(decoded.thumbnails, decoded.frames, fps, planned) : null;
 }

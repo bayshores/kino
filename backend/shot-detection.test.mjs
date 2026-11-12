@@ -282,6 +282,20 @@ describe("findShots with FFmpeg", { skip: skipWithoutMediaTools }, () => {
     assert.ok(Number.isInteger(ms) && ms >= 0);
   });
 
+  test("levels:true adds one { t, y, hue } per frame and finds the same shots as the default run", async () => {
+    const clip = path.join(folder, "red-blue.mp4");
+    const source = (color) => ["-f", "lavfi", "-i", `color=c=${color}:s=64x36:r=24:d=0.5`];
+    await run(ffmpeg, ["-hide_banner", "-v", "error", "-y", ...source("red"), ...source("blue"), "-filter_complex", "[0][1]concat=n=2:v=1:a=0,format=yuv420p", "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", clip]);
+    const plain = await findShots(clip, { duration: 1 });
+    const { levels, shots, found } = await findShots(clip, { duration: 1, levels: true });
+    assert.equal(plain.levels, undefined, "off by default");
+    assert.deepEqual(shots, plain.shots, "the gray output the cuts come from is unchanged");
+    assert.equal(levels.length, found.frames);
+    assert.ok(levels[0].hue < 10 || levels[0].hue > 350, `red is near 0 degrees (${levels[0].hue})`);
+    assert.ok(Math.abs(levels.at(-1).hue - 240) < 10, `blue is near 240 degrees (${levels.at(-1).hue})`);
+    assert.ok(levels[0].y > levels.at(-1).y, "red is brighter than blue by BT.709 luma");
+  });
+
   test("a white flash over a moving picture does not split the shot", async () => {
     const clip = await makeFlashClip(path.join(folder, "flash.mp4"));
     const { shots, found } = await findShots(clip, { duration: 3 });

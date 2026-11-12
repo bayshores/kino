@@ -2408,8 +2408,18 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
       work.notes.push(`board r${old.rev}: no change (${why})`);
       return;
     }
-    const { shots, moved } = cutsOnBeats(old.shots, { turn: facts.turn.at, times: facts.times });
-    if (!moved.length) { work.notes.push(`board r${old.rev}: no change (its cuts after ${sec(facts.turn.at)} s are on the beat times already)`); return; }
+    // A shot that a move would lengthen past the end of its clip file keeps its old cut time (only
+    // this is checked again; a font or file problem elsewhere does not refuse the snap).
+    const files = await boardMedia(document, work);
+    const fits = (shot, dur) => {
+      // A shorter shot always fits: one saved past a file that changed since is not held by this.
+      if (dur <= shot.dur || typeof shot.media !== "string" || shot.media === NONE || typeof shot.in !== "number") return true;
+      const file = files(shot.media, ["video"]);
+      return !(file.duration > 0 && shot.in + dur * (shot.speed ?? 1) > file.duration + ONE_FRAME);
+    };
+    const { shots, moved, kept } = cutsOnBeats(old.shots, { turn: facts.turn.at, times: facts.times, fits });
+    const stayed = kept.length ? ` · ${kept.length} cut${kept.length === 1 ? "" : "s"} stayed because a shot would run past the end of its clip file: ${kept.map((entry) => `${sec(entry.at)} s (the beat at ${sec(entry.to)} s)`).join(", ")}` : "";
+    if (!moved.length) { work.notes.push(`board r${old.rev}: no change (${kept.length ? `a shot would run past the end of its clip file: ${kept.map((entry) => `${sec(entry.at)} s, beat ${sec(entry.to)} s`).join(", ")}` : `its cuts after ${sec(facts.turn.at)} s are on the beat times already`})`); return; }
     // Only the cut times change, so the saved shots are not checked again (a font or file that
     // changed since would refuse a call that touches neither; run 8's copy did). The board still
     // covers the music with no gap.
@@ -2419,7 +2429,7 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     document.board = normalizeBoard({ board: { ...board, rev: old.rev + 1 } }).board;
     work.notes.push(`board r${document.board.rev}: ${shots.length} shots, cut times only`);
     const most = Math.max(...moved.map((entry) => Math.abs(entry.to - entry.from)));
-    work.notes.push(`snap: ${moved.length} cut${moved.length === 1 ? "" : "s"} after the ${facts.turn.kind} at ${sec(facts.turn.at)} s moved onto the beat (every ${facts.beats === 1 ? "beat" : `${facts.beats} beats`}; most ${sec(most)} s): ${moved.map((entry) => `${sec(entry.from)}→${sec(entry.to)}`).join(", ")}`);
+    work.notes.push(`snap: ${moved.length} cut${moved.length === 1 ? "" : "s"} after the ${facts.turn.kind} at ${sec(facts.turn.at)} s moved onto the beat (every ${facts.beats === 1 ? "beat" : `${facts.beats} beats`}; most ${sec(most)} s): ${moved.map((entry) => `${sec(entry.from)}→${sec(entry.to)}`).join(", ")}${stayed}`);
   }
 
   // The library's videos, pictures and sounds, found by a layer (its src), id, src or name.

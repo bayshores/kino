@@ -20,7 +20,8 @@ import { renderFrameCache } from "./render-frame-cache.mjs";
 import { renderRange } from "./render-range.mjs";
 import { normalizeRenderQuality, motionSampleTimes, createSampleBlend, MAX_MOTION_SAMPLES } from "./render-quality.mjs";
 import { shutterFps, shutterSampleCount } from "../engine/previewBlur.js";
-import { frameReference, inspectRenderedOutput } from "./render-output-audit.mjs";
+import { frameReference, inspectMotion, inspectRenderedOutput } from "./render-output-audit.mjs";
+import { cuts as modelCuts } from "../engine/quality/analysis.js";
 import { LIMITER_CEILING_DB, PEAK_METER, fitLoudness, limiterPlaces, loudMixWarning, loudnessGain, masterLimiter, measureMixLevels, mixLead, readPeakWindows } from "./audio-levels.mjs";
 import { analyzeAudioFile, isSoundEffect, steadyBeat } from "./audio-analysis.mjs";
 import { encodeRenderPng } from "./render-png.mjs";
@@ -3706,24 +3707,37 @@ async function exportSceneNow(
       });
     aborted(signal);
     report({ stage: "encode", completed: 1, total: 1 });
+    // The scene's cuts and transitions: the receipt lists only brightness jumps off them, and the
+    // cut facts (engine/cutFacts.js) read the picture at each cut. They are scene times; the file
+    // plays frameTimes (a frame range starts later, a reversed APNG runs backward), so each one
+    // becomes the file time of the frame that crosses it.
+    let planned = null, cutTimes = [];
+    if (auditFrames || (draft && ["mp4", "webm", "mov"].includes(format))) {
+      try {
+        const model = kinoTimeline({ scenes: [scene] }, scene.id, { fonts });
+        // Within 1 ms: frame times step by a rounded 1/fps (exportFrameStep), so 0.7 s at 30 fps is
+        // frame 21 at 0.6999993 s, and an exact test put such a cut on frame 22, one frame late.
+        const crosses = (time, index) => index > 0 && Math.min(frameTimes[index - 1], frameTimes[index]) < time - 1e-3 && time <= Math.max(frameTimes[index - 1], frameTimes[index]) + 1e-3;
+        const fileTimes = (times) => times.flatMap((time) => frameTimes.flatMap((_, index) => (crosses(time, index) ? [exportFrameTime(index, fps)] : [])));
+        planned = fileTimes(plannedTimes(model));
+        cutTimes = fileTimes(modelCuts(model));
+      } catch { planned = null; cutTimes = []; }
+    }
+    if (!auditFrames && draft && ["mp4", "webm", "mov"].includes(format)) {
+      // A draft has no frame references and no verdict: only the brightness and hue of its frames,
+      // from the same 32x18 decode, for the cut facts in the render answer.
+      const motion = await inspectMotion(output, { format, fps, frameCount, planned, signal }).catch(() => { aborted(signal); return null; });
+      if (motion) exportFacts.motion = { ...motion, cuts: cutTimes };
+    }
     if (auditFrames) {
       report({ stage: "verify", completed: 0, total: 1 });
-      // The scene's cuts and transitions: the receipt lists only brightness jumps off them.
-      // They are scene times; the file plays frameTimes (a frame range starts later, a reversed
-      // APNG runs backward), so each one becomes the file time of the frame that crosses it.
-      let planned = null;
-      try {
-        const sceneTimes = plannedTimes(kinoTimeline({ scenes: [scene] }, scene.id, { fonts }));
-        const crosses = (time, index) => index > 0 && Math.min(frameTimes[index - 1], frameTimes[index]) < time && time <= Math.max(frameTimes[index - 1], frameTimes[index]);
-        planned = sceneTimes.flatMap((time) => frameTimes.flatMap((_, index) => (crosses(time, index) ? [exportFrameTime(index, fps)] : [])));
-      } catch { planned = null; }
       const { motion, ...audit } = await inspectRenderedOutput(output, { format, fps, references, hasAudio: exportFacts.hasAudio, planned,
         ...(exportFacts.loudness ? { targetLufs: exportFacts.loudness.targetLufs } : {}),
         ...(exportFacts.loudness?.held && exportFacts.loudness.loudestAt !== null ? { heldAt: exportFacts.loudness.loudestAt } : {}),
         ...(format === "mp4" ? { videoEncoder: mp4VideoEncoderFacts(options) } : {}) }, { signal });
       exportFacts.outputAudit = audit;
       // Brightness and change of every frame of the file, with its stills and brightness jumps.
-      if (motion) exportFacts.motion = motion;
+      if (motion) exportFacts.motion = { ...motion, cuts: cutTimes };
       if (!exportFacts.outputAudit.ok) {
         const failures = Object.entries(exportFacts.outputAudit.checks).filter(([, check]) => check.status === "fail");
         // Each failed check's own sentence says what was found (for example a file one frame late).

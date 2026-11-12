@@ -509,7 +509,10 @@ test("the queue measures one reference at a time, keeps only the numbers and the
       return file;
     },
     probe: async () => ({ duration: 30, width: 202, height: 360 }),
-    findShots: async (file, { minShotFrames }) => (minShotFrames === 2 ? { shots: [{ start: 0 }, { start: 10 }, { start: 20 }], flashes: [{ start: 15, end: 15.08 }], fps: 25 } : { shots: [] }),
+    // levels: every frame's brightness and hue (findShots {levels:true}); 4 stand-in frames around the cuts.
+    findShots: async (file, { minShotFrames, levels }) => (minShotFrames === 2 && levels
+      ? { shots: [{ start: 0 }, { start: 10 }, { start: 20 }], flashes: [{ start: 15, end: 15.08 }], fps: 25,
+        levels: [{ t: 9.9, y: 50, hue: null }, { t: 10, y: 120, hue: null }, { t: 19.9, y: 120, hue: null }, { t: 20, y: 60, hue: null }] } : { shots: [] }),
     findBeats: async () => ({ beats: [0, 10, 20.5], bpm: 6 }),
     fetchThumb: async () => Buffer.from("jpeg bytes"),
   });
@@ -535,7 +538,8 @@ test("the queue measures one reference at a time, keeps only the numbers and the
   const first = view.refs["yt:tgEWNHVbk3U"];
   assert.equal(first.state, "measured");
   const { beatFit, ...numbers } = first.numbers;
-  assert.deepEqual(numbers, { seconds: 30, shots: 3, cuts: [10, 20], cutsPerSecond: 0.07, median: 10, medianBeats: { exact: 0.98, near: 1, beatSeconds: 10.25 }, longest: { seconds: 10, start: 0, where: "the start" }, onBeat: [true, false], onBeatCount: 1, flashes: 1, fps: 25 });
+  assert.deepEqual(numbers, { seconds: 30, shots: 3, cuts: [10, 20], cutsPerSecond: 0.07, median: 10, medianBeats: { exact: 0.98, near: 1, beatSeconds: 10.25 }, longest: { seconds: 10, start: 0, where: "the start" }, onBeat: [true, false], onBeatCount: 1, flashes: 1, fps: 25,
+    picture: { jumps: [{ at: 10, dy: 70, dhue: null }, { at: 20, dy: -60, dhue: null }], jumpMedian: 65, hueMedian: null, big10: 0.7, sections: [{ from: 0, to: 30, low: 50, high: 120 }] } });
   assert.deepEqual([beatFit.cuts, beatFit.fps, beatFit.onBeat, beatFit.offsets["0"], beatFit.further], [2, 25, 0.5, 1, 1], "frames at the file's rate; 20 is 12 frames before 20.5");
   assert.equal(first.thumb, true);
   assert.equal(first.vertical, true, "the downloaded picture, taller than wide, says it is vertical");
