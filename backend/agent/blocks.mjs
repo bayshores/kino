@@ -57,6 +57,8 @@ import { splitImage } from "../../engine/splitImage.js";
 import { evaluateLayer } from "../../engine/animation.js";
 import { BOARD_LIMITS, boardCoverage, boardSpan, FOLLOW, holdEnd, keepShotIds, mainScene, moveProblems, NONE, PLANNED_MOVES, normalizeBoard, ONE_FRAME, PACING, SHOT_LAYERS, WHOLE } from "../../engine/board.js";
 import { PRESET_DEFINITIONS } from "../../engine/presetCatalog.js";
+import { shotRoles } from "../../engine/movePicks.js";
+import { jobTreatment, textJob } from "../../engine/typeRoles.js";
 import { sec } from "./describe.mjs";
 import { slideOffCut, spanCutLine } from "../../engine/spanCuts.js";
 import { boardCueLines } from "./board-pace.mjs";
@@ -252,7 +254,7 @@ const OPERATIONS = {
   },
   board: {
     fields: ["music", "shots", "calls", "open", "snap"],
-    rules: 'board {music, shots:[{cue, dur, pacing, media, in, crop, subject, follow, text, sound, move, why, speed?, lift?, alts?, id?}], calls?, open?}: the storyboard (undo and rev as any edit); each call replaces it. Shots in time order, no gaps: over the music layer, or the whole video when music is "none"; music may be an imported sound\'s src or id (kino adds its audio layer). While the board stop waits, a board edit saves and refreshes its ask. Every layer given, "none" when empty: media (an imported video or picture, or a video layer), in (file seconds), speed (the clip\'s playback speed, default 1: a shot uses dur × speed seconds of the file), lift (true or a mean luma 1 to 255: compose from board runs lift_dark on the shot), crop [x, y, w, h] (% of the source, the video\'s shape) or "whole" (shown whole, such as a phone screen beside other things), subject {what, box, eyes?} (% of the source; eyes: the eye line\'s y), follow steady|track|sweep, text {text, family, weight?, size?, y?, fill?} (y: center, % from the top), sound {media, what} (a sound to add) and/or {keep:"all" | [from, to]} (the clip\'s own sound, file seconds: the layer you place for the shot keeps it, keep_line). move: the designed move {kind type|transition|camera|ui, name (a move, transition, recipe or preset; planned:true for a craft-plan move not built yet), ref "<reference key>@<seconds>"} (slow-push, push-in and zoom-in are read as push), or {none:"<reason>"}; without one the shot is plain (footage plus words). pacing beat_cut|phrase_flow|free; why: one line; calls: your own calls and your decisions on open items left to you (≤ 6); open: questions for the person (≤ 3). A shot sent without id keeps the id of the shot it continues (same clip and nearest in, or same text). look {mode:"board"} shows it; notes checkpoint {id:"board"} asks the person. board {snap:"beats"} moves the saved board\'s cuts after the song\'s turn onto its measured beats (the times look board lists); sent with shots, it saves them first.',
+    rules: 'board {music, shots:[{cue, dur, pacing, media, in, crop, subject, follow, text, sound, move, why, speed?, lift?, alts?, id?}], calls?, open?}: the storyboard (undo and rev as any edit); each call replaces it. Shots in time order, no gaps: over the music layer, or the whole video when music is "none"; music may be an imported sound\'s src or id (kino adds its audio layer). While the board stop waits, a board edit saves and refreshes its ask. Every layer given, "none" when empty: media (an imported video or picture, or a video layer), in (file seconds), speed (the clip\'s playback speed, default 1: a shot uses dur × speed seconds of the file), lift (true or a mean luma 1 to 255: compose from board runs lift_dark on the shot), crop [x, y, w, h] (% of the source, the video\'s shape) or "whole" (shown whole, such as a phone screen beside other things), subject {what, box, eyes?} (% of the source; eyes: the eye line\'s y), follow steady|track|sweep, text {text, family?, weight?, size?, y?, fill?} (y: center, % from the top; with family, weight, size or fill left out, the left-out fields take the words\' job, a payoff on the spine\'s timed payoff beat (no spine: a short last line) else a subtitle line, printed on the answer), sound {media, what} (a sound to add) and/or {keep:"all" | [from, to]} (the clip\'s own sound, file seconds: the layer you place for the shot keeps it, keep_line). move: the designed move {kind type|transition|camera|ui, name (a move, transition, recipe or preset; planned:true for a craft-plan move not built yet), ref "<reference key>@<seconds>"} (slow-push, push-in and zoom-in are read as push), or {none:"<reason>"}; without one the shot is plain (footage plus words). pacing beat_cut|phrase_flow|free; why: one line; calls: your own calls and your decisions on open items left to you (≤ 6); open: questions for the person (≤ 3). A shot sent without id keeps the id of the shot it continues (same clip and nearest in, or same text). look {mode:"board"} shows it; notes checkpoint {id:"board"} asks the person. board {snap:"beats"} moves the saved board\'s cuts after the song\'s turn onto its measured beats (the times look board lists); sent with shots, it saves them first.',
   },
 };
 const FIELD_ALIASES = [["scene", "sceneId"], ["layer", "layerId"], ["layers", "layerIds"]];
@@ -1066,7 +1068,7 @@ function copyText(value, depth = 0) {
 // or null), type (style.type or the picked treatment's type direction, or null)}, or null.
 // subjectSamples(layer): the faces (and where the eye goes) saved for a video layer's file, as
 // samples [{t, faces, subjects?}], the same ones check reads; [] when none were saved. frame_shot uses them.
-export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationContext, deckDeals = null, footageFacts = null, footageDeck = null, runOps = null, pictureAlpha = null, clipEvents = null, styleType = null, savedRefs = null, subjectSamples = null, shotColor = null, matchExposure = null, liftShots = null, boardPace = null }) {
+export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationContext, deckDeals = null, footageFacts = null, footageDeck = null, runOps = null, pictureAlpha = null, clipEvents = null, styleType = null, savedRefs = null, subjectSamples = null, shotColor = null, matchExposure = null, liftShots = null, boardPace = null, boardType = null }) {
   async function fontsOf(document, work) { return work.fonts ??= await fontsFor(document); }
   const layout = createLayoutOps({ fontsOf, problem, sceneOf, faceTarget, subjectTarget, splitCopy });
   async function mediaOf(document, work) {
@@ -2521,6 +2523,8 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
   }
 
   // ---- board: the storyboard (engine/board.js, direction plan §5) ----
+  // The text fields that, left out, give a shot's words their job's treatment (y follows them).
+  const TEXT_DEFAULTED = ["family", "weight", "size", "fill"];
   // Every problem is collected, so the refusal names the first and counts the rest; nothing is
   // saved unless the whole board is right.
   async function applyBoard(document, operation, work) {
@@ -2539,8 +2543,21 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     if (!Array.isArray(sent) || !sent.length || sent.length > BOARD_LIMITS.shots) add("bad_shot", `shots is a list of 1 to ${BOARD_LIMITS.shots} shots.`);
     const shots = [];
     const refHelp = referenceHelp(await savedRefs?.(document));
-    for (const [index, shot] of (Array.isArray(sent) ? sent : []).slice(0, BOARD_LIMITS.shots).entries())
-      shots.push(await boardShot(document, scene, shot, index + 1, { media, add, work, refHelp, last: index === sent.length - 1 }));
+    // Words sent without a family, weight, size, fill or y take their job's treatment (engine/typeRoles.js):
+    // the spine's payoff beat (else a short last word) as a payoff, every other line as a subtitle.
+    const sentShots = Array.isArray(sent) ? sent.slice(0, BOARD_LIMITS.shots) : [];
+    const open = sentShots.some((shot) => isRecord(shot?.text) && TEXT_DEFAULTED.some((key) => shot.text[key] === undefined));
+    const type = open ? { labels: [], skipped: [], spine: null, advance: null, ...((await boardType?.(document).catch(() => null)) ?? {}) } : null;
+    const roles = type ? shotRoles(sentShots.map((shot) => (isRecord(shot) ? shot : {})), {}, type.spine) : [];
+    // Only a timed payoff beat places the payoff (shotRoles); an untimed one leaves the last shot to its words.
+    const spinePayoff = Array.isArray(type?.spine) && type.spine.some((beat) => beat?.role === "payoff" && Number.isFinite(beat.from) && Number.isFinite(beat.to) && beat.to > beat.from);
+    const jobOf = (shot, index) => (roles[index] === "payoff" && (spinePayoff || textJob(shot?.text?.text) === "payoff") ? "payoff" : "subtitle");
+    const typed = [];
+    for (const [index, shot] of sentShots.entries())
+      shots.push(await boardShot(document, scene, shot, index + 1, { media, add, work, refHelp, last: index === sent.length - 1, type: type && { ...type, job: jobOf(shot, index), typed } }));
+    // Printed after the board line when the board changes: the values each shot's words took, and why a saved type label was not used.
+    const typeNotes = typed.length ? [...typed.slice(0, 4), ...(typed.length > 4 ? [`board text: ${typed.length - 4} more shots took their job's treatment the same way`] : []),
+      ...type.skipped.slice(0, 2).map((entry) => `type label ${entry.ref} @${entry.at} not used: ${entry.why}`)] : [];
     if (!problems.length) {
       // A shot sent without an id keeps the id of the shot it continues (engine/board.js).
       keepShotIds(shots, document.board?.shots ?? []);
@@ -2585,7 +2602,7 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     document.board = kept;
     const last = board.shots.at(-1);
     work.notes.push(`board r${document.board.rev}: ${board.shots.length} shot${board.shots.length === 1 ? "" : "s"}, ${sec(board.shots[0].cue)}–${sec(last.cue + last.dur)} s, ${span.music ? `music ${span.music}` : "no music"} · look {mode:"board"} shows it`);
-    work.notes.push(...cutNotes);
+    work.notes.push(...cutNotes, ...typeNotes);
     // What plays on the song's drop and section starts, and whether it was shown before (facts only).
     work.notes.push(...boardCueLines(await Promise.resolve(boardPace?.(document, { cuesOnly: true })).catch(() => null)));
   }
@@ -2757,7 +2774,7 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
   }
 
   // One shot, checked and filled in (text defaults), or what is wrong with it (`add`).
-  async function boardShot(document, scene, shot, n, { media, add, work, refHelp, last = false }) {
+  async function boardShot(document, scene, shot, n, { media, add, work, refHelp, last = false, type = null }) {
     if (!isRecord(shot)) { add("bad_shot", `shot ${n} is {cue, dur, pacing, media, in, crop, subject, follow, text, sound, why}.`); return {}; }
     const keys = ["id", "cue", "dur", "pacing", ...SHOT_LAYERS, "move", "why", "speed", "lift", "alts"];
     const extra = Object.keys(shot).filter((key) => !keys.includes(key));
@@ -2815,7 +2832,7 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     if (footage.file?.kind === "image" && shot.in !== NONE) add("bad_shot", `shot ${n} is a picture: in is "none".`);
     if (footage.file && shot.crop === NONE) add("bad_shot", `shot ${n} shows ${footage.file.name}, so crop is [x, y, w, h] in % of the source, or "whole" when it shows whole.`);
     Object.assign(result, footage.fields, { follow: shot.follow });
-    result.text = await boardText(document, scene, shot.text, `shot ${n}`, { add, work });
+    result.text = await boardText(document, scene, shot.text, `shot ${n}`, { add, work, type });
     result.sound = boardSound(shot.sound, `shot ${n}`, { media, add, shot, speed, video: footage.file?.kind === "video" });
     if (move) result.move = move;
     result.why = why;
@@ -2893,18 +2910,29 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
   }
 
   // text: "none", or {text, family, weight, size, y, fill} with kino's defaults, in a font kino has.
-  async function boardText(document, scene, value, where, { add, work }) {
+  async function boardText(document, scene, value, where, { add, work, type = null }) {
     if (value === NONE) return NONE;
     const keys = ["text", "family", "weight", "size", "y", "fill", "until"];
     // Too long is one problem among the rest: the other checks still run, so one refusal names all.
     const long = isRecord(value) && typeof value.text === "string" && value.text.trim().length > BOARD_LIMITS.text;
     if (long) add("bad_shot", `${where} text.text is ${value.text.trim().length} characters, limit ${BOARD_LIMITS.text}.`);
     if (!isRecord(value) || Object.keys(value).some((key) => !keys.includes(key)) || typeof value.text !== "string" || !value.text.trim()
-      || typeof value.family !== "string" || !value.family.trim()) {
-      add("bad_shot", `${where} text is "none" or {text (up to ${BOARD_LIMITS.text} characters), family, weight?, size?, y?, fill?, until?}.`);
+      || (value.family !== undefined && (typeof value.family !== "string" || !value.family.trim()))) {
+      add("bad_shot", `${where} text is "none" or {text (up to ${BOARD_LIMITS.text} characters), family?, weight?, size?, y?, fill?, until?}.`);
       return NONE;
     }
-    const text = { text: value.text.trim(), family: value.family.trim(), weight: value.weight ?? 700, size: value.size ?? Math.round(scene.height * 0.05), y: value.y ?? 20, fill: value.fill ?? "#ffffff" };
+    // Fields left out take the job's treatment (subtitle or payoff, engine/typeRoles.js), printed on the answer.
+    const job = type && TEXT_DEFAULTED.some((key) => value[key] === undefined)
+      ? jobTreatment(type.job, { scene, labels: type.labels, text: value.text.trim(), advance: type.advance,
+        face: { family: typeof value.family === "string" ? value.family.trim() : undefined, weight: Number.isInteger(value.weight) ? value.weight : undefined } }) : null;
+    const given = job?.properties;
+    const center = given ? Math.round(((given.y + given.height / 2) / scene.height) * 100) : 20;
+    const text = { text: value.text.trim(), family: value.family?.trim() ?? given?.fontFamily ?? "Inter", weight: value.weight ?? given?.fontWeight ?? 700,
+      size: value.size ?? given?.fontSize ?? Math.round(scene.height * 0.05), y: value.y ?? center, fill: value.fill ?? given?.fill ?? "#ffffff" };
+    if (job) {
+      const left = [...TEXT_DEFAULTED, "y"].filter((key) => value[key] === undefined);
+      type.typed.push(`board ${where} text as ${type.job} from ${job.from}: ${left.map((key) => `${key} ${text[key]}${key === "size" ? " px" : key === "y" ? " %" : ""}`).join(", ")} (text.${left.join(", text.")} change them)`);
+    }
     if (!Number.isInteger(text.weight) || text.weight < 100 || text.weight > 900) add("bad_shot", `${where} text weight is a whole number from 100 to 900.`);
     if (typeof text.size !== "number" || !(text.size > 0) || text.size > 2000) add("bad_shot", `${where} text size is pixels at the video's size, above 0.`);
     if (typeof text.y !== "number" || !(text.y >= 0 && text.y <= 100)) add("bad_shot", `${where} text y is the text's center in % from the top (0 to 100).`);

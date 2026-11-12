@@ -419,9 +419,21 @@ test("type by job: two measured type labels give a subtitle line and a payoff wo
     return canvas.toBuffer("image/png");
   };
   const frames = { "yt:title000000": frame(110, "#f0d8a8", "STORM"), "yt:subs0000000": frame(22, "#ffffff", "we walk into the night") };
-  const labels = [{ id: "yt:title000000", at: 2, words: "title" }, { id: "yt:subs0000000", at: 5, words: "subtitle" }];
-  const measured = await labelTypes(labels, { fonts: await loadBundledFonts(), catalog: { measuresFile: path.join(folder, "m.json") }, referenceFrame: async (id) => frames[id] });
+  // Each label is measured where a text reader reads its own words (stubbed: Linux has no reader). A
+  // label whose words are not read (the hair kino boxed on run b) or that names no lettering is left
+  // out and says why, instead of measuring the largest edgy box.
+  const hairy = { bytes: frame(30, "#726b95", "~~"), at: 14.83, kind: "strip frame" };
+  const reads = new Map([[frames["yt:title000000"], [{ box: [0.05, 0.3, 0.9, 0.35], s: "STORM" }]], [frames["yt:subs0000000"], [{ box: [0.04, 0.5, 0.9, 0.1], s: "we walk into the night" }]], [hairy.bytes, [{ box: [0.1, 0.4, 0.2, 0.2], s: "A" }]]]);
+  const labels = [{ id: "yt:title000000", at: 2, words: "cream serif title STORM" }, { id: "yt:subs0000000", at: 5, words: 'subtitle line "we walk into the night"' }];
+  const deps = { fonts: await loadBundledFonts(), catalog: { measuresFile: path.join(folder, "m.json") }, readText: async (bytes) => reads.get(bytes) ?? [],
+    referenceFrames: async (id, at) => (id === "yt:hair0000000" ? [hairy] : [{ bytes: frames[id], at: at + 0.2, kind: "still" }]) };
+  const measured = await labelTypes(labels, deps);
   assert.equal(measured.length, 2);
+  assert.deepEqual([measured[0].at, measured[0].labelAt, measured[0].frame, measured[0].read], [2.2, 2, "still 640x360", "STORM"]);
+  const unread = await labelTypes([{ id: "yt:hair0000000", at: 14.83, words: "the lyric word KNOW in white" }, { id: "yt:hair0000000", at: 3, words: "a cut-out on clouds" }], deps);
+  assert.equal(unread.length, 0);
+  assert.deepEqual(unread.skipped.map((entry) => entry.why), ['"KNOW" was not read in its 1 frame within 0.5 s', "its words name no lettering (quote it or write it in capitals)"]);
+  assert.equal((await labelTypes(labels, { ...deps, readText: async () => null })).skipped[0].why, "no text reader here to confirm its lettering");
   const scene = { width: 1920, height: 1080, background: "#000000", layers: [] };
   const before = createLayer("text");
   const style = (p) => `${p.fontFamily} ${p.fontWeight} ${p.fontSize}px ${p.fill}${p.strokeWidth ? ` edge ${p.strokeWidth}` : ""}`;
@@ -431,8 +443,8 @@ test("type by job: two measured type labels give a subtitle line and a payoff wo
   const word = jobTreatment("payoff", { scene, labels: measured });
   console.log(`before: subtitle ${style(before)} | payoff ${style(before)}`);
   console.log(`after: subtitle ${style(line.properties)} (${line.from}) | payoff ${style(word.properties)} (${word.from})`);
-  assert.match(line.from, /^label yt:subs0000000 @5/);
-  assert.match(word.from, /^label yt:title000000 @2/);
+  assert.match(line.from, /^label yt:subs0000000 @5 \(read "we walk into the night" in its still 640x360 at 5.2 s\)/);
+  assert.match(word.from, /^label yt:title000000 @2 \(read "STORM" in its still 640x360 at 2.2 s\)/);
   assert.ok(word.properties.fontSize > line.properties.fontSize * 3, "the payoff takes the big label's size share");
   assert.deepEqual([word.properties.fontFamily, line.properties.fontFamily], [measured.find((one) => one.ref === "yt:title000000").family, measured.find((one) => one.ref === "yt:subs0000000").family], "each job takes its label's nearest face");
   assert.ok(parseInt(word.properties.fill.slice(1, 3), 16) > 0xd0 && parseInt(word.properties.fill.slice(5, 7), 16) < 0xc8, `cream fill measured: ${word.properties.fill}`);
@@ -453,8 +465,20 @@ test("type by job: two measured type labels give a subtitle line and a payoff wo
   const vertical = jobTreatment("payoff", { scene: { width: 1080, height: 1920, background: "#000000", layers: [] }, labels: [tall], text: "FIND YOU" });
   assert.ok(vertical.properties.fontSize * 8 * 0.62 <= vertical.properties.width, `${vertical.properties.fontSize} px in ${vertical.properties.width} px`);
   assert.equal(vertical.properties.fill, "#ffffff");
-  assert.match(vertical.from, /size fit to 8 letters a line \(608 px wanted\); measured fill #3c3027 under 3:1 on #000000/);
+  assert.match(vertical.from, /size fit to 8 letters a line \(608 px wanted; widths a guess, 0.62 of the size a letter\); measured fill #3c3027 under 3:1 on #000000/);
   console.log(`9:16 payoff: ${style(vertical.properties)} (${vertical.from})`);
+  // Widths measured from the face the words are set in: "WWWW" is wider than 4 letters at the guess, "IIII" narrower.
+  const fonts = await loadBundledFonts();
+  const advance = (words, family, weight) => { const face = fonts.faces.filter((one) => one.family === family && one.style === "normal").sort((a, b) => Math.abs(a.weight - weight) - Math.abs(b.weight - weight))[0]; return { em: face.font.layout(words).advanceWidth / face.font.unitsPerEm, face: `${face.family} ${face.weight}` }; };
+  const sized = (words) => jobTreatment("payoff", { scene: { width: 1080, height: 1920, background: "#000000", layers: [] }, labels: [{ ...tall, family: "Inter" }], text: words, advance });
+  assert.ok(sized("WWWW").properties.fontSize < sized("IIII").properties.fontSize, `${sized("WWWW").properties.fontSize} < ${sized("IIII").properties.fontSize}`);
+  const wide = sized("WWWWWWWW");
+  assert.match(wide.from, /widths measured from Inter 700\)/, "the nearest weight kino has");
+  assert.ok(advance("WWWWWWWW", "Inter", 900).em * wide.properties.fontSize <= wide.properties.width, "the measured line fits its box");
+  // A face the agent already named (board text with a family) is the one measured.
+  const named = jobTreatment("payoff", { scene: { width: 1080, height: 1920, background: "#000000", layers: [] }, labels: [{ ...tall, family: "Inter" }], text: "WWWWWWWW", advance, face: { family: "Montserrat", weight: 600 } });
+  assert.match(named.from, /widths measured from Montserrat 600\)/);
+  assert.ok(advance("WWWWWWWW", "Montserrat", 600).em * named.properties.fontSize <= named.properties.width, "the named face's line fits its box");
 });
 
 test("agent service: an add_layer text with a role and no face or fill gets its job's fields and, as a payoff, a letter entrance by its cue", async (t) => {
@@ -485,6 +509,16 @@ test("agent service: an add_layer text with a role and no face or fill gets its 
   assert.equal(layers.find((layer) => layer.name === "mine").fontSize, 48);
   assert.deepEqual(["top", "alias"].map((name) => layers.find((layer) => layer.name === name).fill), ["#00ff00", "#ff00ff"]);
   assert.ok(layers.find((layer) => layer.name === "late").animations.some((animation) => animation.preset?.id === "custom-text" && animation.start === 1));
+  // Board shot text with no family, weight, size or fill: a line takes the subtitle treatment, the
+  // last short word the payoff one; the values are printed and the fields the agent gave stay.
+  const card = (cue, text) => ({ cue, dur: 2, pacing: "free", media: "none", in: "none", crop: "none", subject: "none", follow: "none", text, sound: "none", why: "the words" });
+  const board = await agent("edit", { project: "jobs", ops: [{ op: "board", music: "none", shots: [card(0, { text: "I will find you, I swear." }), card(2, { text: "FIND YOU", fill: "#ff00ff" })] }] });
+  assert.equal(board.isError, undefined, board.text);
+  const boardNotes = board.data.notes.join("\n");
+  assert.match(boardNotes, /board shot 1 text as subtitle from scene colors \([^\n]*\): family Inter, weight 600, size 32 px, fill #111111, y 86 % \(text\.family, text\.weight, text\.size, text\.fill, text\.y change them\)/);
+  assert.match(boardNotes, /board shot 2 text as payoff from scene colors[^\n]*: family Inter, weight 900, size 101 px, y 50 % \(text\.family, text\.weight, text\.size, text\.y change them\)/);
+  const shots = (await (await server.api("/api/projects/jobs")).json()).document.board.shots;
+  assert.deepEqual(shots.map((shot) => [shot.text.weight, shot.text.size, shot.text.fill, shot.text.y]), [[600, 32, "#111111", 86], [900, 101, "#ff00ff", 50]]);
 });
 
 // Measured on the benchmark crops: a dotted lettering read dots 0.43 and lost to solid condensed faces,
