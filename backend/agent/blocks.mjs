@@ -1014,7 +1014,9 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     }
     // A type direction written before any reference type label is the agent's guess: the note says so,
     // and points at the references' lettering (library fonts lists faces from the labels first).
-    if (spec?.type) return { fonts: null, note: `the picked type is ${spec.typeLabeled === false ? "a guess (no reference type label yet) " : ""}'${spec.type}': set style.fonts or set_font to a face for it${spec.typeLabeled === false ? '; label a reference moment type, then library {topic:"fonts"} ranks faces from it' : ""}` };
+    // With labels (run 8 had two when this note came, and the agent then searched the catalog by name),
+    // the note names the fonts call that ranks faces from them.
+    if (spec?.type) return { fonts: null, note: `the picked type is ${spec.typeLabeled === false ? "a guess (no reference type label yet) " : ""}'${spec.type}': set style.fonts or set_font to a face for it${spec.typeLabeled === false ? '; label a reference moment type, then library {topic:"fonts"} ranks faces from it' : spec.typeLabeled ? '; library {topic:"fonts"} ranks faces from your reference type labels' : ""}` };
     return { fonts: null, note: null };
   }
 

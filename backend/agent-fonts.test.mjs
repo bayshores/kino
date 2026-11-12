@@ -286,7 +286,8 @@ test("fonts library shape words rank instead of being ignored: rounded and geome
 test("fonts library keeps a named family: it is listed first with a category word beside it, then the category's matches", async () => {
   const entry = (id, family, category, weights) => ({ id, family, category, weights });
   const families = [entry("barlow-condensed", "Barlow Condensed", "sans-serif", [400, 800]), entry("anton", "Anton", "sans-serif", [400]),
-    entry("anton-sc", "Anton SC", "sans-serif", [400]), entry("bebas-neue", "Bebas Neue", "sans-serif", [400]), entry("oswald", "Oswald", "sans-serif", [400, 700])];
+    entry("anton-sc", "Anton SC", "sans-serif", [400]), entry("bebas-neue", "Bebas Neue", "sans-serif", [400]), entry("oswald", "Oswald", "sans-serif", [400, 700]),
+    entry("antonio", "Antonio", "sans-serif", [700]), entry("big-shoulders", "Big Shoulders Display", "display", [100, 900])];
   const catalog = { list: async ({ search = "" } = {}) => {
     const found = families.filter((family) => family.family.toLowerCase().includes(search.toLowerCase()));
     return { families: found, total: found.length, offline: false };
@@ -298,6 +299,10 @@ test("fonts library keeps a named family: it is listed first with a category wor
   // A name of two words, and a word that names no family (still ignored).
   assert.match(await fontsLibraryText("Bebas Neue sans-serif", { fonts, catalog }), /named first: Bebas Neue\): Bebas Neue 400 \[kino's own\], Barlow Condensed/);
   assert.match(await fontsLibraryText("wobbly condensed", { fonts, catalog }), /\(all categories, 1 match; ignored: wobbly\): Barlow Condensed/);
+  // One plain word names a family only when it is the whole name: "big" is a description, not Big Shoulders Display.
+  assert.match(await fontsLibraryText("big condensed", { fonts, catalog }), /\(all categories, 1 match; ignored: big\): Barlow Condensed/);
+  // A name with only a weight word beside it is the name too.
+  assert.match(await fontsLibraryText("Anton bold", { fonts, catalog }), /^catalog, named "Anton bold": Anton 400, Anton SC 400\n/);
 });
 
 // library {topic:"fonts", like}: a picture of letters set in one bundled face ranks that face first.
@@ -327,7 +332,11 @@ test("fonts like: the lettering in a picture ranks the face it was set in first,
   const frame = await (await import("node:fs/promises")).readFile(file);
   const labels = [{ id: "yt:aaaaaaaaaaa", at: 3.8, words: "STORM in a serif" }, { id: "yt:bbbbbbbbbbb", at: 1, words: "x" }, { id: "yt:ccccccccccc", at: 2, words: "y" }];
   const labeled = await fontsLikeLabels(labels, { fonts, catalog, referenceFrame: async () => frame });
-  assert.match(labeled.text, /^like your label yt:aaaaaaaaaaa @3\.8 "STORM in a serif": \S.* \d+ \([\d.]+\)(, .*){3}\n/, "four faces, each with its distance");
+  assert.match(labeled.text, /^like your label yt:aaaaaaaaaaa @3\.8 "STORM in a serif" \(whole frame[^)]*\): \S.* \d+ \([\d.]+\)(, .*){3}\n/, "four faces, each with its distance");
+  // Faces measured this close on the whole frame cannot be told apart: the line says so and gives the region call.
+  const flat = await fontsLikeLabels([labels[0]], { fonts, catalog, referenceFrame: async () => frame });
+  const spread = flat.found[0].fonts.map((font) => font.distance);
+  assert.equal(/too close to tell apart: like:"yt:aaaaaaaaaaa", t:3\.8, region:\[x,y,w,h\]/.test(flat.text), (spread.at(-1) - spread[0]) / spread[0] < 0.1);
   assert.match(labeled.text, /\n.* yt:bbbbbbbbbbb @1 "x"[^\n]*\n\(smaller distance = closer letters; 1 more label: like:"<ref>", t; region/, "two labels are measured, the rest named");
   assert.equal(labeled.found.length, 2);
   assert.equal(await fontsLikeLabels([], { fonts }), null, "no labels, no lines");

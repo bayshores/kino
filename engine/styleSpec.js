@@ -50,6 +50,8 @@ export function styleContext(spec) {
     referenceLines: (spec.lines ?? []).filter(lineHasReference),
     // The style bible the consistency rules hold the timeline to (null when the spec has none).
     fonts: isObject(spec.fonts) ? spec.fonts : null, fontsBacked: theirs("fonts") && isObject(spec.fonts), accent: isObject(spec.accent) ? spec.accent : null,
+    // The person's own words when the spec is theirs (role_font_drift holds a size only when they name it).
+    quote: yours ? spec.quote.trim() : null,
     logo: isObject(spec.logo) ? spec.logo : null, moves: moves.length ? moves : null,
     // The idea, its signature moments and the one-off set pieces.
     idea: typeof spec.idea === "string" && spec.idea.trim() ? spec.idea.trim() : null,

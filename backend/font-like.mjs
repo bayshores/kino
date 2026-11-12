@@ -468,7 +468,11 @@ export async function fontsLikeLabels(labels, deps) {
     try {
       const { fonts: ranked } = await fontsLikeText({ like: label.id, t: label.at, count: LABEL_FACES }, deps);
       found.push({ ref: label.id, at: label.at, fonts: ranked.map(({ family, weight, distance: gap }) => ({ family, weight, distance: gap })) });
-      lines.push(`like your label ${where} "${words}": ${ranked.map((font) => `${font.family} ${font.weight} (${font.distance})`).join(", ")}`);
+      // The label has no region, so the whole frame is measured. When the faces sit this close the measure
+      // cannot tell them apart (run 8's @1.6 caption, 8 px tall in a 240 px frame: 3.19 to 3.46, 8% apart);
+      // the line says so and gives the region call. GUESS: 10% between the first and last face listed.
+      const close = ranked.length > 1 && (ranked.at(-1).distance - ranked[0].distance) / ranked[0].distance < 0.1;
+      lines.push(`like your label ${where} "${words}" (whole frame${close ? `, too close to tell apart: like:"${label.id}", t:${label.at}, region:[x,y,w,h]` : ""}): ${ranked.map((font) => `${font.family} ${font.weight} (${font.distance})`).join(", ")}`);
     } catch (error) {
       lines.push(`your label ${where} "${words}" was not measured (${error.message.split(/[.:]/)[0]}): library {topic:"fonts", like:"${label.id}", t:${label.at}, region:[x,y,w,h]}`);
     }

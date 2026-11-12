@@ -1799,7 +1799,9 @@ export function createInspire(deps) {
     const moments = onscreenMoments({ stripList: record?.strips, numbers: record?.numbers });
     let moment = moments.find((candidate) => Math.abs(candidate - at) <= 0.5);
     let offList = false;
-    const seconds = record?.numbers?.seconds;
+    // The reference's length; a record without one ends at its last kept strip.
+    const seconds = Number.isFinite(record?.numbers?.seconds) ? record.numbers.seconds
+      : Math.max(0, ...(record?.strips ?? []).map((strip) => strip.at).filter(Number.isFinite));
     if (moment === undefined && moments.length && new Set(kinds).has("type") && Number.isFinite(at) && at >= 0 && at <= seconds) {
       moment = Math.round(at * 10) / 10;
       offList = true;
