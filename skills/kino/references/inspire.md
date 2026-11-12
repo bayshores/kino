@@ -87,7 +87,10 @@ frame strips · Proposing ideas · Sound effects
   at the strips first, then keep the ones you confirm in the brief's style (with `ref` and `at`).
 - A reference with text asks for its type: read the family class (serif, sans, mono, script),
   size, case and reveal off the strips; save `"type: <family class>, <size>, <case>, <reveal>"`
-  with `ref` and `at`.
+  with `ref` and `at`. A type label is measured only where kino's text reader reads its own
+  words in a kept frame within 0.5 s: put the on-screen lettering in the label's words, quoted
+  or in capitals ("the lyric word KNOW"). Else the receipt says 'type label <ref> @<s> not
+  used: <why>' and the type comes from the scene's colors.
 - `look {mode:"reference", ref, t}` shows the strip nearest `t` and its neighbors: 6 frames
   1/12 s apart from 0.25 s before the moment, 240 px wide. Without `t`, `page` 1, 2, … of 6.
   Without `ref`: the saved references, one line each.

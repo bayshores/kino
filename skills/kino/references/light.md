@@ -8,13 +8,8 @@ Related, not light: `vignette` and `grain` (finish), `duotone` and `tritone` (gr
 
 ## Stacked shadows and strokes
 
-- A layer's `shadows` list draws more drop shadows after `shadow`, later ones on top: up to
-  32 `{color, x?, y?, blur?, opacity?}`. Neon glow: one color, no offset, blur 4, 16, 40.
-  Long shadow: hard copies stepping one way (2, 4, 6 ... px). Static; not in Lottie.
-- `strokes` on text, shapes and paths: up to 16 `{color, width, align?, opacity?, dash?, join?,
-  cap?, taper?, style?, glow?}` after `stroke`, later on top. Sticker: wide outside outlines
-  first, `join:"round"`. Neon line or outline in one entry: `{color, style:"neon"}` (thin core 4,
-  dim glow 24). `cap:"round"`; `taper:0.3` narrows both ends to points. Static; not in Lottie.
+- A layer's `shadows` list draws more drop shadows after `shadow`, later ones on top: up to 32 `{color, x?, y?, blur?, opacity?}`. Neon glow: one color, no offset, blur 4, 16, 40. Long shadow: hard copies stepping one way (2, 4, 6 ... px). Static; not in Lottie.
+- `strokes` on text, shapes and paths: up to 16 `{color, width, align?, opacity?, dash?, join?, cap?, taper?, style?, glow?}` after `stroke`, later on top. Sticker: wide outside outlines first, `join:"round"`. Neon line or outline in one entry: `{color, style:"neon"}` (thin core 4, dim glow 24). `cap:"round"`; `taper:0.3` narrows both ends to points. Static; not in Lottie.
 
 ## Light: glow, rays and flares
 
@@ -25,18 +20,8 @@ Related, not light: `vignette` and `grain` (finish), `duotone` and `tritone` (gr
   receipt gives it); a number sets it by hand, and the receipt says when it is at or
   above the layer's 99th percentile (under 1% glows); `color` with `colorMix` tints it (a red tint at the bright edges is halation).
   `mode:"behind"`: halo under the layer, fill keeps its color; `"spill"`: lines in bright areas stay. A glowing word on a face: `place {layers, on:"mouth"|"eyes"|"between-eyes"|"face"|"above-head", of:<video>}` after `mark_subject {layer, t, box, part:"face"}` (t: scene seconds, default your last look at it; an estimate: look, then `offset:[x, y]`) or `{part:"mouth"}` (exact).
-- `rim-light` lights the edge of a layer's own shape (cut-out subject, text, shape) in one
-  call: `color` "auto" (the layer's edge hue), `width` 8 (4 lobes), `angle` "auto" or degrees (0 above),
-  `spread` 20; `edge:"outside"` is a ring outline alone, `style:"lobes"` uneven electric lobes.
-  `smooth` rounds matte steps; `core` 0.3 mixes the line toward white; `haze` 0.8 adds a wide dim
-  falloff (`hazeSpread` 140, 0 off). Glow, shadows and rims on a cut-out skip its faded border.
-- `edge-lines` draws line art of a layer's picture: a line (`color`, `width` 3) wherever the
-  brightness jumps. `threshold` 0.05 (lower finds fainter edges), `smooth` 1; the picture stays
-  under, dimmed by `dim` 0.7 (no grade needed; a dark one before it hides the edges); `adapt` 1
-  lifts the dark end and lowers the threshold to 60%, so a dark clip still gets lines (0 is the plain threshold); the line is white unless `color` is set;
-  `background:"transparent"` draws the lines alone. One subject's edge as a
-  vector path to stroke, neon or draw on: `cut_out` with `output:"outline"` (`color`, `width`, `step`,
-  `detail`), a path layer that follows the subject frame by frame.
+- `rim-light` lights the edge of a layer's own shape (cut-out subject, text, shape) in one call: `color` "auto" (the layer's edge hue), `width` 8 (4 lobes), `angle` "auto" or degrees (0 above), `spread` 20; `edge:"outside"` is a ring outline alone, `style:"lobes"` uneven electric lobes. `smooth` rounds matte steps; `core` 0.3 mixes the line toward white; `haze` 0.8 adds a wide dim falloff (`hazeSpread` 140, 0 off). Glow, shadows and rims on a cut-out skip its faded border.
+- `edge-lines` draws line art of a layer's picture: a line (`color`, `width` 3) wherever the brightness jumps. `threshold` 0.05 (lower finds fainter edges), `smooth` 1; the picture stays under, dimmed by `dim` 0.7 (no grade needed; a dark one before it hides the edges); `adapt` 1 lifts the dark end and lowers the threshold to 60%, so a dark clip still gets lines (0 is the plain threshold); the line is white unless `color` is set; `background:"transparent"` draws the lines alone. One subject's edge as a vector path to stroke, neon or draw on: `cut_out` with `output:"outline"` (`color`, `width`, `step`, `detail`), a path layer that follows the subject frame by frame.
 - `light-rays` streaks light out from `centerX`/`centerY` (fractions of the layer's box).
   `source:"bright"` streaks the bright parts (sun through trees); `source:"behind"` puts a light
   of `lightSize` behind the layer, so its shapes cast shadows between the rays. `length` and
@@ -81,12 +66,8 @@ copy follows your layer's slides, rises and turns, and light-sweep's also its fa
 accent-hit after a fade-in (a fade during the hit is refused). Color defaults to the brand
 accent. Reduced motion: no glow, no sweep, just the color on and off.
 
-- `accent-hit {layer, word?, color?, glow:30, hold:0.1, decay:0.2}`: the layer (or only `word`
-  of a text layer) flashes to the color in 2 frames while a glow of `glow` px blooms, holds, and
-  decays back in `decay` s. One hit per op; three a second is the flashing limit.
-- `light-sweep {layer, color?, width:"2ch"}`: one band of the color with a soft halo crosses the
-  letters once, left to right, at one speed (`dur`, default 1.2 s; a sign-off). `width`
-  is `"2ch"`, `"30%"` of the layer or `"120px"`.
+- `accent-hit {layer, word?, color?, glow:30, hold:0.1, decay:0.2}`: the layer (or only `word` of a text layer) flashes to the color in 2 frames while a glow of `glow` px blooms, holds, and decays back in `decay` s. One hit per op; three a second is the flashing limit.
+- `light-sweep {layer, color?, width:"2ch"}`: one band of the color with a soft halo (0.35 of the layer's height, at most 400 px) crosses the letters once, left to right, at one speed (`dur` 1.2 s; a sign-off). `width` is `"2ch"`, `"30%"` of the layer or `"120px"`.
 
 ```json
 {"op":"add_layer","layerType":"text","name":"line","properties":{"text":"careful, bicycle ahead.","x":360,"y":400,"width":1200,"height":120,"fontSize":80,"fill":"#FFFFFF","textAlign":"center"}}

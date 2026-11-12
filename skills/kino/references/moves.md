@@ -1,44 +1,28 @@
 # Moves
 
-A move is a set piece built in one op from your layers.
-Most shots need none. Pick one or two as the signature, spend them
-on the hook, reveal and payoff.
+A move is a set piece built in one op from your layers. Most shots need none. Pick one or two as the signature, spend them on the hook, reveal and payoff.
 
 Contents: The move op · The moves · Moves example (trim paths and dashes: behaviors reference)
 
 ## The move op
 
-- `move {name, at, dur?, id?, seed?, reduced?, look?, brand?, …its fields}`. `at` takes every
-  time form (`1.2`, `"cue:drop"`, `"after:title.in"`). Layer fields take top-level layers or
-  groups (a layer alone in a group means the group).
-- `library {topic:"moves", name}` gives one move's fields, their defaults and an example:
-  read it before the first use. Without `name`: the list.
-- The receipt says when it plays, the layers it made, which of yours it animates. Its id is its
-  name (`-2` at another time: the receipt has the call to move the first).
-- The same id, or layers and time, replaces it; `{name, id, remove:true}` removes it. Never
-  edit its parts.
+- `move {name, at, dur?, id?, seed?, reduced?, look?, brand?, …its fields}`. `at` takes every time form (`1.2`, `"cue:drop"`, `"after:title.in"`). Layer fields take top-level layers or groups (a layer alone in a group means the group).
+- `library {topic:"moves", name}` gives one move's fields, their defaults and an example: read it before the first use. Without `name`: the list.
+- The receipt says when it plays, the layers it made, which of yours it animates. Its id is its name (`-2` at another time: the receipt has the call to move the first).
+- The same id, or layers and time, replaces it; `{name, id, remove:true}` removes it. Never edit its parts.
 - `seed` picks other choices. `reduced:true`: calm fades, small moves.
 - No move runs past the scene's end: `retime` it or start earlier.
+- A transition move (`from`, `to`) keeps a held text card (and carry's riders) until the move hides it, even when the card's own hold would end first; the show it adds is named after the hide with `-keep` (`<move>.from-hide-keep`).
 - Cues `<id>.1`… mark a move's steps (roll, type-on, stream) for sound.
-- A refused move's `next` is your own op with the fix filled in when the refusal says so: `dur`
-  under one frame becomes `frames:1`, a number out of range goes to the nearest end, a choice
-  to its near miss, yes/no for a true-or-false field becomes true/false, an unknown move field
-  is renamed to its near miss or left out, and of two fields that exclude each other the first
-  stays. Otherwise the failing field is set to `"<your field>"` for you to fill in.
-- Status and the deck show `for your words: "aura" -> energy-aura`: moves your stored ask
-  names. A word in a move's own name makes it the set piece; a word only in its description
-  makes it likelier. `library {topic:"moves", name:"energy-aura"}` gives fields.
+- A refused move's `next` is your own op with the fix filled in when the refusal says so: `dur` under one frame becomes `frames:1`, a number out of range goes to the nearest end, a choice to its near miss, yes/no for a true-or-false field becomes true/false, an unknown move field is renamed to its near miss or left out, and of two fields that exclude each other the first stays. Otherwise the failing field is set to `"<your field>"` for you to fill in.
+- Status and the deck show `for your words: "aura" -> energy-aura`: moves your stored ask names. A word in a move's own name makes it the set piece; a word only in its description makes it likelier. `library {topic:"moves", name:"energy-aura"}` gives fields.
 
 ## The moves
 
 What each is for; fields from `library {topic:"moves", name}`.
 
-- **caption-words**: captions low as written, a phrase at a time, cut on as said, one or two
-  lines; short words hold 0.3 s or pair up; `highlight:"active"` is karaoke. Give forced-aligned
-  `words` [{text, at}] or `text`.
-  Font, colors, word box: captions-beats-sequences.md.
-- **zoom-through**: pushes into a point (or a layer's `target`) of one shot and comes out in the
-  next; `reverse:true` pulls back to the whole shot.
+- **caption-words**: captions low as written, a phrase at a time, cut on as said, one or two lines; short words hold 0.3 s or pair up; `highlight:"active"` is karaoke. Give forced-aligned `words` [{text, at}] or `text`. Font, colors, word box: captions-beats-sequences.md.
+- **zoom-through**: pushes into a point (or a layer's `target`) of one shot and comes out in the next; `reverse:true` pulls back to the whole shot.
 - **whip-pan**: both shots slide a frame width, smeared.
 - **smear** (datamosh drag), **shatter** (glass shards), **split-fields** (two color fields, rough edge).
 - **push-through-type**: a big glossy word (or your logo, path or group); the camera speeds into
@@ -61,7 +45,8 @@ What each is for; fields from `library {topic:"moves", name}`.
 - **lift-focus**: a detail lifts to the middle while the rest dims and blurs, then goes back.
 - **card-into-device**: a big leaning card turns flat and shrinks into a phone's screen.
 - **carry**: one thing becomes the next shot, no cut: box, radius, fill and turn travel from
-  `from` into `to` (or a part of it), contents crossfade.
+  `from` into `to` (or a part of it), contents crossfade. With `toRect` the card stays inside
+  the target; its own hold still ends it, so hold the card past the carry's end.
 - **cursor**: clicks or drags a split_image piece (screens).
 - **freeze-shutter**: footage stops on the beat with a one-frame shutter, holds, then releases.
 - **speed-ramp**, **beat-repeat**: footage time on a cue (media.md).
@@ -86,7 +71,8 @@ What each is for; fields from `library {topic:"moves", name}`.
   reason within 3 frames and the receipt names it and how far it moved; with none near it is a
   small accent (weight 0.3) and the receipt gives the distance to the nearest reason. An accent
   snapped to a footage moment no cue marks: the receipt gives the `set_cues` call that lets
-  `effect_fit` read it.
+  `effect_fit` read it. Any kind at a raw time within 3 frames either side of a cut has the cut
+  as its reason (weight 0.3); a hit and its sound count once in `stacked`.
 - **energy-aura**: flame, smoke or electric aura off the subject.
 
 Launch-video type (words arrive faint, then darken): **headline-write** (writes on, centered),
