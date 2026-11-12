@@ -1139,10 +1139,14 @@ How to read it:
   generated stereo speech-like audio over pink noise. Words over 3 LU off the line's median word come back to 3 LU
   with 0.04 s "Line level" ramps (render moved them -6.0 and +4.9 dB, receipt -6 and +4.9); a leveled line that sends
   the mix over the limiter's ceiling comes down (receipt peak -1.9 dBFS, render true peak -1.8 dBTP; line -19.2 vs
-  -19.1 LUFS). A bed-volume clip (under 0.5) is evened only with even:true. The edit's answer prints the peak
-  (board build). Evidence: `backend/audio-levels.test.mjs`, `engine/speech.test.js`, `backend/agent-board.test.mjs`.
-  Gap: not run on real speech or the dm2 projects; the "auto" gain is printed, not held; the 3 LU band and 0.04 s
-  ramps are guesses.
+  -19.1 LUFS). A bed-volume clip (under 0.5) is evened only with even:true, and a line kept on it renders at its
+  voiceLevel (test at volume 0.38: receipt -17.8, render -17.6 LUFS; before, -25.7 against -16, as dm2-a board-s7
+  rendered 10 LU under its receipt); a stale voiceLevel on a clip with no kept line stays a bed. mix.line moves
+  with a peak lowering (receipt -19.2 after -3.2 dB, render -19.1; before, dm2-b board-S5 printed -12.5 after
+  -2.2 dB). The edit's answer prints the peak (board build). Evidence: `backend/audio-levels.test.mjs`,
+  `engine/speech.test.js`, `engine/audioDucking.test.js`, `backend/agent-board.test.mjs`.
+  Gap: not run on real speech; the "auto" gain is printed, not held; the 3 LU band and 0.04 s ramps are guesses;
+  mix.under is not re-measured after a lowering.
 - **Kept line's subtitle and receipt as heard** (`keep_line` subtitle, unsure words, peak cap, later lines):
   Engine-tested on word lists and measured curves, not rendered. A one-word line's page stays inside the line and its
   0.12 s fade (3.5-4.22 s, was to 4.63 s) and ends 2 frames before a next line joined to it by the fades (4.133 s),

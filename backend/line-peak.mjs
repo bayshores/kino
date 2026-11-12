@@ -4,6 +4,7 @@
 // ceiling there (render loudness "off"; the "auto" gain is printed beside it), the line comes down
 // by its share of the peak, (ceiling - rest) / (mix - rest) on the measured peaks (the rule
 // place_sounds uses), and the mix is measured again. Nothing is drawn or encoded.
+import { lowerKeptLine } from "../engine/keepLine.js";
 import { LIMITER_CEILING_DB, peakOver } from "./audio-levels.mjs";
 import { measureMixPeaks, measurePeakWindows, sceneSoundClips } from "./export.mjs";
 
@@ -42,6 +43,22 @@ export async function capLinePeak(scene, { layerIds, start, end, mediaRoot, dire
   for (const layer of layers) layer.voiceLevel = round1(Math.max(-60, layer.voiceLevel + db));
   const after = await measure();
   return { peakDbfs: after.peak ?? first.peak, autoDb: after.auto, ceilingDbfs: LIMITER_CEILING_DB, lowered: { db, from, to: layers[0].voiceLevel, beforeDbfs: first.peak } };
+}
+
+/**
+ * Writes `peak` (capLinePeak) into keep_line's receipt: peak, the ways line (or a note), and mix.line
+ * moved by a lowering, so the line's level printed is the level it renders at (measured on dm2-b
+ * 2026-11-12: board-S5's receipt said -12.5 LUFS after its line came down 2.2 dB).
+ */
+export function applyLinePeak(report, peak) {
+  report.peak = peak;
+  // The ways, the mix and the summary give the line as it plays after the cap (lowerKeptLine); a
+  // receipt it cannot rewrite still gets its line level moved.
+  const placed = report.mix?.line;
+  if (peak.lowered) lowerKeptLine(report, peak.lowered.db);
+  if (peak.lowered && Number.isFinite(placed) && report.mix.line === placed) report.mix.line = round1(placed + peak.lowered.db);
+  if (report.ways) report.ways += ` · ${linePeakText(peak)}`;
+  else (report.notes ??= []).push(linePeakText(peak));
 }
 
 /** The peak in a few words, for keep_line's ways line. */

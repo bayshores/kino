@@ -164,8 +164,7 @@ import { VIDEO_FORMAT_NAMES, videoFormatsText } from "../../engine/blocks/videoF
 import { existsSync } from "node:fs";
 import { avOffsetFinding } from "./av-offset.mjs";
 import { LIMITER_CEILING_DB, describeLevels, describeMixFix, describeMixPeaks, measureFileLevels, peakOver, restCallFor } from "../audio-levels.mjs";
-import { capLinePeak, linePeakText } from "../line-peak.mjs";
-import { lowerKeptLine } from "../../engine/keepLine.js";
+import { applyLinePeak, capLinePeak } from "../line-peak.mjs";
 import { peakTrims } from "../../engine/peakTrim.js";
 import { mediaIdFromSource } from "../../engine/replaceMedia.js";
 import { createBeatAnalysisCache, isSoundEffect, soundIsMusic, steadyBeat } from "../audio-analysis.mjs";
@@ -2161,12 +2160,7 @@ export function createAgentService(deps) {
     try {
       directory = await makeTempFolder("kino-mix-");
       const peak = await capLinePeak(scene, { layerIds: ids, start: report.scene[0], end: report.scene[1], mediaRoot: deps.mediaRoot, directory });
-      if (!peak) return;
-      report.peak = peak;
-      // The ways, the mix and the summary give the line as it plays after the cap.
-      if (peak.lowered) lowerKeptLine(report, peak.lowered.db);
-      if (report.ways) report.ways += ` · ${linePeakText(peak)}`;
-      else (report.notes ??= []).push(linePeakText(peak));
+      if (peak) applyLinePeak(report, peak);
     } catch { /* not measured: the receipt keeps the loudness stand-in */ }
     finally { if (directory) await removeTempFolder(directory); }
   }

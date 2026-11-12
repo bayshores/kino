@@ -10,9 +10,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createDocument, createLayer, createScene, parseDocument } from "../engine/model.js";
 import { applyOperations } from "../engine/operations.js";
-import { applyKeepLine, lowerKeptLine } from "../engine/keepLine.js";
+import { applyKeepLine } from "../engine/keepLine.js";
 import { energyMean } from "../engine/mixLevels.js";
-import { capLinePeak } from "./line-peak.mjs";
+import { applyLinePeak, capLinePeak } from "./line-peak.mjs";
 import { createAgentClient } from "./agent/client.mjs";
 import { describeLevels, describeMixFix, describeMixPeaks, limiterPlaces, restCallFor, loudMixWarning, loudnessGain, mixLead, readLevels, readPeakWindows } from "./audio-levels.mjs";
 import { createLoudnessCurves, measureLoudnessCurve, readMomentary, savedWordsOf } from "./loudness-curve.mjs";
@@ -650,11 +650,11 @@ test("keep_line evens a line's loud and quiet words and its lifted line stays un
   const levels = { voice: await measureLoudnessCurve(voice), music: await measureLoudnessCurve(song) };
   const directory = join(root, "clips");
   await mkdir(directory);
-  const sceneWith = () => createScene({ id: "s", name: "S", width: 32, height: 32, duration: 4.5, background: "#000000", layers: [
+  const sceneWith = (volume = 1) => createScene({ id: "s", name: "S", width: 32, height: 32, duration: 4.5, background: "#000000", layers: [
     createLayer("audio", { id: "music", name: "music", src: "/api/media/song.wav", mediaSourceDuration: 5 }),
-    createLayer("audio", { id: "voice", name: "voice", src: "/api/media/voice.wav", mediaStart: 0.5, mediaSourceDuration: 3.6, voiceCleanup: false })] });
-  const keep = (even) => {
-    const document = createDocument({ id: "line", name: "line", scenes: [sceneWith()] });
+    createLayer("audio", { id: "voice", name: "voice", src: "/api/media/voice.wav", mediaStart: 0.5, mediaSourceDuration: 3.6, voiceCleanup: false, volume })] });
+  const keep = (even, volume) => {
+    const document = createDocument({ id: "line", name: "line", scenes: [sceneWith(volume)] });
     const receipt = applyKeepLine(document, { type: "keep_line", sceneId: "s", layerId: "voice", line: "one two three four five six", subtitle: false, transcript, levels, beats: {}, ...(even === false ? { even } : {}) });
     return { scene: document.scenes[0], receipt };
   };
@@ -692,13 +692,11 @@ test("keep_line evens a line's loud and quiet words and its lifted line stays un
     t.diagnostic(`word ${index + 1}: receipt ${db} dB, render ${moved.toFixed(2)} dB`);
     assert.ok(Math.abs(moved - db) <= 1, `word ${index + 1} moved ${moved.toFixed(2)} dB in the render, the receipt says ${db}`);
   }
-  // The line as a whole is heard where the receipt says (mix.line, LUFS) once the receipt follows the
-  // peak's lowering (lowerKeptLine, as the agent service does).
-  const placed = receipt.mix.line;
-  assert.ok(peak.lowered, JSON.stringify(peak));
-  lowerKeptLine(receipt, peak.lowered.db);
+  // The line as a whole is heard where the receipt says (mix.line, LUFS, moved by a lowering the peak asked for).
+  const lifted = receipt.mix.line;
+  applyLinePeak(receipt, peak);
+  assert.equal(receipt.mix.line, Math.round((lifted + (peak.lowered?.db ?? 0)) * 10) / 10);
   const line = receipt.mix.line;
-  assert.equal(line, Math.round((placed + peak.lowered.db) * 10) / 10);
   t.diagnostic(`line: receipt ${line} LUFS, render ${alone.lineLufs} LUFS (momentary energy mean; integrated ${alone.lufs}); peak ${JSON.stringify(peak)}; peak at the line: receipt ${peak.peakDbfs} dBFS, render true peak ${mixed.peak} dBTP; ${receipt.ways}`);
   assert.ok(Math.abs(alone.lineLufs - line) <= 1, `the voice alone is ${alone.lineLufs} LUFS, the receipt says ${line}`);
   assert.ok(Math.abs(mixed.peak - peak.peakDbfs) <= 1, `the render's true peak over the line ${mixed.peak}, the receipt's ${peak.peakDbfs}`);
@@ -712,4 +710,15 @@ test("keep_line evens a line's loud and quiet words and its lifted line stays un
   t.diagnostic(`even:false: receipt peak ${JSON.stringify(plainPeak)}, render true peak ${plainMix.peak} dBTP`);
   assert.ok(Math.abs(plainMix.peak - plainPeak.peakDbfs) <= 1, `the render's true peak ${plainMix.peak}, the receipt's ${plainPeak.peakDbfs}`);
   assert.ok(plainPeak.peakDbfs <= plainPeak.ceilingDbfs + 0.1);
+
+  // A line kept on a clip played under BED_VOLUME (0.38, as dm2-a board-s7) is heard where its receipt sets it, not as the bed.
+  const bed = keep(undefined, 0.38);
+  const bedPeak = await capLinePeak(bed.scene, { layerIds: ["voice"], start: bed.receipt.scene[0], end: bed.receipt.scene[1], mediaRoot, directory });
+  const bedHidden = structuredClone(bed.scene);
+  bedHidden.layers[0].visible = false;
+  const bedAlone = await render(bedHidden, bed.receipt.scene);
+  applyLinePeak(bed.receipt, bedPeak);
+  const bedLine = bed.receipt.mix.line;
+  t.diagnostic(`volume 0.38: receipt ${bedLine} LUFS, render ${bedAlone.lineLufs} LUFS; ${bed.receipt.ways}`);
+  assert.ok(Math.abs(bedAlone.lineLufs - bedLine) <= 1, `the kept line at volume 0.38 is ${bedAlone.lineLufs} LUFS, the receipt says ${bedLine}`);
 });
