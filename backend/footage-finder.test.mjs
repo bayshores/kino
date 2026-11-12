@@ -1520,6 +1520,14 @@ test("a video with no captions is said once, and asked-for words say they were n
   const none = createFootageActions({ finder: saidFinder({ none: true }) });
   const first = await none.handle({ scan: "F1" }, { footage, personClips: 0 });
   assert.match(first.text, /^No captions on this video\. said:"<words>" listens to the scanned part on this computer/m);
+  assert.doesNotMatch(first.text, /your reference/);
+  // A measured reference of this project said a line (inspire's projectView lines): the hint names it as a ready scan
+  // call, saved references first; a hook heard twice (a song) is not offered.
+  const known = knownEdits({ saved: ["yt:saved"], refs: {
+    "yt:listed": { lines: [{ at: 0.5, text: "Here we go again, every single time", times: 1 }] },
+    "yt:saved": { lines: [{ at: 0, text: "la la love you", times: 2 }, { at: 3.3, text: "I'll just kill you.", times: 1 }] } } });
+  const offered = await none.handle({ scan: "F1" }, { footage, personClips: 0, known });
+  assert.match(offered.text, /^A line your reference yt:saved says at 3\.3 s \(a voice or the song\): library \{"topic":"footage","scan":"F1","said":"I'll just kill you"\}$/m);
   const again = first.update(footage);
   assert.equal(again.candidates[0].noCaptions, true);
   assert.doesNotMatch((await none.handle({ scan: "F1" }, { footage: again, personClips: 0 })).text, /No captions/);

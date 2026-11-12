@@ -631,11 +631,21 @@ test("a measured reference keeps what was heard in it (loudest change, voice) an
   assert.equal(heardLinesText({ heard: saved.heard }), "");
   const sayings = [{ at: 0, text: "No." }, { at: 3.2, text: 'I will "protect" them all' }, { at: 9, text: "Not today" }];
   const said = heardLinesText({ heard: { ...saved.heard, lines: sayings } }).split("\n");
-  assert.equal(said[0], `lines it says: 0.0 "No.", 3.2 "I will 'protect' them all", 9.0 "Not today"`);
+  assert.equal(said[0], `words heard in it (a voice or the song): 0.0 "No.", 3.2 "I will 'protect' them all", 9.0 "Not today"`);
   assert.equal(said[1], `footage that says one: library {"topic":"footage","search":"<series or subject>","said":"I will 'protect' them all"}`);
   assert.match(heardLinesText({ heard: { lines: Array.from({ length: 7 }, (_, n) => ({ at: n, text: `line number ${n}` })) } }), /\(7 in all\)/);
-  // The said: words are the line's first six, cut at a word with no ellipsis, so they still match.
-  assert.match(heardLinesText({ heard: { lines: [{ at: 1, text: "Welcome back to the harbor, the morning boats are leaving early" }] } }), /"said":"Welcome back to the harbor, the"\}/);
+  // The said: words are the line's first clause of 3 words or more, at most six, cut at a word with no ellipsis, so they still match.
+  assert.match(heardLinesText({ heard: { lines: [{ at: 1, text: "Welcome back to the harbor, the morning boats are leaving early" }] } }), /"said":"Welcome back to the harbor"\}/);
+  // A sung hook comes back again and again, or loops inside one line: shown once with its count, never offered as said:.
+  const hook = "I'm going to be in love with you I'm going to be in love with you";
+  const sung = heardLinesText({ heard: { lines: [0, 3.1, 5.3].map((at) => ({ at, text: hook })) } });
+  assert.match(sung, /^words heard in it \(a voice or the song\): 0\.0 "I'm going to be in love with you I'm going to be in love wi…" \(3 times\)$/);
+  assert.doesNotMatch(sung, /footage that says one/);
+  // The project view carries a measured reference's words, each once, for the footage scan's hint (search.mjs knownEdits).
+  const talker = make("heard-lines", async () => ({ change: null, voice: [[0, 2]], by: "whisper", lines: [{ at: 0.5, to: 1.5, text: "I'll just kill you." }, { at: 9, to: 10, text: "I'll just kill you." }] }));
+  const talked = (await talker.search("p1", "walking tour edit", { count: 1 })).results[0].id;
+  await talker.reference(talked, { wait: 3000 });
+  assert.deepEqual((await talker.projectView("p1")).refs[talked].lines, [{ at: 0.5, text: "I'll just kill you.", times: 2 }]);
   let tries = 0;
   const failed = make("heard-failed", async () => { tries += 1; if (tries === 1) throw new Error("no sound"); return { change: { at: 5, kind: "drop" }, voice: [], by: "whisper" }; });
   const second = (await failed.search("p1", "walking tour edit", { count: 1 })).results[0].id;

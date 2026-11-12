@@ -1005,13 +1005,16 @@ How to read it:
   Gaps: auto-caption format not seen live; a 429 on the 4th rapid fetch is not retried for 15 minutes.
 - **Said: listens when there are no captions**: Measured on a stub video (speech file, stub yt-dlp, real
   whisper). With `said:"words"` and no captions, a scan listens to the scanned stretch here (audio
-  only, 120 s at most, kept per video) and ranks the shots that say them first: 60 s took 5.7 s, a
-  repeat 0 s. English only. Evidence: `backend/footage-finder.test.mjs`, `.scratch/run8/wave/said-local`.
+  only, 120 s at most, kept per video) and ranks the shots that say them first: 60 s took 5.4 to 12.5 s
+  over five runs, a repeat 0 s. English only. Evidence: `backend/footage-finder.test.mjs`,
+  `.scratch/run8/wave/said-local`, `.scratch/run8/wave/said-local-review`.
   Gap: the real YouTube audio download is not run; a non-English video is heard as sound-alike words.
-- **A reference lists the lines it says**: Measured. `look reference` and the save answer list up to 4
-  of a reference's spoken lines, with a ready `library footage said:` call; the lines come from the
-  voice pass a measure already runs (30 s took 1.4 s, nothing extra). Evidence: `backend/inspire.test.mjs`.
-  Gap: a reference measured before this lists none; an English dub may not match the footage's language.
+- **A reference lists the words heard in it**: Measured. Reading or saving a reference lists up to 4
+  texts its voice pass heard ("a voice or the song", a repeated hook once with its count) and a ready
+  `library footage said:` call for a line said once; the scan answer of a video without captions offers
+  that line as a ready scan call, so it arrives before shots are picked. No extra whisper run (30 s:
+  1.4 to 2 s). Evidence: `backend/inspire.test.mjs`, `backend/footage-finder.test.mjs`.
+  Gap: a lyric sung once can still be offered; a reference measured before this lists none; an English dub may not match the footage's language.
 - **Keep a spoken line** (`keep_line`): Verified in engine tests on word lists, not with a rendered mix. Keeps
   one line of a clip's sound (every piece of a cut voice), silences the rest, subtitles it and dips the music
   to 0.7 of its volume (stated in the receipt). `line` matches case, apostrophes, repeats and a short last

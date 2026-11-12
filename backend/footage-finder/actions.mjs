@@ -6,7 +6,8 @@
 // Each candidate video gets a short code per project (F1, F2, ...). At most FOOTAGE_KEPT stay;
 // the oldest go first, but a scanned, noted or imported one is never dropped. A scan waits up to
 // about 50 s; a longer one answers with its progress and a next call that repeats it.
-import { call } from "../agent/next-call.mjs";
+import { call, callText } from "../agent/next-call.mjs";
+import { offeredLine, saidWords } from "../inspire.mjs";
 import { readTime } from "./scan.mjs";
 import { cleanShot, SCAN_VERSION } from "./score.mjs";
 import { candidateLine, droppedLine, editsLast, elsewhereLine, nothingFoundText, scannedLine, someoneElses, withStudies } from "./search.mjs";
@@ -233,7 +234,7 @@ function heardLines(candidate, shots, heard) {
   // Listening here was tried (words asked for, no captions) and could not be done: its reason, once.
   if (heard.listenWhy) return [`${heard.retry ? "Captions could not be read now and" : "No captions, and"} listening here failed (${short(oneLine(heard.listenWhy), 140)}), so ${said} was not looked for: shots rank on the picture.`];
   if (heard.retry) return said ? [`Captions could not be read now (${short(oneLine(heard.why), 60)}), so ${said} was not looked for.`] : [];
-  if (heard.none) return said ? [`No captions, so ${said} was not looked for: shots rank on the picture.`] : heard.noCaptionsKnown ? [] : [`No captions on this video. ${LISTEN_HINT}`];
+  if (heard.none) return said ? [`No captions, so ${said} was not looked for: shots rank on the picture.`] : heard.noCaptionsKnown ? [] : [`No captions on this video. ${LISTEN_HINT}`, referenceSaid(candidate.code, heard.refLines)].filter(Boolean);
   const spoken = spokenLines(heard.lines, shots, heard.said);
   const out = [linesBlock(candidate.code, spoken, heard)];
   if (said && !heard.hits) out.push(`Nobody says ${said} in the scanned part${heard.local ? ` (listened to ${heard.listened} s here${heard.left ? `, ${heard.left} s of the scan not listened to` : ""})` : ""}.`);
@@ -242,11 +243,22 @@ function heardLines(candidate, shots, heard) {
 
 /**
  * Said after "No captions on this video." once: the way to find a shot by its words anyway. The
- * speed is what the proof measured on this machine (.scratch/run8/wave/said-local/RESULT.md: 60 s
- * of speech took 5.7 s to hear, audio cut included, the YouTube download not), said as a rough
- * rule, not a promise.
+ * speed is what two proofs measured on this machine for 60 s of speech, audio cut included, the
+ * YouTube download not: 5.4 to 5.7 s (.scratch/run8/wave/said-local/RESULT.md), 8.5 to 12.5 s in a
+ * second run (.scratch/run8/wave/said-local-review/RESULT.md). A rough rule, not a promise.
  */
-export const LISTEN_HINT = 'said:"<words>" listens to the scanned part on this computer (English only, about 6 s per minute of video, plus the download) and puts the shots that say them first.';
+export const LISTEN_HINT = 'said:"<words>" listens to the scanned part on this computer (English only, about 6 to 13 s per minute of video, plus the download) and puts the shots that say them first.';
+
+/**
+ * The no-captions hint's second half, when a measured reference of this project said a line
+ * (search.mjs knownEdits lines): that line as a ready scan call. Run 8 scanned its footage at
+ * T38, before it read any reference (T64), so the read's lines came after the shots were picked;
+ * the scan answer is where the words meet the footage. "" without such a line.
+ */
+function referenceSaid(code, lines = []) {
+  const line = offeredLine(lines);
+  return line ? `A line your reference ${line.id} says at ${Number(line.at).toFixed(1)} s (a voice or the song): ${callText(scanCall(code, { said: saidWords(line.text) }))}` : "";
+}
 
 /** Said where a video's download or scan is already in the data folder (found-shared): nothing is fetched again. */
 export const REUSED_LINE = "already on this computer: reused";
@@ -464,7 +476,7 @@ export function createFootageActions({ finder, waitMs = FOOTAGE_WAIT_MS, keepMs 
     const lines = answer?.lines ?? [];
     const applied = lines.length ? applySaid(result.shots ?? [], lines, said) : { shots: result.shots ?? [], hits: 0 };
     result = { ...result, shots: applied.shots };
-    const heard = answer ? { ...answer, said, hits: applied.hits, noCaptionsKnown: Boolean(candidate.noCaptions) } : null;
+    const heard = answer ? { ...answer, said, hits: applied.hits, noCaptionsKnown: Boolean(candidate.noCaptions), refLines: known?.lines } : null;
     const picks = importPicks(result, need ? Math.min(FOOTAGE_SHOTS_SHOWN, Math.max(FOOTAGE_IMPORT_PICKS, need.import)) : FOOTAGE_IMPORT_PICKS);
     const spoken = lines.length ? spokenLines(lines, result.shots, said) : [];
     const firstHit = spoken.find((line) => line.hit);
