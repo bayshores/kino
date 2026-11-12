@@ -76,10 +76,9 @@ Contents: Check · Looking · Review before final · Building in order
   layer, word, image, move or shot shown at 2+ places, and what the first second and last frame
   share. A fact. A group of layers, or layers named by number (tread-1 to tread-4), counts as
   one device with its count: `tread (4 layers) at 1 2 3 ×3`.
-- `check`, `status`, look sheet and look review print `made:` after `returns:`: the share of half-second moments with a cut-out, a
-  drawn graphic or shape, a particle overlay, or type at 8% of frame height or more that is not
-  a caption. Beside it: `deck: N of M cards unused (names)` (`deck_unused`) and
-  `drawn graphic: yours X of N moments, your references' made labels a of b`. Facts, no target.
+- `check` prints `made:` after `returns:` (`status` and look too, with a deck or labeled references): the share of
+  half-second moments with a cut-out, a drawn graphic or shape, a particle overlay, or non-caption type at 8% of frame height up. Beside it: `deck: N of M cards unused (names)` (`deck_unused`) and
+  `drawn graphic: yours X of N moments, your references' made labels a of b`. Facts only.
 - `frame {t, width?}` (up to 1280 px; `zoom` for detail), `zoom {layer, t?}`, `strip {anim}`
   (`every:true`: each frame), `compare {rev}`, `changed`, `variants`.
 - `motion {from?, to?}` (graph and trace, no render), `frames {from, to?}` (each 30 fps frame):

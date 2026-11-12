@@ -847,6 +847,8 @@ export function createAgentService(deps) {
 
   // The made line (engine/quality/madeShare.js) of a findingsFor result: "" with nothing measured.
   const madeTextOf = (result) => (result?.made?.moments ? madeLine(result.made, { refs: result.made.refs, deck: result.made.deck }) : "");
+  // status, look sheet and look review print it only with something to set it beside (a deck or labeled references).
+  const madeBesideOf = (result) => (result?.made?.refs?.length || result?.made?.deck ? madeTextOf(result) : "");
 
   // The project's waivers that still silence a finding (stale ones left out): what the waived
   // counts at a stop and at the final render count.
@@ -3392,7 +3394,7 @@ export function createAgentService(deps) {
     const checkedNow = await findingsFor(document, { fonts, codes });
     const { findings, unchecked } = checkedNow;
     // How much of the video carries a made element (a fact, beside the deck line).
-    const madeText = madeTextOf(checkedNow);
+    const madeText = madeBesideOf(checkedNow);
     // The dashboard's selection carries the line it showed you, word for word.
     const selected = deps.pointing?.(projectId);
     const pointing = selected ? (selected.line ?? pointingText(selected, { codes })) : null;
@@ -3985,7 +3987,7 @@ export function createAgentService(deps) {
         }
         for (const line of cuts.unknownLines) text += `\n${line}`;
         text += `\n${sceneReturnsLine(scene, { scenes: document.scenes })}`; // the saved scene: instances stay instances
-        const madeText = madeTextOf(await findingsFor(document, { fonts, codes, sceneId: scene.id, pixels: false }).catch(() => null));
+        const madeText = madeBesideOf(await findingsFor(document, { fonts, codes, sceneId: scene.id, pixels: false }).catch(() => null));
         if (madeText) text += `\n${madeText}`;
       }
     } else if (mode === "zoom") {
@@ -5460,7 +5462,7 @@ export function createAgentService(deps) {
       ...(wide.length ? [`whole scene: ${wide.map(findingWords).join(", ")}`] : []),
       left ? `${left} more moments to review.` : "Every moment is reviewed. Fix what you saw in one edit; the next review shows only what it changed.",
       sceneReturnsLine(scene, { scenes: document.scenes }),
-      ...(madeTextOf(reviewed) ? [madeTextOf(reviewed)] : []),
+      ...(madeBesideOf(reviewed) ? [madeBesideOf(reviewed)] : []),
     ];
     const keys = covered.map((event) => event.key);
     const nextCall = left ? { tool: "look", input: { mode: "review", ...sceneField, ...rangeFields } } : null;
