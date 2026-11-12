@@ -4,19 +4,18 @@
 - `look {mode:"source", layer, t}`, then `mark_subject {layer, t, box}` the subject you see: box
   `[x, y, w, h]` in % of the source, top-left; a face: the head. A deliberate strip adds
   `part:"eyes"`. An unlooked mark clears neither `narrow_window` nor `crop_no_subject`.
-  Waive `narrow_window` or `head_cut_off` only on a layer you looked at.
-- Then `frame_shot {layer | layers}`: crops on the mark or a found face, else the whole shot
-  over a blurred copy. Faces come from a full check: run one first.
+  Waive `narrow_window` or `head_cut_off` only on a looked-at layer.
+  `ask_unmet`: `mark_subject {layer, t, shows:"<word>"}` (no box) at a looked-at second.
+- Then `frame_shot {layer | layers}` (the fix crop findings offer): crops on the mark or a found face (a full check finds them), else the whole shot over a blurred copy.
 - Mark each shot's start, middle and end (end − 0.05 s, never the end), every 0.5 s it moves over 10%.
   A mark beats a found face.
 - `library {topic:"media", search:"<id>"}` lists a video's shots in file seconds.
   A listed end is the next shot's first frame.
 - Eyes near the top third; faces out of the bottom 707 and right 120 px of 1080×1920.
-- `crop_no_subject`, `head_cut_off`, `narrow_window` offer `frame_shot`.
 
 ## Framing: crop footage to 9:16
 
-One layer per shot; 1080×1920, 384×216 clip: `width` 3413 (`frame_shot` places it after the mark).
+One layer per shot; 1080×1920, 384×216 clip: `width` 3413 (`frame_shot` places it).
 
 ```json
 {"tool":"edit","ops":[{"op":"add_layer","layerType":"video","name":"shot1","properties":{"src":"/api/media/<clip>.mp4","x":-1167,"y":0,"width":3413,"height":1920,"mediaSourceDuration":4.417,"mediaDuration":1.25}},{"op":"add_layer","layerType":"video","name":"shot2","properties":{"src":"/api/media/<clip>.mp4","x":-1167,"y":0,"width":3413,"height":1920,"mediaSourceDuration":4.417,"mediaStart":1.25,"mediaOffset":1.25,"mediaDuration":2.083}}]}

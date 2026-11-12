@@ -279,6 +279,24 @@ export function waivedLine(waivers = []) {
 }
 
 /**
+ * The open findings' 3 most frequent rules, from a full check's byRule ({rule: {errors, warnings}}):
+ * [[rule, count]], most first, then by name. A stop names them, so the person sees what is open.
+ */
+export function topRules(byRule = {}) {
+  return Object.entries(byRule ?? {}).map(([rule, row]) => [rule, (row?.errors ?? 0) + (row?.warnings ?? 0)]).filter(([, count]) => count > 0)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 3);
+}
+
+// " (shape_guess 2, ask_unmet 1)": the open rules a full check saved (checked.top); "" for none.
+const openRulesText = (checked) => (Array.isArray(checked?.top) && checked.top.length ? ` (${checked.top.map(([rule, count]) => `${rule} ${count}`).join(", ")})` : "");
+
+// "Checked: 0 errors · 3 warnings (shape_guess 2, ask_unmet 1) · 49 waived (narrow_window 24, ...)."
+function checkedLine(checked, waivers) {
+  const waived = waivedLine(waivers);
+  return `Checked: ${plural(checked?.errors ?? 0, "error")} · ${plural(checked?.warnings ?? 0, "warning")}${openRulesText(checked)}${waived ? ` · ${waived}` : ""}.`;
+}
+
+/**
  * What the agent sends the person (one line each, no revision numbers). The storyboard's ask is
  * its headline and reply lines: the agent puts its shot list (kino's numbers from B4a) after
  * the first line, so plan §12's 120 tokens leave room for it.
@@ -290,10 +308,12 @@ export function askText({ id, kind, video = {}, checked, offer = [], idea = null
     // The shape the video guessed against its footage, and the crops kino measured (the service fills cropLine).
     shapeAsk(brief, video)?.line ?? "",
     typeof video.cropLine === "string" ? video.cropLine : "",
+    // What the person's ask points to and which shot shows it (the service fills askLine).
+    kind === "rough" && typeof video.askLine === "string" ? video.askLine : "",
     idea ? `Idea: ${idea}` : "",
     // The treatments to pick from (treatments.mjs), until the person picked one.
     ...pick,
-    kind === "board" ? "" : `Checked: ${plural(checked?.errors ?? 0, "error")} · ${plural(checked?.warnings ?? 0, "warning")}${waivedLine(waivers) ? ` · ${waivedLine(waivers)}` : ""}.`,
+    kind === "board" ? "" : checkedLine(checked, waivers),
     // A sound stop with no music says so, with the person's choices (checkpointStep).
     music ?? "",
     kind === "board" ? "" : "What did you notice, and what would you change?",
@@ -459,7 +479,7 @@ export function checkpointStep(draft, { kind: wanted, video = {}, rules: given =
     // A sound stop passed with no music: the final message says why the video is silent.
     if (noMusic) round.noMusic = songSearch ? "search" : true;
     return {
-      text: [`${round.id} ${kind} allowed (${by === "chat" ? "set in chat" : by === "controls" ? "the person's controls" : "the person's settings"}) · checked: ${plural(checked.errors, "error")} · ${plural(checked.warnings, "warning")}`,
+      text: [`${round.id} ${kind} allowed (${by === "chat" ? "set in chat" : by === "controls" ? "the person's controls" : "the person's settings"}) · checked: ${plural(checked.errors, "error")} · ${plural(checked.warnings, "warning")}${openRulesText(checked)}`,
         noMusic ? `No music: silent because ${songSearch ? "no measured song was imported" : "no track was sent and no song search is available"}. Your final message says so; never that they asked for silence.` : "", `step: ${next}`].filter(Boolean).join("\n"),
       data: { status: "allowed", id: round.id, kind, rev, by, next },
     };
@@ -598,7 +618,7 @@ const freshWord = (round) => round.fresh ?? (round.offerSound === true ? "not re
 // shot ids in the order it showed them (round.shown: the places the person's words name).
 function boardWaiting(draft, round, facts, { all = false, soundFiles = false, soundSearch = false, video = {} } = {}) {
   const input = { id: round.id, board: facts.board, frame: facts.frame, seconds: facts.seconds, music: facts.span?.music ?? null, audio: facts.audio ?? [],
-    shape: shapeAsk(draft.brief, boardVideo(facts, video))?.line ?? "", crops: typeof video.cropLine === "string" ? video.cropLine : "", waived: waivedLine(video.waivers ?? []),
+    shape: shapeAsk(draft.brief, boardVideo(facts, video))?.line ?? "", crops: typeof video.cropLine === "string" ? video.cropLine : "", ask: typeof video.askLine === "string" ? video.askLine : "", waived: waivedLine(video.waivers ?? []),
     message: draft.brief?.fields?.message?.text ?? null, idea: draft.brief?.fields?.idea?.text ?? null, pick: pickLines(draft.brief, draft.origin), bans: guessedBans(draft.brief), soundSearch, soundFiles, offerSound: round.offerSound === true, changed: round.changed ?? null,
     fresh: freshWord(round), redone: round.redone ?? null };
   // A board their settings allow waits only for its open questions (held), and says so.

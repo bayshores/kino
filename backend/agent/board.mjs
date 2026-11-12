@@ -32,7 +32,11 @@ export const handedOver = (round) => round?.answer?.via === "chat" && typeof rou
 const BOARDS_KEPT = 20;
 const REVISIONS_KEPT = 50;
 const REVISIONS_SHOWN = 10;
-// Fields of a shot whose change lapses the approval, in the order they are named.
+// Fields of a shot whose change lapses the approval, in the order they are named. A text change
+// lapses on purpose (run 4: "01" became "DEATH 01" in the call that approved it): the words on
+// screen are what the person approved, and the notes of an "approve with notes" are free text, so
+// kino cannot tell which words they asked to change. The edit answer says it ("this change lapses
+// that approval: ask again"); building on a lapsed board is held by the final gate, not here.
 const LAPSING = ["media", "text", "sound", "pacing", "follow", "move"];
 const PASSING_READS = ["approve", "approve with notes"];
 // The stops after the storyboard; one the person answered after the approval supersedes its lapse.

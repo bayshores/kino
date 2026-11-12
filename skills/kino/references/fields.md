@@ -123,7 +123,7 @@ Contents: Building blocks · Layers · Layout · Text · Animations · Scenes ·
 - `format {name, slots:{…}, aspect?, scene?, id?, seed?}`
 - `frame {layer, rect:[x, y, w, h], at, to?, cut?, dur?}`
 - `shift {at, by, scene?}`
-- `mark_subject {layer, t, box, part?}`
+- `mark_subject {layer, t, box, part?, shows?}`
 - `split_image {layer, boxes:[{name, rect:[x, y, w, h]}]}`
 - `source {name, text}`
 - `board {music, shots:[{cue, dur, pacing, media, in, crop, subject, follow, text, sound, move, why, speed?, alts?, id?}], calls?, open?}`

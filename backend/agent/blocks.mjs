@@ -17,7 +17,7 @@ import { randomUUID } from "node:crypto";
 import { applyOperations } from "../../engine/operations.js";
 import { createLayer, createScene, parseDocument } from "../../engine/model.js";
 import { hasMediaPlay, mediaFrameState, mediaPlaybackRange } from "../../engine/playback.js";
-import { MAX_SUBJECT_BOXES, SAME_MOMENT, subjectBox } from "../../engine/sourceView.js";
+import { MAX_ASK_SHOWS, MAX_SUBJECT_BOXES, SAME_MOMENT, subjectBox } from "../../engine/sourceView.js";
 import { moveBeatCues } from "../../engine/beatCues.js";
 import { shiftScene } from "../../engine/speech.js";
 import { nextScenePosition } from "../../engine/sceneLayout.js";
@@ -207,8 +207,8 @@ const OPERATIONS = {
     rules: "shift {at, by, scene?}: a ripple insert. Everything at or after at (layer play times, animations, cues, captions, rests) moves by seconds and the scene grows by by; an animation running across at stretches. A negative by takes out the by seconds before at, refused when something starts or ends in them. at takes any at form (\"cue:win\").",
   },
   mark_subject: {
-    fields: ["layerId", "t", "box", "part"],
-    rules: 'mark_subject {layer, t, box, part?}: marks the subject in a video layer\'s source frame at scene time t, after you looked at it. box is [x, y, w, h] in % of the source (look {mode:"source"} draws the grid; x, y is the top-left corner); kino keeps it at that moment of the file. part names a deliberate part crop (part:"eyes" for a strip). box:null removes the box at that frame. Mark each shot\'s start, middle and end (a listed end is the next shot\'s first frame: mark 0.05 s before it), and every 0.5 s where the subject moves.',
+    fields: ["layerId", "t", "box", "part", "shows"],
+    rules: 'mark_subject {layer, t, box, part?, shows?}: marks the subject in a video layer\'s source frame at scene time t, after you looked at it. box is [x, y, w, h] in % of the source (look {mode:"source"} draws the grid; x, y is the top-left corner); kino keeps it at that moment of the file. part names a deliberate part crop (part:"eyes" for a strip). shows names what of the ask this frame shows (the word ask_unmet names; it counts only at a second you looked at). Send shows without box when it stands in the background: the subject boxes stay as they are (shows with box:null removes that mark). box:null removes the box at that frame. Mark each shot\'s start, middle and end (a listed end is the next shot\'s first frame: mark 0.05 s before it), and every 0.5 s where the subject moves.',
   },
   frame_shot: {
     fields: ["layerId", "layerIds", "sceneId"],
@@ -1896,6 +1896,27 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     const others = boxes.filter((entry) => Math.abs(entry.at - at) > SAME_MOMENT + 1e-9);
     const count = (number) => `${number} ${number === 1 ? "box" : "boxes"} on this layer`;
     const shown = (seconds) => Number(seconds.toFixed(2));
+    // shows names what of the person's ask this frame shows (the origin word ask_unmet names). It is
+    // kept apart from the subject (layer.askShows): the thing the ask points to may stand in the
+    // background, and a box around it must not move the crop off the face. Alone (no box) it marks
+    // only that; with a box the box marks the subject as usual; box:null removes the shows mark.
+    const shows = operation.shows === undefined || operation.shows === null ? null : typeof operation.shows === "string" ? operation.shows.trim() : "";
+    if (shows !== null && (shows.length < 1 || shows.length > 30)) throw problem('shows is 1-30 characters naming what of their ask this frame shows (the word ask_unmet names), such as shows:"tower".');
+    const askMarks = layer.askShows?.src === layer.src ? layer.askShows.marks : [];
+    const askOthers = askMarks.filter((entry) => Math.abs(entry.at - at) > SAME_MOMENT + 1e-9);
+    if (shows && operation.box === null) {
+      if (askOthers.length === askMarks.length) throw problem(`There is no shows mark at file ${shown(at)} s to remove.`);
+      if (askOthers.length) layer.askShows = { src: layer.src, marks: askOthers };
+      else delete layer.askShows;
+      work.notes.push(`mark_subject ${name}: removed the shows mark at file ${shown(at)} s`);
+      return;
+    }
+    if (shows && operation.box === undefined) {
+      if (askOthers.length >= MAX_ASK_SHOWS) throw problem(`${name} has ${MAX_ASK_SHOWS} shows marks, the most kept.`);
+      layer.askShows = { src: layer.src, marks: [...askOthers, { at, what: shows }].sort((a, b) => a.at - b.at) };
+      work.notes.push(`mark_subject ${name}: shows "${shows}" at file ${shown(at)} s (the subject boxes are unchanged)`);
+      return;
+    }
     if (operation.box === null) {
       if (others.length === boxes.length) {
         const times = boxes.map((entry) => shown(entry.at));
@@ -1919,9 +1940,11 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     // part names a deliberate part crop (an eye strip): 1 to 30 characters, kept on the box.
     const part = operation.part === undefined || operation.part === null ? null : typeof operation.part === "string" ? operation.part.trim() : "";
     if (part !== null && (part.length < 1 || part.length > 30)) throw problem("part is 1-30 characters naming the part you mean (eyes), or leave it out for the whole subject.");
+    if (shows && askOthers.length >= MAX_ASK_SHOWS) throw problem(`${name} has ${MAX_ASK_SHOWS} shows marks, the most kept.`);
     layer.subjectBoxes = { src: layer.src, boxes: [...others, { at, box, by: "agent", ...(part ? { part } : {}) }].sort((a, b) => a.at - b.at) };
+    if (shows) layer.askShows = { src: layer.src, marks: [...askOthers, { at, what: shows }].sort((a, b) => a.at - b.at) };
     noteMark(work, layer.id, { name, at, removed: false, total: count(others.length + 1),
-      line: `mark_subject ${name}: agent box [${box.join(", ")}]${part ? ` (${part})` : ""} at file ${shown(at)} s · ${count(others.length + 1)}` });
+      line: `mark_subject ${name}: agent box [${box.join(", ")}]${part ? ` (${part})` : ""}${shows ? ` and shows "${shows}"` : ""} at file ${shown(at)} s · ${count(others.length + 1)}` });
   }
 
   // One receipt line per layer, however many marks the edit makes (an edit may hold 200 ops):

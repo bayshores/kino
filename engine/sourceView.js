@@ -57,6 +57,29 @@ export function normalizeSubjectBoxes(value, path, layerType) {
   return { src: value.src, boxes: boxes.sort((a, b) => a.at - b.at) };
 }
 
+export const MAX_ASK_SHOWS = 200;
+
+/**
+ * Checks a video layer's askShows: { src, marks: [{ at, what }] }, the frames the agent says show
+ * what the person asked for (mark_subject {shows}). Evidence for ask_unmet only: it is kept apart
+ * from subjectBoxes, which crop rules and frame_shot read, so naming a thing in the background
+ * never moves the crop off the face.
+ */
+export function normalizeAskShows(value, path, layerType) {
+  if (layerType !== "video") fail(path, "only a video layer has askShows");
+  if (!value || typeof value !== "object" || Array.isArray(value)) fail(path, "must be {src, marks: [{at, what}]}");
+  if (typeof value.src !== "string" || !value.src || value.src.length > 2048) fail(`${path}.src`, "must be the file the marks were made on");
+  if (!Array.isArray(value.marks) || value.marks.length > MAX_ASK_SHOWS) fail(`${path}.marks`, `must be a list of at most ${MAX_ASK_SHOWS} marks`);
+  const marks = value.marks.map((entry, index) => {
+    const label = `${path}.marks[${index}]`;
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) fail(label, "must be {at, what}");
+    if (typeof entry.at !== "number" || !Number.isFinite(entry.at) || entry.at < 0) fail(`${label}.at`, "must be seconds into the file, 0 or more");
+    if (typeof entry.what !== "string" || entry.what.length < 1 || entry.what.length > 30) fail(`${label}.what`, "must be 1-30 characters naming what of the ask the frame shows");
+    return { at: round(entry.at, 3), what: entry.what };
+  });
+  return { src: value.src, marks: marks.sort((a, b) => a.at - b.at) };
+}
+
 /** The layer's boxes on its current file at `sourceTime` (file seconds), within SAME_MOMENT. */
 export function boxesAt(layer, sourceTime) {
   const set = layer.subjectBoxes;

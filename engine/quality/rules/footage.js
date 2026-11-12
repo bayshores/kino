@@ -124,7 +124,7 @@ export function boxNear(layer, at) {
 }
 
 // A source look reaches a file second this far (seconds), as a measured sample does (footage/layout.js).
-const LOOK_REACH = 0.5;
+export const LOOK_REACH = 0.5;
 
 // The stretch of the file a layer plays, [from, to] in file seconds (as frameShot reads it).
 function playedStretch(scene, layer) {

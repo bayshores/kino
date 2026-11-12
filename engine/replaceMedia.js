@@ -48,7 +48,7 @@ export function layerWithReplacementMedia(layer, media, { previousMedia, sceneDu
   const next = withReplacementSource(layer, media.src);
   next.type = type;
   // Subject boxes (mark_subject) belong to a video's frames; a video keeps them, tied to the old file.
-  if (type !== "video") delete next.subjectBoxes;
+  if (type !== "video") { delete next.subjectBoxes; delete next.askShows; }
   // log follows the new file: its import found it log footage or not (a still never is).
   if (type === "video" && media.log) next.log = media.log;
   else delete next.log;

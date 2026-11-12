@@ -246,9 +246,10 @@ const followTurns = [
       made_from: { text: "skate.mp4", by: "you", quote: "skate.mp4" } }, asked[0], reply);
     say(asked[1]);
   },
-  async (reply) => { await save({ look_sound: { text: "raw and bright; street sound; no synth dings", by: "you", quote: reply } }, asked[1], reply); say(asked[2]); },
+  // Each reply they typed is stored with the ask: a reply logged in the same call proves no quote.
+  async (reply) => { await save({ ask: reply, look_sound: { text: "raw and bright; street sound; no synth dings", by: "you", quote: reply } }, asked[1], reply); say(asked[2]); },
   async (reply) => {
-    const saved = await save({ never: { text: "no meme text; keep the faces in", by: "you", quote: reply },
+    const saved = await save({ ask: reply, never: { text: "no meme text; keep the faces in", by: "you", quote: reply },
       key_moment: { text: "the biggest trick, near the end", by: "guessed" } }, asked[2], reply);
     playedRev = saved.data.brief.rev;
     say(["Here's the brief. Quotes are yours; \"guess\" is mine.",

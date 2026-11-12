@@ -65,7 +65,7 @@ import { createFootageFacts, MAX_FOOTAGE } from "./footage.mjs";
 import { createFootageCache } from "../footage/analyze.mjs";
 import { createPeopleCache } from "../footage/people.mjs";
 import { applySwap, dealDue, deckData, deckInputs, deckRequest, deckStatusLine, deckText, loadMoves, mediaKeys, newDeal, RECENT_PROJECTS, swapProblem } from "./deck.mjs";
-import { answerStep, checkpointStep, dashboardAnswerStep, finalRefusal, openStops, reopenStep, settleWaiting, statusLines, statusMove, StopError, stopRules, stopsSummary, waitingData, waitingStop, waivedLine, workPrint } from "./stops.mjs";
+import { answerStep, checkpointStep, dashboardAnswerStep, finalRefusal, openStops, reopenStep, settleWaiting, statusLines, statusMove, StopError, stopRules, stopsSummary, topRules, waitingData, waitingStop, waivedLine, workPrint } from "./stops.mjs";
 import { finishLog, logCall, stepNameOf, stepRows, stepsLine, stepsTable } from "./step-log.mjs";
 import { controlsLine } from "./controls.mjs";
 import { addRejected } from "./style.mjs";
@@ -2651,8 +2651,12 @@ export function createAgentService(deps) {
     const full = !scene && !rules && options.pixels;
     const saveChecked = (draft) => {
       // cropLine: how many shots are narrow crops and how each was marked, for the stop asks.
+      // top: the 3 rules with the most open findings, so a stop names what is open, not a count only.
       const crops = cropLine(result.crops);
-      draft.checked = { rev: record.revision, errors: report.errors, warnings: report.warnings, at: new Date(now()).toISOString(), client: caller.getStore()?.client ?? null, ...(crops ? { cropLine: crops } : {}) };
+      const top = topRules(report.byRule);
+      // askLine: what the person's ask points to and which shot shows it, as the check judged it.
+      draft.checked = { rev: record.revision, errors: report.errors, warnings: report.warnings, at: new Date(now()).toISOString(), client: caller.getStore()?.client ?? null,
+        ...(top.length ? { top } : {}), ...(crops ? { cropLine: crops } : {}), ...(result.ask ? { askLine: result.ask } : {}) };
     };
     const data = { rev: record.revision, ...report, notes: result.notes, ms: result.ms, techniques: result.techniques, ...(applied ? { applied } : {}) };
     const repeat = applied ? null : repeatedCheck(projectId, input, record.revision, lines);
@@ -4922,14 +4926,16 @@ export function createAgentService(deps) {
   }
 
   // A look at a layer's source is written down: sourceLooks[layerId] = {src, at: [file seconds]},
-  // the last 8 seconds looked at per layer and at most 200 layers (the oldest layer is dropped).
-  // A checker can then tell a crop kino saw from one it only computed.
+  // the last 40 seconds looked at per layer (a 4 s shot marked every 0.5 s needs 9 and more) and at
+  // most 200 layers (the oldest layer is dropped). A checker can then tell a crop kino saw from one
+  // it only computed.
+  const MAX_LOOKS = 40;
   async function recordSourceLook(projectId, layer, fileTime) {
     await agentState.update(projectId, (state) => {
       const looks = state.sourceLooks ??= {};
       const before = looks[layer.id]?.src === layer.src ? looks[layer.id].at : [];
       delete looks[layer.id];
-      looks[layer.id] = { src: layer.src, at: [...before, fileTime].slice(-8) };
+      looks[layer.id] = { src: layer.src, at: [...before, fileTime].slice(-MAX_LOOKS) };
       const ids = Object.keys(looks);
       for (const id of ids.slice(0, Math.max(0, ids.length - 200))) delete looks[id];
     });
@@ -5207,7 +5213,9 @@ export function createAgentService(deps) {
       const urgent = input.urgent === true;
       const where = `${urgent ? " URGENT" : ""}${sceneId && record.document.scenes.length > 1 ? ` ${refName(sceneId, codes)}` : ""}${time != null ? ` @${time}` : ""}${layerId ? ` ${refName(layerId, codes)}` : ""}${area ? ` area ${area.x},${area.y} ${area.width}×${area.height}` : ""}`;
       const result = await agentState.update(projectId, (state) => {
-        const note = { id: `N${state.nextNote++}`, text, layerId, time, from: "you", status: "new", replies: [], createdAt: new Date(now()).toISOString(),
+        // typed: the person wrote it in the app (only the dashboard's call is marked reviewed; an
+        // agent's `kino notes add --you` is not), so a brief quote may come from it.
+        const note = { id: `N${state.nextNote++}`, text, layerId, time, from: "you", status: "new", replies: [], createdAt: new Date(now()).toISOString(), ...(meta.by === "you" && meta.reviewed === true ? { typed: true } : {}),
           ...(sceneId ? { sceneId } : {}), ...(area ? { area } : {}), ...(urgent ? { urgent } : {}) };
         state.notes.push(note);
         state.turnBreak = true;
@@ -5440,6 +5448,9 @@ export function createAgentService(deps) {
           if (checkpoint) {
             // The crops the check of this revision counted (draft.checked.cropLine), shown in the ask.
             if (draft.checked?.rev === step.rev && draft.checked.cropLine) video.cropLine = draft.checked.cropLine;
+            // What the person's ask points to (the origin word) and which shot shows it: the video
+            // scene's line from the check of this revision, which knows own footage and waivers.
+            if (draft.checked?.rev === step.rev && draft.checked.askLine) video.askLine = draft.checked.askLine;
             answer = checkpointStep(draft, { ...step, kind: input.id, video, rules, all: input.all === true, words: input.words, soundFiles, soundSearch: soundSearchOn(), songSearch: songSearchOn(), fresh: input.fresh, critique, styleFrame: styled?.facts ?? null });
             const asked = answer.data.status === "waiting_for_you" ? roundOf(draft, answer.data.id) : null;
             if (asked && !asked.steady) asked.steady = { at: steady, boot: bootedAt };
@@ -5518,8 +5529,10 @@ export function createAgentService(deps) {
     let answer;
     try {
       const finished = await done(projectId, {}, { change(draft) {
-        // A quote may come from what they said when they answered a stop (notes answer words).
-        const said = (draft.stops ?? []).map((round) => round?.answer?.words).filter((words) => typeof words === "string" && words.trim());
+        // A quote may come from what they said when they answered a stop (notes answer words) or
+        // in a note they typed, both recorded by kino in an earlier call (a note an agent adds is not theirs).
+        const said = [...(draft.stops ?? []).map((round) => round?.answer?.words), ...(draft.notes ?? []).filter((note) => note?.typed === true).map((note) => note.text)]
+          .filter((words) => typeof words === "string" && words.trim());
         const changes = briefChanges(draft.brief, input, { said });
         applyBrief(draft, changes, { now: now(), client: meta.client ?? null });
         answer = { text: savedText(draft, changes, video), data: briefData(draft, video) };

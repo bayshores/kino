@@ -777,17 +777,32 @@ test("check reads the project's saved origin and plays_on; a waiver naming the o
     draft.brief = { rev: 1, fields: withAsk({ plays_on: line("phone, vertical") }), log: [] };
   });
   const service = createAgentService({ store, agentState, agentDirectory: path.join(dataRoot, "agent"), mediaRoot: path.join(dataRoot, "media"),
-    exportBatches: {}, fontCatalog: { async loadInto() {} }, loadFonts: async () => [], listMedia: async () => [{ id: "11111111-2222-3333-4444-555555555555.mp4", name: "Keeper at rest", kind: "video", width: 1920, height: 1080, duration: 4 }] });
+    exportBatches: {}, fontCatalog: { async loadInto() {} }, loadFonts: async () => [], listMedia: async () => [{ id: "11111111-2222-3333-4444-555555555555.mp4", name: "Keeper at rest", kind: "video", width: 1920, height: 1080, duration: 4 }],
+    operationContext: async () => ({}), saveDocument: (projectId, before, saved, expectedRevision, { request, resultMetadata } = {}) => store.updateProject(projectId, saved, expectedRevision, { request, resultMetadata }) });
   const checked = await service.call("check", { project: "p" });
   assert.match(checked.text, /ask_unmet/, "the stored origin word reaches the check");
   assert.doesNotMatch(checked.text, /shape_guess/, "plays_on said by the person: no guess about the shape");
+  // The agent path: a mark that shows the word clears it only at a file second the agent looked at.
+  // The subject (a face) is marked on its own; the tower in the background is named without a box,
+  // so the subject box stays and no crop rule reads the tower as the subject.
+  await service.call("edit", { project: "p", ops: [{ op: "mark_subject", layer: "clip", t: 1, box: [30, 10, 40, 80] }] });
+  const mark = await service.call("edit", { project: "p", ops: [{ op: "mark_subject", layer: "clip", t: 1, shows: "tower" }] });
+  assert.match(mark.text, /mark_subject clip: shows \\"tower\\" at file 1 s \(the subject boxes are unchanged\)/, mark.text);
+  const marked = (await store.getProject("p")).document.scenes[0].layers[0];
+  assert.deepEqual(marked.subjectBoxes.boxes.map((entry) => entry.box), [[30, 10, 40, 80]]);
+  assert.deepEqual(marked.askShows.marks, [{ at: 1, what: "tower" }]);
+  assert.match((await service.call("check", { project: "p" })).text, /ask_unmet/, "marked, never looked at");
+  await agentState.update("p", (draft) => { draft.sourceLooks = { v: { src: layer.src, at: [1.2] } }; });
+  assert.doesNotMatch((await service.call("check", { project: "p" })).text, /ask_unmet/, "marked after a look at that second");
+  await agentState.update("p", (draft) => { delete draft.sourceLooks; });
   const waive = (reason) => service.call("edit", { project: "p", ops: [{ op: "waive_check", code: "ask_unmet", target: "main", reason }] });
   const refused = await waive("not needed");
   assert.match(refused.text, /names the origin word in its reason/, refused.text);
   assert.match(refused.text, /Nothing was saved/);
   const saved = await waive("no Tower here: the story stays on the stairs");
   assert.doesNotMatch(saved.text, /names the origin word/, saved.text);
-  assert.doesNotMatch((await service.call("check", { project: "p" })).text, /ask_unmet/, "the waiver clears it");
+  assert.equal(saved.isError, undefined, saved.text);
+  assert.match((await service.call("check", { project: "p" })).text, /\nwaived: ask_unmet s1\n/, "the waiver clears it");
 });
 
 test("footage codes: at most 24 kept, the oldest go first but never a scanned, noted or imported one, and a code stays with its video", () => {

@@ -222,7 +222,7 @@ function audioWords(music, audio) {
  * `seconds` its length; `music` the music layer's name or null; `audio` the names of the other
  * audio layers (a voice-over); `message` the brief's message line or null; `soundFiles` whether
  * the person sent sound files; `bans` the guessed bans to ask about (brief.mjs guessedBans);
- * `offerSound` on the video's first storyboard ask; `shape`, `crops` and `waived` lines that
+ * `offerSound` on the video's first storyboard ask; `shape`, `crops`, `ask` and `waived` lines that
  * follow the headline (empty for none); `changed`
  * ({why: [reasons], ids: [shot ids], approved: the stop that approved the board}) after an
  * approval lapsed: this ask (`id`) is a new one. `fresh` is the fresh-eyes check ("ran",
@@ -230,7 +230,7 @@ function audioWords(music, audio) {
  * changed since a redo or approve with notes: then the shots that changed as asked come first,
  * then those changed without being asked, then those named but not changed.
  */
-export function boardAsk({ id, board, frame, seconds, music = null, audio = [], message = null, idea = null, pick = [], bans = [], soundSearch = false, soundFiles = false, offerSound = false, all = false, changed = null, fresh = null, redone = null, shape = "", crops = "", waived = "" }) {
+export function boardAsk({ id, board, frame, seconds, music = null, audio = [], message = null, idea = null, pick = [], bans = [], soundSearch = false, soundFiles = false, offerSound = false, all = false, changed = null, fresh = null, redone = null, shape = "", crops = "", ask = "", waived = "" }) {
   const shots = board.shots.map((shot, index) => ({ shot, n: index + 1, measures: shotMeasures(shot, frame) }));
   const lines = [];
   if (changed) {
@@ -242,8 +242,9 @@ export function boardAsk({ id, board, frame, seconds, music = null, audio = [], 
     lines.push(`The storyboard is ready (${id}): ${plural(shots.length, "shot")}, ${sec(seconds)} s, ${frame.width}×${frame.height}, ${audioWords(music, audio)}.`);
   }
   // Right after the headline: the shape kino guessed against the footage's, the crops it measured
-  // and the findings called fine (stops.mjs builds the three lines).
-  lines.push(...[shape, crops, waived].filter(Boolean));
+  // what the person's ask points to and which shot shows it (ask.js askLine), and the findings
+  // called fine (stops.mjs builds the four lines).
+  lines.push(...[shape, crops, ask, waived].filter(Boolean));
   if (!changed && message) lines.push(`Brief: ${message}`);
   if (idea) lines.push(`Idea: ${idea}`);
   // The treatments to pick from (treatments.mjs), until the person picked one.

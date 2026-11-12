@@ -10,10 +10,11 @@
 // typed (brief.fields.ask = [{text, at}], never edited by the agent): the one place a later check
 // can compare the video with what was asked. `about` is {text, by:"you", quote}: who or what the
 // video is about, quoted from the ask; the first reference search uses it. Once an ask is stored,
-// every by:"you" quote must be found in it or in a logged reply (quote_not_said). While no ask is
-// stored a by:"you" quote is refused: store their message first. ask:"none" is the opt-out for a
-// run with no person (a script, a test): a marker, shown in the playback; their quotes are then
-// checked only against logged replies and stop answers.
+// every by:"you" quote must be found in it, in a stop answer or in a note they typed (quote_not_said);
+// a log reply never counts, as the agent writes it. While no ask is stored a by:"you" quote is
+// refused: store their message first. ask:"none" is the opt-out for a run with no person (a
+// script, a test): a marker, shown in the playback; their quotes are then checked only against
+// stop answers and typed notes.
 //
 // Plain data in and out, like outline.mjs: the service saves the result in the project's agent
 // state (state.brief, beside the plan). Turn reverts and dashboard undo never touch it.
@@ -178,25 +179,34 @@ function closestSentence(quote, texts) {
 
 /**
  * What the person is known to have said, for the quote check: { texts } from the stored asks, the
- * asks sent in this call, the replies logged (so far and in this call) and `extra` (other recorded
- * answers a caller passes). `missing` is set while no ask is stored or sent (every by:"you" quote
- * is then refused); `none` while ask is "none" (only logged replies and stop answers count).
+ * asks sent in this call (their message, pasted whole) and `extra` (stop answers and notes they
+ * typed, recorded by kino in an earlier call). A log reply never counts, in this call or an earlier
+ * one: the agent writes it, so it is the agent's word for what they said. It is kept in `logged`
+ * only to name it in the refusal. `missing` is set while no ask is stored or sent (every by:"you"
+ * quote is then refused); `none` while ask is "none" (only stop answers and notes count).
  */
 function saidBy(current, sentAsks, sentNone, entries, extra) {
   const asks = [...asksOf(current).map((entry) => entry.text), ...sentAsks];
-  const replies = [...(current?.log ?? []), ...entries.filter(isRecord)].filter((entry) => entry.kind !== "rejected").map((entry) => entry.a);
-  const texts = [...asks, ...replies, ...extra].filter(hasText);
-  if (asks.length) return { texts };
-  return sentNone || asksNone(current) ? { texts, none: true } : { texts, missing: true };
+  const answers = (list) => list.filter((entry) => isRecord(entry) && entry.kind !== "rejected").map((entry) => entry.a).filter(hasText);
+  const texts = [...asks, ...extra].filter(hasText);
+  const logged = [...answers(current?.log ?? []), ...answers(entries)];
+  if (asks.length) return { texts, logged };
+  return sentNone || asksNone(current) ? { texts, logged, none: true } : { texts, logged, missing: true };
 }
 
 // The refusal for a quote the person did not say, with the closest sentence they did.
 function notSaid(where, quote, said) {
+  // Found only in a log reply: the fix comes first, as agents cut long lines.
+  if (said.logged?.length && isSaid(quote, said.logged)) {
+    const line = where.replace(/\.quote$/, "");
+    return { code: "quote_not_said", message: `Send fields.ask:"<their message, pasted whole>" with this line if they typed these words, or ${line} by:"guessed" (no quote) if not: ${where} is only in a log reply, and a log reply is your note of what they said, not their words (a stored ask, a stop answer or a note they typed is).`,
+      details: { closest: null, logged: true } };
+  }
   if (said.missing)
     return { code: "quote_not_said", message: `${where} is their words, but no message of theirs is stored to check it against: store it first (ask:"<their message, pasted whole>"; ask:"none" when no person is giving one), then send this again. If they did not say it, send by:"guessed".`, details: { closest: null } };
   const closest = closestSentence(quote, said.texts);
   if (said.none)
-    return { code: "quote_not_said", message: `${where} is not in a reply they logged. ask is "none", so nothing else can check it: log their reply (log:[{q, a}]) or send by:"guessed".`, details: { closest: closest || null } };
+    return { code: "quote_not_said", message: `${where} is not in a stop answer or a note they typed. ask is "none", so nothing else can check it: send by:"guessed".`, details: { closest: closest || null } };
   return { code: "quote_not_said", message: `${where} is not in anything they said${closest ? ` (closest: "${closest}")` : ""}. Copy their exact words from their message; if they did not say it, send by:"guessed".`,
     details: { closest: closest || null } };
 }
@@ -1209,7 +1219,8 @@ export function briefText(state, video = {}) {
   const replies = replyCount(state);
   const missing = missingLines(brief);
   if (!hasBrief(brief)) {
-    const save = askGiven(brief) ? "" : 'ask:"<their message, pasted whole>", ';
+    // Each message or reply they type goes in ask (a log reply is not proof of their words).
+    const save = asksNone(brief) ? "" : 'ask:"<their message, pasted whole>", ';
     return `No brief yet · replies 0 of ${REPLY_LIMIT}. Ask in the chat (library guide direction), then save: notes {action:"brief", fields:{${save}message:{text, by:"you", quote}}, log:[{q, a}]}.${hasAsk(brief) ? " Their message is saved (ask)." : asksNone(brief) ? ` ${ASK_NONE_LINE}.` : ""}\nmissing: ${missing.join(", ")}`;
   }
   return [
