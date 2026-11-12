@@ -31,14 +31,14 @@ Contents: The move op · The moves · Moves example · Trim paths and dashes
   frame; no `to`: it stays. `reverse:true` pulls back from it (or an earlier push) to the whole
   shot, 0.4 s expo-out, `title` landing. `flash:"white"`.
 - **whip-pan**: both shots slide a frame width, smeared (`smear`, `angle`).
+- **smear**: datamosh drag; **shatter**: glass shards fly off.
 - **push-through-type**: a big glossy word (or `layer`: your text, picture logo, path, shape or
   group) fades in (`entrance:"sharpen"`: blur); the camera speeds into a letter (or the logo)
   and the next shot shows inside it until it fills the frame.
 - **logo-match-move**: the logo arrives big, then flies into its place on a page, screen or
   sign (`spot`, % of it), which sharpens.
 - **speed-lines-phone**: light streaks rush past a phone pushing in.
-- **status-line**: an app icon with a changing status line ("is
-  listening…"): big left of center, or `place:"bottom-left"` a small corner badge; words
+- **status-line**: an app icon with a changing status line: big left of center, or `place:"bottom-left"` a small corner badge; words
   cut (`swap:"blur"` to blur); `size`. Moves off text (or refuses); later footage
   goes under it; leaves before a dip to black or lone logo already there (else `dur`).
 - **swipe-cards**: the top card of a stack drags aside, tilts, fills with the brand color,
@@ -56,8 +56,7 @@ Contents: The move op · The moves · Moves example · Trim paths and dashes
 - **build-in**: split_image pieces resolve in turn (building-blocks.md).
 - **ui-plane**: UI tilted in a dark void; `flat` lays it flat (tilt.md).
 - **window-punch-in**: a product window grows from 60% to 92% of frame width (by 0.8 s),
-  then pushes in 2%/s (`beats:[…]`: 1.5x steps);
-  `glow` 0-1 adds an accent glow.
+  then pushes in 2%/s (`beats:[…]`: 1.5x steps); `glow` 0-1.
 - **lift-focus**: `detail:{layer, rect?}` (a layer, or part of a picture in %) lifts to a third
   of the frame's width in the middle while the rest dims and blurs, then goes back.
 - **card-into-device**: a big leaning card (`picture` or `card`) turns flat, then shrinks into
