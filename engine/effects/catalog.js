@@ -21,6 +21,7 @@ import { EDGE_EFFECTS } from "./edges.js";
 import { LIGHT_EFFECTS } from "./light.js";
 import { PARTICLE_EFFECTS } from "./particles.js";
 import { FINISH_EFFECTS } from "./finish.js";
+import { OVERLAY_EFFECTS } from "./overlays.js";
 import { FIELD_EFFECT } from "./field.js";
 import { copyContent } from "./svg.js";
 import { compileExpression, ExpressionError } from "../expression.js";
@@ -154,6 +155,8 @@ const definitions = [
     } },
   // Film grain and vignette (finish.js).
   ...FINISH_EFFECTS,
+  // Speed lines, impact lines, film burn and invert, drawn in code (overlays.js).
+  ...OVERLAY_EFFECTS,
   { key: "3d-orbit", label: "3D Orbit", group: "Utility", kind: "ranged", render: renderOrbit,
     parameters: {
       rotateY: number("Rotate Y", 0, -3600, 3600, 1, "°", { initial: 360 }),

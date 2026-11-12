@@ -42,6 +42,7 @@ export const TECHNIQUES = Object.freeze([
   technique("speed-ramp", "camera", "footage speeds up or slows down within a shot", "action, skating, a moment to stretch"),
   technique("freeze-frame", "camera", "footage stops on one frame", "a moment to point at, a name or a punchline"),
   loud(technique("shake", "camera", "the picture shakes or wiggles", "impact, bass hits, handheld energy")),
+  technique("punch-in", "camera", "the frame jumps or snaps closer on a moment", "a hit, a reaction, a line that lands"),
   // Type: how words come on screen.
   technique("type-cut", "type", "text appears at once, with no entrance", "speech-led and plain edits; text that follows the cut"),
   technique("type-fade", "type", "text fades in", "quiet, elegant moments"),
@@ -58,7 +59,7 @@ export const TECHNIQUES = Object.freeze([
   technique("accent-hit", "type", "one word or shape flashes to an accent color with a glow and settles back", "the word that matters, a verb as it is said, a status turning on"),
   technique("type-kinetic", "type", "text keeps moving after it arrives (turns, scales, travels)", "music-led edits, lyrics, energy"),
   // Texture: what is laid over or into the picture.
-  technique("speed-lines", "texture", "streaks that show fast movement", "speed, a phone flying in"),
+  technique("speed-lines", "texture", "streaks that show fast movement, or lines pointing in at a hit", "speed, an impact, a reaction, a phone flying in"),
   technique("particles", "texture", "particles: dust, snow, sparks, embers, rain, bokeh, fog", "atmosphere, weather, celebration"),
   loud(technique("rgb-split", "texture", "the color channels pull apart", "tech, noise, a glitchy accent")),
   technique("light-sweep", "texture", "light passes over the picture (rays, flare, leaks)", "a reveal, warmth, a product shine"),

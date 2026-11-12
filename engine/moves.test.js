@@ -85,7 +85,7 @@ function runExample(name, scene, { reduced = false, seed = 1 } = {}) {
 }
 
 test("every move is described for the library with tags from the vocabulary and an example", () => {
-  assert.equal(MOVE_NAMES.length, 47);
+  assert.equal(MOVE_NAMES.length, 49);
   for (const name of MOVE_NAMES) {
     const move = MOVES[name];
     assert.equal(move.name, name);
@@ -138,6 +138,20 @@ test("every example builds at 16:9 and 9:16 and in reduced motion, the same way 
   }
   // Another seed changes the seeded choices of a move that has them.
   assert.notDeepEqual(runExample("rgb-split-hit", sceneFor(1920, 1080), { seed: 2 }), runExample("rgb-split-hit", sceneFor(1920, 1080)));
+});
+
+test("punch-in snaps closer about its point and back; shake needs no cue and dies down", () => {
+  const scene = sceneFor(1920, 1080);
+  const run = (name, fields, at, dur = null) => runMove(MOVES[name], { id: name, input: readMoveInput(MOVES[name], fields), scene, style: styleFor({ look: "crisp", frame: { width: 1920, height: 1080 } }), fonts: defaultFonts, start: at, dur, media });
+  const punch = run("punch-in", { layer: "shot-a", scale: 1.5, point: [0, 0], hold: 0.4 }, 1);
+  const snap = punch.animations.find(({ animation }) => animation.name.startsWith("Punch in")).animation;
+  assert.deepEqual([snap.start, snap.duration, snap.to.scaleX, snap.to.x, snap.to.y], [1, 0.1, 1.5, 480, 270], "the box moves so its scaled top-left corner stays at 0, 0");
+  assert.equal(punch.end, 1.75);
+  const shook = run("shake", { layer: "shot-a", strength: 20, seed: 4 }, 2, 0.6);
+  const amounts = shook.animations.map(({ animation }) => animation.behavior.wiggle.amount.x);
+  assert.deepEqual([amounts.length, amounts[0]], [3, 20]);
+  assert.ok(amounts[1] < amounts[0] && amounts[2] < amounts[1], `it dies down: ${amounts}`);
+  assert.equal(shook.end, 2.6);
 });
 
 test("freeze-shutter stops the clip on the beat, blinks once and plays again; masked-type fills a word with the clip or stands it behind the subject", () => {

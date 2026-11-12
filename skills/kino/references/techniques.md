@@ -10,9 +10,9 @@ Contents: The vocabulary · The style spec · What check measures · The deck ·
 
 - **transition**: cut, match-cut*, dissolve, fade-black, blur-through, zoom-through, whip-pan,
   mask-wipe, glitch-hit, flash, push-transition
-- **camera**: slow-push, drift, parallax, orbit-3d, speed-ramp, freeze-frame, shake
+- **camera**: slow-push, drift, parallax, orbit-3d, speed-ramp, freeze-frame, shake, punch-in
 - **type**: type-cut, type-fade, type-slide, type-pop, type-words, type-letters,
-  type-mask-rise, type-blur-in (never dealt), type-giant, type-counter, type-swap, type-kinetic.
+  type-mask-rise, type-blur-in (not dealt), type-giant, type-counter, type-swap, type-kinetic
 - **texture**: speed-lines, particles, rgb-split, light-sweep, grain, vignette, depth-blur, motion-blur
 - **set piece**: tile-ring, clip-field*, draw-on, swipe-cards, logo-match-move, status-line, split-screen,
   device-in-scene*, screen-zoom, type-behind (read from the `move` that built them)

@@ -41,10 +41,11 @@ const EFFECT_TAGS = {
   embers: ["particles"], sparks: ["particles"], snow: ["particles"], dust: ["particles"], rain: ["particles"], bokeh: ["particles"], fog: ["particles"],
   "light-leaks": ["light-sweep"], "light-rays": ["light-sweep"], "lens-flare": ["light-sweep"], glow: ["light-sweep"],
   "3d-orbit": ["orbit-3d"], "card-flip": ["orbit-3d"], wiggle: ["shake"], "focus-band": ["depth-blur"],
-  grain: ["grain"], vignette: ["vignette"],
+  grain: ["grain"], vignette: ["vignette"], "speed-lines": ["speed-lines"], "impact-lines": ["speed-lines"], "film-burn": ["light-sweep"],
 };
 // Lines for effects no technique tag describes.
 const EFFECT_LINES = {
+  invert: ["invert: every color flipped to its negative (keepHue swaps only light and dark)", "one frame or beat of a hit, a shock, a flashback"],
   "color-ranges": ["color ranges: turn, saturate or lighten one hue range (reds, blues, ...) and lift or sink highlights and shadows; grays stay gray",
     "one color pushed or muted, sky or foliage shifted, a brand color matched"],
   "color-look": [`color look: a ready-made grade, ${COLOR_LOOK_NAMES[0]} by default (${COLOR_LOOK_NAMES.join(", ")}), with amount 0..1`,

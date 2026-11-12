@@ -123,7 +123,7 @@ test("generated effect documentation reflects every registered effect and its pa
 
 test("Post FX uses the observed catalog order, starting values and typed color inputs", () => {
   assert.deepEqual(EFFECTS.filter(({ group }) => group === "Post FX").map(({ key }) => key), [
-    "dithering", "dot-grid", "duotone", "luma-highlight", "noise-mask", "pixelate", "threshold-color", "tritone", "rgb-shift", "grain", "vignette",
+    "dithering", "dot-grid", "duotone", "luma-highlight", "noise-mask", "pixelate", "threshold-color", "tritone", "rgb-shift", "grain", "vignette", "speed-lines", "impact-lines", "film-burn",
   ]);
   assert.deepEqual(effectInitialValues("luma-highlight"), { lumaThreshold: 0, fuzzWidth: 0.2, fuzzIntensity: 0.5 });
   assert.deepEqual(effectInitialValues("noise-mask"), { threshold: 1 });
@@ -150,7 +150,7 @@ test("Post FX uses the observed catalog order, starting values and typed color i
 
 test("the Color group lists the grading effects with neutral defaults, typed curves and a required LUT", () => {
   assert.deepEqual(EFFECTS.filter(({ group }) => group === "Color").map(({ key, kind }) => `${key}:${kind}`), [
-    "curves:ranged", "lut:ranged", "hue-saturation:ranged", "white-balance:ranged", "color-wheels:ranged", "keep-color:ranged", "color-ranges:ranged", "color-look:ranged",
+    "invert:ranged", "curves:ranged", "lut:ranged", "hue-saturation:ranged", "white-balance:ranged", "color-wheels:ranged", "keep-color:ranged", "color-ranges:ranged", "color-look:ranged",
   ]);
   assert.deepEqual(effectDefaults("curves"), { master: IDENTITY_CURVE, red: IDENTITY_CURVE, green: IDENTITY_CURVE, blue: IDENTITY_CURVE, strength: 1 });
   assert.deepEqual(effectDefaults("hue-saturation"), { hue: 0, saturation: 1, lightness: 0, colorize: false, tint: "#C8935A" });

@@ -682,6 +682,9 @@ How to read it:
   source names them. Evidence: `backend/footage-events.test.mjs`, `backend/look-source.test.mjs`. Gaps: real anime
   moments not yet checked; a busy still background hides a small mover. compose uses impacts (cut snapping) and
   frames per drawing (frame blending only at 1).
+- **Drawn overlays, punch-in and shake**: Partly verified. Effects `speed-lines`, `impact-lines`, `film-burn`, `invert`
+  and moves `punch-in`, `shake` (no cue) draw and build as named; search finds them (engine/effects/overlays.test.js,
+  engine/moves.test.js). Not yet rendered through the agent path.
 - **impact-accent move**: Partly verified. `move {name:"impact-accent", kind, at:"cue:<name>"}` flashes, shakes,
   impact-frames, dips or strobes a shot only when the cue motivates that kind (footage impact or light, song seam,
   top accent, rest, measured onset fill), sized by its weight; raw times, beat numbers, align/dur and song cues
