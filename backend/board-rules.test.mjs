@@ -117,6 +117,8 @@ test("smaller changes are only logged: the subject, the reason, the options, the
   });
   assert.deepEqual(logged, { lapse: [], changed: [], revisions: ["revision: shot 1 subject changed", "revision: shot 2 reason changed", "revision: shot 3 options changed",
     "revision: my calls changed"] });
+  // How long the words stay (text.until) is timing, not the words the person approved.
+  assert.deepEqual(compare((board) => { board.shots[2].text.until = 5.5; }), { lapse: [], changed: [], revisions: ["revision: shot 3 words held until 5.5 s"] });
   const asked = { ...structuredClone(COPY), open: ["which ending?", "logo last?"] };
   assert.deepEqual(boardChanges(asked, { ...structuredClone(COPY), open: ["logo last?"] }, { frame: FRAME }).revisions, ["revision: open items changed"], "an answered item");
 });

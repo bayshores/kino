@@ -45,6 +45,9 @@ const LATER_KINDS = ["rough", "color", "sound"];
 const MAJOR = /music|shot order changed|removed|added|media changed|sound changed/;
 
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+// A shot's text without its hold (text.until): how long the words stay is timing, not the words
+// the person approved, so a new hold is a logged revision, not a lapse.
+const wordsOf = (text) => (text && typeof text === "object" ? { ...text, until: undefined } : text);
 const frames = (a, b) => Math.round(Math.abs(a - b) * BOARD_FPS);
 const plural = (count, word) => `${count} ${word}${count === 1 ? "" : "s"}`;
 
@@ -124,7 +127,10 @@ export function boardChanges(copy, board, { frame = { width: 1, height: 1 }, bea
     const n = place.get(shot.id);
     const before = old.get(shot.id);
     if (!before) { lapse.push(`shot ${n} added`); changed.add(shot.id); continue; }
-    for (const field of LAPSING) if (!same(before[field], shot[field])) { lapse.push(`shot ${n} ${field} changed`); changed.add(shot.id); }
+    for (const field of LAPSING) {
+      const [was, now] = field === "text" ? [wordsOf(before.text), wordsOf(shot.text)] : [before[field], shot[field]];
+      if (!same(was, now)) { lapse.push(`shot ${n} ${field} changed`); changed.add(shot.id); }
+    }
     moved(shot.id, n, "cut", before.cue, shot.cue, true);
     // Its end. When the same shot follows it in both boards, the end is that shot's cut (named
     // there), and a shot that got longer or shorter past the tolerance is listed as changed too;
@@ -146,6 +152,10 @@ export function boardChanges(copy, board, { frame = { width: 1, height: 1 }, bea
     if (!same(before.subject, shot.subject)) revision(`shot ${n} subject changed`);
     if (before.why !== shot.why) revision(`shot ${n} reason changed`);
     if (!same(before.alts ?? [], shot.alts ?? [])) revision(`shot ${n} options changed`);
+    if (before.text?.until !== shot.text?.until) {
+      const until = shot.text?.until;
+      revision(`shot ${n} words held until ${until === undefined ? "their shot's end" : typeof until === "number" ? `${until} s` : `shot ${until}'s end`}`);
+    }
   }
   if (!same(copy.calls ?? [], board.calls ?? [])) revision("my calls changed");
   // A new question for the person lapses it: the board stop asks it before building. Answered

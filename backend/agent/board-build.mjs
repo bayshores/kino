@@ -7,7 +7,7 @@
 // Why: in run 8 the approval's next: named a footage compose that never read the board; it built
 // a second scene of 23 shots and moved the song from 0:40 to 0:01 (trace/time.md, DESIGN.md D4).
 import { MOVES } from "../../engine/blocks/moves/index.js";
-import { NONE, ONE_FRAME, WHOLE, mainScene } from "../../engine/board.js";
+import { NONE, ONE_FRAME, WHOLE, holdEnd, mainScene } from "../../engine/board.js";
 
 /** The call that builds the board, as next: lines write it. */
 export const BOARD_BUILD = Object.freeze({ op: "compose", from: "board" });
@@ -53,8 +53,8 @@ function moveOp(shot, layer, previous, text) {
 
 /**
  * The ops that build `board` on a frame of {width, height, duration}. `fileOf(src)` is the file's
- * {width, height, duration, kind: "video"|"image"} or null. Returns {ops, moves, shots, cards,
- * missing}: moves are [{n, op}] to run one by one (a move that cannot be placed is named, the
+ * {width, height, duration, kind: "video"|"image"} or null. Returns {ops, moves, footage, cards,
+ * held, missing} (held: words kept on screen past their shot, added last so they are on top): moves are [{n, op}] to run one by one (a move that cannot be placed is named, the
  * shots stay), missing the shot numbers whose file kino no longer has.
  */
 export function boardBuildOps(board, frame, fileOf) {
@@ -64,6 +64,8 @@ export function boardBuildOps(board, frame, fileOf) {
   let previous = null;
   let footage = 0;
   let cards = 0;
+  let held = 0;
+  const onTop = [];
   board.shots.forEach((shot, index) => {
     const n = index + 1;
     const name = `${BUILT_PREFIX}${shot.id ?? n}`;
@@ -86,8 +88,13 @@ export function boardBuildOps(board, frame, fileOf) {
       const t = shot.text;
       const height = r3(t.size * 1.3);
       text = layer ? `${name}-text` : name;
-      ops.push({ op: "add_layer", layerType: "text", name: text, properties: { text: t.text, fontFamily: t.family, fontWeight: t.weight, fontSize: t.size, fill: t.fill,
-        textAlign: "center", x: r3(frame.width * 0.05), width: r3(frame.width * 0.9), height, y: r3((t.y / 100) * frame.height - height / 2) }, animations: shown });
+      // Words held past their shot (text.until) stay to that second and are added after every
+      // shot, so they sit above the footage they run across.
+      const stays = holdEnd(board.shots, shot);
+      const lasts = stays === null ? shown : [show(shot.cue), ...(stays < frame.duration - ONE_FRAME ? [hide(stays)] : [])];
+      (stays === null ? ops : onTop).push({ op: "add_layer", layerType: "text", name: text, properties: { text: t.text, fontFamily: t.family, fontWeight: t.weight, fontSize: t.size, fill: t.fill,
+        textAlign: "center", x: r3(frame.width * 0.05), width: r3(frame.width * 0.9), height, y: r3((t.y / 100) * frame.height - height / 2) }, animations: lasts });
+      if (stays !== null) held += 1;
       if (!layer) cards += 1;
     }
     const own = layer ?? text;
@@ -95,7 +102,8 @@ export function boardBuildOps(board, frame, fileOf) {
     if (shot.move?.name && !shot.move.none) moves.push({ n, name: shot.move.name, op: move });
     previous = own;
   });
-  return { ops, moves, footage, cards, missing };
+  ops.push(...onTop);
+  return { ops, moves, footage, cards, held, missing };
 }
 
 // When a layer comes on screen: a video's mediaStart; a picture or text has no media start, so its

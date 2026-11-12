@@ -112,6 +112,20 @@ function render(sections, note, limit = MAX_ANSWER_CHARS) {
   return (note ? `${note}\n\n` : "") + text.trim();
 }
 
+// One topic read by name: the whole topic, or, when it is longer than an answer may be, its lines
+// up to the limit and how to read the rest by a word (a topic too long once answered only "More
+// topics match ...: <itself>", so none of it could be read whole).
+function topicAnswer(entry) {
+  const head = `## ${entry.id}: ${entry.title}\n`;
+  if (head.length + entry.text.length + 2 <= MAX_ANSWER_CHARS) return render([entry]);
+  const lines = entry.text.split("\n");
+  let text = head;
+  let shown = 0;
+  while (shown < lines.length && text.length + lines[shown].length + 1 <= MAX_ANSWER_CHARS - 200) text += `${lines[shown++]}\n`;
+  const left = lines.slice(shown).filter((line) => line.trim()).length;
+  return `${text.trim()}\n\n(${left} more lines of ${entry.id}: describe_operation {topic} with search:"<word>" reads its lines that mention a word.)`;
+}
+
 // One topic cut down to its lines (paragraphs, list items, table rows) that mention a word, so an
 // agent can read one recipe of a long topic: {topic:"particle-recipes", search:"snow-loop"}.
 // A list item ("- " or indented) keeps the line that introduces its list (one ending in ":"), which
@@ -148,7 +162,7 @@ export function describeOperation({ type, topic, search } = {}) {
     const found = all.find((entry) => entry.id === topic);
     if (!found)
       throw new Error(`Unknown topic "${topic}". Did you mean ${closest(topic, all.map((entry) => entry.id)).join(", ")}?`);
-    return search ? linesMentioning(found, search) : render([found]);
+    return search ? linesMentioning(found, search) : topicAnswer(found);
   }
   if (search) {
     const needle = search.toLowerCase();

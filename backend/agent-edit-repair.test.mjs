@@ -11,7 +11,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createCanvas } from "@napi-rs/canvas";
-import { coverNotes } from "./agent/silent-receipts.mjs";
+import { coverNotes, textUnderNotes } from "./agent/silent-receipts.mjs";
 import { seeThrough } from "./agent/picture-alpha.mjs";
 
 let server;
@@ -546,6 +546,25 @@ test("a full-frame clip made over text that shows at the same time is said with 
   const shown = { ...scene.layers[1], animations: [{ kind: "show", start: 2 }] };
   const gone = { ...scene.layers[0], animations: [{ kind: "hide", start: 1 }] };
   assert.equal(coverNotes({}, { scenes: [{ ...scene, layers: [gone, shown] }] }, ["shot"], (id) => id).length, 0);
+});
+
+test("a text given a longer span under footage already above it is said: which footage, from which second, and the one call that keeps the words on top", () => {
+  const word = (hide) => ({ id: "word", type: "text", parentId: null, x: 100, y: 200, width: 600, height: 100, opacity: 1, animations: [{ kind: "show", start: 1 }, { kind: "hide", start: hide }] });
+  const clipLayer = (id, start, end) => ({ id, type: "video", src: `/api/media/${id}.mp4`, parentId: null, x: 0, y: 0, width: 960, height: 540, opacity: 1, animations: [{ kind: "show", start }, { kind: "hide", start: end }] });
+  const scene = (hide) => ({ id: "s", width: 960, height: 540, duration: 12, layers: [word(hide), clipLayer("shot2", 2, 4), clipLayer("shot3", 4, 8)] });
+  const [said] = textUnderNotes({ scenes: [scene(2)] }, { scenes: [scene(11.6)] }, [], (id) => id);
+  assert.match(said.note, /^word \(on screen 1-11\.6 s\) is under full-frame footage in layer order: shot2 from 2 s to 4 s; shot3 from 4 s to 8 s, so the words do not show there\. Nothing was reordered\./);
+  assert.deepEqual(said.call.input.ops[0], { op: "move_layers", layers: ["word"], position: "above", referenceId: "shot3" });
+  // A span that did not change, a text above the footage, and footage made in the same edit (coverNotes names it) give no note.
+  assert.equal(textUnderNotes({ scenes: [scene(11.6)] }, { scenes: [scene(11.6)] }, [], (id) => id).length, 0);
+  assert.equal(textUnderNotes({ scenes: [scene(2)] }, { scenes: [{ ...scene(11.6), layers: scene(11.6).layers.reverse() }] }, [], (id) => id).length, 0);
+  assert.equal(textUnderNotes({ scenes: [scene(2)] }, { scenes: [scene(11.6)] }, ["shot2", "shot3"], (id) => id).length, 0);
+  // Footage with an alpha channel lets the words show through.
+  assert.equal(textUnderNotes({ scenes: [scene(2)] }, { scenes: [scene(11.6)] }, [], (id) => id, { seeThrough: new Set(["/api/media/shot2.mp4", "/api/media/shot3.mp4"]) }).length, 0);
+  // So does footage blended over them (screen, multiply): it mixes with the words instead of hiding them.
+  const blended = scene(11.6);
+  blended.layers = blended.layers.map((layer) => (layer.type === "video" ? { ...layer, blendMode: "screen" } : layer));
+  assert.equal(textUnderNotes({ scenes: [scene(2)] }, { scenes: [blended] }, [], (id) => id).length, 0);
 });
 
 test("a full-frame file with an alpha channel (an alpha WebM, a picture with a clear part) gets no cover note", async () => {

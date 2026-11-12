@@ -93,7 +93,7 @@ import { editableField, inspectTargets } from "./inspect.mjs";
 import { overriddenValues } from "./overridden-values.mjs";
 import { animationJumps, moveHandEdits } from "./jumps.mjs";
 import { pivotNotes } from "./pivot-notes.mjs";
-import { coverNotes, importedNames, unseenPresetNotes } from "./silent-receipts.mjs";
+import { coverNotes, importedNames, textUnderNotes, unseenPresetNotes } from "./silent-receipts.mjs";
 import { BRIEF_RULES, checkDocument, checkReport, checkSummary, explainMissingGlyphs, groupFixLines, liveWaivers, mergeFindings, openFindingLines, staleWaiverLine, triageFindings, waiverNotes } from "./checks.mjs";
 import { addVerdict, anchorLines, barOf, barPairs, barTimeAt, parseVerdict } from "./bar.mjs";
 import { BAR_PROTOCOL, CRITIQUE_ROUNDS, critiqueProtocol, CRITIQUE_WAIVER, barGap, blocksRender, critiqueDirectionKey, critiqueOf, critiqueSpine, critiqueQuestions, critiqueTimes, critiqueWanted, lineText, openCritique, parseCritique, personCall, staleCritique, upLines } from "./critique.mjs";
@@ -3101,6 +3101,12 @@ export function createAgentService(deps) {
       const clear = new Set();
       for (const src of madeFiles.slice(0, 12)) if (await seeThrough(deps.mediaRoot, src).catch(() => false)) clear.add(src);
       for (const { note } of coverNotes(before, after, changes.created, nameOf, { seeThrough: clear })) (work.notes ??= []).push(note);
+      // Words this edit made or gave a new span, under footage that was already there (the fact and the one call).
+      let under = textUnderNotes(before, after, changes.created, nameOf, { seeThrough: clear });
+      const unread = [...new Set(under.flatMap((entry) => entry.sources))].filter((src) => src && !clear.has(src)).slice(0, 12);
+      for (const src of unread) if (await seeThrough(deps.mediaRoot, src).catch(() => false)) clear.add(src);
+      if (unread.some((src) => clear.has(src))) under = textUnderNotes(before, after, changes.created, nameOf, { seeThrough: clear });
+      for (const { note } of under) (work.notes ??= []).push(note);
       // A rule this edit waived past the limit is likely kino's mistake: say so in the receipt.
       const waivedCodes = translation.operations.filter((operation) => operation.type === "waive_check").map((operation) => operation.code);
       const waiverNote = waivedCodes.length ? waiverNotes(liveWaivers(after.checkWaivers, staleWaivers), { codes: waivedCodes }) : [];

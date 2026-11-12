@@ -18,6 +18,7 @@ import { performance } from "node:perf_hooks";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { SHOT_LAYERS } from "../engine/board.js";
+import { evaluateLayer } from "../engine/animation.js";
 import { BEAT_ANALYSIS_VERSION } from "../engine/beatDetection.js";
 import { SONG_SHAPE_VERSION } from "./song-shape.mjs";
 import { referenceHelp } from "./agent/blocks.mjs";
@@ -562,6 +563,37 @@ test("after the approval, next: is compose {from:\"board\"}: it builds the shots
   assert.equal(document.scenes.length, 1, "no stray scene");
   const after = await agent("check", { project: id, pixels: false, rules: ["assertions"] });
   assert.notEqual(after.text.match(/^next: (.*)$/m)?.[1], BUILD, "built once, next: moves on");
+});
+
+test("words held to the last shot (text.until) are built above the footage they run across: all 4 show at the last shot, and check finds nothing covered", { skip, timeout: 60_000 }, async () => {
+  const id = "board-hold";
+  await project(id, { duration: 4.4, layers: [videoLayer()] });
+  await agent("edit", { project: id, ops: ["reference", "treatments", "needs"].map((code) => ({ op: "waive_check", code, target: "*", reason: "a board build test" })) });
+  const plain = { none: "plain cuts" };
+  const word = (n, extra = {}) => ({ text: "kill", family: "Inter", weight: 700, size: 90, y: 20 + 12 * n, fill: "#ffffff", until: "w4", ...extra });
+  const shots = [0, 1, 2, 3].map((n) => footage(n * 1.1, 1.1, n * 1.1, 20 + n * 10, { id: `w${n + 1}`, move: plain, text: word(n) }));
+  const wrong = await editBoard(id, shots.map((shot, n) => (n === 0 ? { ...shot, text: word(0, { until: "w9" }) } : shot)), {});
+  assert.match(wrong.data.reason, /shot 1 text until "w9" is not this shot or a later one: ids are w1, w2, w3, w4\./, wrong.text);
+  assert.equal((await editBoard(id, shots)).isError, undefined);
+  const built = await agent("edit", { project: id, ops: [{ op: "compose", from: "board" }] });
+  assert.equal(built.isError, undefined, built.text);
+  assert.ok(built.text.includes("3 words held past their shot, drawn above the footage"), built.text);
+  const layers = (await record(id)).document.scenes[0].layers;
+  const order = (name) => layers.findIndex((layer) => layer.name === name);
+  const words = layers.filter((layer) => layer.type === "text");
+  assert.equal(words.length, 4);
+  // Every word is above every clip, and the three held words hide at the video's end (no hide), the last with its own shot.
+  assert.ok(words.every((layer) => layers.filter((other) => other.type === "video").every((clipLayer) => order(layer.name) > order(clipLayer.name))), "words above all footage");
+  assert.deepEqual(words.map((layer) => (layer.animations ?? []).filter((animation) => animation.kind === "hide").length), [0, 0, 0, 0]);
+  // At 4.2 s (the last shot) all 4 words are shown and every shown layer above the shown clip is a word.
+  const shown = layers.filter((layer) => evaluateLayer(layer, 4.2).visible);
+  assert.equal(shown.filter((layer) => layer.type === "text").length, 4);
+  const clipAt = shown.findLastIndex((layer) => layer.type === "video");
+  assert.ok(clipAt >= 0 && shown.slice(clipAt + 1).every((layer) => layer.type === "text") && shown.slice(clipAt + 1).length === 4, shown.map((layer) => layer.name).join(", "));
+  const frame = await agent("look", { project: id, mode: "frame", time: 4.2 });
+  assert.equal(frame.isError, undefined, frame.text);
+  const found = await agent("check", { project: id, pixels: false, rules: ["covered_layer"] });
+  assert.ok(!JSON.stringify(found.data.findings ?? []).includes("covered_layer"), found.text);
 });
 
 test("the person's settings can allow the board: kino keeps that board as the approved one", { skip, timeout: 60_000 }, async () => {

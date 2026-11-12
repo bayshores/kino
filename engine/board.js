@@ -47,7 +47,7 @@ const ID = /^[A-Za-z0-9_-]{1,24}$/;
 const HEX = /^#(?:[\da-fA-F]{6}|[\da-fA-F]{8})$/;
 const SHOT_KEYS = ["id", "cue", "dur", "pacing", ...SHOT_LAYERS, "move", "why", "alts", "speed"];
 const ALT_KEYS = ["media", "in", "crop", "subject", "why"];
-const TEXT_KEYS = ["text", "family", "weight", "size", "y", "fill"];
+const TEXT_KEYS = ["text", "family", "weight", "size", "y", "fill", "until"];
 const MAX_SECONDS = 600;
 
 const isNumber = (value) => typeof value === "number" && Number.isFinite(value);
@@ -81,13 +81,36 @@ function normalizeSubject(value, path) {
 
 function normalizeText(value, path) {
   if (value === NONE) return NONE;
-  if (!isRecord(value) || Object.keys(value).some((key) => !TEXT_KEYS.includes(key))) fail(path, 'must be "none" or {text, family, weight, size, y, fill}');
+  if (!isRecord(value) || Object.keys(value).some((key) => !TEXT_KEYS.includes(key))) fail(path, 'must be "none" or {text, family, weight, size, y, fill, until?}');
   const result = { text: text(value.text, `${path}.text`, BOARD_LIMITS.text), family: text(value.family, `${path}.family`, BOARD_LIMITS.family) };
   if (!Number.isInteger(value.weight) || value.weight < 100 || value.weight > 900) fail(`${path}.weight`, "must be a whole number from 100 to 900");
   if (!isNumber(value.size) || value.size <= 0 || value.size > 2000) fail(`${path}.size`, "must be pixels above 0");
   if (!isNumber(value.y) || value.y < 0 || value.y > 100) fail(`${path}.y`, "must be the text's center in % from the top (0 to 100)");
   if (typeof value.fill !== "string" || !HEX.test(value.fill)) fail(`${path}.fill`, "must be a hex color");
-  return { ...result, weight: value.weight, size: round(value.size, 1), y: round(value.y, 1), fill: value.fill };
+  // until: the words stay on screen past their shot, to the end of the shot with this id or to
+  // this second of the video (backend/agent/board-build.mjs puts them above the footage).
+  const hold = value.until === undefined ? {} : { until: holdUntil(value.until, `${path}.until`) };
+  return { ...result, weight: value.weight, size: round(value.size, 1), y: round(value.y, 1), fill: value.fill, ...hold };
+}
+
+// A text hold as saved: a shot id (kept) or seconds from the video's start (rounded).
+function holdUntil(value, path) {
+  if (typeof value === "string" && ID.test(value)) return value;
+  if (isNumber(value) && value > 0 && value <= MAX_SECONDS) return round(value, 3);
+  return fail(path, "must be the id of the shot the words stay until, or the second of the video they stay until");
+}
+
+/**
+ * The second a shot's words stay until when they are held past the shot: the end of the shot
+ * named in text.until, or the second it names. null when the words have no hold, the named shot
+ * is not found or not at or after this one, or the hold ends with the shot or before.
+ */
+export function holdEnd(shots, shot) {
+  const until = shot?.text?.until;
+  if (until === undefined) return null;
+  const target = typeof until === "string" ? shots.find((other) => other.id === until) : null;
+  const end = typeof until === "string" ? (target && target.cue >= shot.cue ? target.cue + target.dur : null) : until;
+  return end !== null && end > shot.cue + shot.dur + ONE_FRAME ? round(end, 3) : null;
 }
 
 // sound: "none", {media, what} (a sound to add), {keep} (the clip's own sound: "all" or [from, to]

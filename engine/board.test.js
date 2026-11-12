@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createDocument, createLayer, createScene, parseDocument } from "./model.js";
 import { boardPicks, pickWords, picksFor, SHOT_PICKS, CUT } from "./movePicks.js";
-import { boardCoverage, boardSpan, isPlainShot, keepShotIds, mainScene, MOVE_REF, moveProblems, movesNeeded, moveWords, normalizeBoard, ONE_FRAME, reframeBoard, SHOT_LAYERS } from "./board.js";
+import { boardCoverage, boardSpan, holdEnd, isPlainShot, keepShotIds, mainScene, MOVE_REF, moveProblems, movesNeeded, moveWords, normalizeBoard, ONE_FRAME, reframeBoard, SHOT_LAYERS } from "./board.js";
 import { boardKeepOps, keptDuck, keptSceneSpan, keptSeconds, silentBoardLine } from "./boardSound.js";
 import { applyKeepLine } from "./keepLine.js";
 
@@ -45,6 +45,17 @@ test("normalizeBoard names the field that is wrong", () => {
   assert.throws(shaped([]), /document\.board\.shots must be a list of 1 to 60 shots/);
   assert.throws(shaped([motion(0, 1)], { rev: 0 }), /document\.board\.rev must be a whole number from 1/);
   assert.throws(shaped([motion(0, 1)], { open: ["a", "b", "c", "d"] }), /document\.board\.open must be a list of at most 3/);
+});
+
+test("words held past their shot: text.until is a shot id or a second; holdEnd gives where they stop, or null", () => {
+  const word = (until) => ({ text: "kill", family: "Inter", weight: 700, size: 90, y: 30, fill: "#ffffff", ...(until === undefined ? {} : { until }) });
+  const shots = [motion(0, 1, { id: "a", text: word("c") }), motion(1, 1, { id: "b", text: word(2.5) }), motion(2, 1, { id: "c", text: word("a") }), motion(3, 1, { id: "d", text: word() })];
+  const kept = normalizeBoard({ board: { rev: 1, music: "none", shots } }).board.shots;
+  assert.deepEqual(kept.map((shot) => shot.text.until), ["c", 2.5, "a", undefined]);
+  // A shot id ends where that shot ends; a second is the second; an earlier shot, a second inside the shot or no hold is null.
+  assert.deepEqual(kept.map((shot) => holdEnd(kept, shot)), [3, 2.5, null, null]);
+  assert.throws(() => normalizeBoard({ board: { rev: 1, music: "none", shots: [motion(0, 1, { text: word("two words") })] } }), /shots\[0\]\.text\.until must be the id of the shot/);
+  assert.throws(() => normalizeBoard({ board: { rev: 1, music: "none", shots: [motion(0, 1, { text: word(-1) })] } }), /shots\[0\]\.text\.until must be/);
 });
 
 test("a shot keeps its clip's own sound (sound {keep}); building it keeps the stretch on the layer placed for it, one dip under every kept stretch", () => {
