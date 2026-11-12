@@ -366,17 +366,27 @@ test("fonts like: no region measures the largest lettering box, names the others
   assert.ok(boxes.length >= 2, JSON.stringify(boxes));
   assert.ok(boxes[0].x < 100 && boxes[0].y < 300 && boxes[0].y + boxes[0].height > 300 && boxes[0].width > 500, `the title is the largest box: ${JSON.stringify(boxes)}`);
   assert.ok(boxes.some((box) => box.y < 600 && box.y + box.height > 600 && box.x < 100), `the caption is another: ${JSON.stringify(boxes)}`);
+  // White type over strands of hair: the edges join word and hair into one tall box, its white pixels do not.
+  const hair = createCanvas(640, 360);
+  const strands = hair.getContext("2d");
+  strands.fillStyle = "#26302c"; strands.fillRect(0, 0, 640, 360);
+  strands.strokeStyle = "#5a6a64"; strands.lineWidth = 3;
+  for (let i = 0; i < 60; i += 1) { strands.beginPath(); strands.moveTo(80 + i * 8, 40); strands.quadraticCurveTo(140 + i * 7, 200, 60 + i * 9, 340); strands.stroke(); }
+  strands.fillStyle = "#ffffff"; strands.font = "110px 'Like Serif'"; strands.fillText("kill", 200, 170);
+  const [word] = letteringBoxes(hair);
+  assert.ok(word && word.x > 150 && word.x < 220 && word.y > 50 && word.y < 110 && word.width < 260 && word.height < 130, `the white word is a box: ${JSON.stringify(word)}`);
   const fonts = await loadBundledFonts();
   const catalog = { measuresFile: path.join(folder, "measures.json") };
   const faceMarks = async () => ({ rejected: ["Noto Serif 700 looks dated"], seen: [{ family: "Inter", name: "Old promo", rev: 3 }] });
   const answer = await fontsLikeText({ like: file, text: "STORM", count: 6 }, { fonts, catalog, faceMarks });
   assert.match(answer.text, /\nbox measured: \[\d+, \d+, \d+, \d+\], the largest of \d+ lettering boxes kino found; others, to measure one pass region: \[/, answer.text);
-  assert.deepEqual(answer.region, [answer.region[0], answer.region[1], answer.region[2], answer.region[3]]);
+  assert.ok(answer.region.length === 4 && answer.region.every(Number.isInteger), JSON.stringify(answer.region));
   assert.ok(answer.region[2] < 1000 && answer.box.found >= 2 && answer.box.others.length >= 1 && answer.box.others.length <= 3);
   assert.equal(answer.fonts[0].family, "Noto Serif", answer.text);
-  assert.match(answer.text, /\n1\. Noto Serif 700 \([^)]*\) \[turned down by the person: "Noto Serif 700 looks dated"\] set_font /, "the face stays listed with the fact");
+  // style.rejected is on-screen text, so the fact is that turned-down text names the family, quoted.
+  assert.match(answer.text, /\n1\. Noto Serif 700 \([^)]*\) \[named in text the person turned down: "Noto Serif 700 looks dated"\] set_font /, "the face stays listed with the fact");
   assert.match(answer.text, /\n\d\. Inter \d+ \([^)]*\) \[seen before: the type of "Old promo" r3\] set_font /);
-  assert.equal(answer.fonts[0].note, 'turned down by the person: "Noto Serif 700 looks dated"');
+  assert.equal(answer.fonts[0].note, 'named in text the person turned down: "Noto Serif 700 looks dated"');
   // A given region is measured as it is: no box search, no box line.
   const given = await fontsLikeText({ like: file, region: [40, 120, 800, 220], text: "STORM", count: 2 }, { fonts, catalog });
   assert.equal(given.box, undefined);

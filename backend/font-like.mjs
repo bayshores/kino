@@ -363,14 +363,55 @@ const BOXES_KEPT = 8;
 const OTHER_BOXES = 3;
 
 /**
+ * The boxes of the lines in a mask (1 where something stands out): its pixels joined along the line
+ * (6 px each way) and a little across it (1 px), pieces at least 8 x 5 px, and pieces on one row
+ * merged when the gap between them is under 1.5 line heights. [{x0, y0, x1, y1}].
+ */
+function lineBoxes(mask, width, height) {
+  const joined = new Uint8Array(width * height);
+  const reach = 6;
+  for (let y = 0; y < height; y += 1) {
+    let last = -1e9;
+    for (let x = 0; x < width; x += 1) { if (mask[y * width + x]) last = x; if (x - last <= reach) joined[y * width + x] = 1; }
+    last = 1e9;
+    for (let x = width - 1; x >= 0; x -= 1) { if (mask[y * width + x]) last = x; if (last - x <= reach) joined[y * width + x] = 1; }
+  }
+  const tall = new Uint8Array(width * height);
+  for (let y = 0; y < height; y += 1) for (let x = 0; x < width; x += 1)
+    if (joined[y * width + x]) { tall[y * width + x] = 1; if (y > 0) tall[(y - 1) * width + x] = 1; if (y < height - 1) tall[(y + 1) * width + x] = 1; }
+  const boxes = pieces({ ink: tall, width, height }).map((piece) => ({ x0: piece.x0, y0: piece.y0, x1: piece.x1, y1: piece.y1 }))
+    .filter((box) => box.y1 - box.y0 + 1 >= 5 && box.x1 - box.x0 + 1 >= 8);
+  // Passes until nothing merges; a merged box keeps growing in place instead of starting the pass over
+  // (restarting took 563 ms on 4,958 small marks in rows).
+  for (let merged = true; merged;) {
+    merged = false;
+    for (let i = 0; i < boxes.length; i += 1) for (let j = i + 1; j < boxes.length; j += 1) {
+      const a = boxes[i], b = boxes[j];
+      const ha = a.y1 - a.y0 + 1, hb = b.y1 - b.y0 + 1;
+      const overlap = Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0) + 1;
+      const gap = Math.max(a.x0, b.x0) - Math.min(a.x1, b.x1) - 1;
+      if (overlap >= 0.6 * Math.min(ha, hb) && gap < 1.5 * Math.max(ha, hb) && Math.max(ha, hb) < 3 * Math.min(ha, hb)) {
+        boxes[i] = { x0: Math.min(a.x0, b.x0), y0: Math.min(a.y0, b.y0), x1: Math.max(a.x1, b.x1), y1: Math.max(a.y1, b.y1), parts: [...(a.parts ?? [a]), ...(b.parts ?? [b])] };
+        boxes.splice(j, 1);
+        j = i;
+        merged = true;
+      }
+    }
+  }
+  return boxes;
+}
+
+/**
  * The picture's lettering boxes, largest first: [{x, y, width, height}] in the picture's pixels.
  * Edges (a step of 40 gray levels) are joined along the line, boxes on one row are merged when the
  * gap between them is under 1.5 line heights, and a box counts as lettering when it is wider than tall
  * and under 45% of the picture high, its ink covers 8% to 75% of it, splits into 2 or more letters
  * (3 for a box over a tenth of the picture high) by empty columns that are typically a fifth of the
  * line high, and its edge pixels fill 9% or more of it (a photo's ink breaks into slivers and is smooth).
- * GUESS: every number here, set on a drawn title and caption, a noisy picture and two contact sheets
- * of film frames (the sheets' captions and short words were found; a caption 8 px tall was not).
+ * Near-white pixels make boxes too (white type over an edgy picture), and a merged box that fails has
+ * its parts tried alone. GUESS: every number here, set on a drawn title and caption, a noisy picture
+ * and three contact sheets of film frames (the sheets' captions, short words and a white word over hair
+ * were found; a caption 8 px tall was not).
  */
 export function letteringBoxes(image) {
   const factor = Math.min(1, SEARCH_SIDE / Math.max(image.width, image.height));
@@ -386,56 +427,40 @@ export function letteringBoxes(image) {
     const at = y * width + x;
     edge[at] = Math.abs(gray[at + 1] - gray[at - 1]) + Math.abs(gray[at + width] - gray[at - width]) >= 40 ? 1 : 0;
   }
-  // Join edges along the line (6 px each way) and a little across it (1 px).
-  const joined = new Uint8Array(width * height);
-  const reach = 6;
-  for (let y = 0; y < height; y += 1) {
-    let last = -1e9;
-    for (let x = 0; x < width; x += 1) { if (edge[y * width + x]) last = x; if (x - last <= reach) joined[y * width + x] = 1; }
-    last = 1e9;
-    for (let x = width - 1; x >= 0; x -= 1) { if (edge[y * width + x]) last = x; if (last - x <= reach) joined[y * width + x] = 1; }
-  }
-  const tall = new Uint8Array(width * height);
-  for (let y = 0; y < height; y += 1) for (let x = 0; x < width; x += 1)
-    if (joined[y * width + x]) { tall[y * width + x] = 1; if (y > 0) tall[(y - 1) * width + x] = 1; if (y < height - 1) tall[(y + 1) * width + x] = 1; }
-  let boxes = pieces({ ink: tall, width, height }).map((piece) => ({ x0: piece.x0, y0: piece.y0, x1: piece.x1, y1: piece.y1 }))
-    .filter((box) => box.y1 - box.y0 + 1 >= 5 && box.x1 - box.x0 + 1 >= 8);
-  // Boxes on one row join into one line of lettering.
-  for (let merged = true; merged;) {
-    merged = false;
-    outer: for (let i = 0; i < boxes.length; i += 1) for (let j = i + 1; j < boxes.length; j += 1) {
-      const a = boxes[i], b = boxes[j];
-      const ha = a.y1 - a.y0 + 1, hb = b.y1 - b.y0 + 1;
-      const overlap = Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0) + 1;
-      const gap = Math.max(a.x0, b.x0) - Math.min(a.x1, b.x1) - 1;
-      if (overlap >= 0.6 * Math.min(ha, hb) && gap < 1.5 * Math.max(ha, hb) && Math.max(ha, hb) < 3 * Math.min(ha, hb)) {
-        boxes[i] = { x0: Math.min(a.x0, b.x0), y0: Math.min(a.y0, b.y0), x1: Math.max(a.x1, b.x1), y1: Math.max(a.y1, b.y1) };
-        boxes.splice(j, 1);
-        merged = true;
-        break outer;
-      }
-    }
-  }
-  const found = [];
-  for (const box of boxes) {
+  // Candidates from the edges, and from near-white pixels: white lettering over an edgy picture (a
+  // title over hair) joins the picture's edges into one tall box, but its own white pixels stand alone.
+  // GUESS: 225 of 255, set on a white blackletter word over drawn hair that the edges alone missed.
+  const white = new Uint8Array(width * height);
+  for (let i = 0; i < white.length; i += 1) white[i] = gray[i] >= 225 ? 1 : 0;
+  const boxes = [...lineBoxes(edge, width, height), ...lineBoxes(white, width, height)];
+  const found = [], kept = [];
+  for (let at = 0; at < boxes.length; at += 1) {
+    const box = boxes[at];
+    // A merged box that is not lettering gets its parts tried one by one: two words side by side on a
+    // sheet's neighboring frames merge into one box that holds the face between them.
+    const tryParts = () => { if (box.parts) boxes.push(...box.parts); };
     const w = box.x1 - box.x0 + 1, h = box.y1 - box.y0 + 1;
     // A line of lettering is wider than tall and under 45% of the picture high (a taller box is a run
     // of frames joined on a sheet; a title set across a single frame measured 34%).
-    if (w < 1.2 * h || h > 0.45 * height) continue;
+    if (w < 1.2 * h || h > 0.45 * height) { tryParts(); continue; }
     const crop = createCanvas(w, h);
     crop.getContext("2d").drawImage(canvas, box.x0, box.y0, w, h, 0, 0, w, h);
     const mask = inkMask(crop.getContext("2d").getImageData(0, 0, w, h));
     let ink = 0;
     for (const value of mask.ink) ink += value;
     const share = ink / (w * h);
-    if (share < 0.08 || share > 0.75) continue;
+    if (share < 0.08 || share > 0.75) { tryParts(); continue; }
     // Letters: at least 2 columns of ink split by gaps, the typical one at least a fifth of the line
     // high (a photo's ink breaks into 1 px slivers), and the box edgy all through (photos are smooth).
     const letters = letterRuns(mask);
-    if (letters.length < (h > height / 10 ? 3 : 2) || median(letters.map(([a, b]) => b - a + 1)) < 0.2 * h) continue;
+    if (letters.length < (h > height / 10 ? 3 : 2) || median(letters.map(([a, b]) => b - a + 1)) < 0.2 * h) { tryParts(); continue; }
     let edges = 0;
     for (let yy = box.y0; yy <= box.y1; yy += 1) for (let xx = box.x0; xx <= box.x1; xx += 1) edges += edge[yy * width + xx];
-    if (edges / (w * h) < 0.09) continue;
+    if (edges / (w * h) < 0.09) { tryParts(); continue; }
+    // The same line found from the edges and from its white pixels is listed once.
+    const shared = (other) => Math.max(0, Math.min(box.x1, other.x1) - Math.max(box.x0, other.x0) + 1) * Math.max(0, Math.min(box.y1, other.y1) - Math.max(box.y0, other.y0) + 1);
+    if (kept.some((other) => shared(other) > 0.5 * Math.min(w * h, (other.x1 - other.x0 + 1) * (other.y1 - other.y0 + 1)))) continue;
+    kept.push(box);
     // Padded by a tenth of the line height, back in the picture's pixels.
     const pad = Math.max(1, Math.round(h * 0.1));
     const x = Math.max(0, box.x0 - pad), y = Math.max(0, box.y0 - pad);
@@ -486,7 +511,9 @@ const names = (text, family) => new RegExp(`(^|[^a-z0-9])${family.toLowerCase().
  */
 export function faceNote(family, { rejected = [], seen = [] } = {}) {
   const turnedDown = rejected.find((text) => names(text, family));
-  if (turnedDown) return `turned down by the person: "${String(turnedDown).slice(0, 60)}"`;
+  // style.rejected holds on-screen text the person turned down, not faces: the fact is that the text
+  // names the family ("Cookie" is a family and a word), so the line quotes it and the agent judges.
+  if (turnedDown) return `named in text the person turned down: "${String(turnedDown).slice(0, 60)}"`;
   const used = seen.find((entry) => String(entry.family).toLowerCase() === family.toLowerCase());
   return used ? `seen before: the type of "${used.name}" r${used.rev}` : null;
 }
