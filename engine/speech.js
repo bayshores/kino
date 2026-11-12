@@ -789,11 +789,29 @@ export function clipLines(transcript, { most = 3 } = {}) {
 
 // whisper's own sound tags that name a voice ("[speaking in foreign language]", "(giggles)",
 // "*sobbing*"), and the ones that say the voice is in a language an English model cannot read.
-// Measured on run 8's 13 clips with small.en (.scratch/run8/wave/clip-sound/RESULT.md): every tag
-// whisper wrote on a voice used one of these words; "Music]" and "(upbeat music)" are not a voice.
-const VOICE_TAG = /speak|sing|talk|language|chant|laugh|giggl|chuckl|sob|cry|scream|shout|yell|gasp|scoff|sigh|groan|grunt|moan|hum|mumbl|murmur|whisper|breath|pant/i;
-const OTHER_LANGUAGE_TAG = /foreign|language|(speak|sing|talk)\w*\s+in\s+\p{L}/iu;
+// Measured on run 8's 13 clips with small.en (.scratch/run8/wave/clip-sound-review/RESULT.md):
+// every tag whisper wrote on a voice used one of these words; "Music]" and "(upbeat music)" are not
+// a voice, and neither is a tag that names the music ("*sings along to the music*" on a stairs
+// clip of score and steps): that is the score's own voice, not a person's (MUSIC_TAG). Whole words only: inside a word, "sing" is "rising" or "closing", "hum" is "thump", "cry" is
+// "crystal", so "(music rising)" or "(door closing)" would read as a voice.
+const VOICE_TAG = /\b(speak|sings?\b|singing|sung\b|talk|language|chant|laugh|giggl|chuckl|sob|cr(y|ies|ied|ying)\b|scream|shout|yell|gasp|scoff|sigh|groan|grunt|moan|hum(s|med|ming)?\b|mumbl|murmur|whisper|breath|pant(s|ed|ing)?\b)/i;
+// A tag names another language when it says so ("foreign language") or names one after speaking,
+// singing or talking: a capitalized word ("Singing in Japanese)"), or in an all-capitals tag any
+// word but these ("[SPEAKING IN BACKGROUND]"). "(talking in the background)" names none, so the
+// English lines around it stay lines.
+const NOT_A_LANGUAGE = /^(BACKGROUND|DISTANCE|UNISON|CHORUS|HARMONY|THE|A|AN|SOFTLY|QUIETLY|LOUDLY|ALONG|TO|WITH|INDISTINCTLY)$/;
+function namesOtherLanguage(text) {
+  if (/foreign|language/i.test(text)) return true;
+  if (/[a-z]/.test(text)) return /\b(?:speak|sing|talk)\w*\s+(?:in\s+)?[A-Z][a-z]+/.test(text.replace(/\b(?:speak|sing|talk)/gi, (verb) => verb.toLowerCase()));
+  const word = /\b(?:SPEAK|SING|TALK)\w*\s+(?:IN\s+)?([A-Z]+)/.exec(text)?.[1];
+  return Boolean(word) && !NOT_A_LANGUAGE.test(word);
+}
+const MUSIC_TAG = /\b(music|song|melody|instrumental)/i;
 const VOICE_JOIN = 0.7; // seconds: voice spans closer than this read as one (a guess: one breath)
+// One word said over and over is a voice (a laugh, a chant) when whisper was this sure of at least
+// one of them. Measured on run 8: the laugh's runs had a best word p of 0.88 to 0.97 on four runs
+// ("Hey" x6, "Heh" x7, "heh" x8, "Heh, heh"), a score's "Good. Good." 0.34. A guess between them.
+const REPEAT_SURE = 0.6;
 
 /**
  * What a clip's own sound holds, from its transcript: {lines, voice, otherLanguage}.
@@ -831,8 +849,23 @@ export function readClipSound(transcript) {
     tags.push({ text: words.slice(from, i + 1).map((word) => word.text).join(" "), start: words[from].start, end: words[i].end });
     open = -1;
   }
-  const otherLanguage = tags.some((tag) => OTHER_LANGUAGE_TAG.test(tag.text));
-  const voice = tags.filter((tag) => VOICE_TAG.test(tag.text)).map(({ start, end }) => ({ start, end }));
+  const otherLanguage = tags.some((tag) => namesOtherLanguage(tag.text));
+  const voice = tags.filter((tag) => VOICE_TAG.test(tag.text) && !MUSIC_TAG.test(tag.text)).map(({ start, end }) => ({ start, end }));
+  // One word over and over ("Heh. Heh. Heh.", "Heh, heh,"), across full stops and unsure words:
+  // a voice when whisper was sure of one of them (REPEAT_SURE). A line would drop it word by word.
+  // Only a run that stands alone: "No, no, no, wait!" stays a line.
+  const said = (k) => k >= 0 && k < words.length && !inTag[k] && !words[k].unclear && plainWord(withoutGluedTag(words[k].text));
+  const joins = (a, b) => said(a) && said(b) && words[b].start - words[a].end < LONG_PAUSE && !endsLine(words[a].text);
+  for (let i = 0; i < words.length;) {
+    let k = i + 1;
+    while (said(i) && said(k) === said(i) && words[k].start - words[k - 1].end < LONG_PAUSE) k += 1;
+    const alone = !joins(i - 1, i) && !joins(k - 1, k);
+    if (k - i >= 2 && alone && Math.max(...words.slice(i, k).map((word) => word.p ?? 1)) >= REPEAT_SURE) {
+      voice.push({ start: round(words[i].start), end: round(words[k - 1].end) });
+      for (let n = i; n < k; n += 1) inTag[n] = true;
+    }
+    i = k;
+  }
   const lines = [];
   let line = [];
   const close = () => {

@@ -414,3 +414,20 @@ test("readClipSound reads a clip whisper tagged as another language as voice, ne
   assert.equal(clipSoundText({ lufs: -18.2, lines: [], voice: [] }), "-18.2 LUFS · no voice heard");
   assert.equal(clipSoundText({ lufs: null }), "");
 });
+
+test("readClipSound: a laugh read word by word is voice, music and room tags are not, and a background tag keeps English lines", () => {
+  const word = (text, start, end, p = 0.95) => ({ text, start, end, p });
+  const voiceOf = (words) => readClipSound({ words }).voice;
+  // Run 8's laugh on two other runs: each "Heh." its own sentence, or "Heh, heh," with one unsure word.
+  assert.deepEqual(voiceOf(["Heh.", "Heh.", "Heh."].map((text, i) => word(text, 0.4 * i, 0.4 * i + 0.3, [0.16, 0.88, 0.5][i]))), [{ start: 0, end: 1.1 }]);
+  assert.deepEqual(voiceOf([word("Heh,", 0.1, 0.3, 0.05), word("heh,", 0.3, 0.6, 0.93)]), [{ start: 0.1, end: 0.6 }]);
+  // A score's unsure "Good. Good." (best p 0.34) is not a voice; "No, no, no, wait!" stays a line.
+  assert.deepEqual(voiceOf([word("Good.", 0.4, 0.6, 0.02), word("Good.", 1.6, 1.8, 0.34)]), []);
+  assert.deepEqual(clipLines({ words: [word("No,", 0, 0.2), word("no,", 0.2, 0.4), word("no,", 0.4, 0.6), word("wait!", 0.6, 1)] }).map((line) => line.text), ["No, no, no, wait!"]);
+  // Tags about the music or a room are not a voice; whole words only ("rising" is not "sing").
+  for (const tag of [["*sings", "along", "to", "the", "music*"], ["(music", "rising)"], ["(door", "closing)"]]) assert.deepEqual(voiceOf(tag.map((text, i) => word(text, i * 0.2, i * 0.2 + 0.2))), [], tag.join(" "));
+  // "(talking in the background)" names no language: the English line beside it stays a line.
+  const room = readClipSound({ words: [word("(people", 0, 0.2), word("talking", 0.2, 0.4), word("in", 0.4, 0.5), word("the", 0.5, 0.6), word("background)", 0.6, 1), word("Try", 2, 2.2), word("it", 2.2, 2.3), word("today.", 2.3, 2.8)] });
+  assert.deepEqual([room.otherLanguage, room.lines.map((line) => line.text), room.voice], [false, ["Try it today."], [{ start: 0, end: 1 }]]);
+  assert.equal(readClipSound({ words: [word("[SPEAKING", 0, 0.5), word("JAPANESE]", 0.5, 1), word("I", 2, 2.2), word("see.", 2.2, 2.5)] }).otherLanguage, true);
+});

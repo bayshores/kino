@@ -1020,7 +1020,8 @@ How to read it:
   is English only; import time with whisper not measured.
 - **Clip sound readout**: Verified on three local clips and a stand-in transcript. Each clip gives its
   integrated LUFS, its lines, and `voice heard ..., words not read` where whisper tagged a voice, wrote one
-  word over and over, or tagged another language (no sound-alike lines). Evidence: `engine/speech.test.js`
+  word over and over (also one word a sentence, as a laugh read on other runs), or tagged another language
+  (no sound-alike lines); a tag about the music or the room is no voice. Evidence: `engine/speech.test.js`
   (readClipSound), `backend/footage-finder.test.mjs` (takeText). Gap: no multilingual model path yet.
 
 ## Audio and captions
