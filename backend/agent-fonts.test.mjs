@@ -486,7 +486,7 @@ test("type by job: two measured type labels give a subtitle line and a payoff wo
 // background under full-frame dark footage. Now the face follows the project's own text (else a face
 // that has the weight), the fill is measured behind the box, and every saved label up to 6 is tried.
 test("type by job: the face follows the project's text, the fill the picture behind, and skipped labels are said once", async () => {
-  const { jobFace, jobTreatment, pictureUnder, skipsSaidOnce } = await import("../engine/typeRoles.js");
+  const { freshSkips, jobFace, jobTreatment, pictureUnder, skipKey } = await import("../engine/typeRoles.js");
   const { labelTypes } = await import("./font-like.mjs");
   const faces = (await loadBundledFonts()).faces;
   const display = { type: "text", id: "t1", name: "title", text: "STAND", fontFamily: "Montserrat", fontWeight: 700, fontSize: 160 };
@@ -500,6 +500,8 @@ test("type by job: the face follows the project's text, the fill the picture beh
   const bare = jobFace("payoff", { faces });
   assert.deepEqual([bare.family, bare.weight], ["Inter", 700]);
   assert.match(bare.from, /no face has 900/);
+  // A family named with no weight stays in that family: its nearest installed weight (Inter has no 900).
+  assert.deepEqual(["family", "weight", "from"].map((key) => jobFace("payoff", { layers: [line, display], faces, family: "inter" })[key]), ["Inter", 700, "Inter 700, its nearest installed weight to 900"]);
   const scene = { width: 1920, height: 1080, background: "#fafaf7", layers: [] };
   const plain = jobTreatment("payoff", { scene, text: "STAND", follow: bare });
   assert.deepEqual([plain.properties.fontFamily, plain.properties.fontWeight, plain.properties.fill], ["Inter", 700, "#111111"]);
@@ -508,6 +510,10 @@ test("type by job: the face follows the project's text, the fill the picture beh
   const box = { x: plain.properties.x, y: plain.properties.y, width: plain.properties.width, height: plain.properties.height };
   assert.equal(pictureUnder({ ...scene, layers: [clip] }, box, 0.5), null, "not on screen yet: the background shows");
   assert.equal(pictureUnder({ ...scene, layers: [clip] }, box, 2)?.id, "v1");
+  // Shown again later (show, hide, show): on screen at 6 s. A cut-out's subject copy above it is not the picture behind.
+  const again = { ...clip, animations: [{ kind: "show", start: 0 }, { kind: "hide", start: 2 }, { kind: "show", start: 5 }] };
+  assert.deepEqual([3, 6].map((time) => pictureUnder({ ...scene, layers: [again] }, box, time)?.id ?? null), [null, "v1"]);
+  assert.equal(pictureUnder({ ...scene, layers: [clip, { ...clip, id: "v1-subject", cutoutOf: "v1" }] }, box, 2)?.id, "v1");
   const over = jobTreatment("subtitle", { scene, text: "we walk into the night", follow: bare, behind: { color: "#16181c", from: "night at 2 s" } });
   assert.deepEqual([over.properties.fill, over.properties.stroke], ["#ffffff", "#000000"]);
   assert.match(over.from, /^the picture behind \(#16181c measured from night at 2 s\); no measured type label for this job; fill #ffffff at 17\.\d:1 on #16181c; face from Inter 700/);
@@ -517,12 +523,9 @@ test("type by job: the face follows the project's text, the fill the picture beh
   const found = await labelTypes(seven, { fonts: { faces }, catalog: {}, readText: async () => [], referenceFrames: async (id, at) => { tried.push(id); return [{ bytes: Buffer.from([]), at, kind: "still" }]; } });
   assert.equal(tried.length, 6);
   assert.equal(found.skipped.at(-1).why, "past the first 6 saved labels kino tries");
-  // A skipped label is said once per project, and a dry run leaves it unsaid.
-  const unsaid = skipsSaidOnce();
-  assert.equal(unsaid("p", found.skipped, { mark: false }).length, 7);
-  assert.equal(unsaid("p", found.skipped).length, 7);
-  assert.equal(unsaid("p", found.skipped).length, 0);
-  assert.equal(unsaid("q", found.skipped).length, 7);
+  // A skipped label is said once per project: the keys a saved edit said are left out next time.
+  assert.equal(freshSkips(found.skipped, []).length, 7);
+  assert.deepEqual(freshSkips(found.skipped, found.skipped.slice(0, 3).map(skipKey)), found.skipped.slice(3));
 });
 
 test("agent service: an add_layer text with a role and no face or fill gets its job's fields and, as a payoff, a letter entrance by its cue", async (t) => {
@@ -575,6 +578,11 @@ test("agent service: an add_layer text with a role and no face or fill gets its 
   assert.equal(pictured.isError, undefined, pictured.text);
   const over = await agent("edit", { project: "jobs", ops: [{ op: "add_layer", layerType: "text", name: "over", properties: { text: "We walk on, into the night.", role: "caption" } }] });
   assert.match((over.data.notes ?? []).join("\n"), /type: over as subtitle from the picture behind \(#14161a measured from night at 0 s\); no measured type label for this job; fill #ffffff at 1\d\.\d:1 on #14161a; face from the project's text line \(Inter 600, role caption\): Inter 600, 32 px, fill #ffffff, edge 2 px/);
+  // check: the payoff's Inter 700 needs no fallback; an agent-named Inter 900 (bundled Inter stops at 700) still does.
+  await agent("edit", { project: "jobs", ops: [{ op: "add_layer", layerType: "text", name: "heavy", properties: { text: "HEAVY", fontFamily: "Inter", fontWeight: 900, fontSize: 20, x: 10, y: 10, width: 200, height: 30 } }] });
+  const checked = JSON.stringify((await agent("check", { project: "jobs", rules: ["font_fallback"], pixels: false })).data);
+  assert.match(checked, /font_fallback[^\]]*heavy|heavy[^\]]*font_fallback/, checked);
+  assert.doesNotMatch(checked, /\bword\b/, checked);
 });
 
 // Measured on the benchmark crops: a dotted lettering read dots 0.43 and lost to solid condensed faces,

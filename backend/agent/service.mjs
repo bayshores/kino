@@ -110,7 +110,7 @@ import { footageCueTime } from "../../engine/footageCues.js";
 import { FOOTAGE_VERSION } from "../footage/analyze.mjs";
 import { PLAIN_TAGS, TECHNIQUE_TAGS, techniquesText } from "../../engine/techniques.js";
 import { namesFamily, styleContext } from "../../engine/styleSpec.js";
-import { jobFace, jobTreatment, payoffEntrance, pictureUnder, skipsSaidOnce, textJob } from "../../engine/typeRoles.js";
+import { freshSkips, jobFace, jobTreatment, payoffEntrance, picturesUnder, skipKey, textJob } from "../../engine/typeRoles.js";
 import { TYPE_VERSION } from "../../engine/quality/typeSignature.js";
 import { blocksFinal, FINAL_GATES, tasteNotes } from "../../engine/quality/index.js";
 import { ideaLines, signatureRanges } from "../../engine/quality/rules/signature.js";
@@ -598,12 +598,12 @@ export function createAgentService(deps) {
     // board {snap:"beats"}: the turn and the measured beat times after it (board-pace.mjs).
     boardPace: (document, options) => boardPaceFor(document, options),
     // board text with no family, weight, size or fill: the measured type labels, the spine (its payoff beat) and face widths.
-    boardType: async (document) => {
+    boardType: async (document, work = null) => {
       const { measured, skipped } = await measuredTypeLabels(document.id);
       const faces = (await loadFonts()).faces ?? [];
       const layers = (document.scenes ?? []).flatMap((scene) => scene.layers ?? []);
-      return { labels: measured, skipped: unsaidSkips(document.id, skipped), spine: (await agentState.read(document.id).catch(() => null))?.brief?.style?.spine ?? null, advance: await faceAdvance(),
-        follow: (job) => jobFace(job, { layers, faces }) };
+      return { labels: measured, skipped: await unsaidSkips(document.id, skipped, work?.labelSkips, 2), spine: (await agentState.read(document.id).catch(() => null))?.brief?.style?.spine ?? null, advance: await faceAdvance(),
+        follow: (job, family = null) => jobFace(job, { layers, faces, family }) };
     },
     // Every recipe, move or compose takes the type the brief's style spec names; a picked type with no fonts yet is named in the receipt.
     styleType: async (document) => {
@@ -3110,8 +3110,15 @@ export function createAgentService(deps) {
     return answer;
   }
   // The labels left out, one line each (at most 3): why kino did not take their type. Each is said
-  // once per project while kino runs (the same label for the same reason is not said on every edit).
-  const unsaidSkips = skipsSaidOnce();
+  // once per project: the keys go into `pending` (the edit's work.labelSkips) and are kept in the
+  // project's agent state when the edit is saved, so a dry run or a refused edit says them again.
+  // Only the `limit` lines an answer prints count as said; the rest wait for a later edit.
+  async function unsaidSkips(projectId, skipped, pending = null, limit = 3) {
+    if (!skipped?.length) return [];
+    const fresh = freshSkips(skipped, (await agentState.read(projectId).catch(() => null))?.labelSkipsSaid ?? []).slice(0, limit);
+    if (Array.isArray(pending)) pending.push(...fresh.map(skipKey));
+    return fresh;
+  }
   const skippedLabelLines = (skipped) => skipped.slice(0, 3).map((entry) => `type label ${entry.ref} @${entry.at} not used: ${entry.why}`);
   // The face a job takes with no measured label (engine/typeRoles.js jobFace): the project's own text
   // for that job, else an installed face with the job's weight.
@@ -3121,11 +3128,13 @@ export function createAgentService(deps) {
   }
   // The picture behind a text box at its time (engine/typeRoles.js pictureUnder), its mean color
   // measured on one small frame (shot-color.mjs boxColor): {color, from} or null when nothing covers it.
+  // A picture that cannot be read or is clear under the box gives way to the one below it.
   async function colorBehind(scene, box, time) {
-    const layer = pictureUnder(scene, box, time);
-    if (!layer) return null;
-    const color = await boxColor(deps.mediaRoot, layer, time, box).catch(() => null);
-    return color ? { color, from: `${layer.name ?? layer.id} at ${Math.round(time * 100) / 100} s` } : null;
+    for (const layer of picturesUnder(scene, box, time).slice(0, 3)) {
+      const color = await boxColor(deps.mediaRoot, layer, time, box).catch(() => null);
+      if (color) return { color, from: `${layer.name ?? layer.id} at ${Math.round(time * 100) / 100} s` };
+    }
+    return null;
   }
   // A face's advance in ems for a line of words: the installed face nearest the family and weight (typeRoles fit).
   async function faceAdvance() {
@@ -3137,7 +3146,7 @@ export function createAgentService(deps) {
       try { return { em: face.font.layout(line).advanceWidth / face.font.unitsPerEm, face: `${face.family} ${face.weight}` }; } catch { return null; }
     };
   }
-  async function typeByJob(ops, document, projectId, { dryRun = false } = {}) {
+  async function typeByJob(ops, document, projectId) {
     const list = (Array.isArray(ops) ? ops : [ops]).filter((op) => op && typeof op === "object" && (op.op ?? op.type) === "add_layer"
       && (op.layerType === "text" || (op.op === "add_layer" && op.type === "text")));
     // What the op says, at the top level or in properties, and every layer field it names under its
@@ -3164,7 +3173,8 @@ export function createAgentService(deps) {
     if (!bare.length) return [];
     const { measured, skipped } = await measuredTypeLabels(projectId, labels);
     const advance = await faceAdvance();
-    const lines = skippedLabelLines(unsaidSkips(projectId, skipped, { mark: !dryRun }));
+    const said = [];
+    const lines = Object.assign(skippedLabelLines(await unsaidSkips(projectId, skipped, said)), { said });
     // A show's time as seconds: a number, or "cue:<name>" read from the project's cues; else null.
     const secondsOf = (value) => {
       if (Number.isFinite(Number(value)) && value !== null && value !== "") return Number(value);
@@ -3217,7 +3227,7 @@ export function createAgentService(deps) {
     let record = await projectFor(input);
     const projectId = record.document.id;
     const ops = await withBorrowedRhythm(editOperations(input, projectId), record.document, { dryRun: input.dry_run === true });
-    const typeLines = await typeByJob(ops, record.document, projectId, { dryRun: input.dry_run === true });
+    const typeLines = await typeByJob(ops, record.document, projectId);
     // Deleting a scene needs your approval (D3). bulk_create with deleteMissing:true deletes the
     // variants its CSV leaves out, so that edit asks once it knows which scenes go (below).
     const opList = Array.isArray(ops) ? ops : [ops];
@@ -3253,7 +3263,7 @@ export function createAgentService(deps) {
         catch (error) { throw new AgentError("bad_input", error.message, { safeToRetry: true }); }
         const problems = translation.problems.map(translationProblem);
         // `work` is shared by set_font, the block ops, detect_beats, isolate_voice and cut_out: fonts, media, notes, reports, the names and the cut_outs' deadline.
-        work = { resolver, notes: [...typeLines], reports: editBag.reports };
+        work = { resolver, notes: [...typeLines], reports: editBag.reports, labelSkips: [...(typeLines.said ?? [])] };
         after = await applyAll(before, translation.operations, ops, work, problems, translation.blocked);
         if (problems.length) throw refusal(projectId, ops, problems, translation.blocked, await waiverFixCall(before, problems, codes));
         // compose {footage}: check fixes the new edit before it is saved, in this same revision.
@@ -3445,6 +3455,8 @@ export function createAgentService(deps) {
         if (savedAtBuild && !state.firstBuild && hasBrief(state.brief)) state.firstBuild = { rev: updated.revision, saved: savedAtBuild, studied: [...(state.studied ?? [])] };
         state.codes = assignCodes(state.codes, updated.document, resolver.reserved);
         if (lineNote) state.linesNamed = lineNote.key;
+        // The skipped type labels this saved edit said (unsaidSkips): not said again for this project.
+        if (work.labelSkips?.length) state.labelSkipsSaid = [...new Set([...(state.labelSkipsSaid ?? []), ...work.labelSkips])].slice(-40);
         // The layers this edit moved (placedByYou); check's own auto-fix edit does not count.
         if (!autoFixEdits.has(input)) state.placed = { rev: updated.revision, ids: movedLayers(before, updated.document) };
         // The agent hears about an edit the person made from the command line.

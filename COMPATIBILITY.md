@@ -1632,7 +1632,9 @@ How to read it:
   board shot text left without family, weight, size or fill takes the same treatment; fit widths come from the chosen face.
   On a 9:16 video a subtitle's box ends where the phone app's captions start. With no label the face follows the project's own
   text for that job, else an installed face that has the weight (bundled Inter has no 900, so 700); the fill and edge are chosen
-  against the picture measured behind the box at the text's time; up to 6 labels are tried, each skipped one said once.
+  against the picture measured behind the box at the text's time (a cut-out's subject copy is passed over for its clip); a
+  family named with no weight takes its nearest installed weight; up to 6 labels are tried, each skipped one said once by a
+  saved edit (kept in the project's agent state; a dry run or refused edit says it again).
   Evidence: `backend/agent-fonts.test.mjs`, `backend/agent-board.test.mjs`. Gap: only 640 px stills and 240 px strip frames are kept,
   and on run b's 3 real labels the reader read none (all 3 left out); the reader is macOS only; board text and a picture added in
   the same edit are not sampled for the fill.

@@ -7,6 +7,7 @@
 // picked by the song cue it lands on.
 
 import { mediaFrameState } from "./playback.js";
+import { visibleByOperations } from "./visibilityOps.js";
 import { SAFE_ZONES } from "./quality/rules/layout.js";
 
 // Only the roles that name one of the three jobs; body, subhead and ui text keep the plain defaults
@@ -71,21 +72,16 @@ export function labelsByJob(labels) {
   return { ...(big.length ? { payoff: big[0] } : {}), ...(small.length ? { subtitle: small.at(-1), label: small.at(-1) } : {}) };
 }
 
+/** The key a skipped type label ({ref, at, why}) is remembered by once it was said. */
+export const skipKey = (entry) => `${entry.ref}@${entry.at}:${entry.why}`;
+
 /**
- * Says each skipped type label once per project: the returned function takes (projectId, skipped,
- * {mark}) and gives back only the entries ({ref, at, why}) not said before; mark false (a dry run)
- * leaves them unsaid.
+ * Says each skipped type label once per project: the entries of `skipped` whose key is not in
+ * `said` (the keys the project's saved edits already said; a dry run or a refused edit saves none).
  */
-export function skipsSaidOnce() {
-  const saidByProject = new Map();
-  return (projectId, skipped, { mark = true } = {}) => {
-    if (!saidByProject.has(projectId)) saidByProject.set(projectId, new Set());
-    const said = saidByProject.get(projectId);
-    const key = (entry) => `${entry.ref}@${entry.at}:${entry.why}`;
-    const fresh = (skipped ?? []).filter((entry) => !said.has(key(entry)));
-    if (mark) for (const entry of fresh) said.add(key(entry));
-    return fresh;
-  };
+export function freshSkips(skipped, said = []) {
+  const known = new Set(said);
+  return (skipped ?? []).filter((entry) => !known.has(skipKey(entry)));
 }
 
 // The weight each job asks for when nothing measured gives one.
@@ -96,10 +92,15 @@ const JOB_WEIGHT = { subtitle: 600, payoff: 900, label: 500 };
  * that job (the same role, else the largest text for a payoff and the smallest reading line for a
  * subtitle), else an installed face that really has the job's weight (`faces`: [{family, weight,
  * style}], Inter first), else Inter at the nearest weight it has. Never a weight the family lacks.
+ * `family` (a family the agent named with no weight) keeps the choice inside that family: its text
+ * in the project, else its installed weight nearest the job's.
  * Returns {family, weight, fontSource?, from} or null with no faces at all.
  */
-export function jobFace(job, { layers = [], role = null, faces = [] } = {}) {
-  const texts = layers.filter((layer) => layer?.type === "text" && layer.fontFamily && String(layer.text ?? "").trim());
+export function jobFace(job, { layers = [], role = null, faces = [], family = null } = {}) {
+  const named = family ? String(family).trim().toLowerCase() : null;
+  const inFamily = (name) => !named || String(name).toLowerCase() === named;
+  if (named) faces = faces.filter((face) => face?.family && inFamily(face.family));
+  const texts = layers.filter((layer) => layer?.type === "text" && layer.fontFamily && inFamily(layer.fontFamily) && String(layer.text ?? "").trim());
   const size = (layer) => Number(layer.fontSize) || 0;
   const same = role ? texts.find((layer) => layer.role === role) : null;
   const reading = texts.filter((layer) => textJob(layer.text) === "subtitle").sort((a, b) => size(a) - size(b));
@@ -115,28 +116,28 @@ export function jobFace(job, { layers = [], role = null, faces = [] } = {}) {
   const isInter = (face) => face.family.toLowerCase() === "inter";
   const exact = normal.filter((face) => face.weight === wanted).sort((a, b) => Number(isInter(b)) - Number(isInter(a)) || a.family.localeCompare(b.family))[0];
   if (exact) return { family: exact.family, weight: wanted, from: `installed ${exact.family} ${wanted} (no project text does this job)` };
+  if (named) {
+    const near = normal.sort((a, b) => Math.abs(a.weight - wanted) - Math.abs(b.weight - wanted))[0];
+    return near ? { family: near.family, weight: near.weight, from: `${near.family} ${near.weight}, its nearest installed weight to ${wanted}` } : null;
+  }
   const inter = normal.filter(isInter).sort((a, b) => Math.abs(a.weight - wanted) - Math.abs(b.weight - wanted))[0];
   return inter ? { family: inter.family, weight: inter.weight, from: `Inter ${inter.weight}, the nearest weight installed (no face has ${wanted}; no project text does this job)` } : null;
 }
 
-// When a layer is on screen at `time`: its show and hide animations, and a clip's own play window.
+// When a layer is on screen at `time`: all its show and hide operations, and a clip's own play window.
 function shownAt(layer, time) {
-  const animations = layer.animations ?? [];
-  const show = animations.find((entry) => entry?.kind === "show");
-  const hide = animations.find((entry) => entry?.kind === "hide");
-  if (show && Number(show.start) > time) return false;
-  if (hide && Number.isFinite(Number(hide.start)) && Number(hide.start) <= time) return false;
-  return layer.type !== "video" || mediaFrameState(layer, time).visible;
+  return visibleByOperations(layer.animations ?? [], time) && (layer.type !== "video" || mediaFrameState(layer, time).visible);
 }
 
 /**
- * The topmost picture (video or image) of `scene` drawn behind a text box ({x, y, width, height})
- * at `time`: on screen then, plain (normal blend, nearly opaque, not in a group) and covering at
- * least half of the box. null when nothing covers it (the scene's background shows).
+ * The pictures (video or image) of `scene` drawn behind a text box ({x, y, width, height}) at
+ * `time`, topmost first: on screen then, plain (normal blend, nearly opaque, not in a group, not a
+ * cut-out's subject copy, which covers only its subject) and covering at least half of the box.
+ * Empty when nothing covers it (the scene's background shows).
  */
-export function pictureUnder(scene, box, time) {
+export function picturesUnder(scene, box, time) {
   const layers = (scene?.layers ?? []).filter((layer) => ["video", "image"].includes(layer.type) && layer.src && !layer.parentId && layer.visible !== false
-    && !(Number(layer.opacity) < 0.98) && (layer.blendMode ?? "normal") === "normal" && shownAt(layer, time));
+    && !layer.cutoutOf && !(Number(layer.opacity) < 0.98) && (layer.blendMode ?? "normal") === "normal" && shownAt(layer, time));
   const area = Math.max(1, box.width * box.height);
   const covers = (layer) => {
     const width = Math.abs((layer.width ?? 0) * (layer.scaleX ?? 1)), height = Math.abs((layer.height ?? 0) * (layer.scaleY ?? 1));
@@ -145,7 +146,12 @@ export function pictureUnder(scene, box, time) {
     return (overlapX * overlapY) / area >= 0.5;
   };
   // Layers are drawn in list order, so the last one that covers the box is the one seen.
-  return layers.filter(covers).at(-1) ?? null;
+  return layers.filter(covers).reverse();
+}
+
+/** The topmost picture behind a text box at `time` (picturesUnder), or null. */
+export function pictureUnder(scene, box, time) {
+  return picturesUnder(scene, box, time)[0] ?? null;
 }
 
 /**
