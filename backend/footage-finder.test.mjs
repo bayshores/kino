@@ -12,7 +12,7 @@ import { createWebCache } from "./web-cache.mjs";
 import { createFootageFinder } from "./footage-finder/index.mjs";
 import { candidateLine, droppedLine, elsewhereLine, knownEdits, nothingFoundText, parseFootageLines, scannedLine, someoneElses } from "./footage-finder/search.mjs";
 import { createCommonsSource, parseCommonsSearch } from "./footage-finder/licensed.mjs";
-import { addCandidates, createFootageActions, FOOTAGE_TOPIC_LINE, logoLast, scanText, shotLine } from "./footage-finder/actions.mjs";
+import { addCandidates, createFootageActions, FOOTAGE_TOPIC_LINE, logoLast, narrowShots, scanText, shotLine } from "./footage-finder/actions.mjs";
 import { LOOK_MODEL, lookModelReady } from "./look-embed.mjs";
 import { createAgentService } from "./agent/service.mjs";
 import { LIBRARY_TOPICS } from "./agent/actions.mjs";
@@ -285,8 +285,10 @@ test("a scan keeps dark shots tagged in place, puts title shots last, joins 0.96
   const samples = Array.from({ length: 40 }, (_, index) => {
     const t = index / 4;
     const shot = shotAt(t);
+    // A has a small face (and a smaller one on some frames); B has where the eye goes, no face.
     return { t, luma: shot === "D" ? 0.05 : 0.5, change: shot === "B" || shot === "C" ? 0.01 : 0.1, motion: null,
-      faces: shot === "A" ? [[0.4, 0.3, 0.2, 0.3]] : [], text: shot === "E" ? [{ box: [0.2, 0.4, 0.6, 0.2], s: "EPISODE 5" }] : [] };
+      faces: shot === "A" ? [[0.4, 0.3, 0.2, 0.3], ...(index % 2 ? [[0.8, 0.1, 0.05, 0.05]] : [])] : [],
+      ...(shot === "B" ? { saliency: [[0.1, 0.2, 0.5, 0.6]] } : {}), text: shot === "E" ? [{ box: [0.2, 0.4, 0.6, 0.2], s: "EPISODE 5" }] : [] };
   });
   let sheetStills = null;
   const tools = {
@@ -295,7 +297,7 @@ test("a scan keeps dark shots tagged in place, puts title shots last, joins 0.96
       assert.equal(maxSeconds, 1800);
       return { shots: [0, 2, 4, 6, 8].map((start) => ({ start, end: start + 2 })) };
     },
-    measure: async () => ({ samples, vision: { faces: true, text: true, flow: false } }),
+    measure: async (file, options) => { assert.equal(options.subjects, true); return { samples, vision: { faces: true, text: true, flow: false } }; },
     stills: async (file, times) => times.map((time) => `still-${shotAt(time)}`),
     sheet: async (stills, out) => { sheetStills = stills; await writeFile(out, "jpg"); },
   };
@@ -315,7 +317,19 @@ test("a scan keeps dark shots tagged in place, puts title shots last, joins 0.96
     assert.deepEqual(scan.shots.map((shot) => shot.n), [1, 3, 2, 4]);
     assert.deepEqual(scan.shots.map((shot) => [shot.start, shot.end]), [[60, 62], [66, 68], [62, 66], [68, 70]]);
     assert.deepEqual([scan.shots[1].flags, scan.shots[3].flags], [["dark"], ["text"]]);
-    assert.match(shotLine("F1", scan.shots[1]), / dark, mean 13 of 255$/);
+    // Each shot says its light (mean of 255) and where its face or subject is, and can be narrowed by them.
+    assert.match(shotLine("F1", scan.shots[1]), /^F1\.3 1:06\.0-1:08\.0 2\.0s motion \d+ light 13 face 0 dark$/);
+    assert.match(shotLine("F1", scan.shots[0]), /^F1\.1 1:00\.0-1:02\.0 2\.0s motion \d+ light 128 face 100 \(middle, 6% of frame\)$/);
+    assert.match(shotLine("F1", scan.shots[2]), / light 128 face 0 salient \(middle, 30% of frame\)$/);
+    assert.deepEqual(scan.shots[0].subject, { kind: "face", box: [0.4, 0.3, 0.2, 0.3], share: 0.06 });
+    assert.deepEqual(narrowShots(scan.shots, { face: false, darker: 50 }).shots.map((shot) => shot.n), [3]);
+    assert.deepEqual(narrowShots(scan.shots, { face: true, brighter: 100 }).shots.map((shot) => shot.n), [1]);
+    assert.deepEqual(narrowShots(scan.shots, { bigger: 20, longer: 3 }).shots.map((shot) => shot.n), [2]);
+    assert.deepEqual(narrowShots(scan.shots, undefined, "dark").shots.map((shot) => shot.n), [3, 1, 2, 4]);
+    // "true" reads as true; a shot with no box is counted, not silently dropped by bigger.
+    assert.deepEqual(narrowShots(scan.shots, { face: "true" }).shots.map((shot) => shot.n), [1]);
+    assert.match(narrowShots(scan.shots, { bigger: 1 }).line, /^Filter bigger:1: 2 of 4 shots\. 2 have no face or salient box and are left out\.$/);
+    assert.equal(narrowShots(scan.shots, { face: true, tint: "red" }).line, "Filter face:true: 1 of 4 shots. Not known, left out: tint:\"red\" (filter: face, speech, brighter, darker, longer, shorter, bigger; sort: light, dark, length, size, motion, time).");
     assert.equal(scan.shots[0].face, 100);
     // Closeness 0, 0, 0, 1 as z-scores; only the title card matches, and a flagged shot never shows a match.
     assert.deepEqual(scan.shots.map((shot) => shot.match), [-0.6, -0.6, -0.6, 1.7]);
@@ -388,11 +402,16 @@ test("drawn footage: a logo on every shot is said once and is no text, subtitles
     assert.deepEqual(scan.skipped, { dark: 0, text: 1, subtitles: 2, short: 0, repeats: 0 });
     const flagsOf = Object.fromEntries(scan.shots.map((shot) => [shot.n, shot.flags.join(" ")]));
     assert.deepEqual([flagsOf[4], flagsOf[8], flagsOf[12], flagsOf[1], flagsOf[6]], ["subtitles", "subtitles", "text", "", ""]);
-    assert.ok(scan.shots.every((shot) => shot.face === null));
+    // The face detector's box on a drawing is no subject either.
+    assert.ok(scan.shots.every((shot) => shot.face === null && !shot.subject));
+    // So face is not measured here: face:false keeps every shot and says why, never "no face in any".
+    const faceless = narrowShots(scan.shots, { face: false });
+    assert.equal(faceless.shots.length, scan.shots.length);
+    assert.match(faceless.line, /Not measured, left out: face \(faces not read in this scan\)\.$/);
     assert.deepEqual([scan.matchShown, scan.shots[0].n], [true, 7]);
     const text = scanText({ code: "F1", title: "Fight", license: "unknown" }, scan);
     assert.match(text, /\nNote: a mark is burned into this clip's bottom-right and top-left \(on every shot\)\. Pick a clean clip \(marked ones list last\), or crop it out; the import answer gives the numbers\.\nFaces: not read on drawn footage\./);
-    assert.match(text, /\nF1\.7 0:06\.0-0:07\.0 1\.0s motion \d+ match \+3\.3\n/);
+    assert.match(text, /\nF1\.7 0:06\.0-0:07\.0 1\.0s motion \d+ light 128 match \+3\.3\n/);
     assert.equal(text.match(/burned into/g).length, 1);
     // The video with a logo lists after one without; a scan without the model says so; a miss says how close it came.
     assert.deepEqual(logoLast([{ code: "F1", scan: { logo: "top-left" } }, { code: "F2" }]).map((entry) => entry.code), ["F2", "F1"]);
@@ -1510,6 +1529,11 @@ test("a scan prints what each shot says and the Lines list; said:\"words\" puts 
   const nobody = await actions.handle({ scan: "F1", said: "dragon" }, { footage, personClips: 0 });
   assert.match(nobody.text, /^Nobody says "dragon" in the scanned part\.$/m);
   assert.deepEqual(nobody.nextCall.input.options.shots, [1, 3]);
+  // One call narrows the listing and its import call: shots with a line said in them, longer than 2.6 s.
+  const narrowed = await actions.handle({ scan: "F1", filter: { speech: true, longer: 2.6 }, sort: "length" }, { footage, personClips: 0 });
+  assert.match(narrowed.text, /^Filter speech:true longer:2\.6, sorted by length: 1 of 3 shots\.$/m);
+  assert.ok(!narrowed.text.includes("F1.2 ") && !narrowed.text.includes("F1.3 "), narrowed.text);
+  assert.deepEqual([narrowed.data.listed, narrowed.data.shots.map((shot) => shot.n), narrowed.nextCall.input.options.shots], [1, [1], [1]]);
   // The words alone, with no scan, are kept for later scans.
   const saved = await actions.handle({ said: "protect them" }, { footage, personClips: 0 });
   assert.equal(saved.update(footage).said, "protect them");
@@ -1520,6 +1544,9 @@ test("a video with no captions is said once, and asked-for words say they were n
   const none = createFootageActions({ finder: saidFinder({ none: true }) });
   const first = await none.handle({ scan: "F1" }, { footage, personClips: 0 });
   assert.match(first.text, /^No captions on this video\. said:"<words>" listens to the scanned part on this computer/m);
+  // With no line heard, speech:false is unknown: every shot stays and the line says why.
+  const unheard = await none.handle({ scan: "F1", filter: { speech: false } }, { footage, personClips: 0 });
+  assert.match(unheard.text, /^No filter: (\d+) of \1 shots\. Not measured, left out: speech \(no captions or listening in this scan\)\.$/m);
   assert.doesNotMatch(first.text, /your reference/);
   // A measured reference of this project said a line (inspire's projectView lines): the hint names it as a ready scan
   // call, saved references first; a hook heard twice (a song) is not offered.

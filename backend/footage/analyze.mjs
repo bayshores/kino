@@ -32,8 +32,8 @@ export const FOOTAGE_VERSION = 2;
 export const LOUDNESS_VERSION = 1;
 export const FOOTAGE_FPS = 4;
 const SIDE = 480;
-// The helper's job bits (kino-measure.swift): 1 flow, 2 text, 16 faces.
-const FLOW = 1, TEXT = 2, FACES = 16;
+// The helper's job bits (kino-measure.swift): 1 flow, 2 text, 8 saliency, 16 faces.
+const FLOW = 1, TEXT = 2, SALIENCY = 8, FACES = 16;
 
 /** Average brightness (0 to 1) and a small gray copy of a BGRA frame, for differences. */
 function frameNumbers(bgra, width, height) {
@@ -66,16 +66,19 @@ function flowSpeed(flow, width) {
  * widths a second (null without the helper), change the mean brightness difference to the frame
  * before (0 to 1). Also events [{t, kind: impact|light|motion, confidence, ...}], drawing
  * ({frames, perSecond, sure} or null) and rate (the clip's frames a second): footage/events.mjs.
- * options.events false skips them (the footage finder's scan).
+ * options.events false skips them (the footage finder's scan); options.subjects true adds, where
+ * faces are read, saliency [[x, y, w, h]] (where the eye goes) when this computer's Vision has it.
  */
 export function measureFootage(file, options = {}) {
   // One video decode at a time in this process (process-slots.mjs).
   return heavyDecodeSlot(() => measureFootageNow(file, options));
 }
 
-async function measureFootageNow(file, { width, height, duration, signal, events = true } = {}) {
+async function measureFootageNow(file, { width, height, duration, signal, events = true, subjects = false } = {}) {
   const size = measureSize(width, height, SIDE);
   const abilities = await measureAbilities();
+  // Where the eye goes (Vision saliency), with the faces, when asked and this computer can.
+  const salient = subjects && abilities.saliency === true ? SALIENCY : 0;
   const helper = abilities.flow === true || abilities.text === true ? abilities.helper : null;
   const session = helperSession(helper, { ...size, signal });
   const frameBytes = size.width * size.height * 4;
@@ -104,7 +107,7 @@ async function measureFootageNow(file, { width, height, duration, signal, events
       previous = numbers;
       samples.push({ t: round3(index / FOOTAGE_FPS), luma: round3(numbers.luma), change: round3(change) });
       let jobs = index > 0 ? FLOW : 0;
-      if (index % 2 === 0) jobs |= TEXT | FACES;
+      if (index % 2 === 0) jobs |= TEXT | FACES | salient;
       await session.send(jobs, current);
       current = Buffer.alloc(frameBytes); filled = 0;
     }
@@ -118,6 +121,7 @@ async function measureFootageNow(file, { width, height, duration, signal, events
     const speed = flowSpeed(answer.flow, size.width);
     sample.motion = speed === null ? null : round3(speed);
     if (Array.isArray(answer.faces)) { sample.faces = answer.faces; faces = true; }
+    if (salient && Array.isArray(answer.saliency)) sample.saliency = answer.saliency;
     if (Array.isArray(answer.text)) { sample.text = answer.text.filter((line) => line.c >= 0.3).map((line) => ({ box: line.box, s: String(line.s).slice(0, 80) })); text = true; }
   });
   const length = duration || samples.length / FOOTAGE_FPS;
