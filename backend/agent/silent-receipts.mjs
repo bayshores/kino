@@ -91,3 +91,40 @@ export function coverNotes(before, after, createdIds, refName, { seeThrough = ne
   }
   return notes;
 }
+
+const sec2 = (value) => Number(value.toFixed(2));
+
+/**
+ * For each text this edit made or gave a new span on screen (a longer hide, an earlier show), the
+ * full-frame footage that is above it in layer order and on screen at the same time, as a fact: which
+ * layer covers which text from which second, with the one reorder call that puts the text above
+ * the topmost of them. Footage this edit made is left to coverNotes (it names the same pair).
+ * Returns [{ note, call }]; nothing is reordered.
+ */
+export function textUnderNotes(before, after, createdIds, refName, { seeThrough = new Set() } = {}) {
+  const made = new Set(createdIds);
+  const notes = [];
+  for (const scene of after.scenes ?? []) {
+    const earlier = (before?.scenes ?? []).find((entry) => entry.id === scene.id);
+    const layers = scene.layers ?? [];
+    for (const [index, text] of layers.entries()) {
+      if (text.type !== "text" || text.parentId || text.visible === false || Number(text.opacity ?? 1) <= 0) continue;
+      const prior = earlier?.layers?.find((entry) => entry.id === text.id);
+      const [start, end] = windowOf(text, scene);
+      if (prior) {
+        const [priorStart, priorEnd] = windowOf(prior, earlier);
+        if (priorStart === start && priorEnd === end) continue;
+      }
+      const covers = layers.slice(index + 1)
+        .filter((layer) => !made.has(layer.id) && fullFrame(layer, scene) && !seeThrough.has(layer.src) && windowOf(layer, scene)[0] < end && windowOf(layer, scene)[1] > start)
+        .map((layer) => ({ layer, from: Math.max(start, windowOf(layer, scene)[0]), to: Math.min(end, windowOf(layer, scene)[1]) }));
+      if (!covers.length) continue;
+      const name = refName(text.id);
+      const top = refName(covers.at(-1).layer.id);
+      const told = covers.slice(0, 3).map((entry) => `${refName(entry.layer.id)} from ${sec2(entry.from)} s to ${sec2(entry.to)} s`);
+      const call = { tool: "edit", input: { ops: [{ op: "move_layers", layers: [name], position: "above", referenceId: top }] } };
+      notes.push({ call, sources: covers.map((entry) => entry.layer.src), note: `${name} (on screen ${sec2(start)}-${sec2(end)} s) is under full-frame footage in layer order: ${told.join("; ")}${covers.length > 3 ? ` and ${covers.length - 3} more` : ""}, so the words do not show there. Nothing was reordered. To keep them on top: move_layers {layers:["${name}"], position:"above", referenceId:"${top}"}.` });
+    }
+  }
+  return notes;
+}

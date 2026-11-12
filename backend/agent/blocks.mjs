@@ -53,7 +53,7 @@ import { groupLayers } from "../../engine/grouping.js";
 import { geometryOf } from "../../engine/arrange.js";
 import { splitImage } from "../../engine/splitImage.js";
 import { evaluateLayer } from "../../engine/animation.js";
-import { BOARD_LIMITS, boardCoverage, boardSpan, FOLLOW, keepShotIds, mainScene, moveProblems, NONE, PLANNED_MOVES, normalizeBoard, ONE_FRAME, PACING, SHOT_LAYERS, WHOLE } from "../../engine/board.js";
+import { BOARD_LIMITS, boardCoverage, boardSpan, FOLLOW, holdEnd, keepShotIds, mainScene, moveProblems, NONE, PLANNED_MOVES, normalizeBoard, ONE_FRAME, PACING, SHOT_LAYERS, WHOLE } from "../../engine/board.js";
 import { PRESET_DEFINITIONS } from "../../engine/presetCatalog.js";
 import { sec } from "./describe.mjs";
 import { BOARD_BUILD, BUILT_PREFIX, boardBuildOps } from "./board-build.mjs";
@@ -1697,7 +1697,7 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     }
     const music = board.music !== NONE ? next.scenes.find((item) => item.id === scene.id)?.layers.find((layer) => layer.id === board.music) : null;
     const last = board.shots.at(-1);
-    work.notes.push(`compose from board r${board.rev}: ${board.shots.length} shots in board order (${built.footage} footage, ${built.cards} text cards), ${sec(board.shots[0].cue)}–${sec(last.cue + last.dur)} s in ${sceneLabel(scene)}; `
+    work.notes.push(`compose from board r${board.rev}: ${board.shots.length} shots in board order (${built.footage} footage, ${built.cards} text cards${built.held ? `, ${built.held} word${built.held === 1 ? "" : "s"} held past ${built.held === 1 ? "its" : "their"} shot, drawn above the footage` : ""}), ${sec(board.shots[0].cue)}–${sec(last.cue + last.dur)} s in ${sceneLabel(scene)}; `
       + (music ? `music ${music.name || music.id} kept as the board placed it: song from ${sec(music.mediaOffset ?? 0)} s` : "no music (the board has none)"));
     if (source.length) work.notes.push(`removed the source clip${source.length === 1 ? "" : "s"} ${source.map((layer) => layer.name || layer.id).join(", ")} (the board's shots replace ${source.length === 1 ? "it" : "them"})`);
     if (placed.length) work.notes.push(`moves placed: ${placed.join(", ")}`);
@@ -2367,6 +2367,15 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
         if (ids.has(shot.id)) add("bad_shot", `shot ${index + 1} id "${shot.id}" is shot ${ids.get(shot.id)}'s too: ids are unique.`);
         ids.set(shot.id, index + 1);
       });
+      // Words held past their shot: the shot they stay until is this one or a later one, and the second is in the video.
+      shots.forEach((shot, index) => {
+        const until = shot.text?.until;
+        if (until === undefined) return;
+        const later = typeof until === "string" ? shots.slice(index).some((other) => other.id === until) : until <= scene.duration + ONE_FRAME;
+        if (!later) add("bad_shot", typeof until === "string"
+          ? `shot ${index + 1} text until ${JSON.stringify(until)} is not this shot or a later one: ids are ${shots.slice(index).map((other) => other.id).join(", ")}.`
+          : `shot ${index + 1} text until ${until} is past the end of the ${sec(scene.duration)} s video.`);
+      });
     }
     const board = { music, calls: lists.calls, open: lists.open, shots: shots.map(({ id, ...shot }) => ({ id, ...shot })) };
     const span = problems.length ? null : boardSpan(document, board);
@@ -2660,13 +2669,13 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
   // text: "none", or {text, family, weight, size, y, fill} with kino's defaults, in a font kino has.
   async function boardText(document, scene, value, where, { add, work }) {
     if (value === NONE) return NONE;
-    const keys = ["text", "family", "weight", "size", "y", "fill"];
+    const keys = ["text", "family", "weight", "size", "y", "fill", "until"];
     // Too long is one problem among the rest: the other checks still run, so one refusal names all.
     const long = isRecord(value) && typeof value.text === "string" && value.text.trim().length > BOARD_LIMITS.text;
     if (long) add("bad_shot", `${where} text.text is ${value.text.trim().length} characters, limit ${BOARD_LIMITS.text}.`);
     if (!isRecord(value) || Object.keys(value).some((key) => !keys.includes(key)) || typeof value.text !== "string" || !value.text.trim()
       || typeof value.family !== "string" || !value.family.trim()) {
-      add("bad_shot", `${where} text is "none" or {text (up to ${BOARD_LIMITS.text} characters), family, weight?, size?, y?, fill?}.`);
+      add("bad_shot", `${where} text is "none" or {text (up to ${BOARD_LIMITS.text} characters), family, weight?, size?, y?, fill?, until?}.`);
       return NONE;
     }
     const text = { text: value.text.trim(), family: value.family.trim(), weight: value.weight ?? 700, size: value.size ?? Math.round(scene.height * 0.05), y: value.y ?? 20, fill: value.fill ?? "#ffffff" };
@@ -2679,6 +2688,14 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     else add("bad_shot", `${where} text family ${JSON.stringify(text.family)} is not a font kino has (library {topic:"fonts", search:${JSON.stringify(text.family)}}).`, family.suggestions);
     if (typeof text.size === "number") text.size = Number(text.size.toFixed(1));
     if (typeof text.y === "number") text.y = Number(text.y.toFixed(1));
+    // until: the id of the shot the words stay until, or a second of the video (checked against the shots in applyBoard).
+    if (value.until !== undefined) {
+      const named = typeof value.until === "string" && /^[A-Za-z0-9_-]{1,24}$/.test(value.until);
+      const second = typeof value.until === "number" && Number.isFinite(value.until) && value.until > 0;
+      if (named) text.until = value.until;
+      else if (second) text.until = Number(value.until.toFixed(3));
+      else add("bad_shot", `${where} text until is the id of the shot the words stay until, or the second of the video they stay until.`);
+    }
     return long ? NONE : text;
   }
 

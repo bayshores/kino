@@ -234,6 +234,10 @@ How to read it:
 - **Payoff follows the spine**: Verified (tests). With a timed spine payoff beat, the board shots
   inside it are the payoff (one `plain_beats` beat; `move_needed` too) and the last shot after it is
   "end", not judged. Evidence: `engine/qualityStyle.test.js`, `engine/board.test.js`.
+- **Words held across shots**: Verified (tests, one frame). A board shot's `text.until` (a shot id or a
+  second) keeps its words on screen past the shot, built above the later footage; a text given a longer
+  span under footage is named in the receipt with its one reorder call. Evidence:
+  `backend/agent-board.test.mjs`, `backend/agent-edit-repair.test.mjs`, `engine/board.test.js`.
 - **Dimmed footage is a card**: Verified (tests). `text_slides` and `template_end` share one card
   definition: text over a still or flat picture, or over footage under a dark full-frame tint or
   blurred 8 px+ (unless the spec backs depth-blur), each with nothing sharp in front.
