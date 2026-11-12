@@ -1166,6 +1166,11 @@ How to read it:
   removes the dip under its line unless another heard sound (a voice-over) is in it; each line's notes, duck and mix
   are rewritten after all lines in the edit. Evidence: `engine/speech.test.js`, `backend/audio-levels.test.mjs`.
   Gap: not replayed on the dm2 projects.
+- **A dip per kept line** (`keep_line` receipt `dips`, measured bed under music-out lines): Engine-tested on generated
+  curves, not rendered. Five lines 0.3 s apart before a drop keep their own levels (0.631, 0.562, 0.2, 0.063, 0.631,
+  full on the drop at 7.5 s; was one 0.2-7.5 s dip at 0.631), the song moving between levels in each gap; a line no dip
+  holds, or dropout:true, gets a bed 6 LU under it (0.063, was 0) and dip:0 takes it out. Evidence:
+  `engine/speech.test.js`. Gap: the way is still picked before the peak cap; lift:"gain" noise is not capped.
 - **duck_audio and check fix:auto keep keep_line's levels** (receipt `keptLines`, `clear`, `payoff`): Engine-tested on
   generated curves, not rendered. A plain duck_audio after keep_line keeps the measured bed (0.063 stays 0.063; it
   became 0.1); a line already 6 LU over the song gets no default dip (+7 LU: no dip, was 0.794); a dip starting on a
