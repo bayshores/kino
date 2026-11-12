@@ -458,6 +458,13 @@ test("keep_line over measured music levels the line against the music around it,
   assert.match(liftReports.get(relift).notes.join(" | "), /the earlier dip at 3\.85-6\.5 s under this line is removed: the lift replaces it/);
   const kept2 = parseDocument(applyOperations(parseDocument({ ...document, scenes: [both] }), [relift], {})).scenes[0].layers.find((layer) => layer.id === "music");
   assert.equal(Math.round(volumeAt(kept2, 5) * 1000) / 1000, 0.562, "the shared dip holds the other line, so it stays");
+  // A dip duck_audio made under a voice-over that also covers the line stays too, and the note names the voice.
+  const vo = createLayer("audio", { id: "vo", name: "vo", src: "/api/media/vo.wav", mediaSourceDuration: 7, mediaStart: 2 });
+  const voiced = parseDocument(applyOperations(documentWith([clip, vo, musicLayer()], 12), [{ type: "duck_audio", sceneId: "s", layerId: "music", under: ["vo"], to: 0.3 }], {}));
+  const voReports = new Map();
+  const overVo = parseDocument(applyOperations(voiced, [relift], { reports: voReports })).scenes[0].layers.find((layer) => layer.id === "music");
+  assert.deepEqual([3, 5, 8].map((time) => Math.round(volumeAt(overVo, time) * 1000) / 1000), [0.3, 0.3, 0.3]);
+  assert.match(voReports.get(relift).notes.join(" | "), /the dip at 1\.85-9\.8 s under this line stays: vo is heard in it too/);
   // A given dip is kept; the receipt prints what it does to the mix (a fact, no refusal).
   assert.deepEqual(run({ dip: 0.35 }).report.mix, { line: -14, around: -13, under: -13.4, change: -0.4 });
   // A quiet bed (a talk over music at -30): the lift alone reaches it, so the song is untouched (no dip).
@@ -542,15 +549,18 @@ test("two music-out lines 0.6 s apart share a low bed, not silence, and the song
     return { music, first: reports.get(first), second: reports.get(second) };
   };
   const { music, first, second } = run();
-  // The gap holds the bed (0.1, the -20 dB floor), never 0; the song is back at full on the drop, not before.
-  assert.deepEqual([2.5, 3.2, 5, 6.0, 6.04].map((time) => Math.round(volumeAt(music, time) * 1000) / 1000), [0.1, 0.1, 0.1, 0.1, 1]);
-  assert.deepEqual(second.bed, { at: [2.9, 3.5], bed: 0.1 });
-  assert.match(second.notes.join(" | "), /share one dip: the music holds a bed at 0\.1 \(-20 dB; 6 LU under the quietest line, -31 LUFS, held at the -20 dB floor\) through it instead of going out, -33 LUFS measured in the 0\.6 s between them at 2\.9-3\.5 s; dropout:true keeps the music out there/);
+  // The gap holds the bed (0.063: -24 dB, 6 LU under the -31 LUFS lines), never 0; the song is back at full on the drop, not before.
+  assert.deepEqual([2.5, 3.2, 5, 6.0, 6.04].map((time) => Math.round(volumeAt(music, time) * 1000) / 1000), [0.063, 0.063, 0.063, 0.063, 1]);
+  assert.deepEqual(second.bed, { at: [2.9, 3.5], bed: 0.063 });
+  assert.match(second.notes.join(" | "), /share one dip: the music holds a bed at 0\.063 \(-24 dB; 6 LU under the quietest line, -31 LUFS, measured\) through it instead of going out, -37 LUFS measured in the 0\.6 s between them at 2\.9-3\.5 s; dropout:true keeps the music out there/);
+  assert.match(second.notes[0], /; the music at its bed \(0\.063\) under the line$/);
   // The rise at the drop, measured: the line over the bed before, the song at full after.
-  assert.deepEqual(second.drop, { at: 6.04, cue: "drop", before: -30.5, after: -13, rise: 17.5 });
-  // Line 1's note is written after line 2 joined its dip.
-  assert.match(first.notes.at(-1), /^a later line in this edit shares this line's dip: the music is back by 6\.04 s \(3\.1 s after the line\); the music holds a bed at 0\.1 under the lines instead of going out$/);
-  assert.equal(first.mix.under, -28.9);
+  assert.deepEqual(second.drop, { at: 6.04, cue: "drop", before: -32.2, after: -13, rise: 19.2 });
+  // Line 1's notes, duck and mix are written after line 2 joined its dip.
+  assert.match(first.notes.at(-1), /^a later line in this edit shares this line's dip: the music is back by 6\.04 s \(3\.1 s after the line\); the music holds a bed at 0\.063 under the lines instead of going out$/);
+  assert.match(first.notes[0], /; the music at its bed \(0\.063\) under the line$/);
+  assert.deepEqual([first.duck.to, first.mix.under], [0.063, -30]);
+  assert.match(first.summary, /mix under the line -30 vs -13 LUFS in the 2 s around \(-17 LU\)$/);
   // dropout:true asked for the music out: the gap stays silent, and the receipt says so.
   const asked = run({ dropout: true });
   assert.equal(volumeAt(asked.music, 3.2), 0);

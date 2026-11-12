@@ -294,7 +294,8 @@ test("two quiet kept lines 0.6 s apart render a low music bed between them, not 
   const reports = new Map();
   const second = { ...line, from: 2, to: 3 };
   const edited = parseDocument(applyOperations(parseDocument({ ...createDocument(), scenes: [scene] }), [line, second], { reports })).scenes[0];
-  assert.deepEqual(reports.get(second).bed, { at: [1.4, 2], bed: 0.1 });
+  assert.deepEqual(reports.get(second).bed, { at: [1.4, 2], bed: 0.063 });
+  const printed = Number(reports.get(second).notes.join(" ").match(/(-[\d.]+) LUFS measured in the 0\.6 s between them/)[1]);
   const outputPath = join(root, "lines.mov");
   await exportScene(edited, { format: "mov", fps: 10 }, { mediaRoot, outputPath });
   // Momentary loudness (ebur128, 400 ms windows): the window ending at 1.9 s lies in the gap; the one at 3.8 s is the song at full.
@@ -311,9 +312,10 @@ test("two quiet kept lines 0.6 s apart render a low music bed between them, not 
     return rows.reduce((best, row) => (Math.abs(row[0] - time) < Math.abs(best[0] - time) ? row : best))[1];
   };
   const [gap, full] = [momentary(1.9), momentary(3.8)];
-  t.diagnostic(`gap M ${gap} LUFS, song M ${full} LUFS`);
+  t.diagnostic(`gap M ${gap} LUFS (printed ${printed}), song M ${full} LUFS`);
   assert.ok(gap > -70, `the gap is heard (M ${gap} LUFS), not digital silence`);
-  assert.ok(gap < full - 12, `the bed sits well under the song (${gap} vs ${full} LUFS)`);
+  // The level the receipt prints for the gap is the level the render plays there.
+  assert.ok(Math.abs(gap - printed) <= 2, `the gap renders at ${gap} LUFS, printed ${printed}`);
 });
 
 test("measuring the mix finds every limiter place, and the loudest matches the render's own warning", { skip: skipWithoutMediaTools }, async (t) => {
