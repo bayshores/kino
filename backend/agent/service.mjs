@@ -88,6 +88,7 @@ import { boardKeepOps, keptDuck, shotFileSpan, shotKeep, silentBoardLine } from 
 import { boardLook, BoardLookError, boardShotImage, SHOT_WIDTHS, styleFrameFacts, styleFrameImage } from "./board-look.mjs";
 import { boardPaceFacts, boardPaceLines } from "./board-pace.mjs";
 import { spanCutNotes } from "./span-cuts.mjs";
+import { drawnSpeedNotes } from "./drawn-speed.mjs";
 import { boardData as boardScreenData } from "./board-data.mjs";
 import { BOARD_BUILD, boardBuilt } from "./board-build.mjs";
 import { editableField, inspectTargets } from "./inspect.mjs";
@@ -3133,6 +3134,8 @@ export function createAgentService(deps) {
       work.notes.push(...await glowThresholdNotes(after, [...changes.created, ...changes.changed], nameOf));
       // A footage layer whose span of its file runs across the file's own cut (saved shots only).
       work.notes.push(...await spanCutNotes({ before, after, ids: [...changes.created, ...changes.changed], nameOf, fileShots: async (src) => (await fileShots(src, { saved: true })).shots }));
+      // A footage layer slowed over drawn footage: its interpolation, why, and the measured hold.
+      work.notes.push(...await drawnSpeedNotes({ before, after, ids: [...changes.created, ...changes.changed], nameOf, holdsOf: async (src) => (await mediaRecord(src))?.holds ?? null }));
       const receipt = {
         ...(input.dry_run ? { dryRun: true, wouldBeRev: record.revision + 1 } : {}),
         created: created.named,

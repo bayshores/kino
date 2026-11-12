@@ -37,6 +37,14 @@ export const SCDET_THRESHOLD = 10;
 // and 29.1).
 export const LOW_SCORE = 3;
 export const SPIKE = 2;
+// A frame that scores under LOW_SCORE starts a new picture too when its jump stands out the same
+// way (SPIKE), is at least UNLIKE_JUMP (of 255), and the frames either side are not ALIKE, neither
+// of them black: scdet scores a cut between two dim drawn shots low (2.2 for a dim stairway into a
+// darker face, jump 7.3 against at most 0.9 around it, correlation 0.36), while a new drawing in a
+// held shot keeps its layout (correlation 0.75 and more). Only in drawn footage (the file holds
+// each drawing 2 frames or more, shotsFromRun): in a live film trailer a fast move or a flaring
+// fire in the dark jumps the same way inside one shot (5 of 7 such jumps in one trailer).
+export const UNLIKE_JUMP = 5;
 // A frame at most this bright (mean gray, 0–255) is black. A picture after two black frames starts
 // a new shot (a fade through black), unless the black opens the file; after one black frame, only
 // when the pictures either side of it differ (ALIKE).
@@ -73,8 +81,9 @@ const EPSILON = 0.01;
 export const MAX_VIDEO_SECONDS = 20 * 60;
 export const MAX_VIDEO_FRAMES = 72_000;
 const TOO_LONG = "too long to look for shots in";
-// Saved with the shots (shotsFound.version), so a better finder can tell old results apart.
-export const SHOTS_VERSION = 1;
+// Saved with the shots (shotsFound.version), so a better finder can tell old results apart. 2: cuts
+// between dim drawn shots (UNLIKE_JUMP) and held drawings under a camera drift (DRIFT_MAX).
+export const SHOTS_VERSION = 2;
 // What kino keeps of FFmpeg's messages for an error: the end, where FFmpeg says what went wrong.
 const MAX_ERROR_LENGTH = 4000;
 // Each frame as the metadata filter prints it: "frame:30   pts:15360   pts_time:1.25", then
@@ -112,10 +121,12 @@ export function firstErrorLine(error) {
  * where frame i starts, in the file's usual frames; `flat(i)` and `alike(i, j)` are FLAT and ALIKE.
  *   1. scdet's score is SCDET_THRESHOLD or more.
  *   2. Its score is LOW_SCORE or more and its jump is at least SPIKE times the change on either side.
+ *      With `drawn` (the file holds its drawings), under LOW_SCORE too when the jump is UNLIKE_JUMP
+ *      or more into a picture not alike the one before, neither frame black (dim drawn shots).
  *   3. It ends a dip to black (DARK) that does not open the file: two frames of black or more, or
  *      one between two different pictures (the nearest frames that are not flat are not alike).
  */
-export function cutsFromScores(scores, frames, mad, brightness, { at = (frame) => frame, flat = () => false, alike = () => true } = {}) {
+export function cutsFromScores(scores, frames, mad, brightness, { at = (frame) => frame, flat = () => false, alike = () => true, drawn = false } = {}) {
   const cuts = [];
   const dark = (frame) => brightness[frame] <= DARK;
   // The nearest frame from `frame` on (step 1) or back (step −1) that is not flat, or -1.
@@ -134,7 +145,9 @@ export function cutsFromScores(scores, frames, mad, brightness, { at = (frame) =
     const score = scores[frame] ?? 0;
     const jump = mad(frame - 1, frame);
     const around = Math.max(frame > 1 ? mad(frame - 2, frame - 1) : 0, frame + 1 < frames ? mad(frame, frame + 1) : 0, 0.5);
-    if (score >= SCDET_THRESHOLD || (score >= LOW_SCORE && jump >= SPIKE * around)) cuts.push(frame);
+    const spike = jump >= SPIKE * around;
+    const unlike = () => drawn && jump >= UNLIKE_JUMP && !dark(frame - 1) && !dark(frame) && !alike(frame - 1, frame);
+    if (score >= SCDET_THRESHOLD || (spike && (score >= LOW_SCORE || unlike()))) cuts.push(frame);
     else if (!dark(frame) && blackFrom > 0 && (at(frame) - at(blackFrom) >= 2 - EPSILON || differ(blackFrom - 1, frame))) cuts.push(frame);
   }
   return cuts;
@@ -229,6 +242,40 @@ const STEP_FRAMES = 4;
 // A held picture this long in the file is a still pose (file seconds).
 export const STILL_POSE = 0.3;
 const MOST_STILLS = 40;
+// A camera drifting (a slow pan, zoom or glow) over a held drawing changes every frame a little.
+// In one shot, changes up to DRIFT_MAX (of 255) count as drift, not new drawings, when the shot's
+// next larger changes are at least DRIFT_GAP times as big and come every 2 to STEP_FRAMES frames
+// (the median run between them): a drawing on 4s under a drift measured 0.55 to 1.1 between its
+// drawings and 12.3 to 12.7 at them. Live footage changes by similar amounts on every frame, so
+// no gap is found and HOLD_DIFF stays the limit.
+export const DRIFT_MAX = 2;
+export const DRIFT_GAP = 4;
+
+// The largest change that still repeats a picture in the shot of frames from…to (exclusive):
+// HOLD_DIFF, or its drift (see DRIFT_MAX).
+function holdLimit(from, to, mad) {
+  const moving = [];
+  for (let frame = from + 1; frame < to; frame += 1) {
+    const change = mad(frame - 1, frame);
+    if (change > HOLD_DIFF) moving.push(change);
+  }
+  moving.sort((a, b) => a - b);
+  let limit = HOLD_DIFF, gap = 0;
+  for (let index = 0; index + 1 < moving.length && moving[index] <= DRIFT_MAX; index += 1) {
+    const ratio = moving[index + 1] / moving[index];
+    if (ratio >= DRIFT_GAP && ratio > gap) [limit, gap] = [moving[index], ratio];
+  }
+  if (limit === HOLD_DIFF) return limit;
+  const runs = [];
+  for (let frame = from + 1, start = from; frame <= to; frame += 1) {
+    if (frame < to && mad(frame - 1, frame) <= limit) continue;
+    runs.push(frame - start);
+    start = frame;
+  }
+  runs.sort((a, b) => a - b);
+  const usual = runs[Math.floor(runs.length / 2)];
+  return usual >= 2 && usual <= STEP_FRAMES ? limit : HOLD_DIFF;
+}
 
 /**
  * A video's held-frame pattern from its frame differences: {repeated, frames, stills}. `repeated`
@@ -236,13 +283,22 @@ const MOST_STILLS = 40;
  * `frames` the usual hold in frames (the median run of one picture among runs up to STEP_FRAMES
  * long: 1 for live footage, 3 on 3s); `stills` the held poses of STILL_POSE or longer, [{start,
  * end}] file seconds (at most 40). `mad(i, j)` is how much frames i and j differ (0-255), `times[i]`
- * where frame i starts and `length` where the file ends.
+ * where frame i starts and `length` where the file ends. `starts` are the first frames of the
+ * file's shots: each shot gets its own drift limit (holdLimit), and `drift` (the largest limit
+ * over HOLD_DIFF, when one is) says a drift was set aside.
  */
-export function holdPattern(frames, mad, times, length) {
+export function holdPattern(frames, mad, times, length, starts = [0]) {
   const runs = [];
-  let start = 0;
+  let start = 0, drift = 0;
+  const limits = new Float64Array(frames + 1).fill(HOLD_DIFF);
+  starts.forEach((from, index) => {
+    const to = starts[index + 1] ?? frames;
+    const limit = holdLimit(from, to, mad);
+    if (limit > HOLD_DIFF) limits.fill(limit, from + 1, to);
+    drift = Math.max(drift, limit > HOLD_DIFF ? limit : 0);
+  });
   for (let frame = 1; frame <= frames; frame += 1) {
-    if (frame < frames && mad(frame - 1, frame) <= HOLD_DIFF) continue;
+    if (frame < frames && mad(frame - 1, frame) <= limits[frame]) continue;
     runs.push([start, frame]);
     start = frame;
   }
@@ -253,7 +309,12 @@ export function holdPattern(frames, mad, times, length) {
     .filter(([from, to]) => Number.isFinite(timeOf(from)) && Number.isFinite(timeOf(to)) && timeOf(to) - timeOf(from) >= STILL_POSE - 1e-6)
     .slice(0, MOST_STILLS)
     .map(([from, to]) => ({ start: round3(from === 0 ? 0 : times[from]), end: round3(timeOf(to)) }));
-  return { repeated: Math.round(repeated * 100) / 100, frames: steps.length ? steps[Math.floor(steps.length / 2)] : 1, stills };
+  return {
+    repeated: Math.round(repeated * 100) / 100,
+    frames: steps.length ? steps[Math.floor(steps.length / 2)] : 1,
+    stills,
+    ...(drift ? { drift: Math.round(drift * 100) / 100 } : {}),
+  };
 }
 
 // The mean absolute difference of two 32×18 gray frames, 0 (the same) to 255.
@@ -473,6 +534,18 @@ export async function findShots(file, { duration, signal, maxFrames = MAX_VIDEO_
   const run = await analyse(command, file, signal, maxFrames, levels);
   const frames = Math.floor(run.thumbnails.length / THUMBNAIL_BYTES);
   if (!frames) throw new Error("FFmpeg decoded no frames from this file.");
+  // A file that does not say how long it is (some recorded WebM) ends at its last frame.
+  const length = duration > 0 ? duration : frames / await probeFrameRate(file, { signal });
+  return shotsFromRun(run, { duration, length, minShotFrames, started });
+}
+
+/**
+ * The shots, held frames and flashes of one FFmpeg run ({times, scores, thumbnails, levels?}: each
+ * frame's file time, scdet score and 32×18 gray copy). `length` is where the file ends (seconds).
+ * findShots without FFmpeg, so a saved run can be measured again.
+ */
+export function shotsFromRun(run, { duration, length, minShotFrames = MIN_SHOT_FRAMES, started = performance.now() } = {}) {
+  const frames = Math.floor(run.thumbnails.length / THUMBNAIL_BYTES);
   const mad = (first, second) => meanDifference(run.thumbnails, first, second);
   const stats = frameStats(run.thumbnails, frames);
   const clock = frameClock(run.times, frames, duration);
@@ -480,14 +553,20 @@ export async function findShots(file, { duration, signal, maxFrames = MAX_VIDEO_
   const flat = (frame) => stats.spread[frame] <= FLAT;
   const alike = (first, second) => correlation(run.thumbnails, stats, first, second) >= ALIKE;
   const flashLike = (frame, before, after) => flat(frame) || alike(frame, before) || alike(frame, after);
-  // A frame FFmpeg printed no time for cannot start a shot.
-  const cuts = cutsFromScores(run.scores, frames, mad, stats.brightness, { at, flat, alike }).filter((frame) => Number.isFinite(run.times[frame]));
-  const flashSpans = [];
-  const onFlash = (cut, back) => flashSpans.push({ start: round3(run.times[cut]), end: round3(run.times[back]) });
-  const { starts, flashes } = shotsFromCuts(cuts, frames, mad, { at, flashLike, minShotFrames, onFlash });
+  const find = (drawn) => {
+    // A frame FFmpeg printed no time for cannot start a shot.
+    const cuts = cutsFromScores(run.scores, frames, mad, stats.brightness, { at, flat, alike, drawn }).filter((frame) => Number.isFinite(run.times[frame]));
+    const flashSpans = [];
+    const onFlash = (cut, back) => flashSpans.push({ start: round3(run.times[cut]), end: round3(run.times[back]) });
+    const { starts, flashes } = shotsFromCuts(cuts, frames, mad, { at, flashLike, minShotFrames, onFlash });
+    return { starts, flashes, flashSpans, holds: holdPattern(frames, mad, run.times, length, starts) };
+  };
+  // Drawn footage (each drawing held 2 frames or more in the shots found without it) is looked at
+  // once more for cuts between dim drawn shots (UNLIKE_JUMP).
+  let found = find(false);
+  if (found.holds.frames >= 2) found = find(true);
+  const { starts, flashes, flashSpans } = found;
   const span = run.times[frames - 1] - run.times[0];
-  // A file that does not say how long it is (some recorded WebM) ends at its last frame.
-  const length = duration > 0 ? duration : frames / await probeFrameRate(file, { signal });
   const times = starts.map((frame) => (frame === 0 ? 0 : run.times[frame]));
   const shots = times.map((start, index) => ({
     start: round3(start),
@@ -496,7 +575,7 @@ export async function findShots(file, { duration, signal, maxFrames = MAX_VIDEO_
   return {
     shots,
     // How the file holds its pictures (drawn footage on 2s or 3s, held poses): holdPattern.
-    holds: { ...holdPattern(frames, mad, run.times, length), ...(span > 0 ? { fps: round3(clock[frames - 1] / span) } : {}) },
+    holds: { ...found.holds, ...(span > 0 ? { fps: round3(clock[frames - 1] / span) } : {}) },
     found: { version: SHOTS_VERSION, frames, cuts: shots.length - 1, flashes, ms: Math.round(performance.now() - started) },
     flashes: flashSpans.filter((flash) => Number.isFinite(flash.start) && Number.isFinite(flash.end)),
     fps: span > 0 ? round3(clock[frames - 1] / span) : null,
@@ -593,8 +672,10 @@ export function createShotFinder({ mediaRoot, saveRecord }) {
     } catch { /* no readable record: not in the library */ }
     if (!record || record.id !== id) return { shots: null, reason: "not in kino's media library" };
     if (!isVideo(record)) return { shots: null, reason: "not a video" };
-    // A video found before kino measured held frames (record.holds) is measured once more for them.
-    if (Array.isArray(record.shots) && (record.holds || saved || record.shotsError)) return { shots: record.shots };
+    // A video found before kino measured held frames (record.holds), or by an older finder
+    // (shotsFound.version), is measured once more.
+    const current = record.holds && (record.shotsFound?.version ?? 0) >= SHOTS_VERSION;
+    if (Array.isArray(record.shots) && (current || saved || record.shotsError)) return { shots: record.shots };
     if (record.shotsError) return { shots: null, reason: shotsErrorReason(record.shotsError) };
     if (saved) return { shots: null, reason: "not found yet" };
     let run = running.get(id);

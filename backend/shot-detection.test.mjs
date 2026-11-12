@@ -12,7 +12,7 @@ import { after, before, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { createAgentClient, importedText } from "./agent/client.mjs";
 import { probeMedia } from "./media-probe.mjs";
-import { FLASH_FRAMES, MAX_VIDEO_SECONDS, MIN_SHOT_FRAMES, createShotFinder, cutsFromScores, findShots, holdsLine, shotFilters, shotsFromCuts, shotsLine } from "./shot-detection.mjs";
+import { FLASH_FRAMES, MAX_VIDEO_SECONDS, MIN_SHOT_FRAMES, createShotFinder, cutsFromScores, findShots, holdPattern, holdsLine, shotFilters, shotsFromCuts, shotsFromRun, shotsLine } from "./shot-detection.mjs";
 import { ffmpeg, run, skipWithoutMediaTools, startTestServer } from "./media.test.support.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -219,6 +219,21 @@ describe("cutsFromScores", () => {
     assert.deepEqual(cutsOf({ scores, jumps }), [10, 20, 40]);
   });
 
+  test("in drawn footage, under a score of 3, a jump of 5 or more that stands out into a picture not alike the one before is a cut", () => {
+    // A dim stairway cut to a darker face: score 2.2, jump 7.3 among 0.2s, correlation 0.36.
+    const scores = flat(30, 0.1), jumps = flat(30, 0.2);
+    Object.assign(scores, { 20: 2.2 });
+    Object.assign(jumps, { 20: 7.3 });
+    const at = jumps.map((_, frame) => jumps.slice(1, frame + 1).reduce((total, jump) => total + jump, 0));
+    const mad = (first, second) => Math.abs(at[second] - at[first]);
+    const cuts = (alike, brightness = flat(30, 15), drawn = true) => cutsFromScores(scores, 30, mad, brightness, { alike, drawn });
+    const other = (first, second) => first >= 20 === second >= 20;
+    assert.deepEqual(cuts(other), [20]);
+    assert.deepEqual(cuts(other, flat(30, 15), false), [], "live footage: a fast move in the dark jumps the same way");
+    assert.deepEqual(cuts(() => true), [], "a new drawing that keeps its layout is not a cut");
+    assert.deepEqual(cuts(() => false, [...flat(20, 15), ...flat(10, 2)]), [], "a jump into black is left to the dip rule");
+  });
+
   test("the picture after two or more black frames starts a shot, unless the black opens the file", () => {
     const brightness = [...flat(5, 1), ...flat(20, 90), ...flat(6, 2), ...flat(20, 80), 3, ...flat(10, 70)];
     const length = brightness.length;
@@ -236,6 +251,55 @@ describe("cutsFromScores", () => {
     assert.deepEqual(cuts(() => true), []);
     // One black frame shown as long as two (a variable-frame-rate file) is a dip whatever is around it.
     assert.deepEqual(cuts(() => true, (frame) => (frame <= 20 ? frame : frame + 1)), [21]);
+  });
+});
+
+describe("holdPattern", () => {
+  // mad(i - 1, i) is jumps[i] (holdPattern compares neighbors only); 30 fps.
+  const pattern = (jumps, starts) => holdPattern(jumps.length, (first, second) => jumps[second], jumps.map((_, frame) => frame / 30), jumps.length / 30, starts);
+
+  test("a drawing on 4s under a camera drift: the drift between drawings is set aside in its shot", () => {
+    // A held shot (frames 0 to 12), a cut, then drawings every 4 frames with a drift of 0.55 to 1.1
+    // between them (a real clip's numbers).
+    const jumps = [0, 0.13, 0, 0, 0, 0.22, 0, 0, 0.26, 0, 0, 0, 0.18, 28.4, 0.01, 1.1, 1.07, 12.65, 0.82, 0.06, 0.81, 12.27, 0.55];
+    assert.deepEqual(pattern(jumps, [0, 13]), { repeated: 0.86, frames: 4, stills: [{ start: 0, end: 0.433 }], drift: 1.1 });
+    // Changes of 0.9 in the held shot, which has no drawings to stand above them, stay new pictures
+    // there (no still pose): each shot has its own limit.
+    const shaky = Object.assign([...jumps], { 3: 0.9, 6: 0.9, 9: 0.9 });
+    assert.deepEqual(pattern(shaky, [0, 13]).stills, []);
+  });
+
+  test("live footage keeps a hold of 1 frame: similar changes on every frame, or one sudden move among them", () => {
+    const steady = Array.from({ length: 40 }, (_, frame) => (frame ? 0.6 + (frame % 5) * 0.2 : 0));
+    assert.deepEqual(pattern(steady), { repeated: 0, frames: 1, stills: [] });
+    assert.deepEqual(pattern(Object.assign([...steady], { 20: 9 })), { repeated: 0, frames: 1, stills: [] });
+  });
+});
+
+describe("shotsFromRun", () => {
+  // 40 frames of 32×18 gray at 24 fps: dim upright stripes, then (frame 20 on) dim flat ones, which
+  // scdet scores 2.2; a small bright block moves every `step` frames (on 2s, or live on every frame).
+  function runOf(step) {
+    const thumbnails = Buffer.alloc(40 * 576);
+    for (let frame = 0; frame < 40; frame += 1) {
+      const block = Math.floor(frame / step) % 8;
+      for (let y = 0; y < 18; y += 1) {
+        for (let x = 0; x < 32; x += 1) {
+          const stripe = frame < 20 ? (x % 8 < 4 ? 26 : 6) : (y % 6 < 3 ? 22 : 4);
+          thumbnails[frame * 576 + y * 32 + x] = stripe + (Math.floor(x / 4) === block && y < 4 ? 20 : 0);
+        }
+      }
+    }
+    return { times: Array.from({ length: 40 }, (_, frame) => frame / 24), scores: Array.from({ length: 40 }, (_, frame) => (frame === 20 ? 2.2 : 0.1)), thumbnails };
+  }
+
+  test("a dim cut that scdet scores low is a cut in drawn footage, not in live footage", () => {
+    const found = (step) => {
+      const { shots, holds } = shotsFromRun(runOf(step), { duration: 40 / 24, length: 40 / 24 });
+      return { cuts: shots.slice(1).map((shot) => shot.start), frames: holds.frames };
+    };
+    assert.deepEqual(found(2), { cuts: [0.833], frames: 2 });
+    assert.deepEqual(found(1), { cuts: [], frames: 1 });
   });
 });
 
@@ -277,7 +341,7 @@ describe("findShots with FFmpeg", { skip: skipWithoutMediaTools }, () => {
     const clip = await makeCutsClip(path.join(folder, "cuts.mp4"));
     const { shots, found: { ms, ...found }, flashes, fps } = await findShots(clip, { duration: (await probeMedia(clip)).duration });
     assert.deepEqual(shots, [{ start: 0, end: 1.5 }, { start: 1.5, end: 3.125 }, { start: 3.125, end: 4.625 }]);
-    assert.deepEqual(found, { version: 1, frames: 111, cuts: 2, flashes: 1 });
+    assert.deepEqual(found, { version: 2, frames: 111, cuts: 2, flashes: 1 });
     assert.deepEqual([flashes, fps], [[{ start: 2.25, end: 2.375 }], 24], "the flash's times and the frame rate, not saved with the record");
     assert.ok(Number.isInteger(ms) && ms >= 0);
   });
@@ -308,6 +372,21 @@ describe("findShots with FFmpeg", { skip: skipWithoutMediaTools }, () => {
     assert.equal(holdsLine({ repeated: 0, frames: 1, stills: [] }), "", "live footage adds nothing");
   });
 
+  test("a square drawn on 4s over slowly panning bars holds 4 frames; the same square moving every frame holds 1", async () => {
+    const clip = async (name, rate) => {
+      const file = path.join(folder, name);
+      const graph = `[0]format=rgb24,crop=320:180:x='t*8':y='t*4'[bg];[bg][1]overlay=x='20+floor(t*${rate}+0.01)*${150 / rate}':y=50:eval=frame:shortest=1,format=yuv420p`;
+      await run(ffmpeg, ["-hide_banner", "-v", "error", "-y", "-f", "lavfi", "-i", "smptehdbars=s=480x270:r=30:d=1.2", "-f", "lavfi", "-i", "color=c=white:s=80x80:r=30:d=1.2",
+        "-filter_complex", graph, "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", file]);
+      return (await findShots(file, { duration: 1.2 })).holds;
+    };
+    const drawn = await clip("pan-fours.mp4", 7.5);
+    assert.equal(drawn.frames, 4, JSON.stringify(drawn));
+    assert.ok(drawn.drift > 0.5 && drawn.drift <= 2, `the pan changes every frame by more than a held picture (${drawn.drift})`);
+    const live = await clip("pan-live.mp4", 30);
+    assert.deepEqual([live.frames, live.drift], [1, undefined]);
+  });
+
   test("a white flash over a moving picture does not split the shot", async () => {
     const clip = await makeFlashClip(path.join(folder, "flash.mp4"));
     const { shots, found } = await findShots(clip, { duration: 3 });
@@ -317,9 +396,10 @@ describe("findShots with FFmpeg", { skip: skipWithoutMediaTools }, () => {
   });
 
   test("the Sintel test clip has its two cuts", async (context) => {
-    const { shots, found } = await findShots(SINTEL, { duration: (await probeMedia(SINTEL)).duration });
+    const { shots, found, holds } = await findShots(SINTEL, { duration: (await probeMedia(SINTEL)).duration });
     assert.deepEqual(shots, [{ start: 0, end: 1.25 }, { start: 1.25, end: 3.333 }, { start: 3.333, end: 4.417 }]);
     assert.deepEqual([found.frames, found.cuts, found.flashes], [106, 2, 0]);
+    assert.deepEqual([holds.frames, holds.drift], [1, undefined], "rendered footage that moves every frame holds 1 frame");
     context.diagnostic(`Sintel clip: ${found.ms} ms`);
   });
 
@@ -488,13 +568,19 @@ describe("createShotFinder", { skip: skipWithoutMediaTools }, () => {
       assert.deepEqual(first, { shots });
       assert.deepEqual(second, { shots });
       assert.deepEqual(await finder.forSource(record.src), { shots });
+      assert.equal((await readFile(log, "utf8")).split("\n").filter((line) => line.includes("scdet=")).length, 1, "FFmpeg looked for shots once");
+      // Shots and holds saved by the version 1 finder are measured once more.
+      const current = await readRecord(record.id);
+      await writeFile(path.join(mediaRoot, `${record.id}.json`), JSON.stringify({ ...current, shotsFound: { ...current.shotsFound, version: 1 } }));
+      assert.deepEqual(await finder.forSource(record.src), { shots });
+      assert.deepEqual(await finder.forSource(record.src), { shots });
     });
     const runs = (await readFile(log, "utf8")).split("\n").filter((line) => line.includes("scdet="));
-    assert.equal(runs.length, 1, "FFmpeg looked for shots once");
-    assert.deepEqual(saved.map((save) => save.id), [record.id]);
+    assert.equal(runs.length, 2, "once, then once more for the version 1 record");
+    assert.deepEqual(saved.map((save) => save.id), [record.id, record.id]);
     const updated = await readRecord(record.id);
     assert.deepEqual(updated.shots, shots);
-    assert.deepEqual({ ...updated.shotsFound, ms: 0 }, { version: 1, frames: 111, cuts: 2, flashes: 1, ms: 0 });
+    assert.deepEqual({ ...updated.shotsFound, ms: 0 }, { version: 2, frames: 111, cuts: 2, flashes: 1, ms: 0 });
     assert.equal(shotsLine(updated), CUTS_LINE);
   });
 
@@ -558,7 +644,7 @@ describe("video import on a real server", { skip: skipWithoutMediaTools }, () =>
       const media = await response.json();
       const shots = [{ start: 0, end: 1.5 }, { start: 1.5, end: 3.125 }, { start: 3.125, end: 4.625 }];
       assert.deepEqual(media.shots, shots);
-      assert.deepEqual({ ...media.shotsFound, ms: 0 }, { version: 1, frames: 111, cuts: 2, flashes: 1, ms: 0 });
+      assert.deepEqual({ ...media.shotsFound, ms: 0 }, { version: 2, frames: 111, cuts: 2, flashes: 1, ms: 0 });
       const record = JSON.parse(await readFile(path.join(server.dataDirectory, "media", `${media.id}.json`), "utf8"));
       assert.deepEqual(record.shots, shots);
       assert.deepEqual(record.shotsFound, media.shotsFound);

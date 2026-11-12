@@ -998,3 +998,15 @@ test("a shot or layer whose span of its file runs across the file's own cut: a c
   assert.equal((await record("board-cut")).document.board.shots[0].in, 0.1, again.text);
   assert.match(again.data.notes.join("\n"), /board shot 1 \(sintel-village-dragon\.mp4\) plays across a cut.*file 1\.25 s lands at 1\.15 s.*out 1\.24 s ends before it \(not moved: the saved board has this shot as sent\)/);
 });
+
+test("a layer slowed over drawn footage says in its receipt which interpolation plays, why, and the file's measured hold", { skip, timeout: 60_000 }, async () => {
+  // A copy of the clip whose record says it is drawn on 3s at 24 fps.
+  const drawn = await upload(server, CLIP, "video/mp4");
+  const file = path.join(server.dataDirectory, "media", `${drawn.src.replace("/api/media/", "")}.json`);
+  await writeFile(file, JSON.stringify({ ...JSON.parse(await readFile(file, "utf8")), holds: { repeated: 0.67, frames: 3, stills: [], fps: 24 } }));
+  await project("drawn-slow", { width: 1920, height: 1080, layers: [{ op: "add_layer", layerType: "video", name: "footage", properties: { src: drawn.src } }] });
+  const notes = async (properties) => ((await agent("edit", { project: "drawn-slow", ops: [{ op: "update_layer", layer: "footage", properties }] })).data.notes ?? []).join("\n");
+  assert.match(await notes({ mediaSpeed: 0.5 }), /footage slows drawn footage to 0\.5x: interpolation nearest \(kino's default: each drawing shows whole, held longer\); the file holds each drawing 3 frames \(0\.13 s\), 0\.25 s on screen/);
+  assert.match(await notes({ mediaInterpolation: "blend" }), /footage slows drawn footage to 0\.5x: interpolation blend \(set on the layer: cross-fades two drawings where one changes to the next\)/);
+  assert.doesNotMatch(await notes({ mediaSpeed: 1 }), /drawn footage/);
+});
