@@ -3606,7 +3606,9 @@ async function exportSceneNow(
     if (auditFrames || (draft && ["mp4", "webm", "mov"].includes(format))) {
       try {
         const model = kinoTimeline({ scenes: [scene] }, scene.id, { fonts });
-        const crosses = (time, index) => index > 0 && Math.min(frameTimes[index - 1], frameTimes[index]) < time && time <= Math.max(frameTimes[index - 1], frameTimes[index]);
+        // Within 1 ms: frame times step by a rounded 1/fps (exportFrameStep), so 0.7 s at 30 fps is
+        // frame 21 at 0.6999993 s, and an exact test put such a cut on frame 22, one frame late.
+        const crosses = (time, index) => index > 0 && Math.min(frameTimes[index - 1], frameTimes[index]) < time - 1e-3 && time <= Math.max(frameTimes[index - 1], frameTimes[index]) + 1e-3;
         const fileTimes = (times) => times.flatMap((time) => frameTimes.flatMap((_, index) => (crosses(time, index) ? [exportFrameTime(index, fps)] : [])));
         planned = fileTimes(plannedTimes(model));
         cutTimes = fileTimes(modelCuts(model));

@@ -556,9 +556,6 @@ test("cut facts: pace on each side of the turn, each cut's brightness and hue ju
   assert.ok(Math.abs(brighter.jumps[0].dy) > Math.abs(facts.jumps[0].dy) && brighter.big10 > facts.big10, "a brighter shot raises its jump and the 50+ count");
   assert.deepEqual([frameLevel(255, 0, 0).hue, frameLevel(0, 0, 255).hue, frameLevel(100, 102, 101).hue], [0, 240, null]);
   assert.equal(facts.sections.length, 2);
-  // A cut time one frame late (the picture changed a frame earlier) still reads the step with a one-frame slack.
-  assert.equal(cutFacts({ cuts: [1 + 1 / 30], levels }).jumps[0].dy, 0);
-  assert.equal(cutFacts({ cuts: [1 + 1 / 30], levels, slack: 1 / 30 }).jumps[0].dy, facts.jumps[0].dy);
   // Snap: the cuts at 4 and 5 move to the nearest beat times; the cut before the turn stays.
   const shots = [0, 1, 2, 3, 4, 5].map((cue) => ({ id: `S${cue}`, cue, dur: 1 }));
   const snapped = cutsOnBeats(shots, { turn: 3, times: [3.1, 3.6, 4.1, 4.6, 5.1, 5.6] });
@@ -574,4 +571,5 @@ test("cut facts: pace on each side of the turn, each cut's brightness and hue ju
   assert.match(lines[0], /^cuts \(draft R2, every frame\): brightness jump median \d+ of 255; 50\+ jumps 1\.7 per 10 s; range 0-3 s \d+-\d+, 3-6 s \d+-\d+ · your 2 measured references: median 18 to 41, 50\+ jumps 1\.9 to 14\.9 per 10 s$/);
   assert.match(lines[1], /^per cut: 1\.00 \+\d+ -, 2\.00 \+\d+ -, \.\.\. \(18 more\)$/);
   assert.deepEqual(cutLines({ jumps: [] }, []), [], "a file with no cuts has no lines");
+  assert.match(cutLines(facts, [], { older: 2 })[0], / · 2 saved references measured before cut facts were kept \(library \{topic:"inspire", name:"measure <id>"\} reads one again\)$/);
 });

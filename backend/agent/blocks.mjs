@@ -2412,7 +2412,8 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     // this is checked again; a font or file problem elsewhere does not refuse the snap).
     const files = await boardMedia(document, work);
     const fits = (shot, dur) => {
-      if (typeof shot.media !== "string" || shot.media === NONE || typeof shot.in !== "number") return true;
+      // A shorter shot always fits: one saved past a file that changed since is not held by this.
+      if (dur <= shot.dur || typeof shot.media !== "string" || shot.media === NONE || typeof shot.in !== "number") return true;
       const file = files(shot.media, ["video"]);
       return !(file.duration > 0 && shot.in + dur * (shot.speed ?? 1) > file.duration + ONE_FRAME);
     };

@@ -1532,9 +1532,9 @@ How to read it:
   whose move would run a shot past its clip file stays and is named). Evidence: `backend/agent-board.test.mjs`, `engine/footage.test.js`.
 - **Cut facts in the render answer**: Test-verified. A draft or final mp4, webm or mov is decoded to 32x18 frames
   (drafts without a verdict); `render wait` lists each cut's brightness and hue jump and each section's brightness
-  range, beside the saved references' (`numbers.picture`, saved when a reference is measured; older ones until
-  measured again). Facts only. Evidence: `backend/render-output-audit.test.mjs`, `backend/shot-detection.test.mjs`, `engine/footage.test.js`, `backend/agent-render.test.mjs` (a draft with one cut prints its lines).
-  A cut time one frame off the file's change is read within one frame. Gap: the dashboard's board does not get the pace object; a Windows FFmpeg may not take the second output pipe.
+  range, beside the saved references' (`numbers.picture`, saved when a reference is measured; older ones are counted
+  until measured again). Facts only. Evidence: `backend/render-output-audit.test.mjs`, `backend/shot-detection.test.mjs`, `engine/footage.test.js`, `backend/agent-render.test.mjs` (a draft with a cut at 0.70 s prints it at 0.70 s, the frame it changes on).
+  Gap: the dashboard's board does not get the pace object; a Windows FFmpeg may not take the second output pipe.
 - **look chosen times**: Verified (temp server, real frames). `look {mode:"frames", times:[...]}` draws up to 60 chosen times as labeled pages (time and frame, `layer` crops and look changed keeps the crop, `every:n`; with no width, few times get bigger tiles while all stay on one page), `frame` with 2 to 4 times goes side by side, and a move receipt names its start, middle and end as a ready call. Proof: a product-film rebuild's 28 looks (28 calls, 5.3 MB of PNG) became 1 call, 0.29 MB (`.scratch/recreate/wave/look-times`). Evidence: `backend/agent-look-zoom.test.mjs`, `backend/agent-moves.test.mjs`. Gap: frame labels use a 30 fps grid, not the project's; the move's middle is a guess at its peak.
 - **Approval and lapses**: Verified. An approval freezes the board; a changed text, media, sound, move, music,
   order, shot count, a cut moved 7+ frames or a crop moved over 5% lapses it, smaller changes are logged. After a later rough, color or sound answer, only another song,

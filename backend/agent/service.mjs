@@ -35,7 +35,7 @@ import { createDocument, createLayer, createScene, parseDocument } from "../../e
 import { documentChanges } from "../../engine/documentChanges.js";
 import { mergeDocuments } from "../../engine/documentMerge.js";
 import { expandComponents } from "../../engine/linkedComponents.js";
-import { exportProfile } from "../../engine/exportOptions.js";
+import { exportFrameTime, exportProfile } from "../../engine/exportOptions.js";
 import { fpsLabel, nearestFrame, onFrame, parseFps, projectFps, readFps, snapTime } from "../../engine/frameRate.js";
 import { fontTargetLayers, withFontPatches } from "../../engine/fontDocuments.js";
 import { ensureDocumentFonts, prepareFontPatches } from "../font-selection.mjs";
@@ -6806,7 +6806,7 @@ export function createAgentService(deps) {
         const saved = files.at(-1);
         // Brightness and hue at each cut of the rendered file, beside the saved references' (cutLines).
         if (file.motion?.luma?.length && file.motion.cuts?.length) {
-          try { saved.cutFacts = await renderedCutFacts(job, item, saved.fps, file.motion); }
+          try { const facts = await renderedCutFacts(job, item, saved.fps, file.motion); if (facts) saved.cutFacts = facts; }
           catch { /* a file without these facts renders and answers as before */ }
         }
         // Captions in the video also go into .srt and .vtt files beside it (caption-export.mjs).
@@ -6892,17 +6892,24 @@ export function createAgentService(deps) {
   // The picture at each cut of a rendered file (engine/cutFacts.js cutFacts), from the brightness and
   // hue of every frame its motion facts kept, with a short summary of the project's measured
   // references (numbers.picture) to print beside it. The list of cuts is kept to CUTS_KEPT.
+  // Frame times are the export's own (exportFrameTime), the clock the cut times were put on.
   const CUTS_KEPT = 40;
   async function renderedCutFacts(job, item, fps, motion) {
-    const levels = motion.luma.map((y, index) => ({ t: index / fps, y, hue: motion.hue?.[index] ?? null }));
+    const rate = parseFps(fps);
+    if (!rate) return null;
+    const levels = motion.luma.map((y, index) => ({ t: exportFrameTime(index, rate), y, hue: motion.hue?.[index] ?? null }));
     const turn = job.turn && job.turn.scene === item.sceneId ? job.turn.at : null;
-    const facts = cutFacts({ cuts: motion.cuts, levels, turn, seconds: levels.length / fps, slack: 1 / fps });
+    const facts = cutFacts({ cuts: motion.cuts, levels, turn, seconds: levels.length / rate });
     const refs = [];
+    let older = 0;
     for (const id of deps.inspire?.reference ? await savedIds(job.projectId) : []) {
-      const picture = (await deps.inspire.reference(id, { full: true }).catch(() => null))?.numbers?.picture;
+      const numbers = (await deps.inspire.reference(id, { full: true }).catch(() => null))?.numbers;
+      const picture = numbers?.picture;
       if (picture && Number.isFinite(picture.jumpMedian)) refs.push({ jumpMedian: picture.jumpMedian, big10: picture.big10 });
+      // Measured before cut facts were kept: counted, so the line says how many are not in the range.
+      else if (Array.isArray(numbers?.cuts) && numbers.cuts.length) older += 1;
     }
-    return { ...facts, jumps: facts.jumps.slice(0, CUTS_KEPT), cutCount: facts.jumps.length, refs };
+    return { ...facts, jumps: facts.jumps.slice(0, CUTS_KEPT), cutCount: facts.jumps.length, refs, older };
   }
 
   // The stills and brightness jumps measured on the rendered file (render-output-audit.mjs motionFacts).
@@ -6923,7 +6930,7 @@ export function createAgentService(deps) {
     for (const file of job.files ?? []) parts.push(`${job.files.length > 1 ? `${file.scene}: ` : ""}${drawnText(file)}`);
     for (const file of job.files ?? []) if (file.captionFiles) parts.push(`captions ${file.captionFiles.join(", ")}`);
     for (const file of job.files ?? []) if (file.motion?.stills.length || file.motion?.jumps.length) parts.push(motionText(file.motion, job.files.length > 1 ? file.scene : null));
-    for (const file of job.files ?? []) if (file.cutFacts) parts.push(...cutLines(file.cutFacts, file.cutFacts.refs, { label: `${job.quality} ${job.id}${job.files.length > 1 ? ` ${file.scene}` : ""}` }));
+    for (const file of job.files ?? []) if (file.cutFacts) parts.push(...cutLines(file.cutFacts, file.cutFacts.refs, { older: file.cutFacts.older, label: `${job.quality} ${job.id}${job.files.length > 1 ? ` ${file.scene}` : ""}` }));
     for (const file of job.files ?? []) if (file.avOffset) parts.push(`${file.avOffset.severity === "error" ? "E" : file.avOffset.severity === "warn" ? "W" : "ok"} av_offset${job.files.length > 1 ? ` ${file.scene}` : ""}: ${file.avOffset.message}`);
     if (data.error) parts.push(`error: ${data.error}`);
     if (job.warnings?.length) parts.push(`warnings: ${job.warnings.map(entry => typeof entry === "string" ? entry : entry.message).join("; ")}`);
@@ -7551,6 +7558,11 @@ export function createAgentService(deps) {
       // The text has the whole fingerprint; the data keeps the numbers and the suggested lines
       // (the brief's style line shape), not the long curves.
       const { fingerprint, stripList, ...short } = ref;
+      // The cut facts keep their summary here; each cut's jump (one per cut, 280 in a busy 90 s) stays saved.
+      if (short.numbers?.picture?.jumps) {
+        const { jumps, ...picture } = short.numbers.picture;
+        short.numbers = { ...short.numbers, picture: { ...picture, cuts: jumps.length } };
+      }
       const take = (await deps.inspire.savedTakes?.(projectId).catch(() => null))?.[id];
       const study = referenceText(ref, { full: input.full === true });
       return { project: projectId, text: take ? study.replace(/\n|$/, `\nyour take: ${take}\n`).trimEnd() : study,

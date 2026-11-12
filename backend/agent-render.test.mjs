@@ -303,5 +303,6 @@ test("the agent render endpoint exports, reuses, queues, cancels, and recovers r
   ] });
   const cutDraft = await renderAndWait({ project: PROJECT_ID, scene: sceneC, quality: "draft", format: "mp4" });
   assert.match(cutDraft.text, /cuts \(draft R\d+[^)]*, every frame\)/);
-  assert.match(cutDraft.text, /per cut: 0\.7\d [+-]?\d+ \d+°/);
+  // The cut sits on the frame where the picture changes (0.70 s, frame 21), not one frame late.
+  assert.match(cutDraft.text, /per cut: 0\.70 [+-]?\d+ 1[2-4]\d°/);
 });

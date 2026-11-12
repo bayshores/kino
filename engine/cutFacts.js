@@ -67,27 +67,18 @@ const percentile = (values, share) => {
  *   sections    [{from, to, low, high}]: the 5th and 95th percentile of y on each side of the turn
  *               (one section without a turn)
  */
-export function cutFacts({ cuts = [], levels = [], turn = null, seconds, big = BIG_JUMP, slack = 0 }) {
+export function cutFacts({ cuts = [], levels = [], turn = null, seconds, big = BIG_JUMP }) {
   const frames = levels.filter((level) => Number.isFinite(level?.t) && Number.isFinite(level?.y)).sort((a, b) => a.t - b.t);
   const end = seconds ?? frames.at(-1)?.t ?? 0;
   const jumps = [];
-  const step = (at) => {
+  for (const at of [...cuts].sort((a, b) => a - b)) {
     let before = null, after = null;
     for (const frame of frames) {
       if (frame.t < at - 1e-6) before = frame;
       else { after = frame; break; }
     }
-    return before && after ? { at: round(at, 2), dy: round(after.y - before.y, 0), dhue: hueStep(before.hue, after.hue) } : null;
-  };
-  // slack (seconds, one frame for a rendered file): a cut time computed from the edit can sit one
-  // frame off the frame where the picture changes, so the step is read at the cut and one slack
-  // either side, and the largest (brightness plus hue) is the one reported at the cut's time.
-  const size = (jump) => Math.abs(jump.dy) + (jump.dhue ?? 0) / 2;
-  for (const at of [...cuts].sort((a, b) => a - b)) {
-    const options = (slack > 0 ? [at, at - slack, at + slack] : [at]).map(step).filter(Boolean);
-    if (!options.length || !step(at)) continue;
-    const best = options.reduce((top, option) => (size(option) > size(top) ? option : top));
-    jumps.push({ ...best, at: round(at, 2) });
+    if (!before || !after) continue;
+    jumps.push({ at: round(at, 2), dy: round(after.y - before.y, 0), dhue: hueStep(before.hue, after.hue) });
   }
   const bigCount = jumps.filter((jump) => Math.abs(jump.dy) >= big).length;
   const edges = turn > 0 && turn < end ? [0, turn, end] : [0, end];
@@ -165,9 +156,10 @@ export function paceLine(ours, refs = [], { kind = "turn" } = {}) {
  * The render answer's two cut lines, from a rendered file's cutFacts (`ours`) and the saved
  * references' (`refs`: each { jumpMedian, big10 }, those measured). Facts only: the references are
  * a low-to-high range and a count. Returns [] for a file with no cuts. `label` names the file
- * ("draft R2"); at most `listed` cuts are listed and the rest counted.
+ * ("draft R2"); at most `listed` cuts are listed and the rest counted. `older` counts the saved
+ * references measured before these facts were kept (not in the range).
  */
-export function cutLines(ours, refs = [], { label = "", listed = 12 } = {}) {
+export function cutLines(ours, refs = [], { label = "", listed = 12, older = 0 } = {}) {
   if (!ours?.jumps?.length) return [];
   const sign = (value) => `${value > 0 ? "+" : ""}${value}`;
   const where = ours.sections.map((section) => `${+section.from.toFixed(1)}-${+section.to.toFixed(1)} s ${section.low ?? "-"}-${section.high ?? "-"}`).join(", ");
@@ -176,10 +168,11 @@ export function cutLines(ours, refs = [], { label = "", listed = 12 } = {}) {
   const beside = known.length
     ? ` · your ${known.length} measured reference${known.length === 1 ? "" : "s"}: median ${range(known.map((ref) => ref.jumpMedian), 0)}, 50+ jumps ${range(known.map((ref) => ref.big10), 1, " per 10 s")}`
     : "";
+  const unread = older > 0 ? ` · ${older} saved reference${older === 1 ? "" : "s"} measured before cut facts were kept (library {topic:"inspire", name:"measure <id>"} reads one again)` : "";
   const shown = ours.jumps.slice(0, listed).map((jump) => `${s2(jump.at)} ${sign(jump.dy)} ${jump.dhue == null ? "-" : `${jump.dhue}°`}`);
   const all = ours.cutCount ?? ours.jumps.length;
   const more = all > listed ? `, ... (${all - listed} more)` : "";
-  return [`${head}${beside}`, `per cut: ${shown.join(", ")}${more}`];
+  return [`${head}${beside}${unread}`, `per cut: ${shown.join(", ")}${more}`];
 }
 
 /**
