@@ -75,7 +75,7 @@ test("scene operations accept gradient backgrounds and Color animations and refu
 test("update_scene sets finish (true is the starting point) and letterbox, removes them, and refuses a wrong value", () => {
   const document = createDocument(), sceneId = document.scenes[0].id;
   const set = applyOperations(document, [{ type: "update_scene", sceneId, properties: { finish: true, letterbox: 2.2 } }]).scenes[0];
-  assert.deepEqual([set.finish, set.letterbox], [{ grain: 0.15, blackLift: 0.04, halation: 0.2, vignette: 0.3 }, 2.2]);
+  assert.deepEqual([set.finish, set.letterbox], [{ grain: 0.15, blackLift: 0.04, halation: 0.2, vignette: 0.3, soften: 0.5 }, 2.2]);
   const changed = applyOperations(document, [{ type: "update_scene", sceneId, properties: { finish: { vignette: 0.6 } } }]).scenes[0];
   assert.deepEqual(changed.finish, { vignette: 0.6 });
   const off = applyOperations(document, [{ type: "update_scene", sceneId, properties: { finish: false, letterbox: null } }]).scenes[0];

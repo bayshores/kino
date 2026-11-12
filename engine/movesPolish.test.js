@@ -267,7 +267,11 @@ test("no move leaves a blur or a color split on after it ends", () => {
     const byLayer = new Map();
     for (const { layerId, animation: entry } of made.animations) byLayer.set(layerId, [...(byLayer.get(layerId) ?? []), entry]);
     for (const { layer } of made.added) byLayer.set(layer.id, layer.animations);
+    // A part the move takes off screen (it, or the group it is in, ends on a hide) shows nothing after.
+    const endsHidden = (id) => (byLayer.get(id) ?? []).toSorted((a, b) => a.start - b.start).at(-1)?.kind === "hide";
+    const gone = new Set(made.added.filter(({ layer }) => endsHidden(layer.id) || endsHidden(layer.parentId)).map(({ layer }) => layer.id));
     for (const [layerId, animations] of byLayer) {
+      if (gone.has(layerId)) continue;
       for (const [effect, key] of Object.entries(RESTING)) {
         const last = animations.filter((entry) => entry.effect === effect).sort((a, b) => (a.start + a.duration) - (b.start + b.duration)).at(-1);
         if (last) assert.equal(last.to[key], 0, `${name}: ${layerId}'s ${effect} ends at 0`);
