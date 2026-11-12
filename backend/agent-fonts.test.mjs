@@ -402,6 +402,72 @@ test("fonts like: no region measures the largest lettering box, names the others
   assert.equal(faceNote("Anton", {}), null);
 });
 
+// Type by job: two saved type labels (a big cream serif title, a small white subtitle line) give a
+// subtitle line and a payoff word different defaults; before, both were the plain text layer.
+test("type by job: two measured type labels give a subtitle line and a payoff word their own face size, fill and entrance", async (t) => {
+  const { createCanvas, GlobalFonts } = await import("@napi-rs/canvas");
+  const { labelTypes } = await import("./font-like.mjs");
+  const { jobTreatment, payoffEntrance, textJob } = await import("../engine/typeRoles.js");
+  const folder = await mkdtemp(path.join(tmpdir(), "kino-jobs-"));
+  t.after(() => rm(folder, { recursive: true, force: true }));
+  GlobalFonts.registerFromPath(path.resolve("assets/fonts/NotoSerif-700.woff2"), "Like Serif");
+  const frame = (size, fill, words) => {
+    const canvas = createCanvas(640, 360);
+    const context = canvas.getContext("2d");
+    context.fillStyle = "#101418"; context.fillRect(0, 0, 640, 360);
+    context.fillStyle = fill; context.font = `${size}px 'Like Serif'`; context.fillText(words, 40, 200);
+    return canvas.toBuffer("image/png");
+  };
+  const frames = { "yt:title000000": frame(110, "#f0d8a8", "STORM"), "yt:subs0000000": frame(22, "#ffffff", "we walk into the night") };
+  const labels = [{ id: "yt:title000000", at: 2, words: "title" }, { id: "yt:subs0000000", at: 5, words: "subtitle" }];
+  const measured = await labelTypes(labels, { fonts: await loadBundledFonts(), catalog: { measuresFile: path.join(folder, "m.json") }, referenceFrame: async (id) => frames[id] });
+  assert.equal(measured.length, 2);
+  const scene = { width: 1920, height: 1080, background: "#000000", layers: [] };
+  const before = createLayer("text");
+  const style = (p) => `${p.fontFamily} ${p.fontWeight} ${p.fontSize}px ${p.fill}${p.strokeWidth ? ` edge ${p.strokeWidth}` : ""}`;
+  assert.equal(textJob("but I will find you, I swear.", undefined), "subtitle");
+  assert.equal(textJob("FIND YOU", undefined), "payoff");
+  const line = jobTreatment("subtitle", { scene, labels: measured });
+  const word = jobTreatment("payoff", { scene, labels: measured });
+  console.log(`before: subtitle ${style(before)} | payoff ${style(before)}`);
+  console.log(`after: subtitle ${style(line.properties)} (${line.from}) | payoff ${style(word.properties)} (${word.from})`);
+  assert.match(line.from, /^label yt:subs0000000 @5/);
+  assert.match(word.from, /^label yt:title000000 @2/);
+  assert.ok(word.properties.fontSize > line.properties.fontSize * 3, "the payoff takes the big label's size share");
+  assert.deepEqual([word.properties.fontFamily, line.properties.fontFamily], [measured.find((one) => one.ref === "yt:title000000").family, measured.find((one) => one.ref === "yt:subs0000000").family], "each job takes its label's nearest face");
+  assert.ok(parseInt(word.properties.fill.slice(1, 3), 16) > 0xd0 && parseInt(word.properties.fill.slice(5, 7), 16) < 0xc8, `cream fill measured: ${word.properties.fill}`);
+  assert.ok(line.properties.strokeWidth > 0 && !word.properties.strokeWidth, "only the subtitle gets an edge");
+  // No labels: the scene's colors (a saturated shape is the payoff's accent) and plain sizes by job.
+  const plain = jobTreatment("payoff", { scene: { ...scene, layers: [{ type: "rectangle", fill: "#d02020" }] } });
+  assert.equal(plain.properties.fill, "#d02020");
+  assert.match(plain.from, /^scene colors/);
+  // The payoff's letter entrance follows the cue it lands on.
+  assert.match(payoffEntrance(7.9, [{ name: "song-drop-1", time: 7.92, kind: "marker" }]).why, /slam in on cue:song-drop-1/);
+  assert.match(payoffEntrance(3, [{ name: "song-build-1", time: 3, kind: "marker" }]).why, /rise in on cue:song-build-1/);
+  assert.equal(payoffEntrance(3, []).animation.unit, "letters");
+});
+
+test("agent service: an add_layer text with a role and no face or fill gets its job's fields and, as a payoff, a letter entrance by its cue", async (t) => {
+  const { server, agent } = await startFontServer(t);
+  await agent("project", { action: "create", id: "jobs", name: "Jobs", width: 1280, height: 720, duration: 4 });
+  await agent("edit", { project: "jobs", ops: [{ op: "set_cues", cues: [{ name: "song-drop-1", time: 2, kind: "marker" }] }] });
+  const added = await agent("edit", { project: "jobs", ops: [
+    { op: "add_layer", layerType: "text", name: "line", properties: { text: "I will find you, I swear.", role: "caption" } },
+    { op: "add_layer", layerType: "text", name: "word", properties: { text: "FIND YOU", role: "headline" }, animations: [{ kind: "show", start: 2 }] },
+    { op: "add_layer", layerType: "text", name: "mine", properties: { text: "KEPT", role: "headline", fontFamily: "Inter", fill: "#123456" } },
+  ] });
+  assert.equal(added.isError, undefined, added.text);
+  const notes = (added.data.notes ?? []).join("\n");
+  assert.match(notes, /type: line as subtitle from scene colors \(background #[0-9a-f]{6}; no measured type label\): weight 600, 32 px, fill #[0-9a-f]{6}, edge 2 px/);
+  assert.match(notes, /type: word as payoff from scene colors[^\n]*weight 900, 101 px[^\n]*; entrance: letters slam in on cue:song-drop-1 \(2 s\)/);
+  assert.doesNotMatch(notes, /type: mine/, "a text that names its face and fill keeps them");
+  const layers = (await (await server.api("/api/projects/jobs")).json()).document.scenes[0].layers;
+  const word = layers.find((layer) => layer.name === "word");
+  assert.equal(word.fontWeight, 900);
+  assert.ok(word.animations.some((animation) => animation.preset?.id === "custom-text" && animation.start === 2 && animation.unit === "letters"), JSON.stringify(word.animations.map((a) => a.preset)));
+  assert.equal(layers.find((layer) => layer.name === "mine").fontSize, 48);
+});
+
 // Measured on the benchmark crops: a dotted lettering read dots 0.43 and lost to solid condensed faces,
 // and its class search ANDed "condensed" into the dotted families so none was downloaded.
 test("fonts like: dotted and solid letterings compare as classes, and a dotted class fetches dotted families on their own", async () => {

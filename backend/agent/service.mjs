@@ -108,6 +108,7 @@ import { footageCueTime } from "../../engine/footageCues.js";
 import { FOOTAGE_VERSION } from "../footage/analyze.mjs";
 import { PLAIN_TAGS, TECHNIQUE_TAGS, techniquesText } from "../../engine/techniques.js";
 import { namesFamily, styleContext } from "../../engine/styleSpec.js";
+import { jobTreatment, payoffEntrance, textJob } from "../../engine/typeRoles.js";
 import { TYPE_VERSION } from "../../engine/quality/typeSignature.js";
 import { blocksFinal, FINAL_GATES, tasteNotes } from "../../engine/quality/index.js";
 import { ideaLines, signatureRanges } from "../../engine/quality/rules/signature.js";
@@ -2980,10 +2981,64 @@ export function createAgentService(deps) {
     return stills.get(key);
   }
 
+  // Type by job (engine/typeRoles.js): an add_layer text that names no face and no fill gets the
+  // treatment of its job, from the project's measured type labels (kept per label set) or the scene's
+  // colors; a payoff word with no entrance gets a letter entrance by the cue it lands on. Fills the
+  // ops in place and returns the receipt lines.
+  const labelTypeCache = new Map();
+  async function typeByJob(ops, document, projectId) {
+    const list = (Array.isArray(ops) ? ops : [ops]).filter((op) => op && typeof op === "object" && (op.op ?? op.type) === "add_layer"
+      && (op.layerType === "text" || (op.op === "add_layer" && op.type === "text")));
+    const open = list.filter((op) => { const p = op.properties ?? {}; return p.fontFamily === undefined && p.fill === undefined && textJob(p.text, p.role); });
+    if (!open.length) return [];
+    const labels = await deps.inspire?.typeLabels?.(projectId).catch(() => []) ?? [];
+    // Without saved type labels only a text that names its role (its job) is filled; other text keeps the plain defaults.
+    const bare = labels.length ? open : open.filter((op) => op.properties?.role);
+    if (!bare.length) return [];
+    const key = JSON.stringify(labels.map((label) => [label.id, label.at]));
+    if (labels.length && !labelTypeCache.has(key)) {
+      const { labelTypes } = await import("../font-like.mjs");
+      const { referenceStripFrame } = await import("../measure/strips.mjs");
+      const referenceFrame = async (id, t) => {
+        const kept = await deps.inspire?.stripsFor?.(id);
+        if (!kept) throw new Error(`${id} has no frame strips`);
+        return referenceStripFrame(kept.folder, kept.strips, Number.isFinite(t) ? t : kept.strips[0]?.at ?? 0);
+      };
+      labelTypeCache.set(key, await labelTypes(labels, { fonts: await loadFonts(), catalog: fontCatalog, referenceFrame }).catch(() => []));
+    }
+    const measured = labels.length ? labelTypeCache.get(key) : [];
+    const lines = [];
+    for (const op of bare) {
+      const properties = op.properties ?? {};
+      const job = textJob(properties.text, properties.role);
+      const scene = document.scenes.find((one) => one.id === op.sceneId || one.name === (op.scene ?? op.sceneId)) ?? document.scenes[0];
+      const { properties: chosen, from } = jobTreatment(job, { scene, labels: measured });
+      // Only fields the op left out are filled: every value the agent gave stays.
+      const filled = Object.fromEntries(Object.entries(chosen).filter(([field]) => properties[field] === undefined));
+      op.properties = { ...filled, ...properties };
+      const name = op.name ?? properties.name ?? properties.id ?? "text";
+      let entrance = "";
+      if (job === "payoff") {
+        const timed = Array.isArray(op.animations) ? op.animations : [];
+        const named = timed.some((entry) => !["show", "hide", "preset-show", "preset-hide"].includes(String(entry?.kind ?? entry?.preset?.id ?? entry?.preset ?? "")) && (entry?.preset?.mode ?? entry?.mode ?? "in") !== "out");
+        if (!named) {
+          const shows = timed.filter((entry) => String(entry?.kind ?? entry?.preset ?? "").includes("show")).map((entry) => Number(entry.start ?? entry.at)).filter(Number.isFinite);
+          const { animation, why } = payoffEntrance(shows.length ? Math.min(...shows) : 0, document.cues ?? []);
+          op.animations = [...timed, animation];
+          entrance = `; entrance: ${why}`;
+        }
+      }
+      const face = op.properties.fontFamily ? `${op.properties.fontFamily} ${op.properties.fontWeight ?? 400}` : `weight ${op.properties.fontWeight ?? 400}`;
+      lines.push(`type: ${name} as ${job} from ${from}: ${face}, ${op.properties.fontSize} px, fill ${op.properties.fill}${op.properties.strokeWidth ? `, edge ${op.properties.strokeWidth} px` : ""}${entrance} (fields of the layer; update_layer changes any)`);
+    }
+    return lines;
+  }
+
   async function edit(input) {
     let record = await projectFor(input);
     const projectId = record.document.id;
     const ops = await withBorrowedRhythm(editOperations(input, projectId), record.document, { dryRun: input.dry_run === true });
+    const typeLines = await typeByJob(ops, record.document, projectId);
     // Deleting a scene needs your approval (D3). bulk_create with deleteMissing:true deletes the
     // variants its CSV leaves out, so that edit asks once it knows which scenes go (below).
     const opList = Array.isArray(ops) ? ops : [ops];
@@ -3019,7 +3074,7 @@ export function createAgentService(deps) {
         catch (error) { throw new AgentError("bad_input", error.message, { safeToRetry: true }); }
         const problems = translation.problems.map(translationProblem);
         // `work` is shared by set_font, the block ops, detect_beats, isolate_voice and cut_out: fonts, media, notes, reports, the names and the cut_outs' deadline.
-        work = { resolver, notes: [], reports: editBag.reports };
+        work = { resolver, notes: [...typeLines], reports: editBag.reports };
         after = await applyAll(before, translation.operations, ops, work, problems, translation.blocked);
         if (problems.length) throw refusal(projectId, ops, problems, translation.blocked, await waiverFixCall(before, problems, codes));
         // compose {footage}: check fixes the new edit before it is saved, in this same revision.

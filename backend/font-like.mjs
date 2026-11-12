@@ -85,6 +85,25 @@ export function inkMask({ data, width, height }) {
   return { ink, width, height };
 }
 
+/**
+ * The lettering's own look in `region` of `image`: { fill: the mean color of its ink as hex, share: the
+ * ink's height over the picture's height } or null when the region holds no ink.
+ */
+export function inkLook(image, region) {
+  const [rx, ry, rw, rh] = region.map((value) => Math.round(value));
+  const canvas = createCanvas(Math.max(1, rw), Math.max(1, rh));
+  canvas.getContext("2d").drawImage(image, rx, ry, rw, rh, 0, 0, canvas.width, canvas.height);
+  const pixels = canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height);
+  const mask = inkMask(pixels);
+  const box = bounds(mask);
+  if (!box) return null;
+  const sum = [0, 0, 0];
+  let count = 0;
+  for (let i = 0; i < mask.ink.length; i += 1) if (mask.ink[i]) { for (let c = 0; c < 3; c += 1) sum[c] += pixels.data[i * 4 + c]; count += 1; }
+  const fill = `#${sum.map((value) => Math.round(value / count).toString(16).padStart(2, "0")).join("")}`;
+  return { fill, share: Math.round((box.height / image.height) * 1000) / 1000 };
+}
+
 function bounds({ ink, width, height }) {
   let x0 = width, y0 = height, x1 = -1, y1 = -1;
   for (let y = 0; y < height; y += 1) for (let x = 0; x < width; x += 1) if (ink[y * width + x]) {
@@ -596,9 +615,26 @@ export async function fontsLikeText(input, { fonts, catalog, lookFamilies, refer
     ].join("\n"),
     fonts: shown.map(({ family, weight, distance: gap, differs, note }) => ({ family, weight, distance: gap, differs, ...(note ? { note } : {}) })),
     measures: reference,
+    look: inkLook(image, region),
     region: region.map((value) => Math.round(value)),
     ...(boxes ? { box: { found: boxes.found, others: boxes.others.map((box) => [box.x, box.y, box.width, box.height]) } } : {}),
   };
+}
+
+/**
+ * The saved type labels as measured type for the text defaults (engine/typeRoles.js):
+ * [{ref, at, family, weight, share, fill}], the nearest installed face and the lettering's own fill and
+ * height share. A label kino cannot measure is left out. Nothing is downloaded (deps without lookFamilies).
+ */
+export async function labelTypes(labels, deps) {
+  const found = [];
+  for (const label of (labels ?? []).slice(0, LABELS_MEASURED)) {
+    try {
+      const { fonts: ranked, look } = await fontsLikeText({ like: label.id, t: label.at, count: 1 }, { ...deps, lookFamilies: null });
+      if (ranked[0] && look) found.push({ ref: label.id, at: label.at, family: ranked[0].family, weight: ranked[0].weight, share: look.share, fill: look.fill });
+    } catch { /* a label with no measurable lettering gives no defaults */ }
+  }
+  return found;
 }
 
 // How many saved type labels the fonts answer measures, and how many faces it lists for each.
