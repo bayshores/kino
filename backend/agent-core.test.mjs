@@ -13,7 +13,7 @@ import { plainWordsProblem, storedQuoteProblem } from "./agent/brief.mjs";
 import { createBlockRunner, translateBlock } from "./agent/blocks.mjs";
 import { layerHash, LAYERS_PER_PAGE, projectOutline } from "./agent/outline.mjs";
 import { inspectTargets, MAX_INSPECT } from "./agent/inspect.mjs";
-import { adviceLine, checkDocument, checkReport, checkSummary, groupFixLines, liveWaivers, MAX_FINDINGS, mergeFindings, openFindingLines, staleWaiverLine, waiverNotes } from "./agent/checks.mjs";
+import { adviceLine, checkDocument, checkReport, checkSummary, groupFixLines, liveWaivers, MAX_FINDINGS, mergeFindings, openFindingLines, staleWaiverLine, waivedRefs, waiverNotes } from "./agent/checks.mjs";
 import { staleWaivers, waiversFor } from "./agent/quality.mjs";
 import { matchReferences } from "./agent/exposure-match.mjs";
 import { defaultFonts } from "../engine/fonts.js";
@@ -716,6 +716,12 @@ test("an animation past the scene end is a warning when cut off and an error whe
   assert.match(late.message, /so it is cut off\.$/);
   assert.deepEqual(late.fix, { op: "update_animation", animationId: "A1", properties: { duration: 0.5 } });
   assert.equal(checkSummary(findings), "1 err · 1 warn (past_scene_end A2, past_scene_end A1)");
+  // The waived findings follow the waived count (each name once, the same list check prints); the
+  // open ones follow the open counts, so neither list reads as the other's.
+  const waivedTwice = findings.map((finding) => ({ ...finding, waived: "on purpose" }));
+  assert.equal(checkSummary([...waivedTwice, { ...never, rule: "type_min", ref: "L1" }, { ...never, rule: "safe_zone", ref: "L1", waived: "ok" }, { ...never, rule: "safe_zone", ref: "L1", waived: "ok" }]),
+    "1 err · 0 warn (type_min L1) · 4 waived (past_scene_end A2, past_scene_end A1, …)");
+  assert.deepEqual(waivedRefs([...waivedTwice, ...waivedTwice]), ["past_scene_end A2", "past_scene_end A1"]);
   // check {fix:"auto"} lines: one per rule and reason, the layers named.
   const tries = (ref) => `exit_ratio ${ref}: still adds an error after 3 tries`;
   assert.deepEqual(groupFixLines([...["a", "b", "c", "d", "e"].map(tries), "type_min a: size 36", "exit_ratio z: it did not clear the finding", tries("a")]),

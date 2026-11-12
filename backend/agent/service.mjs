@@ -93,7 +93,7 @@ import { overriddenValues } from "./overridden-values.mjs";
 import { animationJumps, moveHandEdits } from "./jumps.mjs";
 import { pivotNotes } from "./pivot-notes.mjs";
 import { coverNotes, importedNames, unseenPresetNotes } from "./silent-receipts.mjs";
-import { BRIEF_RULES, checkDocument, checkReport, checkSummary, explainMissingGlyphs, groupFixLines, liveWaivers, mergeFindings, openFindingLines, staleWaiverLine, triageFindings, waiverNotes } from "./checks.mjs";
+import { BRIEF_RULES, checkDocument, checkReport, checkSummary, explainMissingGlyphs, groupFixLines, liveWaivers, mergeFindings, openFindingLines, staleWaiverLine, triageFindings, waivedRefs, waiverNotes } from "./checks.mjs";
 import { addVerdict, anchorLines, barOf, barPairs, barTimeAt, parseVerdict } from "./bar.mjs";
 import { BAR_PROTOCOL, CRITIQUE_ROUNDS, critiqueProtocol, CRITIQUE_WAIVER, barGap, blocksRender, critiqueDirectionKey, critiqueOf, critiqueSpine, critiqueQuestions, critiqueTimes, critiqueWanted, lineText, openCritique, parseCritique, personCall, staleCritique, upLines } from "./critique.mjs";
 import { createQualityChecker, qualityRulesText, videoScene } from "./quality.mjs";
@@ -2533,7 +2533,7 @@ export function createAgentService(deps) {
     const made = Array.isArray(ops) && ops.length > 1 ? notMade(ops) : [];
     if (made.length) details.notMade = `Nothing was saved: ${made.slice(0, 6).join(", ")}${made.length > 6 ? ` and ${made.length - 6} more` : ""} ${made.length === 1 ? "does" : "do"} not exist yet. The next call resends every op.`;
     const opNumber = first.details.op ?? "<op number>";
-    details.next = `Nothing was saved. edit {retry:"${code}", fix:{"${opNumber}": {fields to change}}} resends the ${ops.length} ops with your fixes (a whole op replaces it, null drops it; a field set to null is removed).`;
+    details.next = `Nothing was saved. edit {retry:"${code}", fix:{"${opNumber}": {fields to change}}} resends the ${ops.length} ops with your fixes (op numbers count from 0 as in "Operation N"; a whole op replaces it, null drops it; a field set to null is removed; key ${ops.length} adds an op after them).`;
     // A refused waiver answers with the fix of what it tried to waive, not an example waive_check.
     if (waiverCall && first.waive) {
       delete details.example;
@@ -2628,17 +2628,21 @@ export function createAgentService(deps) {
     if (!fix || typeof fix !== "object" || Array.isArray(fix))
       throw new AgentError("bad_input", 'fix is an object such as {"3": {"easing":"smooth"}}: op number → fields to change (a field null removes it), a whole op (with op) to replace it, a list of ops, or null to drop it.');
     const result = saved.ops.map((operation) => [operation]);
-    for (const [key, value] of Object.entries(fix)) {
+    // A key past the last op adds a whole op (or a list of ops) after the refused ones, in key order.
+    const added = [];
+    for (const [key, value] of Object.entries(fix).sort(([a], [b]) => Number(a) - Number(b))) {
       const index = Number(key);
-      if (!Number.isInteger(index) || index < 0 || index >= saved.ops.length)
-        throw new AgentError("bad_input", `fix key "${key}" is not an op number of ${code} (0 to ${saved.ops.length - 1}).`);
+      const past = Number.isInteger(index) && index >= saved.ops.length;
+      if (past && value && typeof value === "object" && (Array.isArray(value) || value.op !== undefined || value.type !== undefined)) { added.push(...[value].flat()); continue; }
+      if (!Number.isInteger(index) || index < 0 || past)
+        throw new AgentError("bad_input", `fix key "${key}" is not an op number of ${code} (0 to ${saved.ops.length - 1}). Op numbers count from 0, as in "Operation N". A key from ${saved.ops.length} on adds ops after them: {"${saved.ops.length}": {"op": …}} or a list of ops.`);
       if (value === null) result[index] = [];
       else if (Array.isArray(value)) result[index] = value;
       else if (value && typeof value === "object") result[index] = [value.op !== undefined || value.type !== undefined ? value : patchOp(saved.ops[index], value)];
       else throw new AgentError("bad_input", `fix "${key}" must be an object, a list of ops, or null.`);
     }
     const extra = input.ops === undefined ? [] : Array.isArray(input.ops) ? input.ops : [input.ops];
-    return [...result.flat(), ...extra];
+    return [...result.flat(), ...added, ...extra];
   }
 
   async function applySetFont(document, operation, index, fontsCache) {
@@ -3307,7 +3311,9 @@ export function createAgentService(deps) {
     const earlyAt = lines.length + summary.length;
     lines.push(...summary, ...findingLines.slice(beforeSummary));
     if (report.more) lines.push(`+${report.more} more: ${report.moreByRule}. Fix these first, or check {scene} or {rules}.`);
-    if (report.waivedFindings.length) lines.push(`waived: ${report.waivedFindings.slice(0, 5).map((entry) => `${entry.rule} ${entry.ref}`).join(", ")}${report.waivedFindings.length > 5 ? ", …" : ""}`);
+    // The same names, in the same order, as the waived count of status and the receipts (waivedRefs).
+    const waivedNames = waivedRefs(result.findings);
+    if (waivedNames.length) lines.push(`waived: ${waivedNames.slice(0, 5).join(", ")}${waivedNames.length > 5 ? ", …" : ""}`);
     if (applied) for (const line of applied.fixed) lines.push(`  fixed ${line}`);
     // What the video uses (engine/quality/techniques.js), and whose style the style rules follow.
     lines.push(`techniques: ${techniquesLine(result.techniques, 8)} · style: ${result.styleSpec ? "spec" : "kino default"}`);
@@ -6795,7 +6801,9 @@ export function createAgentService(deps) {
   async function runMatch(document, { sceneId = null, layerIds = null, remove = false, lower = false } = {}) {
     const fonts = await fontsFor(document);
     const refs = deps.inspire?.savedFingerprints ? await deps.inspire.savedFingerprints(document.id).catch(() => []) : [];
-    const codes = await syncCodes(document.id, document).catch(() => null);
+    // The document may be an edit in progress (earlier ops applied, nothing saved): its codes are
+    // read, never saved, or the animations that edit deleted would lose their codes.
+    const codes = await agentState.read(document.id).then((state) => assignCodes(state.codes, document)).catch(() => null);
     const render = deps.renderFrames ?? renderSceneFrames;
     return matchReferences(document, { sceneId, layerIds, remove, lower, refs, fonts, runOps,
       render: (scene, times, { width }) => render(scene, times, { mediaRoot: deps.mediaRoot, fonts, width }),

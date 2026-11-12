@@ -192,12 +192,18 @@ export function groupFixLines(lines, shown = 4) {
     : `${rule} ${refs.slice(0, shown).join(", ")}${refs.length > shown ? ` +${refs.length - shown}` : ""}${reason ? `: ${reason}` : ""}`);
 }
 
+/** The waived findings as "rule ref", each once, in finding order: the one list check and the counts line share. */
+export const waivedRefs = (findings) => [...new Set(findings.filter((finding) => finding.waived).map((finding) => `${finding.rule} ${finding.ref}`))];
+
+// The open findings' names follow the open counts and the waived findings' names follow the waived
+// count, so neither list reads as the other's.
 export function checkSummary(findings, { unchecked = [] } = {}) {
   const counts = checkCounts(findings);
   const top = shownFindings(findings).slice(0, 2).map((finding) => `${finding.rule} ${finding.ref}`).join(", ");
+  const waivedNames = waivedRefs(findings);
   const where = unchecked === "all" ? "" : unchecked.length > 3 ? ` in ${unchecked.slice(0, 3).join(", ")} +${unchecked.length - 3}` : ` in ${unchecked.join(", ")}`;
   const left = unchecked === "all" || unchecked.length ? ` · unchecked${where}: ${PIXEL_GATES}` : "";
-  return `${counts.errors} err · ${counts.warnings} warn${counts.waived ? ` · ${counts.waived} waived` : ""}${top ? ` (${top})` : ""}${left}`;
+  return `${counts.errors} err · ${counts.warnings} warn${top ? ` (${top})` : ""}${counts.waived ? ` · ${counts.waived} waived (${waivedNames.slice(0, 2).join(", ")}${waivedNames.length > 2 ? ", …" : ""})` : ""}${left}`;
 }
 
 export const CHECK_RULES = "Rules: render checks (missing_media, empty_text, off_canvas, past_scene_end, missing_font, missing_glyphs), gates that block a final render (linear_motion, reading_time, type_min, overlap, safe_zone, contrast, flashing, luma_jump, frozen_picture, assertions, spring_on_fade, same_motion, promo_basics; av_offset after it), and warnings (in a real edit, a brief and 30+ layers, each also blocks a final render until fixed or waived, but a taste one: restraint, off_beat, jump_cut, end_on_fade and the like ride on its receipt as open notes); advice (info) never blocks. library {topic:\"rules\", name:\"quality\"} explains each.";
