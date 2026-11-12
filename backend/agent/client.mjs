@@ -307,7 +307,9 @@ export function importedText(media) {
   // Log footage (media-probe.mjs footageLogOf) is added with its conversion to Rec.709 set.
   const log = layerType === "video" && typeof record?.log === "string" ? `, log:"${record.log}"` : "";
   const logNote = log ? `. Log footage found (${record.logWhy ?? record.log}), so it looks flat and gray as recorded: the add_layer below sets log:"${record.log}" to show it as Rec.709 (log:null shows the file as recorded)` : "";
-  const text = `imported ${record?.name ?? "file"}${facts ? ` (${facts})` : ""} as ${record?.src ?? record?.id}${logNote}${layerType
+  // A .mov with an alpha channel is converted to a transparent webm on import (media-remux.mjs).
+  const converted = typeof record?.converted === "string" ? `; ${record.converted}` : "";
+  const text = `imported ${record?.name ?? "file"}${facts ? ` (${facts})` : ""} as ${record?.src ?? record?.id}${converted}${logNote}${layerType
     ? `. Add it: edit {ops:[{op:"add_layer", layerType:"${layerType}", name, properties:{src:"${record?.src}"${size}${sourceDuration}${log}}}]}`
     : kind === "font" ? ". It is now in library fonts; set_font uses it."
     : record?.lut ? `, a ${record.lut.type.toUpperCase()} LUT of size ${record.lut.size}. Grade a layer with it: edit {ops:[{op:"add_animation", layer, effect:"lut", parameters:{lut:"${record?.src}"}}]}` : ""}`;

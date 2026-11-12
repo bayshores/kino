@@ -11,5 +11,7 @@ test("file copies retain normalized content with independent nested data and a n
   copy.scenes[0].layers[0].name = "Only in the copy";
   assert.deepEqual(source, original);
   assert.equal(copyProjectDocument({ ...source, name: "n".repeat(120) }, "long").name, `${"n".repeat(113)} [copy]`);
+  assert.equal(copyProjectDocument(source, "named", " Motion v2 ").name, "Motion v2");
+  assert.equal(copyProjectDocument(source, "blank", "  ").name, `${source.name} [copy]`);
   assert.throws(() => copyProjectDocument({ ...source, scenes: null }, "invalid"));
 });

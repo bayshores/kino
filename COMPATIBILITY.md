@@ -773,8 +773,10 @@ How to read it:
   Evidence: `backend/agent-reach-media.test.mjs`. Gap: a ten-minute 1080p file is usually over 100 MB;
   the 200 MB large-import approval cannot be reached.
 - **iPhone `.mov` and `.m4v`**: Verified on test files. Stored as `.mp4` with the same picture
-  (`backend/media-remux.mjs`); ProRes is refused with a converting line. Evidence:
-  `backend/media-mov-import.test.mjs`. Not verified: a real iPhone file, HDR, HEVC in the desktop window.
+  (`backend/media-remux.mjs`); ProRes without alpha is refused with a converting line; a `.mov`
+  with alpha (ProRes 4444) becomes a transparent VP9 `.webm` under its own name. Evidence:
+  `backend/media-mov-import.test.mjs`. Not verified: a real iPhone file, HDR, HEVC in the desktop
+  window, HEVC with alpha (ffprobe shows no alpha format, so it takes the MP4 path).
 - **Play range**: Verified. `mediaStart`, `mediaOffset`, `mediaDuration` and Freeze; a clip's
   first frame on a cut shows its picture, not black. Evidence: `engine/mediaTime.test.js`,
   `engine/playback.test.js`, `backend/video-frame-grid.test.mjs`.
@@ -1432,8 +1434,10 @@ How to read it:
 
 - **Projects**: Verified. `project create|open|duplicate|archive` and `project manage` (folders,
   Trash, search, import and export); deleting a folder with projects or archiving asks the person,
-  delete forever needs `confirm:true`; a duplicate copies no comments, links or history. Evidence:
-  `backend/store.test.mjs`, `engine/duplicate.test.js`, `backend/agent-reach-workspace.test.mjs`.
+  delete forever needs `confirm:true`; a duplicate copies no comments, links or history and takes
+  `name` when given (else "<old> [copy]"). Evidence: `backend/store.test.mjs`,
+  `engine/duplicate.test.js`, `backend/agent-reach-workspace.test.mjs`,
+  `backend/project-files-mcp.integration.test.mjs`.
 - **Revision history**: Verified. The latest 50 revisions survive restarts (`HISTORY_LIMIT` in `backend/store.mjs`). Evidence:
   `backend/store-history.test.mjs`, `backend/project-history.test.mjs`.
 - **Two saves at once**: Verified. `engine/documentMerge.js` merges by item id (later save wins, delete

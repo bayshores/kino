@@ -253,7 +253,7 @@ export const AGENT_TOOLS = withSaid([
     hints: CAN_LOSE_DATA, // manage can delete a trashed project forever and remove saved items (after the person approves)
     // import's from/to (a found video's stretch) is not listed: keepUnknownKeys passes it on.
     keepUnknownKeys: true,
-    description: "list; create {id, name, width, height, duration}; open, duplicate, archive (to Trash) {id}; import {file} (absolute path or openverse:<id>); share {id, role} (the person approves); record {options:{step}} the screen (library guide recording); manage {options} (library rules workspace).",
+    description: "list; create {id, name, width, height, duration}; open, archive to Trash {id}; duplicate {id, name}; import {file} (absolute path or openverse:<id>); share {id, role} (person approves); record {options:{step}} the screen (library guide recording); manage {options} (library rules workspace).",
     input: {
       action: z.enum(["list", "create", "open", "duplicate", "archive", "import", "share", "record", "manage"]),
       role: z.enum(["view", "comment", "edit"]).optional(),

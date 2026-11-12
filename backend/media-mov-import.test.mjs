@@ -1,11 +1,12 @@
 // Importing a QuickTime .mov (what iPhones record) or an .m4v: kino keeps it as an MP4 with the
-// same picture, copied without encoding it again, and refuses a picture it cannot play.
+// same picture, copied without encoding it again, and refuses a picture it cannot play. A .mov
+// with transparency (ProRes 4444) becomes a transparent webm.
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
-import { createAgentClient } from "./agent/client.mjs";
+import { createAgentClient, importedText } from "./agent/client.mjs";
 import { probeCodecs } from "./media-remux.mjs";
 import { ffmpeg, ffprobe, near, readImage, run, skipWithoutMediaTools, startTestServer } from "./media.test.support.mjs";
 
@@ -102,6 +103,20 @@ test("an .m4v imports as an MP4 too", { skip: skipWithoutMediaTools }, async () 
   const media = await client.importFile(m4v);
   assert.equal(media.mime, "video/mp4");
   assert.equal(media.measurementSucceeded, true);
+});
+
+test("a ProRes 4444 .mov with transparency becomes a transparent webm under its own name, and the answer says so", { skip: skipWithoutMediaTools }, async () => {
+  const mov = await makeClip("overlay.mov", ["-frames:v", "10", "-c:v", "prores_ks", "-profile:v", "4", "-pix_fmt", "yuva444p10le"],
+    { audio: ["-c:a", "pcm_s16le"], picture: "color=c=0xff0000@0.5:size=64x64:rate=30:duration=1" });
+  const media = await client.importFile(mov);
+  assert.match(media.id, /\.webm$/);
+  assert.equal(media.mime, "video/webm");
+  assert.equal(media.name, "overlay.mov");
+  assert.equal(media.measurementSucceeded, true);
+  assert.deepEqual([media.width, media.height], [64, 64]);
+  assert.match(importedText(media), /converted to transparent webm: 64 x 64, 10 frames/);
+  const tags = await run(ffprobe, ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream_tags=alpha_mode", "-of", "json", await savedFile(media)]);
+  assert.equal(JSON.parse(tags.toString("utf8")).streams[0].tags.alpha_mode, "1", "the file keeps its alpha channel");
 });
 
 test("a ProRes .mov is refused with what to do, and nothing is saved", { skip: skipWithoutMediaTools }, async () => {

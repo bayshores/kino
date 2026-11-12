@@ -8404,7 +8404,8 @@ export function createAgentService(deps) {
     }
     if (action === "duplicate") {
       const record = await projectFor({ project: input.id ?? input.project });
-      const copy = await deps.duplicateProject(record.document.id);
+      // name (optional) is the copy's name; without it (or blank) the copy is "<old> [copy]".
+      const copy = await deps.duplicateProject(record.document.id, typeof input.name === "string" && input.name.trim() ? input.name : undefined);
       return { text: `duplicated ${record.document.id} as ${copy.document.id} ('${copy.document.name}'); project open {id:"${copy.document.id}"} switches to it.`, data: { project: copy.document.id } };
     }
     if (action === "archive") {
