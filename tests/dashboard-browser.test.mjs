@@ -4107,7 +4107,7 @@ test("storyboard screen: the rough cut, the shot panel and the timeline show eve
   })()`);
   assert.equal(card.heading, "◉ C1 · the storyboard · waits for you");
   assert.deepEqual(card.head, ["C1 · board r1"], "no purpose line: the brief has none");
-  assert.deepEqual(card.chips, ["5 shots", "8.8 s", "9:16", "no music", "fresh eyes: not reported"]);
+  assert.deepEqual(card.chips, ["5 shots", "8.8 s", "9:16", "vertical", "no music", "fresh eyes: not reported"]);
   assert.deepEqual(card.calls, ["agent's calls (1)", false, [["the dragon first: it is the news", "false"]]], "folded away; each call takes a no");
   assert.deepEqual(card.cut, { play: "Play the rough cut (no sound)", clock: "0:00.0 / 0:08.8", covered: ["", "app (unverified)"] }, "the rough cut, with the app's covered areas on it");
   assert.deepEqual(card.videos, [[true, true, data.shots[0].media.src]], "one file, muted, still until play");
