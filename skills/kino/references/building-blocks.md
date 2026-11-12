@@ -8,10 +8,10 @@ Contents: Building blocks · Timing and slots · Variants and templates · Compo
 ## Building blocks
 
 - `compose` builds a whole scene from beats, one recipe each, in a look and the brand kit. It
-  sizes the scene, times every beat and stretches them to fill `duration`. Your own layers in
-  that scene are kept. `library {topic:"blocks"}` lists the recipes (with their copy fields),
+  sizes the scene, times every beat and stretches them to fill `duration`. Your own layers
+  there are kept. `library {topic:"blocks"}` lists the recipes (with their copy fields),
   transitions, looks and tokens; add `name` for one.
-- `format {name, slots}` is a whole designer-tuned video to fill (product-launch, app-demo,
+- `format {name, slots}` is a whole tuned video to fill (product-launch, app-demo,
   social-promo, feature-announcement, testimonial): fixed frame, length, beats, pacing and music
   cues. Picture slots also take imported videos (a screen recording plays silent from its beat);
   `music` plays unbroken with its drop on the hero (fit_music). `library {topic:"formats",
@@ -20,9 +20,9 @@ Contents: Building blocks · Timing and slots · Variants and templates · Compo
 - A promo or ad needs a logo beat starting by 3.8 s (logo-sting, logo-build or wordmark-type),
   a hero (device-slide with an uploaded picture, or a feature-callout: its card then fills its
   slot) and an end: cta-end, or (outside compose) the logo alone on screen, or a dip to black
-  (nothing drawn over it), each marked as a rest (`update_scene {rests}`). The beats before the message (the logo beat)
-  get only the time that leaves it readable by 5 s. compose refuses a plan that cannot pass, or
-  beats that need more than `duration`, and says what to change.
+  (nothing drawn over it), each marked as a rest (`update_scene {rests}`). Beats before the
+  message (the logo beat) get only the time that leaves it readable by 5 s. compose refuses a
+  plan that cannot pass or beats over `duration`, and says what to change.
 - `compose {footage:[media ids or {media, in, out}], music?, voice?, treatment?, title?, end?,
   duration?, format?}` cuts an edit from uploaded clips instead: it picks moments by the
   transcript, faces and motion (opening on a face or the hook line), lays each shot out for the
@@ -33,8 +33,8 @@ Contents: Building blocks · Timing and slots · Variants and templates · Compo
 - Change one beat with `recipe` and the beat's `id` (the scene is composed again); change the
   look, duration or beats with `compose {scene, …}` (only the fields you give).
 - Recipes come out clean: lines are balanced (no one-word last line; a short title fits one
-  line or breaks between words), body text is at least the `type_min` floor (3% of the short side), and once a
-  beat lands it drifts slowly (a 2 to 4% push and a drift, `<layer>.hold`, varied by the seed)
+  line or breaks at a word), body text is at least the `type_min` floor (3% of the short side), and once a
+  beat lands it drifts slowly (a 2 to 4% push and drift, `<layer>.hold`, varied by seed)
   until it leaves, so no hold sits still. A move started over it takes its place.
 
 ```json
@@ -45,7 +45,9 @@ Contents: Building blocks · Timing and slots · Variants and templates · Compo
 
 Between two shots, short cut moves (0.3-0.6 s, `from`, `to`): zoom-blur, flash, light-leak,
 slice, glitch, blur-dissolve, card-tilt, shape-wipe. `align:"end"` on any move ends it on `at`
-(a beat cue); `"center"` centers it there.
+(a beat cue); `"center"` centers it there. `flash` frames:1 (to 12) is a flat frame, no ramp,
+the cut under it: {op:"move",name:"flash",from:"shot-a",to:"shot-b",at:2,frames:1}; color hex or
+"auto" (pale tint of the next shot).
 
 ## Timing and slots
 
@@ -66,17 +68,17 @@ slice, glitch, blur-dissolve, card-tilt, shape-wipe. `align:"end"` on any move e
   2 cuts 0.6 s apart, then a move.
 - A focus box over footage is one call: `recipe {name:"callout", box:[x, y, w, h], text,
   color?, corner?, at?}` makes one group (corner brackets, a plate sized to the measured label,
-  role `label`), locks on, keeps the label in the safe area (below or inside the box when there
-  is no room above) and keeps still on what it marks. Small UI text you make yourself takes
-  role `label` (body's minimum size, never taken for the headline).
+  role `label`), locks on, keeps the label in the safe area (below or inside the box without
+  room above) and keeps still on what it marks. Small UI text you make takes role `label`
+  (body's minimum size, never the headline).
 - Real UI in pieces (never redraw a UI): `split_image {layer, boxes:[{name, rect:[x, y, w, h]}]}`
   cuts a screenshot or a PNG still of a recording (rect in % of the picture) into clipping
   groups `<layer>-<name>` of its own pixels, in place; the picture is replaced, so box the
   background too. It warns above 1.3x the file's pixels. Then `move {name:"build-in", layers,
   at, empty?:0.6, stagger?:0.2, order?:"top-down", finish?:"resolve"}`: each piece blurs 6 to 0,
   fades 0.3 to 1 and rises 1% of the height, expo-out 0.4 s; `empty` holds
-  the frame empty after a cut. Pieces (and their group) are placed on purpose: check
-  {fix:"auto"} never moves or scales them, it lists that fix for you. `carry {to}` may land on a
+  the frame empty after a cut. check {fix:"auto"} never moves or scales pieces or their group;
+  it lists the fix. `carry {to}` may land on a
   piece inside a group (its box on screen), when the group holds still and unscaled.
 
 ```json
@@ -91,7 +93,7 @@ slice, glitch, blur-dissolve, card-tilt, shape-wipe. `align:"end"` on any move e
 
 - Variants: `variants {scene, vary:"layout"|"timing"|"look"|"deck"|"format", count}` adds new
   scenes beside a composed scene (deck: the project's next 3 decks); `look {mode:"variants"}` shows
-  them side by side, one row each; `pick_variant {scene}` marks the one to keep. Without `seed`,
+  them in rows; `pick_variant {scene}` marks the one to keep. Without `seed`,
   compose and recipes use the project's seed.
 - Formats: `variants {scene, vary:"format", formats:["9:16","1:1","4:5"]}` composes a beats or
   footage scene again in each format; footage crops on subjects marked on its file, your own
@@ -100,8 +102,8 @@ slice, glitch, blur-dissolve, card-tilt, shape-wipe. `align:"end"` on any move e
 - Templates: `make_template {scene, intro, outro}` keeps the first and last seconds' timing
   when the scene is retimed; `use_template {template, values, duration}` makes a new scene
   from it (the receipt lists its fields); `retime {scene, duration}` changes a scene's length
-  (animations, component starts and Play starts move together; `detect_beats` cues and the
-  rhythm move with their sound, or the receipt's notes say to run `detect_beats` again).
+  (animations, component and Play starts move together; `detect_beats` cues and the rhythm
+  move with their sound, or the notes say to run `detect_beats` again).
 
 ```json
 {"op":"variants","scene":"s1","vary":"layout","count":3}
@@ -111,8 +113,8 @@ slice, glitch, blur-dissolve, card-tilt, shape-wipe. `align:"end"` on any move e
 
 ## Components
 
-A card used several times: build it once in its own scene, make it a component, then insert
-copies that change only their text. Its scene is not part of the video.
+A card used several times: build it once in its own scene (not part of the video), make it a
+component, then insert copies that change only their text.
 
 ```json
 {"op":"add_scene","name":"card","width":560,"height":320}

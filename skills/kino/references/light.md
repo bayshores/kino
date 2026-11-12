@@ -52,6 +52,7 @@ Related effects that are not light: `vignette` and `grain` (finish), `duotone` a
 - A flash needs a cue that motivates it: light rising in the shot, a song seam or a top accent,
   never every beat. Over footage, `move impact-accent` with `kind:"flash"` lifts the shot's own
   exposure (a dark grade flashes in its own color, not white), sized by the cue's weight.
+- Several parts on one hit (light, blur, recolor, particles, shake): impact-accent kind:"hit", sized by the cue's weight.
 - `library {topic:"rules", name:"light"}` has every field and ten tested recipes: bloom,
   deep-glow, neon, halation, beat-flash, god-rays, light-behind-title, anamorphic-flare,
   sun-flare, flare-sweep.
@@ -80,7 +81,7 @@ accent. Reduced motion: no glow, no sweep, just the color on and off.
 
 - `accent-hit {layer, word?, color?, glow:30, hold:0.1, decay:0.2}`: the layer (or only `word`
   of a text layer) flashes to the color in 2 frames while a glow of `glow` px blooms, holds, and
-  decays back in `decay` s (Apple's verbs). One hit per op; three a second is the flashing limit.
+  decays back in `decay` s. One hit per op; three a second is the flashing limit.
 - `light-sweep {layer, color?, width:"2ch"}`: one band of the color with a soft halo crosses the
   letters once, left to right, at one speed (`dur`, default 1.2 s; a sign-off). `width`
   is `"2ch"`, `"30%"` of the layer or `"120px"`.

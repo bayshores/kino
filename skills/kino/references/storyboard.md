@@ -38,6 +38,11 @@ the move and your reason; its text, each shot's number, id and `look:` flags. Fi
 before asking: the subject whole and 5%+ from the crop edge, eyes 20–45% from the
 top, nothing under the app's captions.
 
+look {mode:"board"} page 1 prints the shots' pace before and after the song's drop beside your
+saved references', and the song's beat times after it; facts only. To put the cuts after the
+drop on those beats: edit {ops:[{op:"board", snap:"beats"}]}. Cut times only, song stays; a move
+over 6 frames lapses an approval.
+
 ## Fresh-eyes check
 
 Before you ask, when your app can start a second agent, give it only the brief's

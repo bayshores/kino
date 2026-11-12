@@ -86,8 +86,8 @@ used), `p` (0 to 1, how typical).
 kino shows the 3 least typical, new whos and types first: `A. idea · who: tension → turn · ends on ending · type: type`.
 The pick (their words; "just start": yours, with `why`) sets `style.idea`, `style.type`, the first
 signature and the spine's end; the lock's fonts name the faces. Building first is `order_needed`; waive_check "treatments" skips it.
-When the dropped most typical treatment names the ask's origin word, the answer lists it as D
-(what this ask is known for); `fields:{treatments:{pick:"D", why:"<why>"}}` takes it. An edit of
+The dropped most typical treatment is listed as D when it names the origin word, or is the only
+one with a word from their message; then `fields:{treatments:{pick:"D", why:"<why>"}}` takes it. An edit of
 a subject in footage (the project's clips or an edit ask, no app or product named) is asked
 about the subject and its shots: the signature's why says why only this subject and its
 footage can.
@@ -115,6 +115,10 @@ shake reads as decoration. Reference counts are ceilings, not targets; none of a
 - Flash: light rising in the shot, a song seam or a top accent. Shake: a footage contact, a song
   seam or a top accent. Impact frame: a contact. Dip: a rest. Strobe: a measured drum fill. `move {name:"impact-accent", kind,
   at:"cue:<name>"}` refuses any other cue and names one that fits; size follows its weight.
+- impact-accent kind:"hit": light, blur, a recolor in the shot's hue, particles off the subject,
+  a shake, one frame apart, as many and as strong as the cue's weight (a weak cue or time: 2 small).
+- After detect_beats: {"op":"move","name":"impact-accent","kind":"hit","at":"cue:accent-1"};
+  parts:["light","particles"] picks parts, weight:0.8 sizes an unmeasured moment; flat frame: flash {frames:1}.
 - The picture may come 2 frames early, never late. Slow motion holds frames on drawn footage.
 - Lend a reference's principles (pace per section, rests), never its times, order or devices.
 - `effect_fit`, `seam_lock`, `rest_fit` and `reference_closeness` check it.

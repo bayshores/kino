@@ -21,8 +21,8 @@ played as one.
   `hook:true` puts the first sentence big over the first seconds; `reduced:true` fades only. On a
   light frame with no footage, looks without a box take dark letters and a deep accent.
   Example: `add_captions` with `speech:"<voice layer>"`, `look:"pop"`, `keywords:["ship"]`.
-- Text behind a person: `cut_out` with `layer:"<clip>"`, `behind:"<title>"` (person matte; when
-  no person is found the title stays in front and the receipt's `cutout.fallback` says so).
+- Text behind the subject: `cut_out {layer:"<clip>", behind:"<title>"}` (drawn or filmed). The
+  note says which engine ran; if none finds a subject the title stays in front (`cutout.fallback`).
 - Word by word on one text layer: `add_animation` with `preset-custom-text` and `unit:"words"`,
   `stagger` (seconds between words), and `order` (forward, reverse, center-out, edges-in, random
   with `orderSeed`), `smoothing` if needed (text layers only); a
@@ -74,7 +74,8 @@ played as one.
   leaves the seams and rests as fitted `song-*` cues and the end card's entrance as `end-card`.
   `accents:true` adds downbeat zoom punches (off by default; `effect_fit` asks each for a cue).
 - Accents: `move {name:"impact-accent", kind, at:"cue:<name>"}` (techniques reference); none
-  is fine.
+  is fine. impact-accent kinds: flash, shake, impact-frame, dip, strobe, hit (hit takes any cue or
+  time; effect_fit needs a set_cues marker under a beat number or a time).
 - Sequences: build each part as its own scene (same size), then `add_sequence` makes one scene
   that plays them in order: `cut` (default), `crossfade`, `push`, `wipe`, `zoom`, `whip` (a
   push smeared by a directional blur) or `spin` (a turn under a spin blur), 0.5 s by default.

@@ -24,24 +24,24 @@ send it as is; put your words where it has `<angle brackets>`. A new video, idea
 
 ## Tools
 
-`mcp__kino__<verb>` (plugin: `mcp__plugin_kino_kino__<verb>`); the CLI takes `key=value`: `kino look frame t=3`.
+`mcp__kino__<verb>` (plugin: `mcp__plugin_kino_kino__<verb>`); CLI: `kino look frame t=3`.
 
 | Tool | Use |
 |---|---|
 | `status` | The outline, `direction:`, `step:`, the plan and your inbox. Call it first. |
 | `edit {ops}` | Every change: a list of `{op, …}`, saved as one revision. |
-| `check` | Findings with fix ops; `{fix:"auto"}` fixes and re-checks in one call. |
+| `check` | Findings with fix ops; `{fix:"auto"}` fixes and re-checks. |
 | `look` | `sheet`, `review`, `changed`, `zoom`, `board`, … `source`: every clip (no FFmpeg sheets). |
 | `inspect {targets}` | Exact layer, animation, cue fields. |
 | `render` | Files: `{action:"start", quality:"final", out:"<absolute folder>", wait:true}`. Final waits only on defects; the rest rides on its receipt. |
 | `library` | Exact rules: `{topic:"op", name}` (fields), presets, fonts, blocks. |
 | `history` | Your turns; `{action:"revert", turn:"T3"}` undoes one. |
-| `notes` | The `brief`, stops, plan, the person's notes, `helper` agents. |
+| `notes` | The `brief`, stops, plan, notes, `helper` agents. |
 | `project` | `create`, `open`, `import`, `share`, `manage`. |
 
 ## The loop
 
-1. `status`; inbox notes first (`notes reply` when fixed; `always ▸` ones stay). New chat or compaction: first say its `direction:` back in one sentence, and trust it over your memory.
+1. `status`; inbox notes first (`notes reply` when fixed). New chat or compaction: first say its `direction:` back in one sentence, and trust it over your memory.
 2. New video: brief from the chat ([controls](references/controls.md)); from 8 s, board first.
    Save their material (`edit` op `source`); write the story.
    **A video is one scene**: `render` makes one file per scene.
@@ -49,27 +49,29 @@ send it as is; put your words where it has `<angle brackets>`. A new video, idea
    strips; then `notes {action:"set_plan", steps:[…]}`, 3–6 steps.
 4. First a rough whole scene in **one** `edit` (`compose`).
    Then up to 3 sections, each an `edit` + `look {from, to}`.
-5. Read the receipt, not `status`; its `newFindings` are what that edit broke: fix them.
+5. Read the receipt, not `status`; fix its `newFindings` (what that edit broke).
 6. `check` before a render or "done".
 7. One `look` per pass or section. All fixes in one `edit`, then `look {mode:"changed"}`.
 8. Before a final render: `look {mode:"review"}` until every moment is reviewed; fix.
 9. Ask each stop `step:` names (`notes {action:"checkpoint", id:"rough"}`): final waits.
 10. Final (5 s+) needs a saved reference and a recent `look {mode:"versus"}`;
-    `notes {action:"judge"}`: the person picks blind. Fix where they win.
-11. 15 s+, footage or speech: `notes intents`; a fresh viewer reads `look {mode:"viewer"}`;
+    `notes {action:"judge"}`: they pick blind. Fix where they win.
+11. 15 s+, footage or speech: `notes intents`; a fresh viewer: `look {mode:"viewer"}`;
     `notes viewer`; fix bugs ([viewer](references/viewer.md)). With 12: one subagent.
 12. 10 s+: one fresh critic round: `look {mode:"critique"}`; `notes critique`; a fix list, never a gate; `notes verdict`: the bar ([critique](references/critique.md)).
 13. Material short? Find footage, ask ([needs](references/needs.md)).
 
 ## Rules
 
-- `name` on `add_layer` is its ID: later ops (same edit too) say `layer:"headline"`;
+- `name` on `add_layer` is its ID: later ops say `layer:"headline"`;
   `headline.in` is its entrance. Codes (`L3`, `A2`) work too.
 - One scene: no `scene` field. Several: `scene:"s2"` or its name.
 - Positions: top-left, scene pixels; colors hex. Text needs a fitting `width` and `height`.
 - Restraint: plain cuts; 1-2 signature moves; one type style, grade, brightness. Every effect
-  needs a cue that motivates it; reference counts are ceilings; none is fine ([techniques](references/techniques.md), style spec).
-- `add_layer` takes its animations inline: `animations:[{preset:"preset-fade", start, duration}]`;
+  needs a motivating cue; reference counts are ceilings; none is fine ([techniques](references/techniques.md)).
+- Clip sounds (look source, imports: `sounds door 5.0-6.5 s (-27 dB) · bed music`): keep one:
+  keep_line {layer, sound:"door"} or board shot sound {keep:"door"}.
+- `add_layer` takes animations inline: `animations:[{preset:"preset-fade", start, duration}]`;
   `"mode":"out"` makes an exit.
 - A refused edit saves nothing; `next` resends it fixed, or: `edit {retry:"E2", fix:{"3":{"easing":"smooth"}, "7":null}}`.
 - `{status:"awaiting_approval", id:"Q1"}`: tell them; a chat yes counts (notes answer).
@@ -80,14 +82,14 @@ send it as is; put your words where it has `<angle brackets>`. A new video, idea
 ## References
 
 - [edits](references/edits.md): ops, refusals, presets, fonts.
-- [fields](references/fields.md): every op's fields.
-- [building-blocks](references/building-blocks.md): compose, recipes, brand, formats; [moves](references/moves.md).
+- [fields](references/fields.md): op fields.
+- [building-blocks](references/building-blocks.md): compose, recipes, formats; [moves](references/moves.md).
 - [captions-beats-sequences](references/captions-beats-sequences.md): captions, beats, cues.
 - [media](references/media.md): imports, cuts, speed, B-roll; [recording](references/recording.md).
-- [framing](references/framing.md): crops and marks; [screens](references/screens.md): UI; [tilt](references/tilt.md): 3D; [behaviors](references/behaviors.md).
+- [framing](references/framing.md): crops; [screens](references/screens.md): UI; [tilt](references/tilt.md): 3D; [behaviors](references/behaviors.md).
 - [storyboard](references/storyboard.md): `look board`.
 - [sound](references/sound.md): ducking, voice, clip lines, fit_music; [library](references/sound-library.md): SFX, music.
-- [color](references/color.md): grades; [cutout](references/cutout.md): subject cut-outs, track, pin.
+- [color](references/color.md): grades; [cutout](references/cutout.md): cut-outs, track, pin.
 - [blur](references/blur.md), [light](references/light.md), [particles](references/particles.md): glow, sparks, fog.
 - [check-and-look](references/check-and-look.md): findings, looks; [motion](references/motion.md).
 - [ideas](references/ideas.md): story; [spine](references/spine.md): idea and lock.

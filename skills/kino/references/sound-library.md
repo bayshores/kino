@@ -44,4 +44,5 @@ first import, into kino's data folder and is checked against the catalog (SHA-25
 - Impact finish: one hit (boom, impact) on the final reveal or logo, then let it ring out.
 - Sound only on visible actions: a tap, a swipe, a card landing, a cut to a new place. Never on
   every text entrance, never a sub hit on a dim or a fade. Two or three in 15 s is plenty.
-- Effects under music: `volume` 0.4-0.7. Name each one in the board's `sound`.
+- Effects under music: place_sounds sets the level from the song ({at:8.4, what:"door"} or
+  {at:8.4, sound:"sfx:<id>"}); by hand, volume 0.4-0.7. Name each one in the board's `sound`.

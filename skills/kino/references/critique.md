@@ -19,6 +19,8 @@ answers in short lines; you record them, fix the P0s and try its UP lines.
    or too fast to read, clipped, covered, out of sync, frozen, a typo) stays a P0. kino marks it `ask`
    and `notes {action:"checkpoint", id:"critique"}` asks the person.
    Any other P0 is on the fix list: make the changes you agree with. The final render does not wait on it; its receipt lists open P0s and drops one about a deleted shot.
+   A fix-list line that moves, trims or cuts the shot the ask points to ends `changes the shot the
+   ask points to ("<word>")`: a label, not a gate. Weigh it, then make or skip it.
 5. One round a scene per story. A line that would cut a designed moment still goes to the person: `notes {action:"checkpoint", id:"critique"}`, then `notes answer`.
 6. A round with no P0 (`none`, or only P1/P2) must be about the video as it is: on a packet
    the video was edited past it is refused.

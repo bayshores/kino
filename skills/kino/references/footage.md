@@ -69,8 +69,8 @@ captions):` and `0:41 "..." (F1.12-F1.13)` rows. Auto captions are a guess (time
 - No captions? `said:"<words>"` listens to the scanned part here (English only, about 6-13 s a
   minute): `library {"topic":"footage","scan":"F1","said":"protect them"}`.
 - Import also listens: a clip of 1.5 s or more adds `says "..." 0.3-2.1 s` (clip seconds), or
-  with no caption line `heard "..."` (whisper, an English model: other languages come out as
-  sound-alike words). `look` source lists `heard:` per clip (`(muted here)` at volume 0).
+  with no caption line `heard "..."` (whisper: other languages as said, with an English gloss,
+  when ggml-small.bin is installed). `look` source lists `heard:` per clip (`(muted here)` at volume 0).
 - Keep a said line: `keep_line {layer, line, duck}`: the rest of the clip goes silent, a
   subtitle shows the line, the music dips to sit 6 LU under it (`dip` sets another). Unread speech or a translation: `from`,
   `to` (scene seconds) and `text`. A line the trim cuts off: its call moves mediaOffset first.

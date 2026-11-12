@@ -43,6 +43,10 @@ check, look and Lottie (baked to keyframes) see exactly what plays.
   width plus 24), `grid` in rows of `columns`, `radial` a ring of count + 1 with the original at
   12 o'clock (`radius`). `stagger` starts each copy's animations that many seconds later. A field
   the layout does not use is refused; numbers already taken are skipped.
+- duplicate_layers `at:[times or cues]` (or one time) puts copy n at the n-th time, in place; times
+  inside the scene; footage and component copies move their play time too. A move: send the move
+  again per place.
+- `vary` steps a field over the places in time order: {op:"duplicate_layers",layers:["ring"],at:["cue:drop",11.3],vary:{scaleX:[0.4,1.6],scaleY:[0.4,1.6]}}; or one per place: text:["1","2","3"]
 
 ## Pivot and skew
 

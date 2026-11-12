@@ -28,7 +28,7 @@ hook (the first image of its who), problem (its tension), turn (its turn), signa
 (`order_needed`) until the spine has a problem, a turn and a payoff; times may change later. The
 lock keeps that spine and asks the rest of the bible (fonts, plus moves and logo when not saved;
 beats are timed over the brief's length). With no idea, `lock direction: idea + signature`
-asks for the idea and its signature moment from the real material first; there is no template spine.
+asks for the idea and its signature moment from the real material first; there is no template spine. With a measured song, the drafted payoff sits on its drop. A board built before the song keeps its shots: board {music} names new shot cues plus fit_music {payoff:<s>} in one edit.
 
 ## The spine
 

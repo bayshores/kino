@@ -86,6 +86,7 @@ Moves use the brand's fonts (else the project's); a `scrim` only where words cou
 - mosaic-reveal: a picture or clip builds out of flat-colored cells that merge and resolve to it: {"op":"move","name":"mosaic-reveal","layer":"photo","at":1} (mode "out" exits)
 - An edge that sweeps across one shot: {op:"move", name:"split-fields", layer:"shot-a", at:1, travel:-1, dur:0.2}; shape-wipe grows a shape from one point instead.
 - Fast whip: {op:"move",name:"whip-pan",from:"S1",to:"S2",at:0.6,frames:2} smears 2 frames from at; a clip ending mid-whip holds its edge frame (holdEnds:false shows the gap).
+- Flash frame: {op:"move",name:"flash",from:"S1",to:"S2",at:"cue:<name>",frames:1}. A flat frame on a cut counts as the cut; the receipt counts flash frames within 1 s (check allows 3).
 - overexpose takes saturation (default 1.4 at the peak, 1 the old wash); bright colors still wash toward white, so raise it for a saturated bloom.
 
 ## Moves example

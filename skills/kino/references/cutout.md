@@ -42,6 +42,9 @@ The title goes between the clip and its cut-out (`type-behind`: keep it for 1 to
 {"op":"cut_out","layer":"runner","above":"title"}
 ```
 
+`behind:"title"` does this in one call (the text moves right above the clip). The clip's people
+scan picks the engine: few people, subject; else person, then subject; `engine` overrides it.
+
 ### Outline or glow
 
 A grown silhouette under the subject is an outline; a grown, feathered one is a glow:

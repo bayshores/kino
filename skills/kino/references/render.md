@@ -89,8 +89,9 @@ an absolute folder (the `kino` command resolves a relative one or `~` for you).
 - File checks cover dimensions, frames, duration, codec, audio-stream offset and sound peak
   where supported. A master limiter keeps exported sound at or under -1 dBTP true peak,
   measured after AAC or Opus encoding. Before it, every mp4, webm or mov (drafts too) brings the
-  whole mix (after ducking) to a loudness target: `options:{loudness:"web"}` (-14 LUFS, default),
-  `"podcast"` (-16), `"broadcast"` (-23) or `"off"`. `audioLoudness` warns 2 LU off target.
+  whole mix (after ducking) to a loudness target: options:{loudness} auto (default: a song-led
+  mix keeps the song's own LUFS when over -14, else -14), web, podcast (-16), broadcast (-23),
+  off; wait says why. Always -14: options:{loudness:"web"}. `audioLoudness` warns 2 LU off target.
   `wait` shows `sound: -14 LUFS (target -14 web), range 4.2 LU, true peak -1.1 dBTP`. Without a
   target, a mix that would have clipped gets a warning naming the moment and the sounds playing
   then: lower those volumes and render again.

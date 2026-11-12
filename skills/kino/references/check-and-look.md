@@ -71,6 +71,9 @@ What a viewer calls sloppy though gates pass: fix it. Each has an automatic fix
 - `sheet` (default): about 12 tiles a scene; with cuts, a tile or more a shot, labeled
   `2 · 1.42s` (24 shots at most; `from` shows the rest); several scenes: one frame each.
   `sheet {from, to}`: one stretch.
+- look sheet, look review and check print `returns: <thing> at <times> (what changes)`: each made
+  layer, word, image, move or shot shown at 2+ places, and what the first second and last frame
+  share. A fact.
 - `frame {t, width?}` (up to 1280 px; `zoom` for detail), `zoom {layer, t?}`, `strip {anim}`
   (`every:true`: each frame), `compare {rev}`, `changed`, `variants`.
 - `motion {from?, to?}` (graph and trace, no render), `frames {from, to?}` (each 30 fps frame):
