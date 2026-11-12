@@ -21,7 +21,7 @@ export function askWords(text) {
 }
 
 // A word and its plural or -ing form count as the same word ("glitch", "glitches", "glitching").
-const forms = (word) => [word, `${word}s`, `${word}es`, `${word}ing`, word.replace(/(es|s|ing)$/, "")];
+export const forms = (word) => [word, `${word}s`, `${word}es`, `${word}ing`, word.replace(/(es|s|ing)$/, "")];
 
 /**
  * Which entries the ask's words name: [{word, name, named?}], one per entry, in the ask's word order.

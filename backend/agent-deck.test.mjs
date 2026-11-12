@@ -370,6 +370,15 @@ test("treatments: 5 saved on the brief, the most typical dropped, the 3 least ty
   const other = { words: [{ word: "camera", count: 8, of: 20 }] };
   assert.doesNotMatch(treatmentsText({ treatments: cleaned }, other), /^D\./m);
   assert.match(treatmentsProblem({ pick: "D", why: "x" }, cleaned, other).message, /^pick is A, B, C:/);
+  // With the origin search skipped, the person's own message can name the dropped one: the first of
+  // its words only the dropped one has ("city" is in a shown one too, "make" and "with" are plain).
+  const skipped = { query: "x", skipped: "offline" };
+  const asked = ["a dawn ride, the city at dawn please"];
+  assert.doesNotMatch(treatmentsText({ treatments: cleaned }, skipped), /^D\./m);
+  assert.match(treatmentsText({ treatments: cleaned, fields: { ask: asked.map((text) => ({ text })) } }, skipped), /^D\. .* · dropped as the most typical; only it has "dawn" from their message$/m);
+  assert.equal(treatmentsProblem({ pick: "D", why: "x" }, cleaned, skipped, asked), null);
+  assert.match(treatmentsProblem({ pick: "D", why: "x" }, cleaned, skipped, ["a quiet street please"]).message, /^pick is A, B, C:/);
+  assert.match(treatmentsText({ treatments: cleaned, fields: { ask: [{ text: "make it with a voice" }] } }, skipped), /only it has "voice" from their message/);
 
   await newVideo("treat");
   await agent("notes", { project: "treat", action: "brief", log: [{ q: "What's wrong or missing?", a: "looks right", kind: "playback", rev: 1, confirmed: true }] });
