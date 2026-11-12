@@ -50,7 +50,7 @@ test("rendered frames: a line behind a cut-out and a line over the subject keep 
   assert.ok(hiddenBefore > 0.3, `the cut-out hid ${hiddenBefore} of the letters before`);
   assert.equal(placed.side, "split");
   assert.ok(hiddenAfter < 0.01, `the cut-out hides ${hiddenAfter} of the letters after`);
-  assert.ok(placed.before > 0.3 && placed.after === 0, "the receipt's measured share agrees");
+  assert.ok(placed.before.share > 0.3 && placed.after.share === 0, "the receipt's measured share agrees");
 
   // In front: letters drawn over the subject box hide the subject.
   const front = [subject(), word()];

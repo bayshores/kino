@@ -262,11 +262,11 @@ test("place {around} sets a word beside the marked subject of the shot under it 
     { op: "place", layers: ["payoff"], around: "subject" },
   ] });
   assert.equal(placed.isError, undefined, placed.text);
-  assert.match(placed.text, /around the subject of shot at 0 s \(your mark at file 0 s\), over it \(subject box x 768-1152, y 194-1080\): split at the word gap: \\"KILL\\" left, \\"YOU\\" right \(new layer payoff-2\) · letters inside the subject box \d+% → 0% · room left 648×972, right 648×972, above 1728×116, below none/);
+  assert.match(placed.text, /around the subject of shot at 0 s \(your mark at file 0 s\), over it \(subject box x 768-1152, y 194-1080\): split at the word gap: \\"KILL\\" left, \\"YOU\\" right \(new layer payoff-2\) · letters inside the subject box at the worst moment \d+% → 0% · room left 648×972, right 648×972, above 1728×116, below none/);
   const record = await saved("around-place");
   assert.deepEqual([findLayer(record, "payoff").text, findLayer(record, "payoff-2").text], ["KILL", "YOU"]);
   const word = await agent("around-place", "edit", { ops: [{ op: "place", layers: ["payoff-2"], around: "shot", side: "above" }] });
-  assert.match(word.text, /: above · letters inside the subject box \d+% → 0% · size 260 → \d+ px to fit the room/);
+  assert.match(word.text, /: above · letters inside the subject box at the worst moment \d+% → 0% · size 260 → \d+ px to fit the room/);
   // A face mark alone stands for a person: the box runs down to the picture's bottom, so no room below.
   const face = await agent("around-place", "edit", { ops: [
     { op: "add_layer", layerType: "video", name: "talk", properties: { src: "/api/media/00000000-0000-4000-8000-000000000001.mp4", x: 0, y: 0, width: 1920, height: 1080 } },
@@ -275,6 +275,40 @@ test("place {around} sets a word beside the marked subject of the shot under it 
     { op: "place", layers: ["name"], around: "talk" },
   ] });
   assert.match(face.text, /a face taken down to the picture's bottom for the body under it\), over it \(subject box x 806-1114, y 108-1080\).* · room left \d+×972, right \d+×972, above 1728×\d+, below none/);
+
+  // A cut_out copy whose subject moves (its subjectPath, shares of its box, drawn with no file
+  // size): the word in front of it from 1 to 2 s is cleared for the whole hold, not its first moment.
+  await create("around-moving");
+  const moving = await agent("around-moving", "edit", { ops: [
+    { op: "add_layer", layerType: "video", name: "clip", properties: { src: "/api/media/00000000-0000-4000-8000-000000000002.mp4", x: 0, y: 0, width: 1920, height: 1080 } },
+    { op: "add_layer", layerType: "video", name: "clip-subject", properties: { src: "/api/media/00000000-0000-4000-8000-000000000003.webm", x: 0, y: 0, width: 1920, height: 1080 } },
+    { op: "add_layer", layerType: "text", name: "word", properties: { text: "KILL", fontFamily: "Inter", fontWeight: 700, fontSize: 160, textResize: "width-height", x: 1100, y: 420 },
+      animations: [{ preset: "preset-fade", start: 1, duration: 0.2 }, { preset: "preset-fade", mode: "out", start: 1.8, duration: 0.2 }] },
+  ] });
+  assert.equal(moving.isError, undefined, moving.text);
+  // The fields cut_out writes on its copy (cutout-operation.mjs), saved as the document.
+  const { document, revision } = await saved("around-moving");
+  Object.assign(document.scenes[0].layers.find((layer) => layer.id === "clip-subject"), { cutoutOf: "clip", subjectBox: [0.35, 0.2, 0.75, 1], subjectPath: [[1, 0.35, 0.2, 0.55, 1], [2, 0.55, 0.2, 0.75, 1]] });
+  assert.equal((await server.api("/api/projects/around-moving", { method: "PUT", body: { document, revision } })).status, 200);
+  assert.deepEqual(findLayer(await saved("around-moving"), "clip-subject").subjectPath[1], [2, 0.55, 0.2, 0.75, 1], "the document keeps the path");
+  const cleared = await agent("around-moving", "edit", { ops: [{ op: "place", layers: ["word"], around: "clip-subject" }] });
+  assert.match(cleared.text, /around the measured subject of the cut-out clip-subject, over it \(subject box x 672-1056, y 216-1080 over the hold 1\.1-1\.9 s \(9 moments; the subject's box moves up to 3\d\d px\)\): (left|right) · letters inside the subject box at the worst moment \d+% at 1\.\d+ s → 0%/);
+  const word2 = findLayer(await saved("around-moving"), "word");
+  const ink = (t) => { const state = evaluateLayer(word2, t); return [state.x, state.x + state.width]; };
+  for (const t of [1.1, 1.5, 1.9]) {
+    const [a, b] = [0.35 + 0.2 * (t - 1), 0.55 + 0.2 * (t - 1)].map((share) => share * 1920);
+    assert.ok(ink(t)[1] < a || ink(t)[0] > b, `clear of the subject at ${t} s`);
+  }
+  // follow:true through the tool: a pin path keeps the word right of the subject as it moves, and
+  // check finds no linear_motion on it.
+  const followed = await agent("around-moving", "edit", { ops: [
+    { op: "update_layer", layer: "word", properties: { x: 1100 } },
+    { op: "place", layers: ["word"], around: "clip-subject", side: "right", follow: true },
+  ] });
+  assert.match(followed.text, /: follows it on a pin path of 9 moments\): right · letters inside the subject box at the worst moment \d+% at 1\.\d+ s → 0%/);
+  assert.doesNotMatch(followed.text, /linear_motion word/);
+  const word3 = findLayer(await saved("around-moving"), "word");
+  for (const t of [1.1, 1.5, 1.9]) assert.ok(evaluateLayer(word3, t).x > (0.55 + 0.2 * (t - 1)) * 1920, `right of the subject at ${t} s`);
 });
 
 test("frame steps a camera group onto a region of a layer, then eases on, and check takes the cut as a cut", async () => {

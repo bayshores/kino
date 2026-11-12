@@ -19,7 +19,7 @@ import { createLayer, createScene, parseDocument } from "../../engine/model.js";
 import { hasMediaPlay, mediaFrameState, mediaPlaybackRange } from "../../engine/playback.js";
 import { MAX_ASK_SHOWS, MAX_SUBJECT_BOXES, SAME_MOMENT, subjectBox, subjectOnScene } from "../../engine/sourceView.js";
 import { FACE_PARTS, facePartPoint, pickFace } from "../../engine/footage/faceParts.js";
-import { AROUND_SIDES } from "../../engine/subjectRoom.js";
+import { AROUND_SIDES, sharePathAt } from "../../engine/subjectRoom.js";
 import { duplicateLayers } from "../../engine/layerClipboard.js";
 import { moveBeatCues } from "../../engine/beatCues.js";
 import { shiftScene } from "../../engine/speech.js";
@@ -179,8 +179,8 @@ const OPERATIONS = {
   },
   pick_variant: { fields: ["sceneId"], rules: "pick_variant {scene}: marks this scene as the chosen one of its variant set (the others stay until you delete_scene them)." },
   place: {
-    fields: ["layerIds", "layerId", "sceneId", "below", "above", "left_of", "right_of", "gap", "align", "slot", "valign", "on", "of", "at", "offset", "around", "side"],
-    rules: "place {layers, below|above|left_of|right_of: <layer>, gap?, align?: start|center|end} moves layers (as one group) next to another layer; place {layers, slot, align?: left|center|right, valign?: top|middle|bottom} moves them into a slot (C2:E4, center, bottom, …); place {layers, on: mouth|eyes|between-eyes|face|above-head, of: <video layer>, at?, offset?: [x, y]} centers them on that part of the face the footage shows at at (default: the layers' first entrance): a mark_subject box with that part is exact, a head mark or a face kino found is an estimate from the box (look to confirm; offset moves it by % of the face box). place {layers, around: <video layer or cut-out>|\"subject\", side?: left|right|above|below|split, at?, gap?} sets text in the safe room beside, above, below or split at a word gap around the marked subject (a mark_subject box, or a cut_out copy's measured subject; \"subject\" finds the shot under the text), shrunk to that room when needed; the receipt prints the room on each side and the share of letter area inside the subject box before and after.",
+    fields: ["layerIds", "layerId", "sceneId", "below", "above", "left_of", "right_of", "gap", "align", "slot", "valign", "on", "of", "at", "offset", "around", "side", "follow"],
+    rules: "place {layers, below|above|left_of|right_of: <layer>, gap?, align?: start|center|end} moves layers (as one group) next to another layer; place {layers, slot, align?: left|center|right, valign?: top|middle|bottom} moves them into a slot (C2:E4, center, bottom, …); place {layers, on: mouth|eyes|between-eyes|face|above-head, of: <video layer>, at?, offset?: [x, y]} centers them on that part of the face the footage shows at at (default: the layers' first entrance): a mark_subject box with that part is exact, a head mark or a face kino found is an estimate from the box (look to confirm; offset moves it by % of the face box). place {layers, around: <video layer or cut-out>|\"subject\", side?: left|right|above|below|split, at?, gap?, follow?} sets text in the safe room beside, above, below or split at a word gap around the marked subject (a mark_subject box, or a cut_out copy's measured subject; \"subject\" finds the shot under the text), clear of it for the whole time the text shows (follow:true moves it with the subject instead), shrunk to that room when needed; the receipt prints the room on each side and the share of letter area inside the subject box before and after.",
   },
   align: {
     fields: ["layerIds", "layerId", "sceneId", "to", "within"],
@@ -625,10 +625,11 @@ const TRANSLATE = {
   place(operation, resolver) {
     layoutLayers(operation, resolver);
     if (operation.around !== undefined) {
-      // place {layers, around, side?, at?, gap?}: text in the room around a marked subject (engine/subjectRoom.js).
+      // place {layers, around, side?, at?, gap?, follow?}: text in the room around a marked subject (engine/subjectRoom.js).
       if (["below", "above", "left_of", "right_of", "slot", "on", "of"].some((key) => operation[key] !== undefined)) throw problem("place takes around, on + of, a side or a slot: one of them.");
       if (operation.around !== "subject") operation.around = layerRef(resolver, operation.around);
       if (operation.side !== undefined && !AROUND_SIDES.includes(operation.side)) throw problem(`side is ${AROUND_SIDES.join(", ")}, or leave it out for the side that keeps the type largest.`, closest(String(operation.side), AROUND_SIDES));
+      if (operation.follow !== undefined && typeof operation.follow !== "boolean") throw problem("follow is true (the text moves with the subject, a gap from it at every moment) or false (one place clear of it for the whole hold).");
       if (operation.at !== undefined) parseAt(operation.at);
       checkGap(operation);
       return;
@@ -2317,21 +2318,27 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
   // A cut_out copy's measured subjectBox (shares of its box), else a video layer's mark_subject
   // boxes nearest the moment (the faces a full check saved when there is no mark). around:"subject"
   // takes the topmost cut-out above the text, else the topmost marked shot showing then.
-  // Returns {box: {x0, y0, x1, y1}, name, behind, line}.
+  // The subject is measured at each sampled second the text is on screen (its run of shown
+  // frames around `time`), so a subject that moves is cleared for the whole hold: moments [{t, box}].
+  // Returns {box: {x0, y0, x1, y1} (at `time`, boxTime rounded), time (where the text is measured: at, else the end
+  // of its entrance), moments, hold: [start, end], name, behind, line}.
   async function subjectTarget(document, scene, operation, work, layers) {
     const fonts = await fontsOf(document, work);
-    const entrances = layers.map((layer) => entranceWindow(layer, fonts)?.[0]).filter((start) => Number.isFinite(start));
-    const time = operation.at !== undefined ? resolveAt(operation.at, timeLookup(document, scene, fonts, work)) : (entrances.length ? Math.min(...entrances) : 0);
+    const windows = layers.map((layer) => entranceWindow(layer, fonts)).filter(Boolean);
+    const time = operation.at !== undefined ? resolveAt(operation.at, timeLookup(document, scene, fonts, work)) : (windows.length ? Math.min(...windows.map((window) => window[0])) : 0);
     if (!(time >= 0 && time <= scene.duration)) throw problem(`at is ${round(time)} s, outside the scene (0 to ${round(scene.duration)} s).`);
     const t = round(time);
+    const settled = operation.at !== undefined || !windows.length ? time : Math.min(scene.duration, Math.max(...windows.map((window) => window[1])));
     const top = Math.max(...layers.map((layer) => scene.layers.indexOf(layer)));
     const isCover = (layer) => Boolean(layer.cutoutOf) && Array.isArray(layer.subjectBox) && layer.subjectBox.length === 4;
     const marksOf = (layer) => (layer.type === "video" && layer.subjectBoxes?.src === layer.src ? layer.subjectBoxes.boxes : []);
-    const shows = (layer) => {
-      if (!(evaluateLayer(layer, time).opacity > 0.01)) return false;
+    const shows = (layer, at = time) => {
+      const state = evaluateLayer(layer, at);
+      if (state.visible === false || !(state.opacity > 0.01)) return false;
       const range = layer.type === "video" ? mediaPlaybackRange(layer, scene.duration) : null;
-      return !range || (time >= range.start - 1e-6 && time <= range.end + 1e-6);
+      return !range || (at >= range.start - 1e-6 && at <= range.end + 1e-6);
     };
+    const hold = holdOf(scene, layers, time);
     let pick;
     if (operation.around === "subject") {
       pick = scene.layers.filter((layer, index) => index > top && isCover(layer) && shows(layer)).at(-1)
@@ -2343,38 +2350,75 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     }
     const name = pick.name || pick.id;
     const behind = scene.layers.indexOf(pick) > top;
-    if (isCover(pick)) {
-      const [a, b, c, d] = pick.subjectBox;
-      const box = subjectOnScene(scene, pick, time, [a * 100, b * 100, (c - a) * 100, (d - b) * 100], null);
+    // The subject's box at each second of the hold the subject shows, and at `time`.
+    const over = (boxAt) => {
+      const box = boxAt(time);
       if (!box) throw problem(`${name} has no size at ${t} s.`);
-      return { box, name, behind, line: `the measured subject of the cut-out ${name}` };
+      const moments = hold.times.filter((at) => shows(pick, at)).map((at) => ({ t: at, box: boxAt(at) })).filter((moment) => moment.box);
+      return { box, boxTime: t, time: settled, moments, hold: hold.range };
+    };
+    if (isCover(pick)) {
+      // Shares of its box: the path cut_out measured (subjectPath, a box a sampled second), else the
+      // box around every frame.
+      const share = (at) => {
+        const [a, b, c, d] = sharePathAt(pick.subjectPath, at) ?? pick.subjectBox;
+        return [a * 100, b * 100, (c - a) * 100, (d - b) * 100];
+      };
+      return { ...over((at) => subjectOnScene(scene, pick, at, share(at), null)), name, behind, line: `the measured subject of the cut-out ${name}` };
     }
     if (pick.type !== "video") throw problem(`around needs a video layer with a mark_subject box or a cut_out copy; ${name} is ${/^[aeiou]/.test(pick.type) ? "an" : "a"} ${pick.type} layer.`);
-    const sourceTime = mediaFrameState(pick, time).sourceTime;
     let size = null;
     try { const file = (await mediaOf(document, work))(pick.src); if (file?.width > 0 && file?.height > 0) size = { width: file.width, height: file.height }; } catch { /* drawn as the box's shape */ }
     const marks = marksOf(pick);
-    let boxes = [], how, face = false;
-    if (marks.length) {
-      const nearest = marks.reduce((best, entry) => (Math.abs(entry.at - sourceTime) < Math.abs(best.at - sourceTime) ? entry : best));
-      const moment = marks.filter((entry) => Math.abs(entry.at - nearest.at) <= SAME_MOMENT + 1e-9);
-      face = !moment.some((entry) => !entry.part);
-      boxes = (face ? moment : moment.filter((entry) => !entry.part)).map((entry) => entry.box);
-      how = `your mark at file ${round(nearest.at)} s`;
-    } else {
-      const samples = (await subjectSamples?.(pick).catch(() => null)) ?? [];
-      const found = pickFace({ marks: [], samples, sourceTime, on: "face", size });
-      if (found) { boxes = [found.box]; how = `the face kino found at file ${round(found.at)} s`; face = true; }
+    const samples = marks.length ? [] : (await subjectSamples?.(pick).catch(() => null)) ?? [];
+    // The file box ([x, y, w, h] in %) the marks (else the faces kino found) give at file second sourceTime.
+    const fileBox = (sourceTime) => {
+      let boxes = [], how, face = false;
+      if (marks.length) {
+        const nearest = marks.reduce((best, entry) => (Math.abs(entry.at - sourceTime) < Math.abs(best.at - sourceTime) ? entry : best));
+        const moment = marks.filter((entry) => Math.abs(entry.at - nearest.at) <= SAME_MOMENT + 1e-9);
+        face = !moment.some((entry) => !entry.part);
+        boxes = (face ? moment : moment.filter((entry) => !entry.part)).map((entry) => entry.box);
+        how = `your mark at file ${round(nearest.at)} s`;
+      } else {
+        const found = pickFace({ marks: [], samples, sourceTime, on: "face", size });
+        if (found) { boxes = [found.box]; how = `the face kino found at file ${round(found.at)} s`; face = true; }
+      }
+      if (!boxes.length) return null;
+      const x0 = Math.min(...boxes.map((box) => box[0])), y0 = Math.min(...boxes.map((box) => box[1]));
+      // A face (part marks or a found face) has its body under it: the box runs to the picture's
+      // bottom, so text set "below" does not land on the chest.
+      const x1 = Math.max(...boxes.map((box) => box[0] + box[2])), y1 = face ? 100 : Math.max(...boxes.map((box) => box[1] + box[3]));
+      if (face) how += ", a face taken down to the picture's bottom for the body under it";
+      return { box: [x0, y0, x1 - x0, y1 - y0], how };
+    };
+    const first = fileBox(mediaFrameState(pick, time).sourceTime);
+    if (!first) throw Object.assign(problem(`No subject marked on ${name} (look {mode:"source", layer:"${name}", t:${t}}, then mark_subject {layer:"${name}", t:${t}, box:[x, y, w, h]} and place again).`), { noExample: true });
+    const boxAt = (at) => {
+      const found = at === time ? first : fileBox(mediaFrameState(pick, at).sourceTime);
+      return found ? subjectOnScene(scene, pick, at, found.box, size) : null;
+    };
+    return { ...over(boxAt), name, behind, line: `the subject of ${name} at ${t} s (${first.how})` };
+  }
+
+  // The run of seconds the placed text is on screen around `time` (sampled every 0.1 s over the
+  // scene; the run holding `time`, else the first after it, else the last before it), as range
+  // [start, end] and up to 24 times spread over it.
+  function holdOf(scene, layers, time) {
+    const step = 0.1;
+    const shown = (at) => layers.some((layer) => { const state = evaluateLayer(layer, at); return state.visible !== false && state.opacity > 0.01; });
+    const runs = [];
+    for (let index = 0; index * step <= scene.duration + 1e-9; index += 1) {
+      const at = Math.min(scene.duration, index * step);
+      if (!shown(at)) continue;
+      const last = runs.at(-1);
+      if (last && at - last[1] <= step + 1e-9) last[1] = at;
+      else runs.push([at, at]);
     }
-    if (!boxes.length) throw Object.assign(problem(`No subject marked on ${name} (look {mode:"source", layer:"${name}", t:${t}}, then mark_subject {layer:"${name}", t:${t}, box:[x, y, w, h]} and place again).`), { noExample: true });
-    const x0 = Math.min(...boxes.map((box) => box[0])), y0 = Math.min(...boxes.map((box) => box[1]));
-    // A face (part marks or a found face) has its body under it: the box runs to the picture's
-    // bottom, so text set "below" does not land on the chest.
-    const x1 = Math.max(...boxes.map((box) => box[0] + box[2])), y1 = face ? 100 : Math.max(...boxes.map((box) => box[1] + box[3]));
-    if (face) how += ", a face taken down to the picture's bottom for the body under it";
-    const box = subjectOnScene(scene, pick, time, [x0, y0, x1 - x0, y1 - y0], size);
-    if (!box) throw problem(`${name} has no size at ${t} s.`);
-    return { box, name, behind, line: `the subject of ${name} at ${t} s (${how})` };
+    const run = runs.find(([start, end]) => time >= start - step && time <= end + step) ?? runs.find(([start]) => start >= time) ?? runs.at(-1) ?? [time, time];
+    const count = Math.min(24, Math.round((run[1] - run[0]) / step) + 1);
+    const times = count < 2 ? [run[0]] : Array.from({ length: count }, (_, index) => Math.round((run[0] + ((run[1] - run[0]) * index) / (count - 1)) * 1000) / 1000);
+    return { range: [round(run[0]), round(run[1])], times };
   }
 
   // The second part of a split: a copy of the text right above it (its animations too), named "<name> 2".
