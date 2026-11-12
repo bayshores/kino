@@ -1324,22 +1324,28 @@ test("the order labels what each studied reference shows on screen (seen) before
   // The pure step: a studied reference with an open moment asks for its label; none open, none asked.
   const refs = { seconds: 24, references: 2, saved: ["yt:a", "yt:b"], studied: ["yt:a", "yt:b"] };
   const state = { brief: { ...emptyBrief(), rev: 1, fields: withAsk({ ...FULL, about: ABOUT }) } };
-  assert.deepEqual(orderSteps(state, { ...refs, treatmentsWaived: true, seenOpen: { "yt:b": 5.4 } }).map((part) => [part.step, part.call.input.name]), [["label yt:b on screen (seen)", "seen yt:b @5.4 <kinds>: <what you see>"]]);
+  assert.deepEqual(orderSteps(state, { ...refs, treatmentsWaived: true, seenOpen: { "yt:b": 5.4 } }).map((part) => [part.step, part.call.tool, part.call.input.t]), [["label yt:b on screen (seen)", "look", 5.4]]);
+  // Two studied of three saved: the first two studied are labeled, whichever was saved first.
+  assert.deepEqual(orderSteps(state, { ...refs, saved: ["yt:a", "yt:b", "yt:c"], studied: ["yt:b", "yt:c"], treatmentsWaived: true, seenOpen: { "yt:a": 1.8, "yt:c": 1.8 } }).map((part) => part.step), ["label yt:c on screen (seen)"]);
   assert.deepEqual(orderSteps(state, { ...refs, treatmentsWaived: true, seenOpen: {} }), []);
   await savedReference(id, "kinoSeen001", null, 9);
   await savedReference(id, "kinoSeen002", null, 9);
   const compose = { project: id, ops: [{ op: "compose", duration: 12, beats: [{ recipe: "headline-reveal", text: "Skate now" }] }] };
+  // A moment is labeled after it was looked at: before any look, seen sends the look.
+  const unlooked = await agent("library", { project: id, topic: "inspire", name: "seen yt:kinoSeen001 @1 type: thin sans titles" });
+  assert.match(unlooked.data.reason, /you have not looked at 1 s yet: look \{mode:"reference", ref:"yt:kinoSeen001", t:1\}/);
+  assert.deepEqual(nextCallOf(unlooked), { tool: "look", input: { mode: "reference", ref: "yt:kinoSeen001", t: 1 } });
   for (const name of ["kinoSeen001", "kinoSeen002"]) assert.equal((await agent("look", { project: id, mode: "reference", ref: `yt:${name}` })).isError, undefined);
   const first = await agent("edit", compose);
   assert.match(first.data.reason, /^Nothing was built: .* Next: label yt:kinoSeen001 \+1 on screen \(seen\)\./);
-  assert.deepEqual(nextCallOf(first), { tool: "library", input: { topic: "inspire", name: "seen yt:kinoSeen001 @1 <kinds>: <what you see>" } });
+  assert.deepEqual(nextCallOf(first), { tool: "look", input: { mode: "reference", ref: "yt:kinoSeen001", t: 1 } });
   // The strip is at 1 s: every sixth of the 9 s points to it, so there is one moment. 5 s is off the list.
   const off = await agent("library", { project: id, topic: "inspire", name: "seen yt:kinoSeen001 @5 overlay: smoke over the face" });
   assert.equal(off.data.error, "bad_input");
   assert.match(off.data.reason, /^seen needs a saved reference, a time from its on-screen list and kinds: library \{topic:"inspire", name:"seen yt:X @1\.8 overlay, made: green outline traced on the figure"\}\. \(5 s is not one of its moments \(1\)\)/);
   assert.match((await agent("library", { project: id, topic: "inspire", name: "seen yt:kinoSeen001 @1 glitter: smoke" })).data.reason, /kinds are type, overlay/);
   const saved = await agent("library", { project: id, topic: "inspire", name: "seen yt:kinoSeen001 @1.2 overlay, made: green outline traced on the figure" });
-  assert.match(saved.text, /^seen yt:kinoSeen001: 1 of 1 moments labeled \(overlay 1, made 1\)\.\nnext: library \{"topic":"inspire","name":"seen yt:kinoSeen002 @1 /);
+  assert.match(saved.text, /^seen yt:kinoSeen001: 1 of 1 moments labeled \(overlay 1, made 1\)\.\nnext: look \{"mode":"reference","ref":"yt:kinoSeen002","t":1/);
   assert.match((await agent("edit", compose)).data.reason, /Next: label yt:kinoSeen002 on screen/);
   await agent("library", { project: id, topic: "inspire", name: "seen yt:kinoSeen002 @1 type: thin sans titles" });
   assert.match((await agent("edit", compose)).data.reason, /Next: write 5 treatments/);

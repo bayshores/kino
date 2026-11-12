@@ -153,3 +153,11 @@ test("reference_drift measures in the background: the check answers with a note,
   assert.doesNotMatch(second.notes.join("\n"), /in the background/);
   assert.deepEqual(calls, [4, 2], "measured once, for the 2 s scene's 4 frame pairs, its frames rendered in the background");
 });
+
+test("reference_kinds reads labeled references that have no fingerprint, and its error carries the library search as its call", async () => {
+  const labels = (id) => ({ id, fingerprint: null, moments: 6, seen: [1.8, 5.4, 9, 12.6, 16.2, 19.8].map((at, index) => ({ at, kinds: index < 2 ? ["made"] : ["plain"], words: "neon stair edges" })) });
+  const checker = createQualityChecker({ references: async () => [labels("yt:AAAAAAAAAAA"), labels("yt:BBBBBBBBBBB")] });
+  const found = (await checker.check(project("made", "Made"), { fonts: defaultFonts })).findings.filter((entry) => entry.rule === "reference_kinds");
+  assert.deepEqual(found.map((entry) => entry.severity), ["error"]);
+  assert.equal(found[0].call.tool, "library");
+});

@@ -60,7 +60,7 @@ import { opFromWord, PRESET_LAYER, PRESET_SAMPLE_TO, PRESET_VALUE_KEYS } from ".
 import { animationSpan, isRandomId, layerAnimations, refName, sec } from "./describe.mjs";
 import { fontsLibraryText, missingCharactersHelp } from "./font-help.mjs";
 import { projectOutline } from "./outline.mjs";
-import { applyBrief, asksOf, storedQuoteProblem, BriefError, briefChanges, briefData, briefText, hasBrief, isSettled, lengthTarget, lockNeeded, notBuilt, orderSteps, pickOpen, referenceSearches, SUBJECT_SLOT, songTitleOf, REFERENCE_SKIP_UNDER, realEdit, REFERENCES_WANTED, savedText, TREATMENTS_WAIVER, videoFacts } from "./brief.mjs";
+import { applyBrief, asksOf, plainWordsProblem, storedQuoteProblem,BriefError, briefChanges, briefData, briefText, hasBrief, isSettled, lengthTarget, lockNeeded, notBuilt, orderSteps, pickOpen, referenceSearches, SUBJECT_SLOT, songTitleOf, REFERENCE_SKIP_UNDER, realEdit, REFERENCES_WANTED, savedText, TREATMENTS_WAIVER, videoFacts } from "./brief.mjs";
 import { createFootageFacts, MAX_FOOTAGE } from "./footage.mjs";
 import { createFootageCache } from "../footage/analyze.mjs";
 import { createPeopleCache } from "../footage/people.mjs";
@@ -1098,6 +1098,7 @@ export function createAgentService(deps) {
     if (list.some((op) => op?.code === "reference_kinds")) {
       const brief = (await agentState.read(document.id).catch(() => null))?.brief;
       resolver.storedQuoteProblem = (quote) => storedQuoteProblem(brief, quote);
+      resolver.plainQuoteProblem = (quote) => plainWordsProblem(brief, quote);
     }
     if (!list.some((op) => op?.code === "type_seen")) return resolver;
     const lines = (await agentState.read(document.id).catch(() => null))?.brief?.style?.lines ?? [];
@@ -3054,7 +3055,7 @@ export function createAgentService(deps) {
       const layerIds = layerId ? [layerId] : [];
       noteLive({ sceneId: layerScene?.id ?? null, layerIds, time: Number.isFinite(input.t) ? input.t : null }, [{ sceneId: layerScene?.id, layerIds }]);
     } else if (mode === "reference") {
-      ({ image = {}, text, extra } = await referenceLook(input, projectId));
+      ({ image = {}, text, extra, nextCall = null } = await referenceLook(input, projectId));
     } else if (mode === "board") {
       noteLive({ sceneId: null });
       try { ({ image, text, extra, nextCall } = await boardLook(input, { document, look, fontsFor, mediaRecord, soundFiles: await soundFilesFor(document), soundSearch: soundSearchOn() })); }
@@ -4577,14 +4578,22 @@ export function createAgentService(deps) {
     const { sheet } = await import("../measure/strips.mjs").then(({ referenceSheet }) => ({ sheet: referenceSheet }));
     const made = await sheet(kept.folder, kept.strips, { t: Number.isFinite(input.t) ? input.t : null, page: input.page ?? 1 });
     // Studied: the order step and the final render's reference gate count it (brief.mjs orderStep).
-    await agentState.update(projectId, (draft) => { draft.studied = [...new Set([...(draft.studied ?? []), id])].slice(-20); });
+    // Which strip times were shown, per reference: `seen` labels only a moment that was looked at.
+    await agentState.update(projectId, (draft) => {
+      draft.studied = [...new Set([...(draft.studied ?? []), id])].slice(-20);
+      draft.shown = { ...(draft.shown ?? {}), [id]: [...new Set([...(draft.shown?.[id] ?? []), ...made.shown.map((strip) => strip.at)])].slice(-60) };
+    });
+    // The next label: the reference's first open moment, with its ready call (look at it first when this look missed it).
+    const open = (await deps.inspire.seenStatus?.(projectId).catch(() => ({})))?.[id]?.open ?? null;
+    const labelNow = open != null && made.shown.some((strip) => Math.abs(strip.at - open) < 0.01);
+    const labelCall = open == null ? null : labelNow ? nextOf("library", { topic: "inspire", name: `seen ${id} @${open} <kinds>: <what you see>` }) : nextOf("look", { mode: "reference", ref: id, t: open });
     const rows = made.shown.map((strip) => `${strip.at}s ${strip.kinds.join("+")}`).join(" · ");
     const where = Number.isFinite(input.t) ? `nearest ${input.t}s` : `page ${Math.min(made.pages, input.page ?? 1)} of ${made.pages}`;
     // A studied edit whose title has the subject's origin word also leads to that footage.
     // (Without an origin word it reads nothing more: no second reference lookup.)
     const { found } = await originFootageFor(projectId);
     const origin = found ? originReferenceLine(found, (await deps.inspire.reference(id).catch(() => null))?.title) : "";
-    return { image: { png: made.png }, text: `reference ${id} strips (${where}): ${rows}. Each row: 6 frames 1/12 s apart from 0.25 s before the moment, 240 px wide.\n${REFERENCE_LOOKUP}${origin ? `\n${origin}` : ""}`, extra: { ref: id, strips: made.shown } };
+    return { image: { png: made.png }, text: `reference ${id} strips (${where}): ${rows}. Each row: 6 frames 1/12 s apart from 0.25 s before the moment, 240 px wide.\n${REFERENCE_LOOKUP}${origin ? `\n${origin}` : ""}`, extra: { ref: id, strips: made.shown }, nextCall: labelCall };
   }
 
   // look {mode:"source", layer, t?, width?}: the whole source frame of a video layer at scene time
@@ -6302,6 +6311,12 @@ export function createAgentService(deps) {
       const refuse = (why) => new AgentError("bad_input", `seen needs a saved reference, a time from its on-screen list and kinds: library {topic:"inspire", name:"seen yt:X @1.8 overlay, made: green outline traced on the figure"}.${why ? ` (${why})` : ""}`);
       if (!id) throw refuse();
       if (!deps.inspire.setSeen) throw new AgentError("failed", "This kino has no on-screen labels.");
+      // A moment is labeled after it was looked at (look {mode:"reference"} kept which strips it showed).
+      const at = Number(parts[2]);
+      const status = (await deps.inspire.seenStatus?.(projectId).catch(() => ({})))?.[id];
+      const moment = status?.moments?.find((candidate) => Math.abs(candidate - at) <= 0.5);
+      if (moment !== undefined && !((await agentState.read(projectId))?.shown?.[id] ?? []).some((shown) => Math.abs(shown - moment) < 0.01))
+        throw Object.assign(refuse(`you have not looked at ${moment} s yet: look {mode:"reference", ref:"${id}", t:${moment}} shows it, then label it`), { nextCall: nextOf("look", { mode: "reference", ref: id, t: moment }) });
       let done;
       try { done = await deps.inspire.setSeen(projectId, id, { at: Number(parts[2]), kinds: parts[3].toLowerCase().split(/[\s,+]+/).filter(Boolean), words: parts[4] }); }
       catch (error) { throw refuse(error.message); }
@@ -6310,7 +6325,8 @@ export function createAgentService(deps) {
       const tally = Object.entries(counts).map(([kind, n]) => `${kind} ${n}`).join(", ");
       const left = done.moments.filter((at) => !done.seen.some((entry) => entry.at === at));
       // The next moment of this reference, else wherever the order goes next (the label step of the other one, the treatments).
-      const nextCall = left.length ? nextOf("library", { topic: "inspire", name: `seen ${id} @${left[0]} <kinds>: <what you see>` }) : await buildNext(projectId);
+      // Look at the next moment first (that look ends with the ready seen call), else wherever the order goes next.
+      const nextCall = left.length ? nextOf("look", { mode: "reference", ref: id, t: left[0] }) : await buildNext(projectId);
       return { project: projectId, text: `seen ${id}: ${done.seen.length} of ${done.moments.length} moments labeled (${tally}).`, nextCall,
         data: { ref: id, labeled: done.seen.length, of: done.moments.length, seen: done.seen } };
     }
@@ -7331,6 +7347,8 @@ export function createAgentService(deps) {
       const { findings } = await findingsFor(document, { fonts, codes });
       const blocking = findings.find((finding) => finding.severity === "error" && !finding.waived);
       if (blocking?.fix && typeof blocking.fix === "object") return nextOf("edit", { ops: Array.isArray(blocking.fix) ? blocking.fix : [blocking.fix] });
+      // A finding that carries its own ready call (reference_kinds: the library search for the missing kind) names it.
+      if (blocking?.call?.tool) return nextOf(blocking.call.tool, blocking.call.input);
       if (blocking) return nextOf("inspect", { targets: [String(blocking.ref)] });
     }
     // A warning that holds only the final render (FINAL_GATES: signature_missing): its fix comes

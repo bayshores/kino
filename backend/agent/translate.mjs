@@ -805,6 +805,10 @@ function resolveReferences(operation, type, resolver, document) {
     const problem = resolver.storedQuoteProblem ? resolver.storedQuoteProblem(quote) : { missing: true };
     if (problem)
       throw new Error(`${fixFirst} The quote "${quote.slice(0, 80)}" is not in the person's stored words: ${problem.missing ? 'no message of theirs is stored; save it first (notes brief ask:"<their message, pasted whole>")' : problem.none ? 'ask is "none", so only a logged reply counts' : `closest: "${problem.closest}"`}. Copy their exact words, or take the fix.`);
+    // Their words must say what is plain, not only be theirs ("make it hit hard" keeps nothing plain).
+    const unclear = resolver.plainQuoteProblem?.(quote);
+    if (unclear)
+      throw new Error(`${fixFirst} The quote "${quote.slice(0, 80)}" is theirs but does not say what is plain (name a kind such as type, text, color, effects, graphics or overlay, or say plain, raw, simple, clean, minimal, just cuts, as is). ${unclear.closest ? `Closest of their sentences that does: "${unclear.closest}".` : "None of their stored sentences does: take the fix."}`);
     operation.reason = `${String(operation.reason ?? "").trim() || "the person asked for it plain"} (the person: "${quote.slice(0, 200)}")`;
   }
   if (type === "waive_check") delete operation.quote;

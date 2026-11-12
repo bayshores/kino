@@ -1854,16 +1854,20 @@ export function createInspire(deps) {
    * [{id, title, fingerprint, prints, seen, heard?, heardPending?}] (for the reference_drift and
    * reference_range checks). heardLater: measure a missing `heard` in the background.
    */
-  async function savedFingerprints(projectId, { heardLater = false } = {}) {
+  async function savedFingerprints(projectId, { heardLater = false, labeled = false } = {}) {
     const state = { ...emptyProject(), ...(await projectState.read(projectId)) };
     const found = [];
     for (const id of state.saved) {
       const record = await load(id);
-      if (!record?.fingerprint) continue;
+      if (!record?.fingerprint) {
+        // labeled: a reference with labels but no fingerprint still counts for reference_kinds (fingerprint: null).
+        if (labeled && state.seen?.[id]?.length) found.push({ id, title: record?.title, fingerprint: null, prints: [], seen: state.seen[id], moments: (await momentsOf(id)).length });
+        continue;
+      }
       if (heardLater && !record.heard) measureHeardLater(record);
       let prints = [];
       try { prints = JSON.parse(await readFile(fileOf(id, "prints.json"), "utf8")); } catch { /* none kept */ }
-      found.push({ id, title: record.title, measuredAt: record.measuredAt, fingerprint: await withStillContrast(record, id), prints, seen: state.seen?.[id] ?? [], ...(record.heard ? { heard: record.heard } : heardPending.has(id) ? { heardPending: true } : {}) });
+      found.push({ id, title: record.title, measuredAt: record.measuredAt, fingerprint: await withStillContrast(record, id), prints, seen: state.seen?.[id] ?? [], ...(labeled ? { moments: (await momentsOf(id)).length } : {}), ...(record.heard ? { heard: record.heard } : heardPending.has(id) ? { heardPending: true } : {}) });
     }
     return found;
   }

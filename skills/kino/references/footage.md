@@ -92,21 +92,23 @@ imported videos are never dropped from the list (24 kept).
 ## Label a reference
 
 Numbers cannot see design: a reference's type family, overlays, composites, color work and made
-graphics are only seen. After `look {mode:"reference"}`, its fingerprint ends with `on screen to
-label`: 6 moments. Look at each, then say what you see in your own words, such as
+graphics are only seen. `library {topic:"inspire", name:"yt:X"}` ends its fingerprint with `on screen to label`: 6
+moments. Look at each with `look {mode:"reference", ref:"yt:X", t}`, then say what you see in your
+own words (a moment you did not look at is refused), such as
 `library {topic:"inspire", name:"seen yt:X @1.8 overlay, made: green outline traced on the figure"}`.
 Kinds: type, overlay, composite, color, made, frame, spoken, plain (one or more, commas fine).
 The time is one of the 6 (0.5 s off is fine); a label at the same time replaces the old one.
 The order opens `label yt:X on screen (seen)` for each of the first 2 saved, studied references
-until all its moments are labeled. A reference with no frame strips has none to label. Then ask
+until all its moments are labeled; each label reply names the next look. A reference with no frame strips has none to label. Then ask
 what your edit shows that these do not: the labels are what you build toward, not a template.
 
 The check `reference_kinds` (an error) reads the labels: with 2 or more labeled references, a kind
 (type, overlay, composite, color, made, spoken) that 2 of them show at 2 or more moments must show
-somewhere in your edit, read every 0.5 s. Its fix names the library search for the label's words
+somewhere in your edit, read every 0.5 s. Its fix (and its `next`) names the library search for the label's words
 (`library {topic:"search", search:"<words>"}`): use kino's own tools to make your version, not a copy.
 Plain on purpose needs `waive_check {code:"reference_kinds", target:"<scene>", reason, quote}` with
-`quote` in words the person typed; "your call" is refused.
+`quote` in words the person typed that say what is plain (plain, raw, no effects, just cuts...); "your call" is refused.
+Only references with most moments labeled count. Spoken is judged only after the clips are transcribed (`check {pixels:true}`); no-op color, letterbox bars and backing boxes do not count.
 The search maps look words to kino names: font, outline, duotone, split screen, text behind, 3d,
 code rain, zoom burst. A look kino cannot make (speed lines) answers `no kino name for ... yet`.
 

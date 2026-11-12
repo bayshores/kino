@@ -1980,7 +1980,7 @@ test("reference_kinds: an edit lacking a kind 2 references show at 2 moments is 
   const [bare] = await fires("reference_kinds", scene({ layers: [footage("a")] }), { sceneName: "s1", seenRefs: MADE_REFS });
   assert.equal(bare.severity, "error");
   assert.match(bare.message, /^reference_kinds: your edit shows made at 0 of 8 moments; your references show it at 2 of 6 \(yt:AAAAAAAAAAA @1\.8 "green glowing outline traced on the figure"\) and 2 of 6 \(yt:BBBBBBBBBBB @1\.8 "neon stair edges"\)\.$/);
-  assert.match(bare.fix.text, /^library \{topic:"search", search:"green glowing outline traced on the"\} names kino's tools.*own version, not a copy.*waive_check \{code:"reference_kinds", target:"s1", reason:"<why>", quote:/);
+  assert.match(bare.fix.text, /^library \{topic:"search", search:"made green glowing outline traced on"\} names kino's tools.*own version, not a copy.*waive_check \{code:"reference_kinds", target:"s1", reason:"<why>", quote:/);
   // A drawn shape over the footage shows the kind (and is not plain), so nothing is left to say.
   await silent("reference_kinds", scene({ layers: [footage("a"), rect("outline", { fill: "#00ff66", width: 600, height: 400 })] }), { sceneName: "s1", seenRefs: MADE_REFS });
   // One labeled reference is not two: no error, and plain footage is not over that reference's share by a sixth.
@@ -1996,12 +1996,36 @@ test("onscreenKinds: type, overlay, color, composite and plain are read from the
   assert.deepEqual(kindsOf([footage("a", { animations: [fx("color-wheels", { gamma: 1.3 })] })]), []);
   assert.deepEqual(kindsOf([footage("a", { animations: [fx("duotone", {})] })]), ["color"]);
   assert.deepEqual(kindsOf([footage("a", { width: 900, height: 600 }), footage("b", { x: 960, y: 0, width: 900, height: 600 })]), ["composite"]);
+  // A short effect that is held (keepStill both, the default) shows for the layer's whole life; held off, only in its window.
+  const short = (keepStill) => ({ kind: "effect", effect: "glow", start: 1, duration: 0.2, easing: "linear", keepStill, to: {} });
+  assert.deepEqual(kindsOf([footage("a", { animations: [short("both")] })]), ["overlay"]);
+  assert.deepEqual(kindsOf([footage("a", { animations: [short("off")] })]), []);
+  assert.deepEqual(kindsOf([footage("a", { animations: [{ ...fx("color-look", {}), start: 2, duration: 0.2 }] })]), ["color"]);
+  // A color effect at its neutral values, or a mix of 0 is no look.
+  for (const [effect, to] of [["hue-saturation", {}], ["curves", {}], ["white-balance", { temperature: 0, tint: 0 }], ["color-grade", { contrast: 1 }], ["color-look", { amount: 0 }]])
+    assert.deepEqual(kindsOf([footage("a", { animations: [fx(effect, to)] })]), [], effect);
+  assert.deepEqual(kindsOf([footage("a", { animations: [fx("white-balance", { temperature: 0.3 })] })]), ["color"]);
+  // Letterbox bars at the frame edges and a plain box under a title are not made graphics; a drawn shape is.
+  const bars = [rect("top", { x: 0, y: 0, width: 1920, height: 140 }), rect("bottom", { x: 0, y: 940, width: 1920, height: 140 })];
+  assert.deepEqual(kindsOf([footage("a"), ...bars]), []);
+  assert.deepEqual(kindsOf([footage("a"), rect("box", { x: 190, y: 200, width: 240, height: 90 }), text("t", "A title")]), ["type"]);
+  assert.deepEqual(kindsOf([footage("a"), rect("box", { x: 100, y: 100, width: 600, height: 400 })]), ["made"]);
+});
+
+test("reference_kinds: spoken is not judged while the clips are not transcribed; it is when they are", async () => {
+  const talk = ["a", "b"].map((letter) => seenRef(`yt:${letter.repeat(11)}`, [1.8, 5.4, 9, 12.6, 16.2, 19.8].map((at, index) => [at, index < 3 ? ["spoken"] : ["plain"], "a line"])));
+  const context = { sceneName: "s1", seenRefs: talk };
+  const notYet = await check("reference_kinds", scene({ layers: [footage("a")] }), { ...context, speech: [{ layer: { id: "a" }, transcript: null, missing: "not transcribed yet (check with pixels transcribes it)" }] });
+  assert.deepEqual(notYet.findings.filter((finding) => finding.severity === "error"), []);
+  assert.match(notYet.findings.find((finding) => finding.severity === "info").message, /spoken is not judged yet.*check \{pixels:true\}/);
+  const heard = await check("reference_kinds", scene({ layers: [footage("a")] }), { ...context, speech: [] });
+  assert.equal(heard.findings.find((finding) => finding.severity === "error").fix.call.tool, "library");
 });
 
 test("reference_kinds: plain footage far over every reference's plain share warns", async () => {
-  const busy = [seenRef("yt:CCCCCCCCCCC", [[1.8, ["type"], "title"], [5.4, ["type"], "title"], [9, ["plain"], "clip"]])];
+  const busy = [seenRef("yt:CCCCCCCCCCC", [[1.8, ["type"], "title"], [5.4, ["type"], "title"], [9, ["plain"], "clip"], [12.6, ["plain"], "clip"], [16.2, ["plain"], "clip"], [19.8, ["plain"], "clip"]])];
   const found = (await check("reference_kinds", scene({ layers: [footage("a")] }), { sceneName: "s1", seenRefs: busy })).findings;
-  assert.ok(found.some((finding) => finding.severity === "warn" && /is plain picture at 8 of 8 moments; your references are plain at 1 of 3/.test(finding.message)));
+  assert.ok(found.some((finding) => finding.severity === "warn" && /is plain picture at 8 of 8 moments; your references are plain at 4 of 6/.test(finding.message)));
 });
 
 // ---------------------------------------------------------------- coverage
