@@ -151,6 +151,21 @@ function frameRate(options) {
   return options.fps ?? (options.format === "lottie" ? 60 : 30);
 }
 
+// The scale a draft asked for with options {width, height} (a box the picture fits in) or {size}
+// (a preset such as "720p"), never above the scene's own size. Null when it asked for none, so
+// the draft keeps its half-size default.
+function askedDraftScale(scene, options) {
+  const sceneWidth = Number(scene.width);
+  const sceneHeight = Number(scene.height);
+  if (options.size && options.size !== "native" && options.width == null && options.height == null) {
+    const size = getOutputSize(scene, options);
+    return Math.min(1, size.width / sceneWidth, size.height / sceneHeight);
+  }
+  const box = (value) => Number.isFinite(value) && value > 0 ? value : Infinity;
+  if (box(options.width) === Infinity && box(options.height) === Infinity) return null;
+  return Math.min(1, box(options.width) / sceneWidth, box(options.height) / sceneHeight);
+}
+
 // Exported for tests.
 export function sceneOptions(options, scene) {
   const scoped = stillOptionsForScene(options, scene);
@@ -173,7 +188,8 @@ export function sceneOptions(options, scene) {
   });
   // A draft is half size, and its long side is at most draftWidth (your dashboard setting) when given.
   const longSide = Math.max(Number(scene.width), Number(scene.height));
-  const scale = draft ? Math.min(0.5, options.draftWidth ? options.draftWidth / longSide : 0.5) : 1;
+  // A width, height or size given with the draft wins over that half-size default, up to the scene's own size.
+  const scale = draft ? askedDraftScale(scene, options) ?? Math.min(0.5, options.draftWidth ? options.draftWidth / longSide : 0.5) : 1;
   const width = Math.max(1, Math.round(Number(scene.width) * scale));
   const height = Math.max(1, Math.round(Number(scene.height) * scale));
   const result = {

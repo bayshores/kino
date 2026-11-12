@@ -96,7 +96,7 @@ async function decodeFrames(file, width, height, decoder) {
 
 test("agent PNG export renders both scenes, saves under the agent directory, and builds a real ZIP", async () => {
   const { revision } = await createProject();
-  // A draft is half the scene size even when options ask for full size, as render start makes it.
+  // A draft is half the scene size unless options give a width, height or size: here they ask for full size.
   const started = await manage({ action: "start", quality: "draft", options: { profile: "png", width: 32, height: 16, time: 0 } });
   assert.equal(started.isError, undefined, started.text);
   assert.equal(started.data.rev, revision);
@@ -110,8 +110,8 @@ test("agent PNG export renders both scenes, saves under the agent directory, and
     assert.equal(job.status, "completed");
     assert.ok(job.path.startsWith(path.join(server.dataDirectory, "agent", "exports")), "default output stays under agentDirectory");
     const image = await readImage(await readFile(job.path));
-    assert.deepEqual([image.width, image.height], [16, 8], "a draft PNG is half the 32×16 scene");
-    pixels.push(image.pixel(8, 4));
+    assert.deepEqual([image.width, image.height], [32, 16], "a draft PNG given the scene's own width and height is that size");
+    pixels.push(image.pixel(16, 8));
   }
   assert.deepEqual(pixels, [[255, 0, 0, 255], [0, 255, 0, 255]], "each saved PNG contains the rendered scene pixels");
 
@@ -227,7 +227,7 @@ test("agent GIF and MP4 profiles retain their export options and produce probeab
   assert.ok(near(gifFrames.at(-1).pixel(3, 5), [60, 200, 180, 255], 30), "reverse playback ends at the first pose");
   await manage({ action: "close", batch: gifStart.data.batch });
 
-  // A draft MP4 is half size, whatever size the options ask for, at their fps up to 30.
+  // A draft MP4 given size 1x is the scene's size, at the fps asked for up to 30.
   const mp4Start = await manage({ action: "start", sceneIds: ["media-scene"], quality: "draft", options: {
     profile: "mp4", size: "1x", fps: 60,
   } });
@@ -236,8 +236,8 @@ test("agent GIF and MP4 profiles retain their export options and produce probeab
   assert.equal(mp4.jobs[0].status, "completed", mp4.jobs[0].error);
   const mp4Probe = await probeMedia(mp4.jobs[0].path);
   assert.equal(mp4Probe.codec_name, "h264");
-  assert.equal(mp4Probe.width, 16);
-  assert.equal(mp4Probe.height, 8);
+  assert.equal(mp4Probe.width, 32);
+  assert.equal(mp4Probe.height, 16);
   assert.equal(mp4Probe.r_frame_rate, "30/1");
   assert.equal(Number(mp4Probe.nb_read_frames), 12, "0.4 s at 30fps");
   await manage({ action: "close", batch: mp4Start.data.batch });
