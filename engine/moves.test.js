@@ -87,7 +87,7 @@ function runExample(name, scene, { reduced = false, seed = 1 } = {}) {
 }
 
 test("every move is described for the library with tags from the vocabulary and an example", () => {
-  assert.equal(MOVE_NAMES.length, 55);
+  assert.equal(MOVE_NAMES.length, 56);
   for (const name of MOVE_NAMES) {
     const move = MOVES[name];
     assert.equal(move.name, name);
@@ -99,6 +99,38 @@ test("every move is described for the library with tags from the vocabulary and 
     if (move.needsAt) assert.equal(typeof move.example.at, move.needsCue ? "string" : "number", `${name}'s example gives at`);
   }
   assert.throws(() => moveOf("zoom-thru"), /zoom-through/);
+});
+
+test("backdrop-flash puts a color field between the clip and its cut-out on the on frames, rims the subject and punches both", () => {
+  const scene = sceneFor(1920, 1080);
+  const clip = scene.layers.find((layer) => layer.id === "clip");
+  clip.animations = [{ id: "grade", kind: "effect", effect: "tritone", start: 0, duration: 5, to: { midtoneColor: "#2FA866" } }];
+  scene.layers.splice(1, 0, createLayer("video", { ...clip, id: "clip-subject", name: "clip-subject", cutoutOf: "clip", animations: [] }));
+  const definition = MOVES["backdrop-flash"];
+  const made = runMove(definition, { id: "flash", input: readMoveInput(definition, { layer: "clip", subject: "clip-subject" }), scene, style: styleFor({ look: "crisp", frame: { width: 1920, height: 1080 } }), fonts: defaultFonts, start: 1, media });
+  const field = made.added[0];
+  assert.deepEqual(field.place, { below: "clip-subject" });
+  // The grade's hue (147°) turned -35°: the study's green field.
+  assert.equal(field.layer.fill.stops[1].color, "#35DE1B");
+  const at = (time) => visibleByOperations(field.layer.animations, time);
+  assert.deepEqual([0.99, 1.01, 1.05, 1.08, 1.12, 1.14].map(at), [false, true, true, false, true, false]);
+  assert.ok(field.layer.animations.some((animation) => animation.effect === "streaks"));
+  assert.equal(made.animations.filter((entry) => entry.animation.effect === "rim-light").length, 2);
+  // tone "field": the subject's tritone on each run of on frames, its colors turned from the field's hue.
+  assert.deepEqual(made.animations.filter((entry) => entry.animation.effect === "tritone").map((entry) => [entry.layerId, entry.animation.to.highlightColor]), [["clip-subject", "#F5FFB8"], ["clip-subject", "#F5FFB8"]]);
+  assert.deepEqual(made.animations.filter((entry) => entry.animation.name.startsWith("Flash punch x")).map((entry) => [entry.layerId, entry.animation.to.scaleX]), [["clip", 1.06], ["clip-subject", 1.06]]);
+  assert.equal(made.end, 1.133);
+  // A cut-out the agent made stays on screen; one kino made for the flash shows on its frames only.
+  const subjectAt = (result) => (time) => visibleByOperations(result.animations.filter((entry) => entry.layerId === "clip-subject").map((entry) => entry.animation), time);
+  assert.deepEqual([0.99, 1.08, 1.5].map(subjectAt(made)), [true, true, true]);
+  scene.layers[1].cutoutFor = "backdrop-flash";
+  const own = runMove(definition, { id: "flash", input: readMoveInput(definition, { layer: "clip", subject: "clip-subject" }), scene, style: styleFor({ look: "crisp", frame: { width: 1920, height: 1080 } }), fonts: defaultFonts, start: 1, media });
+  assert.deepEqual([0.99, 1.01, 1.05, 1.08, 1.12, 1.14].map(subjectAt(own)), [false, true, true, false, true, false]);
+  // tone "own" on kino's cut-out (made without the clip's one-hue grade) puts the clip's grade back on the flash frames.
+  const kept = runMove(definition, { id: "flash", input: readMoveInput(definition, { layer: "clip", subject: "clip-subject", tone: "own" }), scene, style: styleFor({ look: "crisp", frame: { width: 1920, height: 1080 } }), fonts: defaultFonts, start: 1, media });
+  assert.deepEqual(kept.animations.filter((entry) => entry.animation.effect === "tritone").map((entry) => [entry.animation.to.midtoneColor, entry.animation.start]), [["#2FA866", 1], ["#2FA866", 1.1]]);
+  assert.throws(() => readMoveInput(definition, { layer: "clip", frames: [1, 2] }), /1 \(on\) and 0 \(off\)/);
+  assert.equal(readMoveInput(definition, { layer: "clip", color: "auto" }).color, "auto");
 });
 
 test("align puts a move's span starting at, centered on or ending at its at (FilmCraft start_for)", () => {

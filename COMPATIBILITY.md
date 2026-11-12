@@ -754,6 +754,11 @@ How to read it:
   teeth fixed per seed that boil at their rate (engine/shapeModifiers.test.js); `move split-fields {layer}` builds two
   normalized duotone copies and a rough drifting mask (engine/moves.test.js). Rendered through the agent path with the
   required field only: green and magenta fields of one shot along a ragged edge. Gap: boil is not exported to Lottie.
+- **backdrop-flash**: Verified. One move puts a color field (auto hue from the shot's grade or picture, turned -35°,
+  streaks, subject tone, rim-light, punch 1.06) between a clip and its subject on frames [1,1,0,1]; the edit makes or
+  reuses the cut_out itself, shown on those frames only, and tints the shot where no cut-out can be made
+  (engine/moves.test.js; backend/agent-moves.test.mjs gate; the grade-bloom-flash re-run: 1 move in place of 10 ops
+  and 2 cut_outs).
 - **impact-accent move**: Partly verified. `move {name:"impact-accent", kind, at:"cue:<name>"}` flashes, shakes,
   impact-frames, dips or strobes a shot only when the cue motivates that kind (footage impact or light, song seam,
   top accent, rest, measured onset fill), sized by its weight; raw times, beat numbers, align/dur and song cues

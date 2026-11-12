@@ -142,7 +142,26 @@ async function addOutlineLayer({ document, operation, scene, layer, made, report
  * waitSeconds). Refusals are thrown as errors; a cut-out error says what to send instead and
  * carries its code as `cutoutError`.
  */
-export async function runCutOut(document, operation, { mediaRoot, cutoutMedia, operationContext, reports, waitSeconds = 50, deadline }) {
+export async function runCutOut(document, operation, options) {
+  if (!operation.optional) return cutOut(document, operation, options);
+  // A cut-out a move asked for on its own (translate.mjs moveCutouts, subject left out): with no
+  // engine on this computer or no subject in the clip, the edit goes on without it and the move
+  // falls back (backdrop-flash tints the shot), so the move still works where cut_out cannot.
+  try {
+    return await cutOut(document, operation, options);
+  } catch (error) {
+    if (!cutoutMediaMissing(error) && !["CUTOUT_ENGINE_UNAVAILABLE", "CUTOUT_NO_SUBJECT"].includes(error.cutoutError ?? error.code)) throw error;
+    options.reports?.set(operation, { output: operation.output ?? "subject", fallback: `no cut-out made (${error.message.split(".")[0]}); the move goes on without it` });
+    return document;
+  }
+}
+
+/** The clip's effects a cut-out made for a move's own frames leaves out (see cutOut). */
+export const MOVE_DROPS = Object.freeze(["glow", "tritone", "duotone"]);
+
+const cutoutMediaMissing =(error) => /cut-out is not set up/.test(error?.message ?? "");
+
+async function cutOut(document, operation, { mediaRoot, cutoutMedia, operationContext, reports, waitSeconds = 50, deadline }) {
   const { sceneId, layerId } = operation;
   // behind: a person matte by default, and the text moves right above the clip first (below).
   // points pick among the subject engine's objects, so they need it.
@@ -209,6 +228,17 @@ export async function runCutOut(document, operation, { mediaRoot, cutoutMedia, o
   const copy = copied.document.scenes.find((item) => item.id === sceneId).layers.find((item) => item.id === copied.rootIds[0]);
   copy.id = operation.cutoutId;
   copy.cutoutOf = layerId;
+  // Which output it shows, so a move that needs the subject reuses this one (translate.mjs moveCutouts).
+  copy.cutoutOutput = output;
+  // Made by a move for its own frames (translate.mjs moveCutouts, field cutout.own): the copy keeps
+  // the clip's other effects (curves, color) but not its glow or its one-hue grade (tritone,
+  // duotone); the move puts its own tone on the subject or the clip's grade back (backdrop-flash
+  // tone). grade-bloom-flash study: the subject had the clip's curves and its own tritone, no glow;
+  // with the clip's glow and tritone copied too, the face was drawn blown to one white.
+  if (operation.forMove) {
+    copy.cutoutFor = operation.forMove;
+    copy.animations = (copy.animations ?? []).filter((animation) => !(animation.kind === "effect" && MOVE_DROPS.includes(animation.effect)));
+  }
   let next = parseDocument(copied.document);
   const steps = [
     { type: "replace_media", sceneId, layerId: operation.cutoutId, mediaId: made.record.id },

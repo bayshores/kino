@@ -895,7 +895,7 @@ function copyText(value, depth = 0) {
 // or null), type (style.type or the picked treatment's type direction, or null)}, or null.
 // subjectSamples(layer): the faces (and where the eye goes) saved for a video layer's file, as
 // samples [{t, faces, subjects?}], the same ones check reads; [] when none were saved. frame_shot uses them.
-export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationContext, deckDeals = null, footageFacts = null, footageDeck = null, runOps = null, pictureAlpha = null, clipEvents = null, styleType = null, savedRefs = null, subjectSamples = null }) {
+export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationContext, deckDeals = null, footageFacts = null, footageDeck = null, runOps = null, pictureAlpha = null, clipEvents = null, styleType = null, savedRefs = null, subjectSamples = null, shotColor = null }) {
   async function fontsOf(document, work) { return work.fonts ??= await fontsFor(document); }
   const layout = createLayoutOps({ fontsOf, problem, sceneOf, faceTarget });
   async function mediaOf(document, work) {
@@ -1253,6 +1253,10 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     const subjects = new Map();
     const namedIds = Object.values(input).flatMap((value) => (Array.isArray(value) ? value : [value])).filter((value) => typeof value === "string");
     for (const layer of scene.layers) if (layer.type === "video" && namedIds.includes(layer.id) && subjectSamples) subjects.set(layer.id, (await subjectSamples(layer).catch(() => null)) ?? []);
+    // The dominant hue of each named clip or picture at the move's start (backdrop-flash color "auto").
+    const hues = new Map();
+    if (definition.fields.color?.auto && (settings.color ?? "auto") === "auto" && shotColor)
+      for (const layer of scene.layers) if ((layer.type === "video" || layer.type === "image") && namedIds.includes(layer.id) && !layer.cutoutOf) hues.set(layer.id, await shotColor(layer, start).catch(() => null));
     // font (push-through-type, a display face at 700) or fontFamily (caption-words, body text at
     // 600); a fontWeight alone loads that weight of the body font the move would use.
     const weightFamily = typeof input.fontFamily === "string" ? input.fontFamily
@@ -1266,7 +1270,7 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
         cueFacts,
         id: operation.id, input, scene, style, fonts, start, align: settings.align ?? "start", dur: settings.dur ?? null, media, logo: logoOf(brand, media),
         reduced: settings.reduced ?? composition.reduced ?? false, seed: settings.seed ?? 1, brandFonts: Boolean(faces), bpm: document.rhythm?.bpm ?? null,
-        alpha: (src) => alphas.get(src) ?? null, samples: (layerId) => subjects.get(layerId) ?? [], fontFaces: Object.fromEntries(Object.entries(fontFaces).filter(([, face]) => face)),
+        alpha: (src) => alphas.get(src) ?? null, samples: (layerId) => subjects.get(layerId) ?? [], shotColor: (layerId) => hues.get(layerId) ?? null, fontFaces: Object.fromEntries(Object.entries(fontFaces).filter(([, face]) => face)),
         fileSize: (src) => {
           const item = work.mediaList?.find((entry) => entry.src === src || `/api/media/${entry.id}` === src);
           return item?.width > 0 && item?.height > 0 ? { width: item.width, height: item.height } : null;
@@ -1282,7 +1286,10 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     if (made.cues.length) document.cues = withCues(document.cues, made.cues.map((cue) => ({ name: cue.name, time: round(cue.time), kind: "marker" })));
     const touched = [...new Set(made.animations.map((entry) => entry.layerId))];
     const cueNote = made.cues.length ? `; cues ${made.cues[0].name} to ${made.cues.at(-1).name} (a sound on each: at "cue:${made.cues[0].name}")` : "";
-    work.notes.push(`move ${operation.id}${stored ? " (made again)" : ""}: ${made.start}–${made.end} s; ${made.added.length} new layer${made.added.length === 1 ? "" : "s"}${touched.length ? `, animates ${touched.join(", ")}` : ""}; ${made.tags.join(", ")}${made.notes.length ? `; ${made.notes.join("; ")}` : ""}${cueNote}`);
+    // Only the cut-outs that were made (an optional one is skipped where no engine or subject is found).
+    const cutsMade = (operation.cutoutMade ?? []).filter((cut) => scene.layers.some((layer) => layer.id === cut.id)).map((cut) => cut.text);
+    const cutNote = cutsMade.length ? `; made the subject ${cutsMade.join(", ")}` : "";
+    work.notes.push(`move ${operation.id}${stored ? " (made again)" : ""}: ${made.start}–${made.end} s; ${made.added.length} new layer${made.added.length === 1 ? "" : "s"}${touched.length ? `, animates ${touched.join(", ")}` : ""}${cutNote}; ${made.tags.join(", ")}${made.notes.length ? `; ${made.notes.join("; ")}` : ""}${cueNote}`);
   }
 
   // ---- compose ------------------------------------------------------------------------------

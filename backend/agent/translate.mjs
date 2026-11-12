@@ -17,6 +17,7 @@ import { refId } from "../inspire.mjs";
 import { RANGE_ROW_WORDS, rangeRowsOf } from "./checks.mjs";
 import { BLOCK_OPERATION_TYPES, blockCreatedIds, blockReferencedIds, isBlockOperation, translateBlock } from "./blocks.mjs";
 import { durationFromToken, easingFromToken } from "../../engine/blocks/tokens.js";
+import { MOVES } from "../../engine/blocks/moves/index.js";
 import { createLayer } from "../../engine/model.js";
 import { copyName, MAX_COPIES } from "../../engine/duplicate.js";
 import { BACKDROP_STYLE_KEYS } from "../../engine/backdropStyles.js";
@@ -1162,6 +1163,42 @@ function checkCutOut(operation, resolver) {
   operation.cutoutId = idFromName(operation.cutoutName, "layer", resolver) || randomUUID();
 }
 
+// A move field with `cutout: {of, auto}` (backdrop-flash subject, masked-type subject) takes the
+// subject cut-out of a clip or picture. Given a plain video or image layer, or left out when auto,
+// the edit makes that cut-out right before the move (a cut_out op, so it shares the edit's wait
+// and the kept result), or reuses one: a subject cut-out of the same layer made earlier in this
+// edit or already in the project. The move's receipt names the layer it made (cutoutMade).
+function moveCutouts(operation, resolver, document, cutouts) {
+  const definition = operation?.type === "move" && operation.remove === undefined ? MOVES[operation.name] : null;
+  if (!definition) return [];
+  const key = (name) => (name === "layer" ? "layerId" : name === "layers" ? "layerIds" : name);
+  const layers = document.scenes.flatMap((scene) => scene.layers);
+  const made = [];
+  for (const [name, field] of Object.entries(definition.fields)) {
+    if (!field.cutout) continue;
+    const source = operation[key(name)] ?? (field.cutout.auto ? operation[key(field.cutout.of)] : undefined);
+    if (typeof source !== "string" || !["video", "image"].includes(resolver.layerTypeOf(source))) continue;
+    const own = layers.find((layer) => layer.id === source);
+    if (own?.cutoutOf || cutouts.some((cut) => cut.cutoutId === source)) { operation[key(name)] = source; continue; }
+    // A cut-out another move made for itself (shown only in its own frames) is not reused by a different move.
+    const fits = (madeFor) => madeFor === undefined || madeFor === operation.name;
+    const subjectOf = (layer) => layer.cutoutOf === source && !layer.isMask && fits(layer.cutoutFor) && (layer.cutoutOutput ?? (/(?:silhouette|matte)/i.test(layer.name ?? "") ? "other" : "subject")) === "subject";
+    const reused = cutouts.find((cut) => cut.layerId === source && (cut.output ?? "subject") === "subject" && fits(cut.forMove))?.cutoutId ?? layers.find(subjectOf)?.id;
+    if (reused) { operation[key(name)] = reused; continue; }
+    const cut = translateOne({ type: "cut_out", layerId: source, ...(operation.sceneId ? { sceneId: operation.sceneId } : {}) }, resolver, document);
+    // cutout.own (backdrop-flash): the cut-out is the move's own, shown only in its frames, so the
+    // copy leaves out the clip's glow, which the clip under it already draws (cutout-operation.mjs).
+    if (field.cutout.own) cut.forMove = operation.name;
+    // Left out (not asked for by name): without a cut-out engine or a subject, the move goes on without it.
+    if (operation[key(name)] === undefined) cut.optional = true;
+    cutouts.push(cut);
+    made.push(cut);
+    operation[key(name)] = cut.cutoutId;
+    operation.cutoutMade = [...(operation.cutoutMade ?? []), { id: cut.cutoutId, text: `${cut.cutoutName} (cut_out of ${resolver.nameOf("layer", source) ?? source})` }];
+  }
+  return made;
+}
+
 function checkCount(operations) {
   if (!Array.isArray(operations) || operations.length === 0) throw new Error("ops must be a list of 1 to 200 operations.");
   if (operations.length > 200) throw new Error(`ops has ${operations.length} operations; send at most 200 per edit.`);
@@ -1225,6 +1262,8 @@ export function translateAll(operations, resolver, document) {
   const problems = [];
   const blocked = new Map();
   const failedIds = new Map();
+  // The cut_outs of this edit so far, so a move reuses one instead of cutting the same clip twice.
+  const cutouts = [];
   operations.forEach((raw, index) => {
     let operation;
     const made = [];
@@ -1245,6 +1284,12 @@ export function translateAll(operations, resolver, document) {
       try {
         const inline = inlineAnimations(part);
         const first = translateOne(inline ? inline.layer : part, resolver, document);
+        // A move that needs a subject cut-out gets it made (or reused) right before it.
+        for (const cut of moveCutouts(first, resolver, document, cutouts)) {
+          made.push(...createdIds(cut));
+          parts.push(cut);
+        }
+        if (first.type === "cut_out") cutouts.push(first);
         made.push(...createdIds(first));
         parts.push(first);
         inline?.animations.forEach((entry, number) => {

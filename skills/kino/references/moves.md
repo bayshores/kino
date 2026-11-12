@@ -1,7 +1,7 @@
 # Moves
 
-A move is a designed set piece built in one op from your layers, pictures, brand.
-Most shots need none (a plain cut). Pick one or two as the signature, spend them
+A move is a set piece built in one op from your layers.
+Most shots need none. Pick one or two as the signature, spend them
 on the hook, reveal and payoff.
 
 Contents: The move op · The moves · Moves example · Trim paths and dashes
@@ -31,7 +31,7 @@ Contents: The move op · The moves · Moves example · Trim paths and dashes
   frame; no `to`: it stays. `reverse:true` pulls back from it (or an earlier push) to the whole
   shot, 0.4 s expo-out, `title` landing. `flash:"white"`.
 - **whip-pan**: both shots slide a frame width, smeared (`smear`, `angle`).
-- **smear**: datamosh drag; **shatter**: glass shards fly off.
+- **smear** (datamosh drag), **shatter** (glass shards), **split-fields** (two color fields, rough edge).
 - **push-through-type**: a big glossy word (or `layer`: your text, picture logo, path, shape or
   group) fades in (`entrance:"sharpen"`: blur); the camera speeds into a letter (or the logo)
   and the next shot shows inside it until it fills the frame.
@@ -50,7 +50,7 @@ Contents: The move op · The moves · Moves example · Trim paths and dashes
   `layout:"wheel"` turns a list. Cues `<id>.1`… `<id>.land` for sound.
 - **rgb-split-hit**: on each beat colors split and snap back, kicking larger (`kick:0`: no).
 - **parallax-stack**: 2-4 layers (far to near) drift at different rates.
-- **mask-through-shape**: the next shot opens from a circle, box or diamond, ringed (`ring`, `accent`).
+- **mask-through-shape**: the next shot opens from a circle, box or diamond (`ring`, `accent`).
 - **accent-hit**, **light-sweep**: one word or shape lit in one color (light.md).
 - **tile-ring**: a shot breaks into a turning ring of tiles (it and your `pictures`).
 - **build-in**: split_image pieces resolve in turn (building-blocks.md).
@@ -72,7 +72,7 @@ Contents: The move op · The moves · Moves example · Trim paths and dashes
   cut).
 - **speed-ramp**, **beat-repeat**: footage time on a cue (media.md).
 - **masked-type**: one big word made of the footage as the shot falls away around it; `subject`
-  (a cut_out layer) stands it behind the person; `reveal`: `rise` (default) or `cut`.
+  (the clip, cut out for you) stands it behind the person; `reveal`: `rise` (default) or `cut`.
 - **perceive-insert**: `layer` (a clip), `at`, `region` [x,y,w,h] % (default: marked subject)
   fills the frame 1s (`dur` 0.6-1.4), hard cuts, muted; `entry:"push"`.
 - **voice-type**: a spoken line set big word by word; `speech`+`line` or `words`.
@@ -88,19 +88,20 @@ Contents: The move op · The moves · Moves example · Trim paths and dashes
 - **draw-on**: a line, outline or route (`layer`: a stroked rectangle, ellipse, star or path)
   draws on, 0.4-1.2 s by length; a fill fades in last.
 - **punch-in**: the frame snaps closer on a `point` (`scale`, `hold`, `out`). **shake**: a
-  random shake that dies down (`strength`, `frequency`, `decay`), `at` a cue in a music edit.
-  Both refuse a layer moving its own place or size meanwhile.
+  random shake that dies down, `at` a cue in a music edit.
+  Both refuse a layer that moves itself.
 - **overexpose**: a soft wash out and back, faces kept; `into` cuts on the peak.
+- **backdrop-flash** `{layer, at}`: a color field flashes behind the subject (cut out for you).
 
 Launch-video type (words arrive faint, then darken):
 
-- **headline-write**: the `headline` writes on 4 words/s, centered, no label above it. `exit:"dim"` fades it to 20%.
+- **headline-write**: the `headline` writes on 4 words/s, centered. `exit:"dim"` fades it to 20%.
 - **logo-settle**: the logo mark (`picture` or `logo`) lands from 2.6x, the `wordmark` types on
   beside it; `header:true` shrinks the lockup into a header.
 - **count-up**: an accent number counts to `value` ("98%", "$1.2M") in steady-width digits,
-  most of it early; a `label` writes on under it.
+  a `label` writes on under it.
 
-Moves write in the brand's fonts (else the project's text font) and add a dark box under words only where they could fail contrast (`scrim`).
+Moves use the brand's fonts (else the project's); a `scrim` only where words could fail contrast.
 
 ## Moves example
 

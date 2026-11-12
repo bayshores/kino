@@ -147,7 +147,7 @@ export const maskedType = {
     layer: { kind: "layer", required: true, about: "the footage (a video layer)" },
     text: { kind: "text", max: 14, about: "the word (one short word fills best), or give textLayer" },
     textLayer: { kind: "layer", about: "your own text layer instead: the footage plays through it in its own font, size and place (with subject it keeps its color too); it is hidden while the move draws it" },
-    subject: { kind: "layer", about: "the subject cut out of the footage (cut_out output subject, above the footage): the word goes between them" },
+    subject: { kind: "layer", cutout: { of: "layer" }, about: "the subject cut out of the footage (cut_out output subject, above the footage; a plain clip given here is cut out in the same edit): the word goes between them" },
     place: { kind: "choice", values: ["middle", "top"], about: "where the word sits (default middle; top puts it behind a head)" },
     reveal: { kind: "choice", values: ["rise", "cut"], about: "with subject: how the word comes on (default rise: it lifts and fades in; cut: it appears at once). No blur" },
   },
