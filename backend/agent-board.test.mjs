@@ -23,7 +23,7 @@ import { BEAT_ANALYSIS_VERSION } from "../engine/beatDetection.js";
 import { SONG_SHAPE_VERSION } from "./song-shape.mjs";
 import { referenceHelp } from "./agent/blocks.mjs";
 import { boardBuildOps } from "./agent/board-build.mjs";
-import { boardCueLines, boardPaceFacts, boardStoryCues, sceneCueShows } from "./agent/board-pace.mjs";
+import { boardCueLines, boardPaceFacts, boardStoryCues, builtBoard, sceneCueShows } from "./agent/board-pace.mjs";
 import { cueShowLines } from "../engine/footage/cueShows.js";
 import { estimateTextTokens } from "./meter.mjs";
 import { ffmpeg, run, skipWithoutMediaTools, startTestServer, withoutNext } from "./media.test.support.mjs";
@@ -213,6 +213,14 @@ test("the payoff's cue line reads the scene's song when the board names none, an
     .includes("on the payoff beat at 6.00 s: layer inner (a.mp4) new"));
   const picture = (id, mediaStart, mediaDuration) => ({ id, name: id, type: "image", src: "/api/media/p.png", mediaStart, mediaDuration });
   assert.ok(checked([picture("pic", 3, 1), picture("pic2", 6, 2)]).includes("on the payoff beat at 6.00 s: layer pic2 (p.png) shows again the still shown at 3-4 s"));
+  // compose builds a picture with Show and Hide, no Play range: it is on screen only between them,
+  // so no take fills the edit and the second showing is the shot on the payoff.
+  const shown = (id, from, to) => ({ id, name: id, type: "image", src: "/api/media/p.png", animations: [{ kind: "show", start: from }, ...(to < 8 ? [{ kind: "hide", start: to }] : [])] });
+  assert.deepEqual(checked([shown("pic", 3, 4), shown("pic2", 6, 8)]).filter((line) => /p\.png/.test(line)),
+    ["on the drop at 3.00 s: layer pic (p.png) new", "on the payoff beat at 6.00 s: layer pic2 (p.png) shows again the still shown at 3-4 s"]);
+  // check reads the story's times off the layers compose built: board-s3 starts at 4.5 s after a later edit.
+  const moved = { ...scene, layers: scene.layers.map((layer) => (layer.id === "board-s3" ? { ...layer, mediaStart: 4.5, mediaDuration: 3.5 } : layer)) };
+  assert.deepEqual(boardStoryCues(builtBoard(board, moved), { spine }), [{ at: 4.5, kind: "payoff beat, the longest shot (3.5 s)" }]);
 });
 
 test("a bad move.ref says what the project accepts now: its saved keys, the fixed ref, or the call that saves one", () => {

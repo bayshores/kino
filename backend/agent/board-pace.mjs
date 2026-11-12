@@ -10,6 +10,7 @@ import { boardSpans, cueShowLines, cueShows, storyCues } from "../../engine/foot
 import { shotRoles } from "../../engine/movePicks.js";
 import { expandComponents } from "../../engine/linkedComponents.js";
 import { mediaPlaybackRange, mediaSoundTime } from "../../engine/playback.js";
+import { hiddenRanges } from "../../engine/visibilityOps.js";
 import { round } from "../../engine/numbers.js";
 
 // Beat times listed in the look's text (the snap uses them all, to the board's end).
@@ -131,11 +132,45 @@ export function sceneCueShows({ scene, music, shape, media = {}, document = null
   // A cut-out (cutoutOf) shows its clip's own pixels on top of it: the clip below is the shot. A
   // picture (image layer) is a still: shown again is the fact.
   const spans = layers.filter((layer) => (layer.type === "video" || layer.type === "image") && layer.visible !== false && layer.src && !layer.cutoutOf).flatMap((layer) => {
-    const range = mediaPlaybackRange(layer, seconds);
     const still = layer.type === "image";
-    return range ? [{ at: range.start, end: range.end, label: `layer ${layer.name || layer.id}`, file: layer.src, name: nameOf(layer.src), fileAt: still ? () => 0 : (time) => mediaSoundTime(layer, time), tags: tagsOf(layer.src), ...(still ? { still: true } : {}) }] : [];
+    // Each stretch the layer is on screen: its Play range less the times its Hide and Show hide it.
+    return shownParts(layer, seconds).map((range) => ({ at: range.start, end: range.end, label: `layer ${layer.name || layer.id}`, file: layer.src, name: nameOf(layer.src),
+      fileAt: still ? () => 0 : (time) => mediaSoundTime(layer, time), tags: tagsOf(layer.src), ...(still ? { still: true } : {}) }));
   });
   return spans.length ? cueShows({ spans, cues, story: told, seconds, pool }) : null;
+}
+
+/**
+ * The stretches [{start, end}] a picture or clip layer is on screen: its Play range (a still
+ * image's is the whole scene) less the hidden ranges of its Hide and Show (a board-built picture
+ * shows only on its shot that way).
+ */
+export function shownParts(layer, seconds) {
+  const range = mediaPlaybackRange(layer, seconds);
+  if (!range) return [];
+  let parts = [{ start: range.start, end: range.end }];
+  for (const hidden of hiddenRanges(layer.animations, seconds)) {
+    parts = parts.flatMap((part) => [{ start: part.start, end: Math.min(part.end, hidden.start) }, { start: Math.max(part.start, hidden.end), end: part.end }])
+      .filter((part) => part.end - part.start > 1e-3);
+  }
+  return parts;
+}
+
+/**
+ * The board as built in `scene` (check): each shot whose layer compose made (board-<id>) takes
+ * that layer's first shown stretch as its cue and length, so the story's moments are the scene's
+ * own after later edits. A shot with no such layer keeps the board's times.
+ */
+export function builtBoard(board, scene) {
+  const seconds = Number(scene?.duration) || 0;
+  const layers = scene?.layers ?? [];
+  const shots = (board?.shots ?? []).map((shot) => {
+    const layer = layers.find((entry) => (entry.type === "video" || entry.type === "image") && !entry.cutoutOf
+      && (entry.name === `board-${shot.id}` || entry.id === `board-${String(shot.id).toLowerCase()}`));
+    const part = layer ? shownParts(layer, seconds)[0] : null;
+    return part ? { ...shot, cue: round(part.start, 3), dur: round(part.end - part.start, 3) } : shot;
+  });
+  return { ...board, shots };
 }
 
 /** The cue lines alone (the board answer prints them after a save). */

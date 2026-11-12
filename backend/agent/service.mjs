@@ -87,7 +87,7 @@ import { boardSpan, mainScene, NONE, reframeBoard } from "../../engine/board.js"
 import { cutFacts, cutLines } from "../../engine/cutFacts.js";
 import { boardKeepOps, keptDuck, shotFileSpan, shotKeep, silentBoardLine } from "../../engine/boardSound.js";
 import { boardLook, BoardLookError, boardShotImage, SHOT_WIDTHS, styleFrameFacts, styleFrameImage } from "./board-look.mjs";
-import { boardCueLines, boardPaceFacts, boardPaceLines, boardStoryCues, sceneCueShows } from "./board-pace.mjs";
+import { boardCueLines, boardPaceFacts, boardPaceLines, boardStoryCues, builtBoard, sceneCueShows } from "./board-pace.mjs";
 import { spanCutNotes } from "./span-cuts.mjs";
 import { drawnSpeedNotes } from "./drawn-speed.mjs";
 import { boardData as boardScreenData } from "./board-data.mjs";
@@ -8503,8 +8503,9 @@ export function createAgentService(deps) {
   async function sceneCueLinesFor(document, scene) {
     const song = await sceneSong(document, scene);
     const spine = await spineOf(document);
-    // The board's times are the main scene's (payoff and longest shot need no file names).
-    const fromBoard = document.board?.shots?.length && mainScene(document)?.id === scene.id ? boardStoryCues(document.board, { spine }) : [];
+    // The board's times are the main scene's, read from the layers compose built (builtBoard), so a
+    // later edit moves them (payoff and longest shot need no file names).
+    const fromBoard = document.board?.shots?.length && mainScene(document)?.id === scene.id ? boardStoryCues(builtBoard(document.board, scene), { spine }) : [];
     const beat = Array.isArray(spine) ? spine.filter((entry) => entry?.role === "payoff" && Number.isFinite(entry.from)).at(-1) : null;
     const story = fromBoard.length ? fromBoard : beat ? [{ at: beat.from, kind: "payoff beat" }] : [];
     if (!song && !story.length) return [];
