@@ -1250,7 +1250,7 @@ export function createInspire(deps) {
    * What the screen and the agent see of one reference. The screen gets a few fingerprint numbers;
    * `full` adds the whole fingerprint, the suggested lines' inputs and the strips (for agents).
    */
-  function summary(record, { full = false } = {}) {
+  function summary(record, { full = false, look: withLook = false } = {}) {
     if (!record) return null;
     const waiting = queue.indexOf(record.id);
     const measured = record.state === "measured" ? measuredDoubt(record) : "";
@@ -1270,6 +1270,8 @@ export function createInspire(deps) {
       ...(record.fingerprint ? { print: screenNumbers(record.fingerprint), strips: record.strips?.length ?? 0 } : {}),
       ...(record.fingerprintError ? { fingerprintError: record.fingerprintError } : {}),
       ...(full && record.fingerprint ? { fingerprint: record.fingerprint, stripList: record.strips ?? [] } : {}),
+      // The kept shot pictures' image-model vectors (library footage scan:"all" like {ref, t}).
+      ...(withLook && record.look ? { look: record.look } : {}),
       // Where a voice plays and the lines it says (heard.lines): the agent's read lists them (heardLinesText).
       ...(full && record.heard ? { heard: record.heard } : {}),
     };
@@ -1721,14 +1723,14 @@ export function createInspire(deps) {
    * One reference. With `wait` (ms), a reference not measured yet moves to the front of the queue
    * and this waits up to that long for its numbers.
    */
-  async function reference(id, { wait = 0, full = false } = {}) {
+  async function reference(id, { wait = 0, full = false, look = false } = {}) {
     const record = await load(id);
     if (!record) return null;
     if (wait > 0 && unmeasured(record)) {
       enqueue(id, { first: true });
       await waitFor(id, wait);
     }
-    return summary(refs.get(id) ?? record, { full });
+    return summary(refs.get(id) ?? record, { full, look });
   }
 
   /** Measures a reference again (after it failed), at the front of the queue. */

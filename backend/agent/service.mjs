@@ -4125,7 +4125,9 @@ export function createAgentService(deps) {
     } else if (mode === "board") {
       noteLive({ sceneId: null });
       // Page 1 adds the pace lines (board-pace.mjs): saved files only, so a failure leaves them out.
-      const pace = (input.page ?? 1) === 1 ? boardPaceLines(await boardPaceFor(document).catch(() => null)) : [];
+      // and the face-and-place line of the scanned footage (footage-finder/actions.mjs faceAndPlaceLine).
+      const picture = (input.page ?? 1) === 1 && footageActions ? await footageActions.pictureLine((await agentState.read(document.id)).footage ?? null).catch(() => "") : "";
+      const pace = (input.page ?? 1) === 1 ? [...boardPaceLines(await boardPaceFor(document).catch(() => null)), ...(picture ? [`footage: ${picture}`] : [])] : [];
       try { ({ image, text, extra, nextCall } = await boardLook(input, { document, look, fontsFor, mediaRecord, soundFiles: await soundFilesFor(document), soundSearch: soundSearchOn(), pace })); }
       catch (error) {
         if (error instanceof BoardLookError) throw new AgentError(error.code, error.message);
@@ -8394,7 +8396,11 @@ export function createAgentService(deps) {
     const word = state.origin?.words?.[0]?.word;
     const origin = word && !personClips ? { word, about: state.brief?.fields?.about?.quote ?? state.brief?.fields?.about?.text ?? "" } : null;
     const known = await footageKnown(projectId);
-    try { reply = await footageOrigin.run(origin, () => footageActions.handle(input, { footage: state.footage ?? null, personClips, song, known })); }
+    // scan:"all": the project's imported found shots are named in its list; like {ref, t} reads a
+    // saved reference's kept shot pictures (inspire look vectors).
+    const imported = media.filter((item) => item?.footage && mediaAllowedIn(item, projectId)).map((item) => ({ candidate: item.footage.candidate, shot: item.footage.shot, name: item.name }));
+    const referenceLook = async (id) => (await deps.inspire?.reference?.(id, { look: true }))?.look ?? null;
+    try { reply = await footageOrigin.run(origin, () => footageActions.handle(input, { footage: state.footage ?? null, personClips, song, known, imported, referenceLook })); }
     catch (error) {
       if (!(error instanceof FootageError)) throw error;
       throw Object.assign(new AgentError(error.code, error.message), error.nextCall ? { nextCall: error.nextCall } : {});

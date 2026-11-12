@@ -12,7 +12,7 @@ import { createWebCache } from "./web-cache.mjs";
 import { createFootageFinder } from "./footage-finder/index.mjs";
 import { candidateLine, droppedLine, elsewhereLine, knownEdits, nothingFoundText, parseFootageLines, scannedLine, someoneElses } from "./footage-finder/search.mjs";
 import { createCommonsSource, parseCommonsSearch } from "./footage-finder/licensed.mjs";
-import { addCandidates, createFootageActions, FOOTAGE_TOPIC_LINE, logoLast, narrowShots, scanText, shotLine } from "./footage-finder/actions.mjs";
+import { addCandidates, createFootageActions, FACE_AND_PLACE, faceAndPlaceLine, FOOTAGE_TOPIC_LINE, logoLast, narrowShots, scanText, shotLine } from "./footage-finder/actions.mjs";
 import { LOOK_MODEL, lookModelReady } from "./look-embed.mjs";
 import { createAgentService } from "./agent/service.mjs";
 import { LIBRARY_TOPICS } from "./agent/actions.mjs";
@@ -371,7 +371,7 @@ test("a scan keeps dark shots tagged in place, puts title shots last, joins 0.96
   await assert.rejects(findShots("none.webm", { duration: 2000, maxSeconds: 1800 }), /up to 30 min/);
 });
 
-test("framing facts: a small figure in a wide frame, a pan, a close face; filter and sort by scale, height, room, figure and moving", () => {
+test("framing facts: a small figure in a wide frame, a pan, a close face; filter and sort by scale, height, room, figure and moving; scan all, the face-and-place line, like", async () => {
   // Four 2 s shots at 4 frames a second: 1 a figure 19% high walks over a still frame; 2 a pan past a
   // figure with its face 15% high; 3 a still close face 50% high; 4 only where the eye goes.
   const frames = Array.from({ length: 32 }, (_, index) => {
@@ -417,6 +417,32 @@ test("framing facts: a small figure in a wide frame, a pan, a close face; filter
   // The camera measure: a pan moves every cell alike (median = mean); one moving cell leaves the median at 0.
   const grid = (moving) => ({ u: Array.from({ length: 144 }, (_, index) => (moving === "all" || index === 0 ? 8 : 0)), v: new Array(144).fill(0) });
   assert.deepEqual([flowCamera(grid("all"), 480), flowCamera(grid("one"), 480)].map((value) => Math.round(value * 1000) / 1000), [0.067, 0]);
+
+  // scan:"all": every scanned video in one call from saved scans; a video that never read figures is
+  // left out and named, never counted; the face-and-place line counts shots; like ranks by likeness.
+  const vector = (values) => encodeVector(normalize(values));
+  const withVectors = shots.map((shot, index) => ({ ...shot, score: 10 - index, vector: vector([index === 1 ? 1 : 0, index === 2 ? 1 : 0.2, 0.1]) }));
+  const read = { faces: true, people: true, flow: true };
+  const saved = { "yt-a": { version: SCAN_VERSION, model: "m", vision: read, shots: withVectors }, "yt-b": { version: SCAN_VERSION, model: "m", vision: { faces: true, flow: true }, shots: withVectors } };
+  const finder = { readScan: async (id) => saved[id] ?? null };
+  const footage = { want: "the climb, face visible", order: ["F1", "F2"], candidates: [
+    { id: "clip:yt-a", code: "F1", title: "a", scan: { id: "yt-a" } }, { id: "clip:yt-b", code: "F2", title: "b", scan: { id: "yt-b" } }] };
+  const actions = createFootageActions({ finder });
+  const imported = [{ candidate: "clip:yt-a", shot: 2, name: "F1.2 a.mp4" }];
+  const all = await actions.handle({ scan: "all", filter: FACE_AND_PLACE }, { footage, personClips: 0, imported });
+  assert.match(all.text, /Per video: F1: 1 of 4 · F2: not measured \(figures not read in this scan\), left out/);
+  assert.match(all.text, /\nF1\.2 .* medium \(figure 90% high.* · imported as "F1\.2 a\.mp4"/);
+  assert.match(all.text, /want "the climb, face visible": a face and a figure in one frame at medium or wider: 1 of 8 shots in 2 scanned videos \(F1\.2\)\. Not read: F2 figures not read in this scan\./);
+  assert.deepEqual(all.data.shots.map((shot) => shot.code), ["F1.2"]);
+  // No such shot: said with the counts and the call that finds more footage.
+  const none = faceAndPlaceLine([{ candidate: footage.candidates[0], scan: { ...saved["yt-a"], shots: withVectors.filter((shot) => shot.n !== 2) } }]);
+  assert.match(none, /^a face and a figure in one frame at medium or wider: 0 of 3 shots in 1 scanned video: the picture with the face and the place together is not in this footage\. More footage: library \{"topic":"footage","search":/);
+  // like {ref, t}: the reference's kept picture nearest t, then every shot by cosine, best first.
+  const referenceLook = async (id) => (id === "yt:r" ? { model: "m", vectors: [vector([0, 1, 0]), vector([1, 0, 0])], at: [1, 9] } : null);
+  const like = await actions.handle({ scan: "all", like: { ref: "yt:r", t: 8 } }, { footage, personClips: 0, imported, referenceLook });
+  assert.match(like.text, /^Shots like yt:r at 9 s \(its kept shot picture nearest 8 s\)/);
+  assert.deepEqual(like.data.shots.slice(0, 2).map((shot) => [shot.code, shot.likeness, shot.imported ?? null]), [["F1.2", 0.976, "F1.2 a.mp4"], ["F2.2", 0.976, null]]);
+  await assert.rejects(actions.handle({ scan: "all", like: { ref: "yt:none", t: 1 } }, { footage, personClips: 0, referenceLook }), /has no kept shot pictures/);
 });
 
 test("drawn footage: a logo on every shot is said once and is no text, subtitles go last, faces are not read, and a 2.4 match shows", async () => {
