@@ -879,8 +879,9 @@ export function readClipSound(transcript) {
     line = [];
     // A language without spaces: one segment-word can be a whole line.
     if (said.length < (noSpace ? 1 : 2)) return;
-    if (said.reduce((sum, word) => sum + (word.p ?? 1), 0) / said.length < LINE_SURE) return;
     const span = { start: round(said[0].start), end: round(Math.max(said[0].start, said.at(-1).end)) };
+    // An unsure line of a clip heard in its own language is still voice (the English pass read it as voice too).
+    if (said.reduce((sum, word) => sum + (word.p ?? 1), 0) / said.length < LINE_SURE) { if (language) voice.push(span); return; }
     // One word over and over is a sound (a laugh, a chant), not a line; so is any line of a clip
     // the English model tagged as another language.
     if (tagged || (said.length > 1 && new Set(said.map((word) => plainWord(word.text))).size === 1)) { voice.push(span); return; }

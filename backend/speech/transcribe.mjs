@@ -399,7 +399,10 @@ export function wordsFromWhisper(json, { segmentWords = false } = {}) {
       }
     }
   }
-  return words.map((word) => ({ text: word.text, at: word.at, dtw: word.dtw, own: word.own, end: word.end, p: Math.min(...word.p) }));
+  // A segment-word holds a whole phrase of tokens: its p is their mean (as whisperSegments'), since the
+  // least sure of 10+ tokens says little (run 8's F4.13: its main phrase had min 0.36 and was dropped).
+  const pOf = (list) => (segmentWords ? list.reduce((sum, p) => sum + p, 0) / list.length : Math.min(...list));
+  return words.map((word) => ({ text: word.text, at: word.at, dtw: word.dtw, own: word.own, end: word.end, p: pOf(word.p) }));
 }
 
 /**
@@ -904,8 +907,9 @@ export function createTranscriptCache({
     }
     let guess = await guessOf(filename, found);
     if (!guess) {
-      const spans = (english?.words ?? []).filter((word) => !word.unclear).map(({ start, end }) => ({ start, end }));
-      guess = await detect(filename, found, spans);
+      // The clip's first 30 s, not only the spans the English pass heard: on run 8's F4.13 those spans
+      // (0.2 s padded) read es at p 0.21, the whole 10 s clip ja at p 0.76 (lines-any-language RESULT.md).
+      guess = await detect(filename, found, []);
       if (!guess) return english;
       await writeFile(`${filename}.lang-${found.modelName}`, JSON.stringify(guess), { mode: 0o600 }).catch(() => {});
     }
