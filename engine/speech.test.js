@@ -391,6 +391,10 @@ test("keep_line with from, to and text works with no transcript and takes duck n
   const song = twice.layers.find((layer) => layer.id === "music");
   assert.deepEqual([volumeAt(song, 5), volumeAt(song, 9.5), volumeAt(song, 7.5)], [0.7, 0.35, 1]);
   assert.match(more.get(secondLine).duck.summary, /3\.85-6\.8 s \(earlier; to 0\.7\) and 8\.85-10\.8 s/);
+  // A line kept again inside a dip it shares with a close earlier line resets its part only: the earlier line stays under its dip.
+  const close = { type: "keep_line", sceneId: "s", layerId: "clip", from: 6.3, to: 7, subtitle: false, dip: 0.35 };
+  const shared = parseDocument(applyOperations(parseDocument(applyOperations(document, [operation, close], { fonts: defaultFonts })), [{ ...close, dip: 0.5 }], { fonts: defaultFonts })).scenes[0];
+  assert.deepEqual([5, 6.6].map((time) => volumeAt(shared.layers.find((layer) => layer.id === "music"), time)), [0.5, 0.5]);
   const plain = new Map();
   const quiet = { type: "keep_line", sceneId: "s", layerId: "clip", from: 4, to: 6, subtitle: false, duckNone: true };
   const bare = parseDocument(applyOperations(document, [quiet], { reports: plain })).scenes[0];

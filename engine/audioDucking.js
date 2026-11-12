@@ -75,12 +75,13 @@ export const DIP_FLOOR = 0.1;
 // Pauses in a voice shorter than this stay inside one dip (the music does not pump between words);
 // in longer gaps the music comes back up.
 export const SPEECH_GAP = 1.2;
-// The music comes back up between two dips whenever the two ramps fit in the gap. It was 3 s more:
-// a 2 s gap between two lines stayed ducked and left a hole in the song (.scratch dm2 a, FRICTION 8).
-export const MIN_UP = 0;
 // A fade back up never takes less than this (seconds): kino's bed_jump reads a volume step shorter
 // than its 0.3 s window as a jump (a dip cut short at a drop jumped 17.4 LU in 0.14 s).
 export const RAMP_MIN = 0.3;
+// The music comes back up between two dips whenever the two ramps fit in the gap and leave it up
+// RAMP_MIN, a moment the ear hears (a 0.05 s touch at full is a blip). It was 3 s: a 2 s gap between
+// two lines stayed ducked and left a hole in the song (.scratch dm2 a, FRICTION 8).
+export const MIN_UP = RAMP_MIN;
 // A dip that would cross the song's drop (a cue named drop, fit_music's song-drop-<n>) ends before it.
 const DROP = /^(?:section-|song-)?drop\b/i;
 // The default fades: quick down, slow back up.
@@ -230,6 +231,29 @@ export function earlierDips(layer, sceneDuration) {
   return dips.filter((dip) => dip.end > dip.start).map((dip) => ({ ...dip, earlier: round(dip.earlier) }));
 }
 
+// The parts of `dip` ({start, end}) outside `spans`, each longer than SHORTEST: [{start, end}].
+function outsideSpans(dip, spans) {
+  const parts = [];
+  let from = dip.start;
+  for (const span of [...spans].sort((left, right) => left.start - right.start)) {
+    if (span.start > from) parts.push({ start: from, end: Math.min(span.start, dip.end) });
+    from = Math.max(from, span.end);
+  }
+  if (dip.end > from) parts.push({ start: from, end: dip.end });
+  return parts.filter((part) => part.end - part.start > SHORTEST);
+}
+
+// True when a sound layer other than `own` (the ducked song's pieces) is heard (volume over 0.01)
+// for RAMP_MIN seconds or more inside `part`, sampled every 0.05 s.
+function heardElsewhere(scene, own, part) {
+  return scene.layers.some((other) => SOUND_TYPES.has(other.type) && !own.includes(other) &&
+    soundSpans(scene.layers, other, scene.duration).some((span) => {
+      let heard = 0;
+      for (let time = Math.max(span.start, part.start); time < Math.min(span.end, part.end); time += 0.05) if (volumeAt(other, time) > 0.01) heard += 0.05;
+      return heard >= RAMP_MIN - 1e-6;
+    }));
+}
+
 // The same numbers as `times` (milliseconds), so the words never say a dip ends before it does:
 // toFixed(1) wrote 6.85 as "6.8" and 11.35 as "11.3".
 const seconds = (value) => String(round(value));
@@ -338,10 +362,16 @@ export function applyDuckAudio(document, operation) {
   }
   // Earlier dips on the layer stay (a later keep_line or duck_audio adds its dips), except where a
   // span of this call plays (it sets that dip again) or with replace:true.
-  const overlaps = (dip) => ducked.some((span) => span.start < dip.end && span.end > dip.start);
-  const kept = operation.replace === true ? [] : earlierDips(pieces[0], scene.duration).filter((dip) => !overlaps(dip));
+  const inside = (dip) => ducked.filter((span) => span.start < dip.end && span.end > dip.start);
+  const earlier = operation.replace === true ? [] : earlierDips(pieces[0], scene.duration);
+  const kept = earlier.filter((dip) => !inside(dip).length);
+  // keep_line (ownLine): a dip this line shares with a close earlier line is cut around this line,
+  // and its parts where another sound is still heard (that earlier line) dip with this one.
+  const rest = operation.ownLine ? earlier.filter((dip) => inside(dip).length).flatMap((dip) => outsideSpans(dip, inside(dip)))
+    .filter((part) => heardElsewhere(scene, [layer, ...pieces], part)) : [];
   const stretches = duckStretches([
     ...ducked.map(({ start, end, name, voice, unlined }) => ({ start, end, ...(name ? { name } : {}), voice, unlined })),
+    ...rest,
     ...kept,
   ], fade, scene.duration, fadeUp, sections.map((cue) => cue.time));
   for (const stretch of stretches) {
@@ -426,7 +456,7 @@ export function applyDuckAudio(document, operation) {
         });
       }
       if (index === 0) {
-        dips.push({ start: downStart, end: round(end), names: stretch.names ?? (stretch.onlyEarlier ? ["earlier"] : undefined), level, held: !stretch.onlyEarlier && level > target, deeper: !stretch.onlyEarlier && level < gentle && !under.length });
+        dips.push({ start: downStart, end: round(end), names: stretch.names ?? (stretch.onlyEarlier ? ["earlier"] : undefined), level, earlier: stretch.onlyEarlier === true, held: !stretch.onlyEarlier && level > target, deeper: !stretch.onlyEarlier && level < gentle && !under.length });
         for (const line of under) if (!buried.includes(line)) buried.push(line);
         if (clears[number].clear < level) floored = true;
       }
@@ -459,12 +489,16 @@ export function applyDuckAudio(document, operation) {
   const deeper = dips.filter((dip) => dip.deeper).length;
   // The receipt promises clear lines only when the music and every voice under the dips were measured.
   const promise = depth != null && (lines.length || unlined.length) && !unmeasured && !floored;
+  // Dips at their own depths: the headline is the deepest one this call made (a measured depth
+  // under a dip's floor is never the level heard), or the given `to`.
+  const made = dips.filter((dip) => !dip.earlier).map((dip) => dip.level);
+  const headline = operation.to ?? (made.length ? Math.min(...made) : to);
   const quoted = (line) => `"${line.text.length > 40 ? `${line.text.slice(0, 40)}...` : line.text}" (${line.name})`;
   return {
     layer: layer.name,
-    to: dips.length && dips.every((dip) => dip.level === dips[0].level) ? dips[0].level : to,
+    to: dips.length && dips.every((dip) => dip.level === dips[0].level) ? dips[0].level : headline,
     dips: dips.length,
-    summary: duckSummary(layer.name, to, dips),
+    summary: duckSummary(layer.name, headline, dips),
     ...(pieces.length > 1 ? { pieces: pieces.length } : {}),
     ...(dips.length ? { times: dips.slice(0, MAX_REPORTED).map((dip) => [dip.start, dip.end]) } : {}),
     ...(dips.length > MAX_REPORTED ? { more: dips.length - MAX_REPORTED } : {}),

@@ -72,9 +72,9 @@ test("overlapping and close voice-overs make one dip, cut at the scene's start a
   // The first dip is 3.5 s long, so it stays within 8 dB (0.398); the last, 2 s, goes to 0.25.
   assert.equal(volumeAt(music, 0.001), 0.398);
   assert.equal(volumeAt(music, 9.99), 0.25);
-  // The music comes back up whenever both ramps fit in the gap (a 2 s gap once stayed ducked).
-  assert.deepEqual(duckStretches([{ start: 1, end: 2 }, { start: 2.4, end: 3 }], 0.25, 10), [{ start: 1, end: 3 }]);
-  assert.deepEqual(duckStretches([{ start: 1, end: 2 }, { start: 2.6, end: 3 }], 0.25, 10), [{ start: 1, end: 2 }, { start: 2.6, end: 3 }]);
+  // The music comes back up whenever both ramps fit in the gap and leave it up 0.3 s (a 2 s gap once stayed ducked).
+  assert.deepEqual(duckStretches([{ start: 1, end: 2 }, { start: 2.6, end: 3 }], 0.25, 10), [{ start: 1, end: 3 }]);
+  assert.deepEqual(duckStretches([{ start: 1, end: 2 }, { start: 2.9, end: 3.2 }], 0.25, 10), [{ start: 1, end: 2 }, { start: 2.9, end: 3.2 }]);
 });
 
 test("running duck_audio again adds its dips to the earlier ones (replace:true removes them) and keeps the layer's other animations", () => {
@@ -238,8 +238,12 @@ test("each line gets its own dip at its own measured depth, the song comes back 
     sound("v2", { mediaStart: 4.6, mediaDuration: 1.8 }), sound("v3", { mediaStart: 7.4, mediaDuration: 1.8 })], 14);
   document.cues = [{ name: "song-drop-1", time: 7.9, kind: "marker" }];
   const { report, music } = duck(document, { under: ["v1", "v2", "v3"], levels });
-  // Three dips: the 2 s gap gets the song back, and the last dip's fade up is done by the drop.
-  assert.deepEqual(report.times, [[0.05, 3.4], [4.45, 7.2], [7.25, 7.9]]);
+  // The 2 s gap gets the song back; v2 and v3, 1 s apart, leave no 0.3 s for it to stay up, so they
+  // share a dip whose fade up is done by the drop.
+  assert.deepEqual(report.times, [[0.05, 3.4], [4.45, 7.9]]);
+  // The headline is the deepest dip made, not a measured depth under the floor (0.071 for v2).
+  assert.equal(report.to, 0.1);
+  assert.match(report.summary, /^music ducked to 0\.1 at 0\.05-3\.4 s \(v1; to 0\.2\) and 4\.45-7\.9 s \(v2, v3\)$/);
   assert.deepEqual([3.8, 7.95, 8.5].map((time) => volumeAt(music, time)), [1, 1, 1]);
   // Depth per line: v1 (-18) 6 LU over the song needs 0.2; v2 (-24) stops at the floor 0.1.
   assert.deepEqual([1.5, 5.5].map((time) => Math.round(volumeAt(music, time) * 1000) / 1000), [0.2, 0.1]);

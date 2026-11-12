@@ -481,7 +481,7 @@ export function applyKeepLine(document, operation, { fonts } = {}) {
       // The release ends on the song's next beat (dropout: the music hits back on the next downbeat).
       const back = returnTime(scene, music.layer, operation.beats?.[music.layer.id], end, out, operation.wait);
       const fadeUp = back ? round(back.at - end) : undefined;
-      duck = applyDuckAudio(document, { type: "duck_audio", sceneId: scene.id, layerId: music.layer.id, under: under.map((entry) => entry.piece.id), to: dip, speech, ...(operation.dip === undefined ? { payoffStop: true } : {}), ...(fadeUp !== undefined ? { fadeUp } : {}) });
+      duck = applyDuckAudio(document, { type: "duck_audio", sceneId: scene.id, layerId: music.layer.id, under: under.map((entry) => entry.piece.id), to: dip, speech, ownLine: true, ...(operation.dip === undefined ? { payoffStop: true } : {}), ...(fadeUp !== undefined ? { fadeUp } : {}) });
       if (duck.payoff) notes.push(duck.payoff);
       if (out && back) hitBack(scene, music.layer, end, back.at);
       if (back && out && back.kind === "beat") notes.push(`the music drops out for the line and hits back on the beat at ${back.at} s (${round(back.at - end, 1)} s after the line${back.downbeat != null ? `; the downbeat at ${back.downbeat} s is ${round(back.downbeat - end, 1)} s after${back.downbeat - end <= 4 ? `: wait:${Math.min(4, Math.ceil((back.downbeat - end) * 10) / 10)} waits for it` : ""}` : ""})`);
