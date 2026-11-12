@@ -35,6 +35,8 @@ Contents: Check · Polish · Looking · Review before final · Building in order
   `split_card_layout`, `seen_before`, `type_seen` (like a recent project's: set from references).
 - Set `role` on layers (headline, cta, logo, hero, decor, `ui`: product text, contrast only)
   and `videoType` (`library {topic:"rules", name:"quality-settings"}`).
+- luma_jump, reading_time, type_min, safe_zone turn to advice when 2+ saved, measured references go as far (flashes, shortest text hold, smallest line, edge); past them they say by how much.
+- A slow linear move (under 4% of the frame diagonal a second) still running when its layer leaves (cut, hide, fade out, scene end) passes linear_motion, text too: no waiver.
 
 ## Polish
 
@@ -75,6 +77,9 @@ What a viewer calls sloppy though gates pass: fix it. Each has an automatic fix
   grid, the crop dashed, subject boxes (`agent`: from `mark_subject`; `vision`: Mac only), the
   result and each box's share. Not your last look for `changed`. Cropping: framing reference.
 - `board {page?}`: the storyboard, 4 shots a page, with numbers (storyboard reference).
+- look {mode:"frames", times:[0.5,1,1.2], layer:"title"}: up to 60 chosen times as labeled pages (time, frame), cropped to a layer; few times get bigger tiles. every:4 with from/to thins a range.
+- look {mode:"frame", times:[1,1.45,1.9]}: 2 to 4 times side by side; an edit that adds a move ends its receipt with this call (start, middle, end).
+- Motion blur, smear or shutter: {op:"update_project", properties:{shutterAngle:180}} draws it in look frames, sheets and drafts (up to 6 moments a frame); 0 or none stays sharp.
 
 ## Review before final
 

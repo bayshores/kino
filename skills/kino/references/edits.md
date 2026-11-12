@@ -25,6 +25,10 @@ Contents: Ops and names · Refusals and fixes · Examples · Animations · Fonts
   (`rebased:true`), else refuses it.
 - `set_font` over shapes sets only the text layers. Leave out fields at their defaults (text:
   weight 400, line height 1.2, left aligned); set the font.
+- style_text_range {layer, text:"P", style:{scaleX:-1}} mirrors one letter in place (scaleX/scaleY -10..10, not 0). A scale or turn's receipt names its pivot: anchor is [x%, y%] of the box.
+- import_svg {name:"logo", svg} names its top-level layers "logo", "logo 2"; a receipt note lists them. One duplicate_layers copy is "<name> copy" (id "<name>-copy").
+- A note that a full-frame clip covers layers gives one move_layers call; kino does not reorder. set_font on a face missing a glyph sets it, the glyph in a fallback.
+- Drawn prop, logo or brush word in footage? Trace it into vector shapes: {op:"trace_image", layer:"<clip layer>", time:2.6, region:[x,y,w,h], name:"logo"}
 
 ## Refusals and fixes
 
@@ -38,6 +42,7 @@ Contents: Ops and names · Refusals and fixes · Examples · Animations · Fonts
 - Refused: a percent `x` or `y` (`place` centers), a field the animation lacks
   (`repeat`: a `behavior` loop), `from`/`to` with a preset change, a field given
   two values (`size`, `width`) and a `src` file path (import it first).
+- A refused edit saved nothing: notMade names layers not made yet. Its next: is edit {retry:"E1", fix:{...}} with known fixes filled in; send it as given.
 
 ## Examples
 
@@ -103,6 +108,7 @@ A second scene (from then on every op names its `scene`):
 - Variable fonts: text `axes:{wght, wdth, slnt, opsz}` (merged per axis, `{wdth:null}` drops
   one), animated by `animation:{kind:"custom", from:{axes:{wght:100}}, to:{axes:{wght:900}}}`.
 - `outline_text {layer}`: letters become path layers in a group; the text is hidden.
+- Match a reference's letters: library {topic:"fonts", like:"/abs/frame.png", region:[x,y,w,h], text:"THE WORDS"} ranks faces by measured letters, each with a set_font call. text makes width reliable.
 
 ## Rebuilding
 

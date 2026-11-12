@@ -68,6 +68,8 @@ Related effects that are not light: `vignette` and `grain` (finish), `duotone` a
 {"op":"add_animation","layer":"title","effect":"glow","start":"cue:hit","duration":0.4,"from":{"strength":4},"parameters":{"strength":0,"radius":20,"threshold":0,"softness":0}}
 ```
 
+- Made lights, no layer needed: {"op":"move","name":"light-shape","at":0.5,"y":0.75} draws a soft full-width streak; shape plate (glow plate) or ring (also halo; height is its size).
+
 ## Color as meaning: accent-hit and light-sweep
 
 Two moves (`move {name, layer, at}`) put one color on one thing for a moment, drawn on a copy

@@ -50,6 +50,10 @@ kaleidoscopes, an expression per point (field), and motion blur from movement in
 {"op":"add_animation","layer":"panel","effect":"zoom-blur","start":2,"duration":0.3,"easing":"ease-out","from":{"amount":0.25},"parameters":{"amount":0}}
 ```
 
+- A blur under 0.3 s that sets its strength returns to 0 at its end; hold:true keeps it: {op:"add_animation",layer:"shot",effect:"directional-blur",start:1.12,duration:0.08,parameters:{length:220}}
+- twirl (timed) turns the middle by angle 180 to 0 at radius 0.5, outside stays: {op:"add_animation",layer:"clip",effect:"twirl",start:1,duration:0.3,return:true}
+- Color fringe on lines only: rgb-shift {where:"edges", colors:"green-magenta"} (red-blue, red-cyan, blue-yellow); on thin type try amount 0.08.
+
 ## Depth of field: focus-band
 
 `focus-band {shape:"line"|"rect", centerX, centerY, angle, width:0.12, height, maxBlur:12, falloff:0.25}`

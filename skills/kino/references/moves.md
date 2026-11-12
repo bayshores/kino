@@ -77,6 +77,14 @@ to `value` with a label).
 
 Moves use the brand's fonts (else the project's); a `scrim` only where words could fail.
 
+- move {name:"type-on", layer, plain:true, cps:100, at:1}: plain letters, no caret/wait/hold/cues, up to 200 a second; text stays to scene end unless until. decode from:"dots" grows dots into letters.
+- Torn paper edge: a layer's first roughen is torn, add_layer {layerType:"rectangle", properties:{width:600, height:160, roughenSize:30}}; dry brush: roughenStyle:"brush", roughenAngle:0
+- Paint splat or ink splash: add_layer {layerType:"path", properties:{splatter:{style:"splash", seed:3}, width:300, height:300, fill:"#E8358F"}}
+- mosaic-reveal: a picture or clip builds out of flat-colored cells that merge and resolve to it: {"op":"move","name":"mosaic-reveal","layer":"photo","at":1} (mode "out" exits)
+- An edge that sweeps across one shot: {op:"move", name:"split-fields", layer:"shot-a", at:1, travel:-1, dur:0.2}; shape-wipe grows a shape from one point instead.
+- Fast whip: {op:"move",name:"whip-pan",from:"S1",to:"S2",at:0.6,frames:2} smears 2 frames from at; a clip ending mid-whip holds its edge frame (holdEnds:false shows the gap).
+- overexpose takes saturation (default 1.4 at the peak, 1 the old wash); bright colors still wash toward white, so raise it for a saturated bloom.
+
 ## Moves example
 
 Zoom shot-a into shot-b at 1 s, then karaoke captions.

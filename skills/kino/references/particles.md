@@ -55,3 +55,7 @@ leaks. No stock overlay file is needed.
 {"op":"set_cues","cues":[{"name":"hit","time":2}]}
 {"op":"add_layer","layerType":"rectangle","name":"sparks","properties":{"x":0,"y":0,"width":1920,"height":1080,"fillEnabled":false,"strokeWidth":0,"blendMode":"add"},"animations":[{"effect":"sparks","start":"cue:hit","duration":1.5,"from":{"count":400,"opacity":1},"parameters":{"count":0,"opacity":0,"prewarm":false,"originY":0.85,"speed":900}}]}
 ```
+
+- Lightning, electric arcs: add_animation {layer, effect:"lightning", start, duration} draws white jagged bolts with glow, redrawn 12/s; from:[x,y], to:[x,y] (0..1 of the box) pin an arc.
+- Bolts over a shot: {"op":"add_animation","layer":"shot","effect":"lightning","start":1,"duration":0.3,"parameters":{"bolts":4,"breaks":0.35}} (breaks: brushed dashes).
+- library {topic:"search", search:"particles"} lists all nine looks (embers, sparks, bokeh, dust, snow, rain, fog, streaks, light-leaks), each with when it fits.

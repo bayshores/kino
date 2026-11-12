@@ -318,8 +318,8 @@ test("library search: the director's plain words reach the tool kino has; words 
   // No kino name for the words: the 3 nearest tools by what they do, each with its call.
   const none = searchGuide("shards flying apart").split("\n");
   assert.equal(none.some((line) => line.startsWith("no kino name for")), false, "shatter is named");
-  const near = searchGuide("paint splatter splash shapes").split("\n");
-  assert.match(near[0], /^no kino name for "paint splatter splash shapes"; nearest by what they do:$/);
+  const near = searchGuide("page curl peel corner").split("\n");
+  assert.match(near[0], /^no kino name for "page curl peel corner"; nearest by what they do:$/);
   assert.equal(near.slice(1, 4).filter((line) => /^- [a-z-]+ \((move \{name:|effect add_animation )/.test(line)).length, 3, near.slice(0, 4).join(" | "));
   assert.equal(searchGuide("zzqx"), 'Nothing mentions "zzqx". library {topic:"rules"} lists every topic.');
 });

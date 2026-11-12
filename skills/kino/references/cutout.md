@@ -29,6 +29,7 @@ titles behind the subject, outlines and glows, a new or blurred background, matt
   behind it. `covered_layer` and `held_static` skip the source clip.
 - `frame` on the layer carries its cut-outs in the camera group, with every layer stacked between
   them (a title behind the subject moves with the shot), so the subject never shows twice.
+- A subject cut off by the frame reaches the border (openEdges "extend", default). edge "auto" is crisp on video drawn on 2s/3s, else soft: cut_out {layer:"clip", edge:"crisp"}
 
 ### Title behind the subject
 

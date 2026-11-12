@@ -98,6 +98,9 @@ signature and the spine's end; the lock's fonts name the faces. Building first i
 - Each section gets its own mix (calm: drift, type-fade; fast: beat-cut, type-giant);
   `flat_sections` checks it.
 - Set pieces only where they matter.
+- Plain words reach kino's tools: library {topic:"search", search:"halftone dots"} names dot-grid; "on twos" gives frameRate, "tilt" rotateX, "wash" overexpose; no name lists the 3 nearest tools.
+- edge-lines: width and threshold default to "auto" (from the clip's own edges, no letterbox line); background:"transparent" draws the lines alone, so set a dark scene background
+- Halftone in the shadows, picture kept: {op:"add_animation", layer:"shot", effect:"dot-grid", parameters:{keepPicture:true}} (threshold 0.42, where:"highlights", dotPitch, dotColor)
 
 ## Effects need a reason
 

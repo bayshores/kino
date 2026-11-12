@@ -189,7 +189,7 @@ const EFFECT_PARAMETER_OVERRIDES = {
   mosaic: { cell: 16, gap: 4, order: "sweep", angle: 45, outline: 1, outlineColor: "#000000", seed: 3 },
 };
 
-assert.equal(EFFECTS.length, 62,"the A5 evidence covers the current catalog size");
+assert.equal(EFFECTS.length, 64,"the A5 evidence covers the current catalog size");
 function effectOperation(definition, layer = "Artwork") {
   return {
     op: "add_animation", layer, effect: definition.key,

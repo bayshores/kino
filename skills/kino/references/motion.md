@@ -50,6 +50,8 @@ Camera rules read the model at 30 samples a second (no render).
   shares its row. Look for a pop, a flash or a brightness jump across it.
 - Workflow: `check` names the moment, `look motion` shows how it moves around it, `look frames`
   shows each frame there.
+- Match the source's frame rate: project {action:"create", id:"clip", fps:"24000/1001"} (later: update_project {properties:{fps:20}}); look, check and renders step at it.
+- at:"f36" is frame 36 at the project's rate, its exact start: {op:"add_animation", layer:"card", preset:"show", at:"f36"}. The receipt names frames (A1 f36).
 
 ## Rendered motion
 
