@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { createSongTaste, rankSongs, storyScore, tasteEntry, tasteScore, tempoCloseness } from "./songTaste.mjs";
-import { createMusicEmbed, decodeVector, encodeVector, songWindows } from "./music-embed.mjs";
+import { createMusicEmbed, decodeVector, encodeVector, LANES, songWindows } from "./music-embed.mjs";
 import { attackNear, createSongShapeCache, joinSpans, SONG_SHAPE_VERSION, songShape, sungSegments, vocalShare } from "./song-shape.mjs";
 import { songKey as clientSongKey } from "../frontend/dashboard/inspireView.js";
 import { catalogQuery, compareToStory, createSoundtrack, energyCurve, archiveQuery, exploreLanes, importableId, junkTitle, keepCandidates, licenseTag, namedSong, parseRecordings, parseTagRecordings, pickRecording, licenseFromUrl, parseArchiveFiles, parseArchiveSearch, parseOpenverseMusic, previewStretch, SONG_KEY, songKey, SOUNDTRACK_LIMITS, songSections, youtubeCandidates } from "./soundtrack.mjs";
@@ -260,6 +260,26 @@ test("song embeddings: float16 round trip, 3 windows at 48 kHz, and a model that
     await createMusicEmbed({ modelDir: directory, load }).text(["house"]);
     assert.equal(texts, 1, "a cached prompt needs no model");
   } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("the lanes are scored from vectors that ship with kino, and a text model slow to load does not hold the call", async () => {
+  // The run-8 trace: the first lane scoring waited 200 to 288 s while the 502 MB text half downloaded.
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  let loads = 0;
+  const net = Object.assign(async (input) => ({ text_embeds: { data: new Float32Array(512 * input.texts.length).fill(1) } }), { from_pretrained: async () => net });
+  const embed = createMusicEmbed({ load: async () => { loads += 1; await gate; return { AutoTokenizer: { from_pretrained: async () => (list) => ({ texts: list }) }, ClapTextModelWithProjection: net }; } });
+  const lanes = await embed.text(LANES.map((lane) => lane.prompt));
+  assert.equal(lanes.length, LANES.length);
+  for (const vector of lanes) assert.ok(vector.length === 512 && Math.abs(Math.hypot(...vector) - 1) < 0.01, "a unit vector of 512 numbers");
+  assert.equal(loads, 0, "the lanes did not load the text model");
+  assert.equal(await embed.text(["slow piano"], { waitMs: 20 }), null, "answers without it after the wait");
+  assert.equal(embed.loading(), true);
+  release();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(embed.loading(), false);
+  assert.equal((await embed.text(["slow piano"], { waitMs: 1000 })).length, 1, "the next call has the vector the background load made");
+  assert.equal(loads, 1);
 });
 
 test("song shape: the kick and bass coming in is a drop, leaving at the end an outro; kicks on every beat are four-on-the-floor", () => {

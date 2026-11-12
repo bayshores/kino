@@ -603,6 +603,9 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
   // again), and each batch of its renders waits until no agent call, check, look or export has run
   // for a second (render-activity.mjs waitForQuiet): one FFmpeg job at a time.
   const drifts = new Map();
+  // The full checks answered while their drift job runs {key: entry}; the few newest (16 is a guess:
+  // one per scene being edited), dropped when the job is done.
+  const waiting = new Map();
   const latestDrift = new Map();
   let driftQueue = Promise.resolve();
   function driftFor(key, scope, measure) {
@@ -703,6 +706,16 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
     }
     const hit = kept(key);
     if (hit) return hit;
+    // A full check that left reference_drift to its background job: while that job still runs, the
+    // same scene answers the same (the drift note stays); once it is done, the scene is judged again
+    // with its drift. Measured on a 15 s edit with two references: every check took 31 s and found
+    // the same, because this answer was not kept, so each check drew and read every frame again.
+    const waited = waiting.get(key);
+    if (waited) {
+      const job = drifts.get(key);
+      if (job && !job.done) return waited;
+      waiting.delete(key);
+    }
     const started = performance.now();
     const model = kinoTimeline(document, scene.id, { fonts });
     let expanded = null;
@@ -801,9 +814,13 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
     };
     const result = await runQuality(model, { pixels: pixels && Boolean(renderFrames), context });
     if (driftPending) {
-      // Not kept: the next check runs the scene again (its frames are reused) and reads the drift.
+      // Kept apart from the finished checks (a quick check never answers with it) until the drift job
+      // is done: then the next check runs the scene again and reads the drift.
       const note = "reference_drift is measuring this scene against its references in the background (about a minute); the next check includes it.";
-      return { model, findings: result.findings, notes: [...result.notes, note], techniques: techniqueCounts(techniquesUsed(model)), ms: Math.round(performance.now() - started), bytes: modelBytes(model), pending: true };
+      const waitingEntry = { model, findings: result.findings, notes: [...result.notes, note], techniques: techniqueCounts(techniquesUsed(model)), ms: Math.round(performance.now() - started), bytes: modelBytes(model), pending: true };
+      waiting.set(key, waitingEntry);
+      if (waiting.size > 16) waiting.delete(waiting.keys().next().value);
+      return waitingEntry;
     }
     const entry = { model, findings: result.findings, notes: result.notes, techniques: techniqueCounts(techniquesUsed(model)), ms: Math.round(performance.now() - started), bytes: modelBytes(model) };
     cache.set(key, entry);

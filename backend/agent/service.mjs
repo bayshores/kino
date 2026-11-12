@@ -7469,6 +7469,7 @@ export function createAgentService(deps) {
     return null;
   }
 
+  const embedBackfills = new Set();
   async function soundtrack(input, name, search) {
     if (!deps.soundtrack) throw new AgentError("failed", "Soundtrack search is not available here.");
     const record = await projectFor(input);
@@ -7491,20 +7492,27 @@ export function createAgentService(deps) {
     let taste = deps.songTaste ? await deps.songTaste.read() : { liked: [], rejected: [] };
     // Songs measured (or marked) before embeddings existed get one from their kept preview, once, so
     // earlier likes and rejects count by sound too.
+    // Off the call (each song waits in the measuring queue, and the model may still be loading): the
+    // call answers at once, and the ranking counts the embeddings from the next call.
+    let backfillLine = null;
     if (deps.soundtrack?.embedSaved && deps.musicEmbed && !deps.musicEmbed.failed?.()) {
       const missing = [...new Set([...kept.filter((entry) => entry.measure && !entry.measure.embedding), ...taste.liked, ...taste.rejected]
         .filter((entry) => !(entry.measure ? entry.measure.embedding : entry.embedding)).map((entry) => entry.id))].slice(0, 30);
-      const found = {};
-      for (const id of missing) {
-        const embedding = await deps.soundtrack.embedSaved(id).catch(() => null);
-        if (embedding) found[id] = embedding;
-      }
-      if (Object.keys(found).length) {
-        for (const entry of kept) if (entry.measure && !entry.measure.embedding && found[entry.id]) entry.measure.embedding = found[entry.id];
-        await agentState.update(projectId, (draft) => {
-          for (const entry of draft.soundtrack?.candidates ?? []) if (entry.measure && !entry.measure.embedding && found[entry.id]) entry.measure.embedding = found[entry.id];
-        });
-        if (deps.songTaste?.fill) taste = await deps.songTaste.fill(found);
+      if (missing.length && !embedBackfills.has(projectId)) {
+        embedBackfills.add(projectId);
+        backfillLine = `embeddings for ${plural(missing.length, "earlier song")} are being made in the background; the ranking counts them from the next call.`;
+        (async () => {
+          const found = {};
+          for (const id of missing) {
+            const embedding = await deps.soundtrack.embedSaved(id).catch(() => null);
+            if (embedding) found[id] = embedding;
+          }
+          if (!Object.keys(found).length) return;
+          await agentState.update(projectId, (draft) => {
+            for (const entry of draft.soundtrack?.candidates ?? []) if (entry.measure && !entry.measure.embedding && found[entry.id]) entry.measure.embedding = found[entry.id];
+          });
+          if (deps.songTaste?.fill) await deps.songTaste.fill(found);
+        })().catch(() => {}).finally(() => embedBackfills.delete(projectId));
       }
     }
     const spoken = await spokenSpans(scene, record.document);
@@ -7520,13 +7528,19 @@ export function createAgentService(deps) {
     // Lane and brief vectors from CLAP's text model (backend/music-embed.mjs); null when it is off.
     // The text model loads only once a song has an embedding to compare with.
     const embed = deps.musicEmbed ?? null;
-    const prompts = [...LANES.map((lane) => lane.prompt), ...(brief ? [brief.want, ...brief.not] : [])];
     let textJob = null;
     let scored = false;
+    // The lanes' vectors ship with kino (answered at once); the brief's words may wait for the text
+    // model, so the lanes alone come back (length LANES.length) until it has loaded.
     const textFor = (list) => {
       const any = [...list.map((entry) => entry.measure?.embedding), ...taste.liked.map((entry) => entry.embedding), ...taste.rejected.map((entry) => entry.embedding)].some(Boolean);
       if (!embed || !any) return Promise.resolve(null);
-      textJob ??= embed.text(prompts).catch(() => null);
+      textJob ??= (async () => {
+        const lanes = await embed.text(LANES.map((lane) => lane.prompt));
+        if (!lanes) return null;
+        const words = brief ? await embed.text([brief.want, ...brief.not]) : null;
+        return words ? [...lanes, ...words] : lanes;
+      })().catch(() => null);
       return textJob;
     };
     // Every measured song's fit and the shortlist's order (backend/songTaste.mjs rankSongs): taste,
@@ -7534,13 +7548,17 @@ export function createAgentService(deps) {
     const rankAll = async (list) => {
       const vectors = await textFor(list);
       const lanes = vectors ? LANES.map((lane, index) => ({ id: lane.id, vector: vectors[index] })) : null;
-      scored = Boolean(vectors && brief);
+      scored = Boolean(vectors && brief && vectors.length > LANES.length);
       const briefVectors = scored ? { want: vectors[LANES.length], not: vectors.slice(LANES.length + 1) } : null;
       return rankSongs(list, { taste, compare: (measure) => compareToStory(measure, story), spoken, length: story.length, lanes, brief: briefVectors });
     };
     const fitWords = (entry) => (entry.fit ? `  fit ${entry.fit.fit}${entry.fit.why ? ` (${entry.fit.why})` : ""}` : null);
     // Said once when the model could not load (no network on first use).
-    const withNotice = (reply) => { const line = embed?.notice?.(); return line ? { ...reply, text: `${reply.text}\n${line}` } : reply; };
+    // Also said: the brief's words are still loading their model, and earlier songs' embeddings are being made.
+    const withNotice = (reply) => {
+      const lines = [embed?.notice?.(), embed?.loading?.() ? "the brief's scores wait for CLAP's text model, loading in the background (the first use downloads it); they arrive on a later call." : null, backfillLine].filter(Boolean);
+      return lines.length ? { ...reply, text: `${reply.text}\n${lines.join("\n")}` } : reply;
+    };
     // shared: the person's "use" and "no" are saved too (the list is theirs as much as the agent's).
     const save = async (candidates, reply) => {
       const ranked = await rankAll(keepCandidates(candidates));
@@ -7641,7 +7659,7 @@ export function createAgentService(deps) {
       const excluded = [...new Set(kept.filter((entry) => entry.fit?.excluded && entry.fit.lane).map((entry) => entry.fit.lane))];
       let scores = null;
       const vectors = brief ? await textFor(kept) : null;
-      if (vectors) {
+      if (vectors && vectors.length > LANES.length) {
         const want = vectors[LANES.length];
         const nots = vectors.slice(LANES.length + 1);
         scores = Object.fromEntries(LANES.map((lane, index) => [lane.id, dot(vectors[index], want) - Math.max(0, ...nots.map((not) => dot(vectors[index], not)))]));

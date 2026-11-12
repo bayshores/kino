@@ -1236,6 +1236,8 @@ How to read it:
   a LAION-CLAP embedding; each song gets a lane chip, taste compares embeddings, 2 rejects in a lane
   exclude it, a `brief {want, not}` scores text, and the shortlist is varied (MMR). Evidence:
   `backend/soundtrack.test.mjs` "ranking over song embeddings". Gap: lanes untested beyond 4 songs.
+- **Lanes score at once**: Verified with a stub embedder. The 10 lane prompts' vectors ship in `backend/music-lane-vectors.json`, so `library {topic:"soundtrack"}` never waits for the 502 MB text model (the run-8 first call took 200 s while it downloaded); a brief's words wait at most 10 s, finish loading in the background and score from the next call; earlier songs' embeddings are made in the background too. Evidence: `backend/soundtrack.test.mjs` "the lanes are scored from vectors that ship with kino". Gap: a real download wait cannot be re-measured offline.
+- **Checks reuse unchanged scenes**: Verified. A check no layer changed answers from the last one in under a second even while `reference_drift` runs, and a scene with a mask keeps its reused frames unless the change is next to the mask (run-8 copy: 31 s to 0.3 s; after one edit 8 s). Evidence: `backend/quality-cache.test.mjs` "reference_drift measures in the background", "a scene with a mask reuses its frames". Gap: a first check is still 30 to 50 s there (luma_jump draws 172 frames).
 - **Explore songs by lane**: Verified with stubs and one live run (10 real songs over 5 lanes, about 70 s).
   `library {topic:"soundtrack", explore:true}` picks lanes from the brief, takes ListenBrainz genre-tag
   songs, finds each on YouTube by artist and title, filters junk uploads and measures them in the

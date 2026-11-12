@@ -15,8 +15,15 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 export const CLAP_MODEL = "Xenova/clap-htsat-unfused";
+// How long a call waits for the text half to load before it answers without brief scores. A guess:
+// loading it from disk took 0.4 s on the run-8 copy; a first download takes minutes and goes on in the
+// background.
+const TEXT_WAIT_MS = 10_000;
+const LATE = Symbol("late");
+const LANE_VECTORS = fileURLToPath(new URL("./music-lane-vectors.json", import.meta.url));
 const RATE = 48_000;
 const WINDOW_SECONDS = 10;
 const SIZE = 512;
@@ -152,6 +159,7 @@ export function createMusicEmbed({ modelDir, load = () => import("@huggingface/t
   let library = null;
   const textFile = modelDir ? path.join(modelDir, "clap-text.json") : null;
   let textCache = null;
+  let loading = false;
 
   async function lib() {
     if (!library) {
@@ -192,27 +200,58 @@ export function createMusicEmbed({ modelDir, load = () => import("@huggingface/t
     return { model, vector: encodeVector(normalize(sum)) };
   }
 
+  // The lane prompts' vectors ship with kino (music-lane-vectors.json, made by this model from LANES), so
+  // scoring the lanes never loads the 502 MB text half. The run-8 trace had the first lane scoring
+  // wait 200 to 288 s while that half downloaded; loading it from disk took 0.4 s (measured).
+  let shipped = null;
+  async function shippedVectors() {
+    if (!shipped) {
+      try { shipped = JSON.parse(await readFile(LANE_VECTORS, "utf8")); } catch { shipped = {}; }
+      if (shipped.model !== model) shipped = { model, prompts: {} };
+    }
+    return shipped.prompts;
+  }
+
   async function readTextCache() {
     if (textCache) return textCache;
     try { textCache = JSON.parse(await readFile(textFile, "utf8")); } catch { textCache = {}; }
     if (textCache.model !== model) textCache = { model, prompts: {} };
+    textCache.prompts = { ...(await shippedVectors()), ...textCache.prompts };
     return textCache;
   }
 
-  async function text(prompts) {
-    const cache = textFile ? await readTextCache() : { model, prompts: {} };
+  async function saveTextCache(cache) {
+    if (!textFile) return;
+    await mkdir(path.dirname(textFile), { recursive: true, mode: 0o700 });
+    const temporary = `${textFile}.${randomUUID()}.tmp`;
+    await writeFile(temporary, JSON.stringify(cache), { mode: 0o600 });
+    await rename(temporary, textFile);
+  }
+
+  async function embedText(parts, cache, missing) {
+    const { text_embeds: embeds } = await parts.net(parts.tokenizer(missing, { padding: true, truncation: true }));
+    missing.forEach((prompt, k) => { cache.prompts[prompt] = encodeVector(normalize(embeds.data.slice(k * SIZE, (k + 1) * SIZE))); });
+    await saveTextCache(cache);
+  }
+
+  // The vectors of `prompts`, or null: the model is off, or (for a prompt that is not shipped or
+  // cached) the text half is still loading after `waitMs`. It keeps loading, then makes those
+  // vectors, so the next call has them. Only a prompt of the brief can wait; the lanes never do.
+  async function text(prompts, { waitMs = TEXT_WAIT_MS } = {}) {
+    const cache = textFile ? await readTextCache() : { model, prompts: { ...(await shippedVectors()) } };
     const missing = [...new Set(prompts.filter((prompt) => !cache.prompts[prompt]))];
     if (missing.length) {
-      const parts = await part("text");
-      if (!parts) return null;
-      const { text_embeds: embeds } = await parts.net(parts.tokenizer(missing, { padding: true, truncation: true }));
-      missing.forEach((prompt, k) => { cache.prompts[prompt] = encodeVector(normalize(embeds.data.slice(k * SIZE, (k + 1) * SIZE))); });
-      if (textFile) {
-        await mkdir(path.dirname(textFile), { recursive: true, mode: 0o700 });
-        const temporary = `${textFile}.${randomUUID()}.tmp`;
-        await writeFile(temporary, JSON.stringify(cache), { mode: 0o600 });
-        await rename(temporary, textFile);
+      const job = part("text");
+      let timer;
+      const parts = await Promise.race([job, new Promise((done) => { timer = setTimeout(() => done(LATE), waitMs); })]);
+      clearTimeout(timer);
+      if (parts === LATE) {
+        loading = true;
+        job.then((ready) => (ready ? embedText(ready, cache, missing) : null)).catch(() => {}).finally(() => { loading = false; });
+        return null;
       }
+      if (!parts) return null;
+      await embedText(parts, cache, missing);
     }
     return prompts.map((prompt) => decodeVector(cache.prompts[prompt]));
   }
@@ -223,5 +262,5 @@ export function createMusicEmbed({ modelDir, load = () => import("@huggingface/t
     return `song embeddings are off (${failure}): taste uses tempo and 5 sound features, no lanes or brief scores.`;
   }
 
-  return { model, audio, text, notice, failed: () => failure };
+  return { model, audio, text, notice, failed: () => failure, loading: () => loading };
 }
