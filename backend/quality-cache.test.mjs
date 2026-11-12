@@ -106,6 +106,24 @@ test("frames of a scene drawn many ways (each clip alone) are still reused on th
   assert.equal(rendered, 0, "the newest kept scene was not taken out in the twin's place");
 });
 
+test("a scene with a mask reuses its frames when nothing changed or the change is away from the mask, never next to it", async () => {
+  // Measured: one mask in a 15 s edit switched reuse off for the whole scene (31 s a check, unchanged or not).
+  // Both changing layers show only from 2 s, so at 1 s a change to either leaves the picture as it was.
+  const layer = (id, fill, extra = {}) => createLayer("rectangle", { id, x: 0, y: 0, width: 64, height: 36, fill, animations: [{ id: `${id}-show`, kind: "show", name: "Show", start: 2 }], ...extra });
+  const scene = (early, target) => ({ id: "s", width: 64, height: 36, layers: [layer("early", early), layer("other", "#555555"), layer("target", target), layer("cut", "#ffffff", { isMask: true, animations: [] })] });
+  const reuse = createFrameReuse();
+  let rendered = 0;
+  const render = async (drawn, times) => { rendered += times.length; return times.map(() => ({ width: 1, height: 1, data: new Uint8ClampedArray(4) })); };
+  const draw = (early, target) => reuse.framesFor(scene(early, target), [1], { width: 48, render });
+  await draw("#111111", "#222222");
+  await draw("#111111", "#222222");
+  assert.equal(rendered, 1, "the same masked scene again drew nothing");
+  await draw("#444444", "#222222");
+  assert.equal(rendered, 1, "a change away from the mask, not drawn at 1 s, reused the frame");
+  await draw("#444444", "#999999");
+  assert.equal(rendered, 2, "a change to the layer the mask paints is always drawn again");
+});
+
 test("speech_cut reads transcripts through transcriptOf, and a transcript made later is not hidden by a kept check", async () => {
   const document = project("talk", "Talk");
   document.scenes[0].layers.push(createLayer("audio", { id: "voice", name: "voice", src: "/api/media/voice.wav", mediaDuration: 1.3 }));
@@ -148,14 +166,21 @@ test("reference_drift measures in the background: the check answers with a note,
   let release;
   const gate = new Promise((resolve) => { release = resolve; });
   const calls = [];
+  let renders = 0;
   const checker = createQualityChecker({
-    reuseFrames: false, renderFrames: renderSceneFrames, quietMs: 20,
+    reuseFrames: false, renderFrames: (scene, times, options) => { renders += 1; return renderSceneFrames(scene, times, options); }, quietMs: 20,
     references: async () => [{ id: "yt:ref", measuredAt: "t" }],
     measureRender: async (pairs, { render }) => { calls.push(pairs.length); await gate; calls.push((await render(pairs[0])).length); return null; },
   });
   const document = project("drift", "Drift");
   const first = await checkOf(checker, document);
   assert.match(first.notes.join("\n"), /reference_drift is measuring .* in the background/);
+  // While the job runs, the same scene answers the same without drawing a frame (it took 31 s a check before).
+  const drawn = renders;
+  const meanwhile = await checkOf(checker, document);
+  assert.equal(renders, drawn, "the unchanged scene was not drawn again");
+  assert.deepEqual(meanwhile.findings, first.findings);
+  assert.deepEqual(meanwhile.notes, first.notes);
   release();
   await new Promise((resolve) => setTimeout(resolve, 200));
   const second = await checkOf(checker, document);

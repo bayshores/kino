@@ -50,6 +50,27 @@ function notDrawn(layer, time, fonts) {
 // through a few kept scenes, not all of them.
 const laneOf = (scene, width) => `${width}|${scene.layers.filter((layer) => layer.visible === false).map((layer) => layer.id).sort().join(",")}`;
 
+// True when a changed layer is a mask, is hidden (it may be the next visible layer of a mask), or has
+// a mask as its nearest visible neighbor on either side in either scene: the mask would paint it.
+// Changed layers are top-level here (changedBetween gives up on a layer in a group), so neighbors are
+// counted among the top-level layers only: a group's children can sit anywhere in the flat list (run 8's
+// smear group at 7 had its children at 18 to 21).
+function touchesMask(old, now, changed) {
+  for (const entry of [old, now]) {
+    const layers = entry.order.map((id) => entry.layers.get(id).layer).filter((layer) => !layer.parentId);
+    for (let at = 0; at < layers.length; at += 1) {
+      if (!changed.has(layers[at].id)) continue;
+      if (layers[at].isMask || layers[at].visible === false) return true;
+      for (const step of [-1, 1]) {
+        let near = at + step;
+        while (layers[near] && layers[near].visible === false) near += step;
+        if (layers[near]?.isMask) return true;
+      }
+    }
+  }
+  return false;
+}
+
 export function createFrameReuse({ maxEntries = MAX_ENTRIES, maxBytes = MAX_BYTES } = {}) {
   // Newest last: { lane, rest, width, fonts, layers: Map(id → {layer, json}), order, frames: Map(time → frame) }.
   const entries = [];
@@ -94,16 +115,20 @@ export function createFrameReuse({ maxEntries = MAX_ENTRIES, maxBytes = MAX_BYTE
       frames: new Map(),
     };
     const wanted = [...new Set(times)];
-    // A scene with masks at the top level: a mask paints the next layer, so nothing is reused.
+    // A scene with masks at the top level: a mask paints the next visible layer, so a changed layer
+    // next to a mask (or a mask itself) is never reused; the same scene again, and a change away
+    // from every mask, are. Measured: a 15 s edit with one mask re-drew every frame on every check
+    // (31 s each, unchanged or not) while this was off for the whole scene.
     const masked = scene.layers.some((layer) => layer.isMask);
     // The same scene drawn the same way again (a rule asking for more times): its kept entry
     // takes the new frames, so one scene is one entry however many calls draw it.
     let twin = null;
-    for (let index = entries.length - 1; index >= 0 && !masked && (now.frames.size < wanted.length || !twin); index -= 1) {
+    for (let index = entries.length - 1; index >= 0 && (now.frames.size < wanted.length || !twin); index -= 1) {
       const old = entries[index];
       if (old.lane !== now.lane) continue;
       const changed = changedBetween(old, now);
       if (!changed) continue;
+      if (masked && touchesMask(old, now, changed)) continue;
       if (!changed.size) twin ??= old;
       for (const time of wanted) {
         if (now.frames.has(time) || !old.frames.has(time)) continue;
