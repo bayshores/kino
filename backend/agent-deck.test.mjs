@@ -12,7 +12,7 @@ import { seededLook } from "../engine/blocks/looks.js";
 import { askText } from "./agent/stops.mjs";
 import { cleanTreatments, pickedEnding, pickedSignature, pickedType, pickLines, shownLines, treatmentsProblem, treatmentsText } from "./agent/treatments.mjs";
 import { briefChanges, lockCall } from "./agent/brief.mjs";
-import { mediaKeys, newDeal } from "./agent/deck.mjs";
+import { cardCall, dealDue, deckInputs, deckText, labelEvidence, mediaKeys, newDeal } from "./agent/deck.mjs";
 import { startTestServer } from "./media.test.support.mjs";
 import { skipBoardOn } from "./stops.test.support.mjs";
 
@@ -116,6 +116,31 @@ test("novelty: each new project's deal steers away from the last projects' decks
   assert.deepEqual(mediaKeys({ scenes: [{ layers: [layer("video", "/a.mp4"), layer("audio", "/hit.wav"), layer("image", "/logo.png")] }] }), ["/a.mp4", "/logo.png"], "a shared sound is not shared material");
 });
 
+test("labels and footage facts: cards say where they came from, and a deal no card used deals again when they arrive", async () => {
+  // A reference labeled at some moments counts on them; words map through SEEN_AS, kinds too.
+  const refs = [{ id: "yt:a", seen: [{ at: 1, kinds: ["made"], words: "a cut-out figure, shards smear" }, { at: 2, kinds: ["spoken"], words: "a scream" }] },
+    { id: "yt:b", seen: [{ at: 3, kinds: ["composite"], words: "punch in on the grin" }] }];
+  const evidence = labelEvidence(refs);
+  assert.deepEqual(evidence.find((entry) => entry.name === "cut_out").refs, ["yt:a", "yt:b"]);
+  assert.ok(["smear", "shatter", "keep_line", "punch-in"].every((name) => evidence.some((entry) => entry.name === name)), JSON.stringify(evidence));
+  const document = { id: "x", scenes: [{ id: "s", width: 1920, height: 1080, layers: [{ id: "v", type: "video", src: "/api/media/v.mp4", width: 1920, height: 1080 }] }] };
+  const inputs = await deckInputs({}, document, { facts: { faceClips: 1, lines: 4 }, refs });
+  const deck = newDeal({ projectId: "deck-evidence", inputs });
+  const made = deck.cards.filter((card) => card.group === "made");
+  assert.ok(made.length, JSON.stringify(deck.cards));
+  const text = deckText(deck);
+  for (const card of made) assert.match(text, new RegExp(`^- ${card.tag} \\(made, .*· (seen in \\d of your 2 references|your clips say 4 lines|a face or marked subject in 1 clip)$`, "m"));
+  // Dealt again by itself while no card is used; kept once one is used or swapped.
+  const before = await deckInputs({}, document);
+  const old = newDeal({ projectId: "deck-evidence", inputs: before });
+  assert.equal(dealDue(old, inputs.basis), true, "labels and facts arrived, nothing used: deal again");
+  assert.equal(dealDue({ ...old, used: [old.cards[0].tag] }, inputs.basis), false, "a used card keeps the deck");
+  assert.equal(dealDue(old, inputs.basis, { holds: [old.cards[0].tag] }), false, "a card the document holds keeps it");
+  assert.equal(dealDue({ ...old, lockedBy: "pick" }, inputs.basis), false);
+  assert.equal(dealDue({ ...old, locked: true }, inputs.basis), true, "an older deck's lock only meant it read layers");
+  assert.equal(cardCall("keep_line"), 'edit {ops:[{op:"keep_line", layer:"<clip>", line:"<its words>", duck:"<song>"}]}');
+});
+
 test("the material steers the deal: footage without words gets no type card (no default type look)", async () => {
   await newVideo("deck-silent", { madeFrom: "drone.mp4 footage only" });
   await agent("notes", { project: "deck-silent", action: "brief", no_playback: "just start" });
@@ -133,7 +158,10 @@ test("check warns deck_unused when the video uses under half the deck, and recor
     { op: "add_animation", layerId: "title", animation: { kind: "in", start: 0.3, duration: 0.6, easing: "smooth", from: { opacity: 0 }, to: { opacity: 1 } } }] });
   assert.equal(edited.isError, undefined, edited.text);
   // deck_unused is advice: one line in a plain check, the finding itself when check names it.
-  assert.match((await agent("check", { project: "deck-check", pixels: false })).text, /^advice \(does not block\): .*deck_unused/m);
+  const plain = (await agent("check", { project: "deck-check", pixels: false })).text;
+  assert.match(plain, /^advice \(does not block\): .*deck_unused/m);
+  // The advice names the unused cards and a ready call for the first.
+  assert.match(plain, /^deck unused: [a-z0-9_-]+(, [a-z0-9_-]+)*; first: (library|edit) \{/m);
   const checked = await agent("check", { project: "deck-check", rules: ["deck_unused"], pixels: false });
   const line = checked.text.split("\n").find((entry) => entry.startsWith("I deck_unused"));
   assert.ok(line, checked.text);

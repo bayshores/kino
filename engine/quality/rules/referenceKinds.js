@@ -172,11 +172,13 @@ export function onscreenKinds(model, ctx = {}) {
   });
 }
 
-// What the references show: [{id, total, count: {kind: n}, plain, first: {kind: {at, words}}}] for the
-// references labeled at all their moments (ref.moments of them, 6 unless the strips are shared): a partly
-// labeled one would skew the shares. A labeled moment is plain when it names no picture kind (or only "plain").
+// What the references show: [{id, total, count: {kind: n}, plain, first: {kind: {at, words}}}] for every
+// reference labeled at one moment or more, judged on the moments it has (total = its labeled moments). Until
+// 2026-11-11 only references labeled at all their moments counted, so a half-labeled set left the rule silent
+// (.scratch/ceiling/trace-code.md section 1). A kind still needs MIN_MOMENTS labeled moments to count a
+// reference as showing it. A labeled moment is plain when it names no picture kind (or only "plain").
 function referenceShares(refs) {
-  return (refs ?? []).filter((ref) => Array.isArray(ref.seen) && ref.seen.length >= Math.min(6, ref.moments ?? 6)).map((ref) => {
+  return (refs ?? []).filter((ref) => Array.isArray(ref.seen) && ref.seen.length >= 1).map((ref) => {
     const count = {}, first = {};
     let plain = 0;
     for (const entry of ref.seen) {

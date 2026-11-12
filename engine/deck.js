@@ -64,6 +64,37 @@ const NEEDS = Object.freeze({
   "tile-ring": ["pictures"],
   "clip-field": ["twoPictures"],
 });
+// Made cards: the one-call treatments (a cut-out, a heard line, light on an edge, a designed hit),
+// dealt only on evidence: a fact kino measured in the footage (`fact`, which must hold) or a
+// technique the project's labeled references show (`evidence` of dealDeck). Never on a plain
+// draw: every one of them needs a subject or a moment to sit on. `needs` are material keys;
+// `loud` ones (a flash or a glitch) come only from references, the same rule as LOUD_TAGS: a
+// reference showing it is the motivating evidence. `call` is the ready call a card line names.
+export const MADE_CARDS = Object.freeze([
+  // A cut-out needs a subject: a face kino found or a box the agent marked (run 6 labeled three
+  // cut-out frames and built none: .scratch/ceiling/trace-run6.md section 1).
+  { name: "cut_out", kind: "op", needs: ["cutOut"], fact: "subject", line: "the subject cut out of a clip: an outline, a silhouette, words behind it", call: '{op:"cut_out", layer:"<clip>", output:"outline"}' },
+  // A heard line needs saved lines (run 6 muted every clip although import listed lines: section 2).
+  { name: "keep_line", kind: "op", needs: ["lines"], fact: "lines", line: "one line a clip says, heard under the song", call: '{op:"keep_line", layer:"<clip>", line:"<its words>", duck:"<song>"}' },
+  { name: "rim-light", kind: "effect", needs: ["cutOut"], fact: "subject", line: "light along the subject's edge", call: '{op:"add_animation", layer:"<clip>", effect:"rim-light"}' },
+  { name: "backdrop-flash", kind: "move", needs: ["subject"], loud: true, line: "the subject stays, the picture behind it flashes", call: '{op:"move", name:"backdrop-flash", layer:"<clip>", at:<s>}' },
+  { name: "edge-lines", kind: "effect", needs: ["video"], line: "the footage drawn as line art", call: '{op:"add_animation", layer:"<clip>", effect:"edge-lines"}' },
+  { name: "split-fields", kind: "move", needs: ["pictures"], line: "the frame split into two color fields for a beat", call: '{op:"move", name:"split-fields", layer:"<clip>", at:<s>}' },
+  { name: "overexpose", kind: "move", needs: ["pictures"], loud: true, line: "the picture burns out to white and back", call: '{op:"move", name:"overexpose", layer:"<clip>", at:<s>}' },
+  { name: "smear", kind: "move", needs: ["video"], loud: true, line: "the picture smears into the next shot", call: '{op:"move", name:"smear", layer:"<clip>", at:<s>}' },
+  { name: "shatter", kind: "move", needs: ["pictures"], loud: true, line: "the picture breaks into shards", call: '{op:"move", name:"shatter", layer:"<clip>", at:<s>}' },
+  { name: "scene-background", kind: "finish", needs: ["pictures"], line: "a finish over the whole frame: grain, lifted blacks, halation, bars", call: '{op:"update_scene", properties:{finish:true}}' },
+]);
+const MADE_BY_NAME = new Map(MADE_CARDS.map((card) => [card.name, card]));
+export const madeCardOf = (name) => MADE_BY_NAME.get(name);
+// At most this many made cards a hand (a guess: one or two treatments on top of the glue cards).
+const MOST_MADE = 2;
+// The deck never copies a reference: at most this many cards come from labels, and at most
+// LABELS_PER_REF from one reference (the part's rule: at most half of a hand of 6 or more).
+const MOST_LABELED = 3;
+const LABELS_PER_REF = 2;
+// How much likelier a card is when a reference shows it or a measured fact asks for it (a guess).
+const EVIDENCE_WEIGHT = 3;
 // Transitions kino reads at a change of full-frame picture: likelier when there are pictures.
 const BETWEEN_PICTURES = new Set(["dissolve", "fade-black", "blur-through", "zoom-through", "whip-pan", "mask-wipe", "push-transition"]);
 
@@ -120,7 +151,7 @@ export function sharesMaterial(recent, own) {
  * { known, fromLayers, video, pictures, pictureCount, text, numbers, sound, device }. `known` is false while
  * there is nothing to read (an empty project, no made_from): then nothing is filtered.
  */
-export function materialOf(document, { madeFrom = "" } = {}) {
+export function materialOf(document, { madeFrom = "", facts = {} } = {}) {
   const words = String(madeFrom ?? "");
   const scenes = (document?.scenes ?? []).filter((scene) => scene.isComponent !== true && !(scene.variant && scene.variant.of !== scene.id));
   const layers = scenes.flatMap((scene) => (scene.layers ?? []).map((layer) => ({ layer, scene })));
@@ -133,6 +164,16 @@ export function materialOf(document, { madeFrom = "" } = {}) {
   const named = layers.some(({ layer }) => PHONE_WORDS.test(String(layer.name ?? "")));
   const video = ofType("video").length > 0 || VIDEO_WORDS.test(words);
   const pictureCount = new Set(pictures.map(({ layer }) => layer.src || layer.id)).size || (PICTURE_WORDS.test(words) || VIDEO_WORDS.test(words) ? 1 : 0);
+  // What kino measured about the footage (the service reads saved files only, never a new decode):
+  // facts.faceClips the files with a face, facts.lines the lines the clips say (saved transcripts),
+  // facts.darkClips the files that are dark. A box the agent marked (mark_subject) is a subject too.
+  const marked = new Set(pictures.filter(({ layer }) => layer.subjectBoxes?.src === layer.src && layer.subjectBoxes.boxes?.length).map(({ layer }) => layer.src));
+  const subjectClips = Math.max(marked.size, Number(facts.faceClips) || 0);
+  const factKeys = {
+    ...(subjectClips ? { subject: true, subjectClips, cutOut: pictureCount > 0 } : {}),
+    ...(Number(facts.lines) > 0 ? { lines: Number(facts.lines) } : {}),
+    ...(Number(facts.darkClips) > 0 ? { dark: Number(facts.darkClips) } : {}),
+  };
   return {
     known: layers.length > 0 || words.trim() !== "",
     // Read from built layers (not only from the brief's words): the deck stays put from then on.
@@ -145,7 +186,24 @@ export function materialOf(document, { madeFrom = "" } = {}) {
     numbers: [...texts, ...sources, words.replace(/\S+\.[a-z0-9]{2,4}\b/gi, "")].some((text) => /\d/.test(text)),
     sound: ofType("audio").length > 0 || Boolean(document?.rhythm?.bpm) || SOUND_WORDS.test(words),
     device: tall || named || PHONE_WORDS.test(words),
+    // Present only when measured, so the material of a project without them is unchanged.
+    ...factKeys,
   };
+}
+
+/** The names of made cards a scene shows: effects, moves, cut-outs, kept lines and a finish (deckUse counts them). */
+export function madeNamesIn(scene) {
+  const names = new Set();
+  for (const layer of scene?.layers ?? []) {
+    if (layer.move?.name) names.add(layer.move.name);
+    if (layer.cutoutOf) names.add("cut_out");
+    for (const animation of layer.animations ?? []) {
+      if (animation?.effect) names.add(animation.effect);
+      if (animation?.name === "Line up") names.add("keep_line");
+    }
+  }
+  if (scene?.finish) names.add("scene-background");
+  return [...names];
 }
 
 /** The material in a few words for the status line: "video, text, sound". */
@@ -203,21 +261,35 @@ export const dealableTags = (group) => TECHNIQUES.filter((entry) => entry.group 
  * exists, engine/blocks/moves). Returns { seed, reroll, cards:[{tag, group, why}], setPiece:{kind, name, tags, why?}|null }.
  * why: "spec" (a backed wanted tag), "deal" (drawn), "signature" (dealt first for the signature).
  */
-export function dealDeck({ projectId, reroll = 0, style = null, material = { known: false }, recent = [], moves = [] }) {
+export function dealDeck({ projectId, reroll = 0, style = null, material = { known: false }, recent = [], moves = [], evidence = [] }) {
   const seed = dealSeed(projectId, reroll);
   const rng = seeded(scramble(seed));
   const avoids = new Set(style?.avoids ?? []);
   const backed = (style?.backed ?? []).filter((tag) => !avoids.has(tag));
   const guessed = new Set(style?.guessed ?? []);
   const recentSet = new Set(recent);
-  const weightOf = (tag) => baseWeight(tag, material) * (guessed.has(tag) ? GUESSED_WEIGHT : 1) * (recentSet.has(tag) ? RECENT_WEIGHT : 1);
+  // evidence: [{name, refs:[ids]}], what the labeled references show (backend/agent/deck.mjs
+  // labelEvidence). A label card is dealt only while the caps allow (MOST_LABELED, LABELS_PER_REF).
+  const seen = new Map(evidence.filter((entry) => entry?.name && entry.refs?.length && !avoids.has(entry.name)).map((entry) => [entry.name, entry.refs]));
+  const perRef = new Map();
+  let labeled = 0;
+  const labelOpen = (name) => seen.has(name) && labeled < MOST_LABELED && seen.get(name).every((ref) => (perRef.get(ref) ?? 0) < LABELS_PER_REF);
+  const countLabel = (name) => { labeled += 1; for (const ref of seen.get(name)) perRef.set(ref, (perRef.get(ref) ?? 0) + 1); };
+  const weightOf = (tag) => baseWeight(tag, material) * (guessed.has(tag) ? GUESSED_WEIGHT : 1) * (recentSet.has(tag) ? RECENT_WEIGHT : 1) * (labelOpen(tag) ? EVIDENCE_WEIGHT : 1);
   const open = (group, taken) => dealableTags(group).filter((tag) => !avoids.has(tag) && !taken.has(tag) && fits(tag, material)
     // No type-heavy card for a footage edit without words.
     && !(group === "type" && material?.known && !material.text && (NEEDS[tag] ?? []).includes("text")));
 
   const cards = [];
   const taken = new Set();
-  const add = (tag, why) => { cards.push({ tag, group: techniqueOf(tag).group, why }); taken.add(tag); };
+  const add = (tag, why) => {
+    // A drawn card the references show is a label card: it says so, and counts against the caps.
+    if (why === "deal" && labelOpen(tag)) {
+      cards.push({ tag, group: techniqueOf(tag).group, why: "seen", refs: seen.get(tag).length });
+      countLabel(tag);
+    } else cards.push({ tag, group: techniqueOf(tag).group, why });
+    taken.add(tag);
+  };
   // 0. Around the signature (the spec has moments or signatures): its technique is dealt first,
   // moments[0].tag, else a set piece; the rest of the hand is the seeded glue around it.
   const around = Boolean(style?.moments?.length || style?.signatures?.length);
@@ -263,8 +335,30 @@ export function dealDeck({ projectId, reroll = 0, style = null, material = { kno
     if (tag) add(tag, "deal");
   }
   cards.sort((a, b) => DECK_GROUPS.indexOf(a.group) - DECK_GROUPS.indexOf(b.group));
-  // 3. The set piece, when the signature did not deal one.
+  // 3. Made cards, on evidence only (MADE_CARDS): a measured fact that holds, or a reference label.
+  for (let index = 0; index < MOST_MADE; index += 1) {
+    const candidates = MADE_CARDS.filter((card) => !taken.has(card.name) && !avoids.has(card.name) && card.needs.every((need) => material?.[need]))
+      .map((card) => ({ card, fact: Boolean(card.fact && material?.[card.fact]) && !card.loud, label: labelOpen(card.name) }))
+      .filter((entry) => entry.fact || entry.label);
+    const picked = pickWeighted(rng, candidates.map((entry) => ({ value: entry, weight: (entry.label ? EVIDENCE_WEIGHT * seen.get(entry.card.name).length : 0) + (entry.fact ? EVIDENCE_WEIGHT : 0) })));
+    if (!picked) break;
+    const { card, label } = picked;
+    // A label wins the why when both hold: the reference is the stronger reason to build it.
+    if (label) {
+      cards.push({ tag: card.name, group: "made", why: "seen", refs: seen.get(card.name).length });
+      countLabel(card.name);
+    } else cards.push({ tag: card.name, group: "made", why: "fact", fact: card.fact });
+    taken.add(card.name);
+  }
+  // 4. The set piece, when the signature did not deal one.
   if (!setPiece) setPiece = drawSetPiece(false);
+  // At most half the hand from labels: a small hand drops its last label made card.
+  const fromLabels = () => cards.filter((card) => card.why === "seen").length;
+  while (fromLabels() * 2 > cards.length + (setPiece ? 1 : 0)) {
+    const last = cards.findLastIndex((card) => card.why === "seen" && card.group === "made");
+    if (last < 0) break;
+    cards.splice(last, 1);
+  }
   return { seed, reroll, cards, setPiece };
 
   // At most one set piece: a move when the library exists, else split-screen when it fits. For
@@ -310,7 +404,8 @@ export function deckUse(deck, counts = {}, movesUsed = []) {
   const shown = (tag) => (counts[tag] ?? 0) > 0;
   const used = [];
   const unused = [];
-  for (const card of deck?.cards ?? []) (shown(card.tag) ? used : unused).push(card.tag);
+  // A made card is used when the scene holds it (madeNamesIn, passed with the moves).
+  for (const card of deck?.cards ?? []) (shown(card.tag) || (card.group === "made" && movesUsed.includes(card.tag)) ? used : unused).push(card.tag);
   if (deck?.setPiece) ((deck.setPiece.tags ?? []).some(shown) || movesUsed.includes(deck.setPiece.name) ? used : unused).push(deck.setPiece.name);
   return { used, unused };
 }
@@ -358,6 +453,8 @@ export function applySwap(deck, swap, { moves = [], at = null } = {}) {
     next.cards.splice(index, 1);
     next.setPiece = incoming;
   } else next.cards[index] = { tag: swap.in, group: techniqueOf(swap.in).group, why: "swap" };
-  next.cards.sort((a, b) => DECK_GROUPS.indexOf(a.group) - DECK_GROUPS.indexOf(b.group));
+  // Made cards stay last (their group is not one of DECK_GROUPS).
+  const order = (card) => (card.group === "made" ? DECK_GROUPS.length : DECK_GROUPS.indexOf(card.group));
+  next.cards.sort((a, b) => order(a) - order(b));
   return next;
 }

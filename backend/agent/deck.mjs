@@ -13,9 +13,10 @@
 //   { seed, reroll, cards:[{tag, group, why}], setPiece:{kind, name, tags}|null,
 //     swaps:[{out, in, why, at}], basis, locked, material, dealtAt, used:[tags], awayFrom,
 //     media:[files], story }   media and story: what tells a later project it is kin (no steering)
-import { applySwap, cardNames, dealDeck, deckLine, materialOf, materialWords, mediaKeys, sharesMaterial, swapProblem, SWAP_LIMIT } from "../../engine/deck.js";
+import { applySwap, cardNames, dealableTags, dealDeck, DECK_GROUPS, deckLine, madeCardOf, materialOf, materialWords, mediaKeys, sharesMaterial, swapProblem, SWAP_LIMIT } from "../../engine/deck.js";
 import { styleContext } from "../../engine/styleSpec.js";
 import { techniqueOf } from "../../engine/techniques.js";
+import { seenNameList } from "./seen-names.mjs";
 
 export const DECK_KEYS = Object.freeze(["action", "project", "reroll", "swap"]);
 // How many of this machine's last projects the deal steers away from.
@@ -46,22 +47,67 @@ export const madeFromOf = (brief) => {
 /** The brief's message, compared loosely: lowercase words only. */
 export const storyOf = (brief) => String(brief?.fields?.message?.text ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 
-/** What a deal reads: { style, material, moves, basis, media, story }. basis changes when a new deal is due. */
-export async function deckInputs(state, document) {
+// The on-screen kinds a label names, as the made card that builds them. A guess: "spoken" is a
+// line a clip says, "composite" most often a subject cut out over another picture; the label's
+// words decide the rest (SEEN_AS).
+const KIND_NAMES = { spoken: ["keep_line"], composite: ["cut_out"] };
+// What a card the deck can deal is: a technique of the four groups, or a made card.
+const dealableName = (name) => Boolean(madeCardOf(name)) || (DECK_GROUPS.includes(techniqueOf(name)?.group) && dealableTags(techniqueOf(name).group).includes(name));
+
+/**
+ * What the project's labeled references show, as deck names: [{name, refs:[ids]}], most
+ * references first. `refs` is savedFingerprints(projectId, {labeled:true}) of backend/inspire.mjs:
+ * each {id, seen:[{at, kinds, words}]}. A reference labeled at only some moments counts on those.
+ */
+export function labelEvidence(refs = []) {
+  const found = new Map();
+  for (const ref of refs ?? []) {
+    const names = new Set();
+    for (const entry of ref?.seen ?? []) {
+      for (const kind of entry?.kinds ?? []) for (const name of KIND_NAMES[kind] ?? []) names.add(name);
+      for (const name of seenNameList(entry?.words ?? "")) names.add(name);
+      // A technique named in the words ("dissolve", "punch in"), by its tag with spaces.
+      const text = ` ${String(entry?.words ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ")} `;
+      for (const tag of DECK_GROUPS.flatMap(dealableTags)) if (text.includes(` ${tag.replace(/-/g, " ")} `)) names.add(tag);
+    }
+    for (const name of names) if (dealableName(name)) found.set(name, [...(found.get(name) ?? []), ref.id]);
+  }
+  return [...found].map(([name, ids]) => ({ name, refs: ids })).sort((a, b) => b.refs.length - a.refs.length || a.name.localeCompare(b.name));
+}
+
+/**
+ * What a deal reads: { style, material, moves, evidence, basis, media, story }. basis changes when a new deal is due.
+ * facts: what kino measured in the footage ({faceClips, lines, darkClips}, materialOf); refs: the
+ * labeled references (labelEvidence). Both optional: without them the deal is as before.
+ */
+export async function deckInputs(state, document, { facts = {}, refs = [] } = {}) {
   const style = styleContext(state?.brief?.style);
-  const material = materialOf(document, { madeFrom: madeFromOf(state?.brief) });
+  const material = materialOf(document, { madeFrom: madeFromOf(state?.brief), facts });
   const moves = await loadMoves();
+  const evidence = labelEvidence(refs);
   const { fromLayers, ...kinds } = material;
   // A new signature (moments or signatures saved) deals again around it.
   const signature = style?.moments?.length ? style.moments[0].tag : style?.signatures?.length ? "set piece" : null;
-  const basis = JSON.stringify({ kinds, backed: style?.backed ?? [], guessed: style?.guessed ?? [], avoids: style?.avoids ?? [], moves: moves.map((move) => move.name), ...(signature ? { signature } : {}) });
-  return { style, material, moves, basis, media: mediaKeys(document), story: storyOf(state?.brief) };
+  const basis = JSON.stringify({ kinds, backed: style?.backed ?? [], guessed: style?.guessed ?? [], avoids: style?.avoids ?? [], moves: moves.map((move) => move.name), ...(signature ? { signature } : {}),
+    ...(evidence.length ? { seen: evidence.map((entry) => `${entry.name}:${entry.refs.length}`) } : {}) });
+  return { style, material, moves, evidence, basis, media: mediaKeys(document), story: storyOf(state?.brief) };
 }
 
-/** True when the saved deck should be dealt again by itself (see the top of this file). */
-export function dealDue(deck, basis) {
+/** True when a card of the deck was used: check recorded it (deck.used) or the document holds it (`holds`: madeNamesIn names). */
+export function deckTouched(deck, holds = []) {
+  const names = cardNames(deck);
+  return names.some((name) => (deck?.used ?? []).includes(name) || holds.includes(name));
+}
+
+/**
+ * True when the saved deck should be dealt again by itself (see the top of this file): the
+ * material, the spec or the labels changed, and no card was swapped or used yet. A deck the person
+ * picked or compose cut with (lockedBy) stays. An older deck's `locked` meant only that it read
+ * built layers, so it no longer holds a deal whose cards were never used.
+ */
+export function dealDue(deck, basis, { holds = [] } = {}) {
   if (!deck) return true;
-  return deck.basis !== basis && !deck.locked && !(deck.swaps?.length);
+  return deck.basis !== basis && !deck.lockedBy && !(deck.swaps?.length) && !deckTouched(deck, holds);
 }
 
 /**
@@ -72,24 +118,60 @@ export function newDeal({ projectId, reroll = 0, inputs, recent = [], now = Date
   const own = { media: inputs.media ?? [], story: inputs.story ?? "" };
   const away = recent.filter((entry) => !sharesMaterial(entry, own));
   const tags = [...new Set(away.flatMap((entry) => [...entry.cards, ...entry.used]))];
-  const dealt = dealDeck({ projectId, reroll, style: inputs.style, material: inputs.material, recent: tags, moves: inputs.moves });
+  const dealt = dealDeck({ projectId, reroll, style: inputs.style, material: inputs.material, recent: tags, moves: inputs.moves, evidence: inputs.evidence ?? [] });
+  const { lines, subjectClips, dark } = inputs.material ?? {};
+  const seenRefs = new Set((inputs.evidence ?? []).flatMap((entry) => entry.refs)).size;
   return {
-    ...dealt, swaps: [], basis: inputs.basis, locked: Boolean(inputs.material.fromLayers),
+    ...dealt, swaps: [], basis: inputs.basis,
     material: materialWords(inputs.material), awayFrom: away.map((entry) => entry.projectId), dealtAt: new Date(now).toISOString(), used: [],
     media: own.media, story: own.story,
+    // The facts and labels the deal read, for each card's why (cardWhy); absent when none.
+    ...(lines || subjectClips || dark || seenRefs ? { facts: { ...(lines ? { lines } : {}), ...(subjectClips ? { subjectClips } : {}), ...(dark ? { dark } : {}), ...(seenRefs ? { labeledRefs: seenRefs } : {}) } } : {}),
   };
 }
 
 /** The line status shows, with a hint when the deck no longer follows the material or spec. */
 export function deckStatusLine(deck, basis) {
   if (!deck) return "";
-  return `${deckLine(deck)}${deck.basis !== basis ? " (material or spec changed: notes deck reroll:true deals again)" : ""}`;
+  const why = deckWhyLine(deck);
+  return `${deckLine(deck)}${deck.basis !== basis ? " (material or spec changed: notes deck reroll:true deals again)" : ""}${why ? `\n${why}` : ""}`;
 }
 
-// One card in a line: what it is, so the agent can build it without a lookup.
-function cardText(name, moves) {
+/** Why a card was dealt, in a few words: "seen in 2 of your 3 references", "your clips say 4 lines". */
+export function cardWhy(card, deck) {
+  const facts = deck?.facts ?? {};
+  if (card.why === "seen") return `seen in ${card.refs} of your ${Math.max(card.refs, facts.labeledRefs ?? 0)} references`;
+  if (card.why === "fact" && card.fact === "lines") return `your clips say ${facts.lines} lines`;
+  if (card.why === "fact" && card.fact === "subject") return `a face or marked subject in ${facts.subjectClips} ${facts.subjectClips === 1 ? "clip" : "clips"}`;
+  if (card.why === "spec") return "your style spec";
+  if (card.why === "signature") return "the picked idea's signature";
+  if (card.why === "swap") return "swapped in";
+  return "";
+}
+
+// The cards dealt on evidence in one line: "from: speed-lines seen in 2 of your 2 references · keep_line your clips say 4 lines"; "" with none.
+function deckWhyLine(deck) {
+  const told = (deck.cards ?? []).filter((card) => card.why === "seen" || card.why === "fact").map((card) => `${card.tag} ${cardWhy(card, deck)}`);
+  return told.length ? `from: ${told.join(" · ")}` : "";
+}
+
+/** The ready call for a card: a made card's own op, a move's library entry, else the technique search. */
+export function cardCall(name, moves = []) {
+  const made = madeCardOf(name);
+  if (made) return `edit {ops:[${made.call}]}`;
+  if (moves.some((move) => move.name === name)) return `library {topic:"moves", name:"${name}"}`;
+  return `library {topic:"search", search:"${name.replace(/-/g, " ")}"}`;
+}
+
+// One card in a line: what it is, so the agent can build it without a lookup, and why it was dealt.
+function cardText(card, moves, deck) {
+  const name = card.tag ?? card;
+  const why = card.tag ? cardWhy(card, deck) : "";
+  const tail = why ? ` · ${why}` : "";
   const entry = techniqueOf(name);
-  if (entry) return `- ${name} (${entry.group}): ${entry.line}; fits ${entry.fits}`;
+  if (entry) return `- ${name} (${entry.group}): ${entry.line}; fits ${entry.fits}${tail}`;
+  const made = madeCardOf(name);
+  if (made) return `- ${name} (made, ${made.kind}): ${made.line}; ${cardCall(name, moves)}${tail}`;
   const move = moves.find((item) => item.name === name);
   return `- ${name} (set piece, move {name:"${name}"}): ${move?.fits ?? "a move"}`;
 }
@@ -105,7 +187,8 @@ export function deckText(deck, { moves = [], said = "" } = {}) {
     said,
     deckLine(deck),
     `for: ${deck.material ?? "no material yet"}${steer ? ` · ${steer}` : ""}`,
-    ...cardNames(deck).map((name) => cardText(name, moves)),
+    ...deck.cards.map((card) => cardText(card, moves, deck)),
+    ...(deck.setPiece ? [cardText(deck.setPiece.name, moves, deck)] : []),
     ...(deck.swaps ?? []).map((swap) => `swapped: ${swap.out} → ${swap.in} (${swap.why})`),
     `Build each card where it fits (deck_unused warns under half). ${left ? `swap {out, in, why} (${left} left)` : "No swaps left"}; reroll:true deals again.`,
   ].filter(Boolean).join("\n");

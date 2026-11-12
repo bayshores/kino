@@ -9,7 +9,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { mainScene } from "../../engine/board.js";
-import { cardNames } from "../../engine/deck.js";
+import { cardNames, madeNamesIn } from "../../engine/deck.js";
 import { referenceSignature } from "../../engine/quality/layoutSignature.js";
 import { shiftAnimation } from "../../engine/animationShift.js";
 import { isComposedAnimation } from "../../engine/animationTree.js";
@@ -782,7 +782,8 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
       clipLinks: document.clipLinks ?? [],
       // The storyboard's shots (cue, dur, move kind): plain_beats judges each one.
       ...(boardShots(document, scene) ? { board: boardShots(document, scene) } : {}),
-      ...(deck ? { deck, movesUsed: [...new Set(scene.layers.map((layer) => layer.move?.name).filter(Boolean))] } : {}),
+      // Moves, and the made cards a scene holds (engine/deck.js madeNamesIn: effects, cut-outs, kept lines).
+      ...(deck ? { deck, movesUsed: madeNamesIn(scene) } : {}),
       ...(pixels && renderFrames ? { renderFrames: renderWith(signal) } : {}),
     };
     const result = await runQuality(model, { pixels: pixels && Boolean(renderFrames), context });
@@ -914,6 +915,8 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
           ...(finding.internal ? { internal: true } : {}),
           // plain_beats marks the warning that holds a final render (blocksFinal).
           ...(finding.final ? { final: true } : {}),
+          // deck_unused names its unused cards (check's advice line shows them with a ready call).
+          ...(Array.isArray(finding.unused) ? { unused: finding.unused } : {}),
         });
       }
     }

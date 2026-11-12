@@ -89,21 +89,20 @@ Once a treatment is picked (or waived), kino deals a hand: one or two techniques
 (`deck (seed 4821): dissolve, parallax, ...; swaps left 2`). The deal:
 
 - puts a backed spec's wants first, never an avoided tag;
-- fits the material: no phone cards without a phone or recording, no type-heavy cards for
-  footage without words, no speed ramp without video;
+- fits the material: no phone cards without a phone, no type cards without words;
 - steers away from the last 3 projects' decks; never deals plain cuts, plain text, beat kicks,
-  or both type-pop and slow-push.
+  or both type-pop and slow-push;
+- adds up to 2 made cards (cut_out, keep_line, rim-light, smear...) on a fact (a subject,
+  heard lines) or your labels (at most half, 2 per reference); each says why.
 
-Build a card where it fits; swap a misfit with a reason (2 a deal) or reroll.
+New labels or footage deal again until a card is used. Build cards; swap one with a reason or reroll.
 
 ```json
 {"tool":"notes","action":"deck"}
 {"tool":"notes","action":"deck","reroll":true}
-{"tool":"notes","action":"deck","swap":{"out":"particles","in":"light-sweep"},"expect":"bad_input"}
 ```
 
-`variants {vary:"deck"}` remakes a composed scene with the next 3 decks; `look
-{mode:"variants"}` compares them; `pick_variant` keeps one.
+`variants {vary:"deck"}` remakes a composed scene with the next 3 decks.
 
 ## Treatments
 
