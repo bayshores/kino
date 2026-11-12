@@ -74,6 +74,9 @@ const FLAT = 8;
 // gray copies correlate at least ALIKE (−1 to 1). Sintel's city and its flying dragon: 0.46; the
 // flying dragon 4 frames apart: 0.8.
 const ALIKE = 0.6;
+// A shot whose median 32×18 frame spreads its gray under this is dim (pictureChanges' residual test):
+// the dark found clip whose own cuts kept a raw correlation of 0.74 to 0.85 spread 8 to 9.5.
+const DIM_SPREAD = 2 * FLAT;
 // Lengths in frames are compared with this much slack for timestamps that are not exact.
 const EPSILON = 0.01;
 // The longest video kino looks for shots in: the run keeps every frame's gray copy (576 bytes) and
@@ -83,8 +86,10 @@ export const MAX_VIDEO_FRAMES = 72_000;
 const TOO_LONG = "too long to look for shots in";
 // Saved with the shots (shotsFound.version), so a better finder can tell old results apart. 2: cuts
 // between dim drawn shots (UNLIKE_JUMP) and held drawings under a camera drift (DRIFT_MAX). 3: a
-// shot's edge frames (shotEdges), so a file found before them is measured once more.
-export const SHOTS_VERSION = 3;
+// shot's edge frames (shotEdges), so a file found before them is measured once more. 4: picture
+// changes inside a shot (pictureChanges: a montage, a short cutaway). 5: the same in dark footage
+// under a fixed vignette or grain (shotResidual).
+export const SHOTS_VERSION = 5;
 // What kino keeps of FFmpeg's messages for an error: the end, where FFmpeg says what went wrong.
 const MAX_ERROR_LENGTH = 4000;
 // Each frame as the metadata filter prints it: "frame:30   pts:15360   pts_time:1.25", then
@@ -236,6 +241,68 @@ export function shotEdges(cuts, starts, frames, { at = (frame) => frame, flashes
     if (next - start - head - tail < MIN_SHOT_FRAMES) return { head: 0, tail: 0 };
     return { head, tail };
   });
+}
+
+/**
+ * The picture changes inside each shot that the shot rules do not keep as cuts: a montage of
+ * 1 to 5 frame shots (each change masks its neighbors' spike, so no SPIKE fires) or a short
+ * cutaway that returns to the shot (taken for a flash). A frame changes the picture when it is not
+ * flat, not ALIKE the last frame before it that is not flat, and differs from that frame by at
+ * least SPIKE times the shot's own usual change (the lower third of its frame steps over HOLD_DIFF:
+ * a shot under green rain measured 13 to 15 per step, its montage frames 30 to 79). `inShot(start,
+ * next)` gives a second alike test for one shot (shotResidual: the shot's own average frame taken
+ * out first), which a frame must also pass to stay in the picture. Returns one sorted list of frame
+ * numbers per shot (its first frame is never one).
+ */
+export function pictureChanges(starts, frames, mad, { flat = () => false, alike = () => true, inShot = null } = {}) {
+  return starts.map((start, index) => {
+    const next = starts[index + 1] ?? frames;
+    const residual = (inShot ? inShot(start, next) : null) ?? (() => true);
+    const steps = [];
+    for (let frame = start + 1; frame < next; frame += 1) { const step = mad(frame - 1, frame); if (step > HOLD_DIFF) steps.push(step); }
+    if (!steps.length) return [];
+    steps.sort((a, b) => a - b);
+    // The lower third, not the median: a montage's own big steps would raise the median.
+    const usual = steps[Math.floor(steps.length / 3)];
+    const changes = [];
+    let last = flat(start) ? -1 : start;
+    for (let frame = start + 1; frame < next; frame += 1) {
+      if (flat(frame)) continue;
+      if (last >= 0 && !(alike(last, frame) && residual(last, frame)) && mad(last, frame) >= SPIKE * usual) changes.push(frame);
+      last = frame;
+    }
+    return changes;
+  });
+}
+
+/**
+ * Whether two frames of one shot (frames start..next − 1) are ALIKE once the shot's own average
+ * frame is taken out of both. Dark drawn footage under a fixed vignette, bars or grain keeps a raw
+ * correlation of 0.74 to 0.85 across its own cuts (a found clip's montage at gray 11 to 14 of 255);
+ * with the average out the same cuts measured 0.15 to 0.56 and the shot's own steps 0.68 to 1.
+ */
+export function shotResidual(thumbnails, start, next) {
+  const average = new Float64Array(THUMBNAIL_BYTES);
+  const count = Math.max(1, next - start);
+  for (let frame = start; frame < next; frame += 1) {
+    for (let offset = 0; offset < THUMBNAIL_BYTES; offset += 1) average[offset] += thumbnails[frame * THUMBNAIL_BYTES + offset] / count;
+  }
+  const residual = (frame) => {
+    const values = new Float64Array(THUMBNAIL_BYTES);
+    let mean = 0;
+    for (let offset = 0; offset < THUMBNAIL_BYTES; offset += 1) { values[offset] = thumbnails[frame * THUMBNAIL_BYTES + offset] - average[offset]; mean += values[offset] / THUMBNAIL_BYTES; }
+    let squares = 0;
+    for (let offset = 0; offset < THUMBNAIL_BYTES; offset += 1) { values[offset] -= mean; squares += values[offset] ** 2; }
+    return { values, size: Math.sqrt(squares) };
+  };
+  return (first, second) => {
+    const a = residual(first), b = residual(second);
+    // A frame that is the shot's average (nothing left) is alike: no picture to compare.
+    if (!(a.size > 0 && b.size > 0)) return true;
+    let total = 0;
+    for (let offset = 0; offset < THUMBNAIL_BYTES; offset += 1) total += a.values[offset] * b.values[offset];
+    return total / (a.size * b.size) >= ALIKE;
+  };
 }
 
 // The first frame after `cut` (within FLASH_FRAMES) that shows the picture from before it, or -1.
@@ -580,6 +647,12 @@ export function shotsFromRun(run, { duration, length, minShotFrames = MIN_SHOT_F
   const flat = (frame) => stats.spread[frame] <= FLAT;
   const alike = (first, second) => correlation(run.thumbnails, stats, first, second) >= ALIKE;
   const flashLike = (frame, before, after) => flat(frame) || alike(frame, before) || alike(frame, after);
+  // A dim shot: its median frame spreads its pixels under DIM_SPREAD, so a fixed vignette, bars or
+  // grain decide its raw correlation (shotResidual looks past them only there).
+  const dim = (start, next) => {
+    const spreads = Array.from(stats.spread.subarray(start, next)).sort((a, b) => a - b);
+    return spreads.length > 0 && spreads[Math.floor(spreads.length / 2)] < DIM_SPREAD;
+  };
   const find = (drawn) => {
     // A frame FFmpeg printed no time for cannot start a shot.
     const cuts = cutsFromScores(run.scores, frames, mad, stats.brightness, { at, flat, alike, drawn }).filter((frame) => Number.isFinite(run.times[frame]));
@@ -589,7 +662,8 @@ export function shotsFromRun(run, { duration, length, minShotFrames = MIN_SHOT_F
     // An edge frame is flat (black, white, a blur) or not alike the body's nearest frame: a drawn
     // pose change at a shot's start (the same picture, redrawn) is body, not an edge.
     const edges = shotEdges(cuts, starts, frames, { at, flashes: flashFrames, apart: (frame, body) => flat(frame) || !alike(frame, body) });
-    return { starts, flashes, flashSpans, edges, holds: holdPattern(frames, mad, run.times, length, starts) };
+    const changes = pictureChanges(starts, frames, mad, { flat, alike, inShot: (start, next) => (dim(start, next) ? shotResidual(run.thumbnails, start, next) : null) });
+    return { starts, flashes, flashSpans, edges, changes, holds: holdPattern(frames, mad, run.times, length, starts) };
   };
   // Drawn footage (each drawing held 2 frames or more in the shots found without it) is looked at
   // once more for cuts between dim drawn shots (UNLIKE_JUMP).
@@ -604,7 +678,9 @@ export function shotsFromRun(run, { duration, length, minShotFrames = MIN_SHOT_F
     // {start, end} file seconds, which imports and board shots keep to by default.
     const inner = (frame) => run.times[frame];
     const edge = head || tail ? { head, tail, start: round3(head ? inner(starts[index] + head) : start), end: round3(tail ? inner((starts[index + 1] ?? frames) - tail) : end) } : null;
-    return { start: round3(start), end: round3(end), ...(edge && Number.isFinite(edge.start) && Number.isFinite(edge.end) ? { edge } : {}) };
+    // Picture changes inside the shot the shot rules keep no cut for (pictureChanges), file seconds.
+    const changes = (found.changes[index] ?? []).map((frame) => run.times[frame]).filter(Number.isFinite).map((time) => round3(time));
+    return { start: round3(start), end: round3(end), ...(edge && Number.isFinite(edge.start) && Number.isFinite(edge.end) ? { edge } : {}), ...(changes.length ? { changes } : {}) };
   });
   return {
     shots,

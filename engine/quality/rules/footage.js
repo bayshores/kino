@@ -41,7 +41,7 @@ import { breakAfter, heardEdges, heardWords } from "./speech.js";
 import { peopleNear } from "./people.js";
 import { markHoldsSalient, sampleBoxes, SUBJECT_KEPT } from "../../footage/layout.js";
 import { cropPast, markSpan, markWays, subjectLost, MARK_SECONDS, MARK_SEEN, MARK_ZOOM_MOST } from "../../footage/burned.js";
-import { farthestCut, layerSpanCuts } from "../../spanCuts.js";
+import { farthestCut, layerSpanChanges, layerSpanCuts } from "../../spanCuts.js";
 
 // The most file pixels one output pixel may stretch over before the picture looks soft.
 export const UPSCALE_MAX = 1.3;
@@ -1047,9 +1047,11 @@ export function sourceCut(model, ctx) {
   for (const layer of scene.layers ?? []) {
     if (layer.type !== "video" || layer.visible === false || !layer.src) continue;
     const cuts = layerSpanCuts(layer, ctx.mediaShots[layer.src], scene.duration);
-    if (!cuts.length) continue;
+    const changes = cuts.length ? null : layerSpanChanges(layer, ctx.mediaShots[layer.src], scene.duration);
+    if (!cuts.length && !changes) continue;
     const item = model.items.find((entry) => entry.source?.layerId === layer.id && !entry.source?.componentPath);
     const name = item ? ctx.name(item) : layer.name ?? layer.id;
+    if (changes) { findings.push(changesFinding(name, layer, item, changes)); continue; }
     const cut = farthestCut(cuts);
     const crossed = cuts.filter((each) => each === cut || (each.side === cut.side && (cut.side === "start" ? each.file < cut.file : each.file > cut.file)));
     // The checked frames that show the file on the leak side of the cut, held frames included.
@@ -1082,6 +1084,24 @@ export function sourceCut(model, ctx) {
     });
   }
   return findings;
+}
+
+// source_cut for picture changes inside one saved shot (layerSpanChanges): a montage run is named
+// once with its count; the fix shows the same length from the nearest clean stretch of the shot.
+function changesFinding(name, layer, item, { runs, move }) {
+  const total = runs.reduce((sum, run) => sum + run.count, 0);
+  const runText = (run) => (run.count === 1
+    ? `file ${sec(run.from)} s (scene ${sec(run.at)} s)`
+    : `a run of ${run.count} changes file ${sec(run.from)}-${sec(run.to)} s (scene ${sec(run.at)}-${sec(run.until)} s)`);
+  const keeps = move.fields.mediaStart === undefined ? "keeps its start and length" : "trims to it";
+  const fields = Object.entries(move.fields).map(([key, value]) => `${key}:${value}`).join(", ");
+  return {
+    rule: "source_cut", severity: "info", ...(item ? { itemId: item.id } : {}), at: sec(runs[0].at),
+    message: `${name} shows ${total} picture change${total === 1 ? "" : "s"} of its file inside one saved shot (a montage or short cutaway cut into the source): ${runs.slice(0, 3).map(runText).join("; ")}${runs.length > 3 ? `; ${runs.length - 3} more` : ""}.`,
+    measured: `${total} frames unlike the frame before by twice the shot's usual frame step or more (shot.changes), in ${runs.length} run${runs.length === 1 ? "" : "s"}; clean stretch file ${sec(move.from)}-${sec(move.to)} s`,
+    required: "a shown span inside one picture of its file, unless the changes are meant",
+    fix: { kind: "layer", layerId: layer.id, properties: move.fields, auto: false, why: `${fields} ${keeps} on file ${sec(move.from)}-${sec(move.to)} s, a stretch with no picture change` },
+  };
 }
 
 // ---------------------------------------------------------------- track_lost
