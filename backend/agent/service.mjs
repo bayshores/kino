@@ -80,6 +80,7 @@ import { activeApproval, boardFacts, boardPrint, laterAnswer, reframeApproved, s
 import { boardSpan, mainScene, reframeBoard } from "../../engine/board.js";
 import { boardLook, BoardLookError, boardShotImage, SHOT_WIDTHS, styleFrameFacts, styleFrameImage } from "./board-look.mjs";
 import { boardData as boardScreenData } from "./board-data.mjs";
+import { BOARD_BUILD, boardBuilt } from "./board-build.mjs";
 import { editableField, inspectTargets } from "./inspect.mjs";
 import { overriddenValues } from "./overridden-values.mjs";
 import { animationJumps, moveHandEdits } from "./jumps.mjs";
@@ -8243,6 +8244,8 @@ export function createAgentService(deps) {
     return shape && count * 2 > listed.length ? FORMAT_OF_SHAPE[shape] : null;
   }
   async function composeCall(document, state) {
+    // A storyboard in the project is what the first build follows, whatever else is imported.
+    if (document.board?.shots?.length) return nextOf("edit", { ops: [{ ...BOARD_BUILD }] });
     const scene = document.scenes.find((entry) => !entry.isComponent) ?? document.scenes[0];
     const ratio = scene ? scene.width / scene.height : 16 / 9;
     const sceneFormat = ratio > 1.2 ? "16:9" : ratio < 0.8 ? "9:16" : "1:1";
@@ -8280,6 +8283,14 @@ export function createAgentService(deps) {
     // Past a rough first pass with no locked direction: edit receipts name the lock call too.
     const lock = lockNeeded(state, video);
     if (lock) return lock.call;
+    // An approved storyboard not yet on the timeline: build it as planned (run 8 T318 named a
+    // footage compose that never read the board). The direction's own steps stay first: the
+    // build's gates (references, treatments) would refuse it before them.
+    if (activeApproval(state) && !boardBuilt(document)) return nextOf("edit", { ops: [{ ...BOARD_BUILD }] });
+    // A saved board the stop still asks about: the ask, even in an edit receipt (advice:false),
+    // where a build call would only be refused with board_needed (run 8 T254 and T299 named a
+    // footage compose here, after the board was saved and before it was asked).
+    if (document.board?.shots?.length && move.call?.input?.action === "checkpoint" && move.call.input.id === "board") return move.call;
     if (!hasLayers(document)) return await composeCall(document, state);
     if (state.checked?.rev !== record.revision) return checkCall(state);
     const codes = await syncCodes(document.id, document);

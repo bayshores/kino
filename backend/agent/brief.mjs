@@ -630,7 +630,7 @@ const missingStep = (missing) => (missing[0] === "ask" ? "save ask and about"
   : missing[0] === "about" ? "save about" : `guess ${plural(missing.length, "missing line")}`);
 // The board stop comes before the build: the board is drawn and asked first, then the whole video is built.
 export const PLAN_CALL = (stop) => ({ tool: "notes", input: { action: "set_plan", steps: stop === "board" ? [
-  "Board a move per shot (edit board)", "Ask board (notes checkpoint)", "Build the whole video in one edit (compose)", "check {fix:\"auto\"}",
+  "Board a move per shot (edit board)", "Ask board (notes checkpoint)", "Build the approved board (compose {from:\"board\"})", "check {fix:\"auto\"}",
   "look {mode:\"review\"} until every moment is reviewed", "Render final"] : [
   "Build the whole video in one edit (compose)", "check {fix:\"auto\"}", ...(stop ? [`Ask ${stop} (notes checkpoint)`] : []),
   "look {mode:\"review\"} until every moment is reviewed", "Render final"] } });
