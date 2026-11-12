@@ -6,6 +6,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { defaultFonts } from "./fonts.js";
 import { createDocument, createLayer, createScene, parseDocument } from "./model.js";
+import { applyOperations } from "./operations.js";
 import { ruleOf, runQuality } from "./quality/index.js";
 import { kinoTimeline } from "./quality/kinoTimeline.js";
 import { soundAsWords, spokenWords } from "./quality/rules/speech.js";
@@ -519,6 +520,15 @@ test("speech_cut: a voice stopped inside a word or a sentence, or started inside
   assert.match(start.message, /starts mid-sentence/);
   assert.equal(start.severity, "error");
   assert.deepEqual(start.fix.properties, { mediaOffset: 2.425, mediaStart: 0.105, mediaDuration: 3.095 });
+  // A layer that begins too close to the scene start cannot move 0.895 s earlier: the fix keeps mediaStart at 0
+  // (update_layer refuses less), says the words play later, and the layer takes it as the op is sent.
+  const near = voice("judge", { mediaStart: 0.25, mediaOffset: 3.32, mediaDuration: 2.2 });
+  const [clamped] = await speechFindings("speech_cut", [near]);
+  assert.equal(clamped.fix.properties.mediaStart, 0);
+  assert.equal(clamped.fix.auto, false);
+  assert.match(clamped.fix.why, /the words after it play 0\.65 s later/);
+  const applied = applyOperations(scene({ layers: [near] }), [{ type: "update_layer", sceneId: "scene", layerId: "judge", properties: clamped.fix.properties }]);
+  assert.equal(applied.scenes[0].layers[0].mediaStart, 0);
   // A whole sentence is fine, and so is a join between two pieces of one cut_speech voice.
   assert.deepEqual(await speechFindings("speech_cut", [voice("judge", { mediaOffset: 2.4, mediaDuration: 3.1 })]), []);
   // Fillers are not words to cut: an app's beeps come out as "um".
@@ -625,6 +635,14 @@ test("speech_cut by loudness: a cut inside the sound, and a file that ends mid-s
   assert.deepEqual(unknown.findings.map((finding) => [finding.severity, /inside loud sound/.test(finding.message)]), [["warn", true]]);
   assert.match(unknown.notes.join("\n"), /heard only the loudness of "voice"/);
   assert.deepEqual((await heardFindings([voice("voice", { mediaDuration: 2.1 })], LOUDNESS, null)).findings, []);
+  // Started inside loud sound 0.1 s into the scene: the pause is further back than that, so the fix keeps
+  // mediaStart at 0 (update_layer refuses less), names the late part, and update_layer takes it as sent.
+  const early = voice("voice", { mediaStart: 0.1, mediaOffset: 3, mediaDuration: 2 });
+  const [loudIn] = (await heardFindings([early], LOUDNESS, null)).findings;
+  assert.match(loudIn.message, /starts inside loud sound/);
+  assert.equal(loudIn.fix.properties.mediaStart, 0);
+  assert.match(loudIn.fix.why, /begins 0\.1 s into the scene, so the sound after it plays [\d.]+ s later/);
+  assert.equal(applyOperations(scene({ layers: [early] }), [{ type: "update_layer", sceneId: "scene", layerId: "voice", properties: loudIn.fix.properties }]).scenes[0].layers[0].mediaStart, 0);
   // Sound effects are no voice: a whoosh cut on both sides inside its loud sound, and a 0.35 s
   // camera shutter whose transcript is the tag "camera shutter]", pass.
   const whoops = { ...TRANSCRIPT, words: [0.1, 0.7, 1.3, 1.9].map((start) => ({ text: "whoop,", start, end: start + 0.4, cut: start, p: 0.9 })) };

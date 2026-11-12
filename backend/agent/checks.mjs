@@ -12,7 +12,7 @@ import { evaluateLayer } from "../../engine/animation.js";
 import { documentTextLayers } from "../../engine/fontDocuments.js";
 import { documentGlyphProblems, layerGlyphProblems } from "../../engine/fontGlyphReferences.js";
 import { missingDocumentFonts } from "../../engine/fontRecovery.js";
-import { RULES } from "../../engine/quality/index.js";
+import { RULES, blocksFinal } from "../../engine/quality/index.js";
 import { DRAWN_HOLD_SECONDS } from "../../engine/quality/rules/footage.js";
 import { mediaIdFromSource } from "../../engine/replaceMedia.js";
 import { animationSpan, layerAnimations, refName, sec } from "./describe.mjs";
@@ -200,15 +200,31 @@ export function groupFixLines(lines, shown = 4) {
 export const waivedRefs = (findings) => [...new Set(findings.filter((finding) => finding.waived).map((finding) => `${finding.rule} ${finding.ref}`))]
   .sort((a, b) => a.localeCompare(b, "en", { numeric: true }));
 
+/**
+ * The warnings that would stop a final render right now, by the same function the render asks
+ * (blocksFinal): "2 warn stop a final render (text_glow x2)". Errors are in the err count, so
+ * they are not repeated; "" when no warning blocks or `real` is not known (undefined).
+ */
+export function stopsNote(findings, real) {
+  if (real === undefined) return "";
+  const counts = new Map();
+  for (const finding of findings) if (finding.severity === "warn" && blocksFinal(finding, real)) counts.set(finding.rule, (counts.get(finding.rule) ?? 0) + 1);
+  const total = [...counts.values()].reduce((sum, count) => sum + count, 0);
+  if (!total) return "";
+  const names = [...counts].map(([rule, count]) => (count > 1 ? `${rule} x${count}` : rule));
+  return `${total} warn stop${total === 1 ? "s" : ""} a final render (${names.slice(0, 4).join(", ")}${names.length > 4 ? `, +${names.length - 4}` : ""})`;
+}
+
 // The open findings' names follow the open counts and the waived findings' names follow the waived
-// count, so neither list reads as the other's.
-export function checkSummary(findings, { unchecked = [] } = {}) {
+// count, so neither list reads as the other's; the stops note follows the open counts too.
+export function checkSummary(findings, { unchecked = [], real } = {}) {
   const counts = checkCounts(findings);
+  const stops = stopsNote(findings, real);
   const top = shownFindings(findings).slice(0, 2).map((finding) => `${finding.rule} ${finding.ref}`).join(", ");
   const waivedNames = waivedRefs(findings);
   const where = unchecked === "all" ? "" : unchecked.length > 3 ? ` in ${unchecked.slice(0, 3).join(", ")} +${unchecked.length - 3}` : ` in ${unchecked.join(", ")}`;
   const left = unchecked === "all" || unchecked.length ? ` · unchecked${where}: ${PIXEL_GATES}` : "";
-  return `${counts.errors} err · ${counts.warnings} warn${top ? ` (${top})` : ""}${counts.waived ? ` · ${counts.waived} waived (${waivedNames.slice(0, 2).join(", ")}${waivedNames.length > 2 ? ", …" : ""})` : ""}${left}`;
+  return `${counts.errors} err · ${counts.warnings} warn${top ? ` (${top})` : ""}${stops ? ` · ${stops}` : ""}${counts.waived ? ` · ${counts.waived} waived (${waivedNames.slice(0, 2).join(", ")}${waivedNames.length > 2 ? ", …" : ""})` : ""}${left}`;
 }
 
 export const CHECK_RULES = "Rules: render checks (missing_media, empty_text, off_canvas, past_scene_end, missing_font, missing_glyphs), gates that block a final render (linear_motion, reading_time, type_min, overlap, safe_zone, contrast, flashing, luma_jump, frozen_picture, assertions, spring_on_fade, same_motion, promo_basics; av_offset after it), and warnings (in a real edit, a brief and 30+ layers, each also blocks a final render until fixed or waived, but a taste one: restraint, off_beat, jump_cut, end_on_fade and the like ride on its receipt as open notes); advice (info) never blocks. library {topic:\"rules\", name:\"quality\"} explains each.";

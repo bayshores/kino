@@ -99,7 +99,7 @@ import { overriddenValues } from "./overridden-values.mjs";
 import { animationJumps, moveHandEdits } from "./jumps.mjs";
 import { pivotNotes } from "./pivot-notes.mjs";
 import { coverNotes, importedNames, liftFootage, liftNotes, textUnderNotes, unseenPresetNotes } from "./silent-receipts.mjs";
-import { BRIEF_RULES, checkDocument, checkReport, checkSummary, explainMissingGlyphs, groupFixLines, liveWaivers, mergeFindings, openFindingLines, staleWaiverLine, triageFindings, waivedRefs, waiverNotes } from "./checks.mjs";
+import { BRIEF_RULES, checkDocument, checkReport, checkSummary, explainMissingGlyphs, groupFixLines, liveWaivers, mergeFindings, openFindingLines, staleWaiverLine, stopsNote, triageFindings, waivedRefs, waiverNotes } from "./checks.mjs";
 import { addVerdict, anchorLines, barOf, barPairs, barTimeAt, parseVerdict } from "./bar.mjs";
 import { BAR_PROTOCOL, CRITIQUE_ROUNDS, critiqueProtocol, CRITIQUE_WAIVER, barGap, blocksRender, critiqueDirectionKey, critiqueOf, critiqueSpine, critiqueQuestions, critiqueTimes, critiqueWanted, lineText, openCritique, parseCritique, personCall, staleCritique, upLines } from "./critique.mjs";
 import { createQualityChecker, qualityRulesText, videoScene } from "./quality.mjs";
@@ -3617,7 +3617,7 @@ export function createAgentService(deps) {
         ...(work.finished ? { finished: work.finished } : {}),
         ...(stale ? { rebased: true } : {}),
         ...reportFields(editBag.reports, afterCodes, translation.operations),
-        check: checkSummary(findings, { unchecked }),
+        check: checkSummary(findings, { unchecked, real: await isRealEdit(after) }),
         ...(newFindings ? { newFindings } : {}),
         ...(work.warnings?.length ? { warnings: [...new Set(work.warnings)] } : {}),
         ...(work.summaries?.length ? { summaries: work.summaries.map((summary) => ({ ...summary, ...(input.dry_run ? { preview: true } : {}) })) } : {}),
@@ -3704,7 +3704,7 @@ export function createAgentService(deps) {
     // after the direction block, before the plan and the layer rows.
     const outline = projectOutline(record, {
       codes, focus: focus.id, page: input.page ?? 1, seen: state.seen ?? {}, full: input.full === true, notices: extra,
-      plan: state.plan, checks: checkSummary(findings, { unchecked }), pointing, direction: [...statusLines(state, await directionFacts(document), stopRulesNow()), ...(controlsLine(state.brief?.controls) ? [controlsLine(state.brief.controls)] : []), ...(takes ? [takes] : []), ...(toFinal ? [toFinal] : []), ...(deckLine ? [deckLine] : []), ...(madeText ? [madeText] : []), ...(always ? [always] : []), ...(needs ? [needs] : []), ...(lineNote ? [lineNote.text] : [])],
+      plan: state.plan, checks: checkSummary(findings, { unchecked, real: await isRealEdit(document) }), pointing, direction: [...statusLines(state, await directionFacts(document), stopRulesNow()), ...(controlsLine(state.brief?.controls) ? [controlsLine(state.brief.controls)] : []), ...(takes ? [takes] : []), ...(toFinal ? [toFinal] : []), ...(deckLine ? [deckLine] : []), ...(madeText ? [madeText] : []), ...(always ? [always] : []), ...(needs ? [needs] : []), ...(lineNote ? [lineNote.text] : [])],
     });
     const stop = waitingStop(state);
     noteLive({ sceneId: focus.id });
@@ -3809,7 +3809,8 @@ export function createAgentService(deps) {
     await explainMissingGlyphs(result.findings, record.document, { fonts, catalog: fontCatalog, codes });
     if (!scene) await recordDeckUse(projectId, result.techniques);
     const report = checkReport(result.findings, { info: Boolean(rules) });
-    const counts = `${report.errors} err · ${report.warnings} warn${report.info ? ` · ${report.info} info` : ""}${report.waived ? ` · ${report.waived} waived` : ""}`;
+    const stops = stopsNote(result.findings, await isRealEdit(record.document));
+    const counts = `${report.errors} err · ${report.warnings} warn${stops ? ` · ${stops}` : ""}${report.info ? ` · ${report.info} info` : ""}${report.waived ? ` · ${report.waived} waived` : ""}`;
     const lines = [`rev ${record.revision} · ${counts}${scene ? ` · ${refName(scene.id, codes)} only` : ""}${options.pixels ? "" : " · pixels off"} · ${result.ms} ms`];
     // A rule waived over and over in one project is likely kino's mistake, not taste. Right after
     // the counts, so an agent that reads only the first lines still sees it.
@@ -4018,13 +4019,15 @@ export function createAgentService(deps) {
     return after;
   }
 
-  // The errors in `after` that `before` does not have (by rule and layer, counted).
-  function addedErrors(before, after) {
+  // The findings in `after` that `before` does not have (by rule and layer, counted) and that stop a
+  // final render (blocksFinal, the function the render asks): every error, and in a real edit the
+  // warnings but taste ones. A fix that raises one is dropped with its name (the halo that raised text_glow).
+  function addedErrors(before, after, real = true) {
     const counts = new Map();
     const key = (finding) => `${finding.rule}|${finding.ref}`;
-    for (const finding of before) if (finding.severity === "error" && !finding.waived) counts.set(key(finding), (counts.get(key(finding)) ?? 0) + 1);
+    for (const finding of before) if (blocksFinal(finding, real)) counts.set(key(finding), (counts.get(key(finding)) ?? 0) + 1);
     return after.filter((finding) => {
-      if (finding.severity !== "error" || finding.waived) return false;
+      if (!blocksFinal(finding, real)) return false;
       const left = counts.get(key(finding)) ?? 0;
       counts.set(key(finding), left - 1);
       return left <= 0;
@@ -4047,6 +4050,7 @@ export function createAgentService(deps) {
    */
   async function autoFix(document, findings, options) {
     const { codes, fonts } = options;
+    const real = await isRealEdit(document);
     const full = { ...options, rules: null };
     let base = document;
     let baseFindings = options.rules ? (await findingsFor(document, { ...full, fonts })).findings : findings;
@@ -4072,7 +4076,7 @@ export function createAgentService(deps) {
           continue;
         }
         const checked = await findingsFor(after, { ...full, fonts: await fontsFor(after), codes });
-        const added = addedErrors(baseFindings, checked.findings);
+        const added = addedErrors(baseFindings, checked.findings, real);
         // A fix that leaves its own finding in place is not kept either: so the next
         // check {fix:"auto"} does not stack another change on the same thing.
         const still = added.length ? [] : candidates.filter((group) => checked.findings.some((finding) => !finding.waived
@@ -4101,7 +4105,7 @@ export function createAgentService(deps) {
             try {
               const alone = await simulateOps(base, group.ops, codes);
               const found = await findingsFor(alone, { ...full, fonts: await fontsFor(alone), codes });
-              if (addedErrors(baseFindings, found.findings).length) guilty.push(group);
+              if (addedErrors(baseFindings, found.findings, real).length) guilty.push(group);
             } catch { guilty.push(group); }
           }
           if (guilty.length) blamed = guilty;

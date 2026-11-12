@@ -383,11 +383,14 @@ function inFinding(voice, ctx) {
     // Starting earlier would bring back a word left out on purpose (a muted swear): never offered.
     if (!(back > 0 && back <= MAX_MOVE) || bringsBack(voice, at - back, at)) return { kind: "hint", text: `Move the start of "${layer.name}" to the start of a sentence, or waive speech_cut if it is on purpose.` };
     const start = (layer.mediaStart ?? 0) - back;
-    const properties = { mediaOffset: round3(Math.max(0, (layer.mediaOffset ?? 0) - back)), mediaStart: round3(start), ...(Number.isFinite(duration) && layer.mediaDuration > 0 ? { mediaDuration: round3(duration + back) } : {}) };
+    const properties = { mediaOffset: round3(Math.max(0, (layer.mediaOffset ?? 0) - back)), mediaStart: round3(Math.max(0, start)), ...(Number.isFinite(duration) && layer.mediaDuration > 0 ? { mediaDuration: round3(duration + back) } : {}) };
     const crossed = cutCrossed(ctx.speechScene, layer, range.heardStart, range.heardStart - back);
     // A video drawn earlier would cover what is before it, so only a sound starts earlier by itself.
     const safe = layer.type === "audio" && start >= 0 && !range.faded && !(layer.playbackWindows ?? []).length && !crossed;
-    const moved = `mediaStart ${sec(layer.mediaStart ?? 0)} to ${sec(start)}, mediaOffset ${sec(layer.mediaOffset ?? 0)} to ${sec(properties.mediaOffset)}: the voice starts ${sec(back)} s earlier, at ${sec(range.heardStart - back)} s`;
+    // mediaStart is 0 or more (update_layer refuses less): the part of the shift before the scene start is
+    // the voice playing later, not earlier. mediaOffset still goes back by the whole step to the sentence start.
+    const late = start < 0 ? -start : 0;
+    const moved = `mediaStart ${sec(layer.mediaStart ?? 0)} to ${sec(properties.mediaStart)}, mediaOffset ${sec(layer.mediaOffset ?? 0)} to ${sec(properties.mediaOffset)}: the voice starts ${sec(back - late)} s earlier, at ${sec(range.heardStart - back + late)} s${late ? `; the layer begins ${sec(layer.mediaStart ?? 0)} s into the scene, so the words after it play ${sec(late)} s later` : ""}`;
     return {
       kind: "layer", layerId: layer.id, properties, auto: safe,
       why: `starts at "${said(before.slice(0, 4))}" (${moved})${crossed ? `; that carries the voice back over ${crossed.text} into the shot before, so it is not applied by itself` : ""}`,
@@ -504,9 +507,12 @@ function loudInFinding(edge) {
   const target = before && at - before.end <= MAX_MOVE ? intoPause(before, false) : null;
   const back = target != null ? at - target : 0;
   const duration = effectiveMediaDuration(layer);
+  // mediaStart is 0 or more (update_layer refuses less), as in inFinding: what does not fit before the
+  // scene start plays later instead, and the why says so.
+  const late = Math.max(0, back - (layer.mediaStart ?? 0));
   const fix = back > 0
-    ? { kind: "layer", layerId: layer.id, auto: false, why: `starts ${sec(back)} s sooner, in a pause (${pausesText(before, after)})`,
-        properties: { mediaOffset: round3(Math.max(0, (layer.mediaOffset ?? 0) - back)), mediaStart: round3((layer.mediaStart ?? 0) - back), ...(Number.isFinite(duration) && layer.mediaDuration > 0 ? { mediaDuration: round3(duration + back) } : {}) } }
+    ? { kind: "layer", layerId: layer.id, auto: false, why: `starts ${sec(back)} s sooner, in a pause (${pausesText(before, after)})${late ? `; the layer begins ${sec(layer.mediaStart ?? 0)} s into the scene, so the sound after it plays ${sec(late)} s later` : ""}`,
+        properties: { mediaOffset: round3(Math.max(0, (layer.mediaOffset ?? 0) - back)), mediaStart: round3(Math.max(0, (layer.mediaStart ?? 0) - back)), ...(Number.isFinite(duration) && layer.mediaDuration > 0 ? { mediaDuration: round3(duration + back) } : {}) } }
     : { kind: "hint", text: `Move the start of "${layer.name}" into a pause (${pausesText(before, after)}), or waive speech_cut if the cut is on purpose.` };
   const firstWords = words ? words.filter((word) => word.end > at).slice(0, 4) : [];
   return {
