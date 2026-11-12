@@ -33,6 +33,11 @@ test("font preparation resolves sparse faces, keeps pinned versions and never ch
   assert.deepEqual(requests[0], { id: "qa-font", options: { version: "5.2.8" } });
   assert.equal(requests[1].version, "5.2.8");
   assert.equal(requests[1].style, "italic");
+  // A weight the family lacks becomes its nearest, named in a note instead of refusing the edit.
+  const notes = [];
+  const [nearest] = await prepareFontPatches([layer], { family: "QA Font", weight: 300 }, { fonts, catalog, notes });
+  assert.equal(nearest.fontWeight, 400);
+  assert.deepEqual(notes, ["QA Font has no weight 300: set 400, its nearest"]);
 });
 
 test("a failed font download is refused without changing layers", async () => {

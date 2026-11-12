@@ -187,6 +187,11 @@ function liftLayerFields(operation, fixes) {
   }
   const properties = { ...(operation.properties ?? {}) };
   for (const key of loose) {
+    // The same value in both places (name at the top level and in properties) is one field.
+    if (properties[key] !== undefined && JSON.stringify(properties[key]) === JSON.stringify(operation[key])) {
+      delete operation[key];
+      continue;
+    }
     if (properties[key] !== undefined) throw new Error(`${key} is given twice: at the top level and in properties. Keep the one in properties.`);
     properties[key] = operation[key];
     delete operation[key];
@@ -204,7 +209,7 @@ export const LAYER_PROPERTY_NAMES = [...new Set([
   ...Object.keys(MEDIA_TIMING_TYPES), "lowpass", "voiceCleanup", "morphIn", "log",
   ...BACKDROP_STYLE_KEYS, "reveal", "effectPreset", "fillRule", "textStyleRanges", "inactiveBoxStyles", "convertedFrom",
   "componentSceneId", "componentStart", "componentVisibility", "componentBackgroundEnabled", "componentOverrides",
-  "role", "perpetual", "allowOverlap", "recipe", "tabularNumbers", "textLoop", "axes", "rotateX", "rotateY", "perspective", "skewY", "anchor", "shadows", "strokes", ...TRIM_KEYS, ...REPEAT_KEYS, ...MODIFIER_KEYS, ...MODIFIER_CHOICE_KEYS, "maskInvert", "maskMode",
+  "role", "perpetual", "allowOverlap", "recipe", "tabularNumbers", "textLoop", "axes", "rotateX", "rotateY", "perspective", "skewY", "anchor", "shadows", "strokes", ...TRIM_KEYS, ...REPEAT_KEYS, ...MODIFIER_KEYS, ...MODIFIER_CHOICE_KEYS, "maskInvert", "maskMode", "frameRate",
 ])];
 const LAYER_PROPERTIES = new Set(LAYER_PROPERTY_NAMES);
 // Operations whose `properties` are layer fields.

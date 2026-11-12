@@ -950,6 +950,17 @@ function overshootMove(animation, duration, options) {
   return { from: null, to: null, rate: (at(1) - at(1 - step)) / (step * duration), at, step };
 }
 
+/**
+ * Whether an operation shows its From values before it starts. `fill: "both"` asks for it and
+ * `fill: "forwards"` refuses it; with neither, a Move (x and y only) holds and other operations
+ * keep the layer's own values until they start. Only the first operation on a key holds it.
+ */
+export function holdsFromBeforeStart(animation) {
+  if (animation.fill === "both") return true;
+  if (animation.fill === "forwards" || animation.fromCurrent) return false;
+  return isMoveAnimation(animation);
+}
+
 // Runs the timed operations `ordered` (sorted by start) on `target` at `time`: each operation
 // sets the values it names, and a later one overrides an earlier one. Before its start, only an
 // "in" operation applies (its From values). `onlyKeys` limits the values that are set.
@@ -961,6 +972,9 @@ function applyOperations(target, layer, ordered, time, options, {
   // The latest started aligned Move supplies one tangent offset. Keep it after the Move ends,
   // and add it after the ordinary Rotate operations, so their order doesn't erase alignment.
   let alignment = null;
+  // Keys an earlier operation (by start) already sets: a later operation never holds its From
+  // over them before it starts, so it cannot freeze an earlier motion that is still playing.
+  const claimed = new Set();
   for (let index = 0; index < ordered.length; index++) {
     const item = ordered[index];
     let animation = item.animation;
@@ -1026,9 +1040,17 @@ function applyOperations(target, layer, ordered, time, options, {
         }
         onResize?.(animation, start, before);
         reportTransform();
+      } else if (holdsFromBeforeStart(animation)) {
+        // fill "both" (the default for a Move): the layer waits at From instead of jumping there
+        // at the start (a panel sliding in from off screen sat over the frame until its move).
+        for (const key of keys)
+          if (Object.hasOwn(from, key) && !claimed.has(key)) target[key] = cloneData(from[key], `animation.from.${key}`);
+        reportTransform();
       }
+      for (const key of keys) claimed.add(key);
       continue;
     }
+    for (const key of keys) claimed.add(key);
 
     const duration = numberForAnimation(animation.duration, 0);
     // A loop plays the pass again after it ends; wiggle, oscillate, ramp and randomize add to the

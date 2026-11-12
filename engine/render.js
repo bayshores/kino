@@ -1068,7 +1068,26 @@ function decoderVideoMarkup(layer, state, blur) {
 }
 
 // maskInvert ("luminance" or "alpha") draws an inverted mask's drawing as maskDefinition needs.
-function renderLayer(node, context, { maskContent = false, maskInvert = null } = {}) {
+// A layer or group with frameRate ("on twos" at 12 in a 24 fps edit) is drawn at the start of its
+// own picture: motion, effects, particles and its children all hold for 1/frameRate seconds.
+// Everything the drawing shares (defs, ids, bounds) stays shared; only the clock is stepped.
+export function steppedTime(time, frameRate) {
+  if (!(frameRate > 0)) return time;
+  return Math.floor(time * frameRate + 1e-6) / frameRate;
+}
+
+function steppedContext(layer, context) {
+  if (context.design || !(layer.frameRate > 0)) return context;
+  const time = steppedTime(context.time, layer.frameRate);
+  if (time === context.time) return context;
+  return { ...context, time, mediaTime: steppedTime(context.mediaTime ?? context.time, layer.frameRate) };
+}
+
+function renderLayer(node, context, options = {}) {
+  return renderLayerAt(node, steppedContext(node.layer, context), options);
+}
+
+function renderLayerAt(node, context, { maskContent = false, maskInvert = null } = {}) {
   const { layer } = node;
   if (layer.visible === false || layer.type === "audio") return "";
   let state = resizeTextLayer(getAnimatedLayer(layer, context), context.fonts);

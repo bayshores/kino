@@ -542,6 +542,12 @@ How to read it:
 - **Motion paths**: Verified. `motionPath` on a Move, up to 64 points with `alignToPath`. Evidence:
   `engine/motionPath.test.js`, `engine/motionPathTransforms.test.js`, `backend/motion-path-export.test.mjs`,
   golden `motion-paths`. Gap: inserting a point does not keep the exact curve.
+- **Move holds its from (fill)**: Verified. A Move waits at `from` before its start; `fill` both or
+  forwards on any custom animation. Evidence: `engine/animation.test.js`. Gap: Lottie not checked.
+- **Effect pulse (peak, return)**: Verified. One effect (value or ranged, such as glow) rises to `to`
+  and returns. Evidence: `engine/effects/animation.test.js`, `backend/agent-answers.test.mjs`.
+- **Layer frameRate ("on twos")**: Verified. A layer or group holds every picture inside it for
+  1/frameRate s. Evidence: `engine/render.test.js`. Gap: pre-decoded footage inside is not stepped.
 - **Easing**: Verified. Thirteen easings (named expo-out or snap, quart-out, in-out) plus custom curves, `intensity` 0 to 100, one evaluator for all
   renders; saved easings via `apply_easing`. Evidence: `engine/easing.test.js`,
   `engine/easingIntegration.test.js`, `backend/easing-export.test.mjs`, `backend/easing-library.test.mjs`,

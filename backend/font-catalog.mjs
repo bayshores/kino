@@ -286,10 +286,9 @@ function verifyFont(bytes, expected) {
   const registry = new FontRegistry();
   registry.register(bytes, { id: "catalog-validation", family: expected.family, weight: expected.weight, style: expected.style });
   const font = registry.faces[0].font;
-  const actualWeight = Number(font["OS/2"]?.usWeightClass);
-  if (Number.isFinite(actualWeight) && actualWeight !== expected.weight &&
-      !(font.variationAxes?.wght && expected.weight >= font.variationAxes.wght.min && expected.weight <= font.variationAxes.wght.max))
-    throw new Error("Downloaded font weight did not match the requested face.");
+  // The weight class written inside the file is not checked: the catalog serves this file as the
+  // family's face at expected.weight, and some families label their only face 300 or 500 inside
+  // (a handwriting face listed at 400 refused a whole 25-op edit). The catalog's weight is used.
   const actualStyle = /italic|oblique/i.test(String(font.subfamilyName ?? "")) ? "italic" : "normal";
   if (actualStyle !== expected.style) throw new Error("Downloaded font style did not match the requested face.");
 }
