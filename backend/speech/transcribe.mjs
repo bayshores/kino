@@ -929,7 +929,7 @@ export function createTranscriptCache({
   async function guessOf(filename, found) {
     try { return JSON.parse(await readFile(`${filename}.lang-${found.modelName}`, "utf8")); } catch { return null; }
   }
-  const otherLanguage = (guess) => Boolean(guess?.language) && guess.language !== "en" && !(guess.p < LANG_SURE);
+  const otherLanguage = heardOtherLanguage;
   /**
    * The transcript of a clip as said: `english` (get's answer) when it holds no voice, no
    * multilingual model is set up, or whisper hears English (or is unsure, LANG_SURE); else the

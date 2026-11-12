@@ -401,6 +401,7 @@ test("agent service: set_font on a face that lacks a glyph sets it, draws that g
   const checked = await agent("check", { project: "glyphs", rules: ["missing_glyphs"] });
   assert.deepEqual(checked.data.findings.map((finding) => finding.ref), ["line"], "title draws every character now; line still lacks ∞");
   const [finding] = checked.data.findings;
+  assert.deepEqual(Object.keys(finding).filter((key) => key === "explained"), [], "the answer's finding carries no bookkeeping field");
   assert.ok(finding.message.includes(`Roboto 400 (fontSource ${source("roboto")}) has them (glyphs checked)`), finding.message);
   assert.deepEqual(finding.fix, { op: "update_layer", layerId: "line", properties: { textStyleRanges: [{ start: 3, end: 4, style: { fontFamily: "Roboto", fontWeight: 400, fontSource: source("roboto") } }] } });
   assert.match(checked.text, /fix\(auto\): /, "the fix is marked auto");

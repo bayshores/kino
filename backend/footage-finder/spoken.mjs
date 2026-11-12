@@ -63,8 +63,9 @@ export function spokenLines(transcript, offset = 0) {
 }
 
 /**
- * Listens to `windows` ([{start, end}] of the video, seconds) of one YouTube video. Answers {lang:
- * "en", auto: true, local: true, lines, listened: seconds, left: seconds not listened to}, or
+ * Listens to `windows` ([{start, end}] of the video, seconds) of one YouTube video. Answers {lang
+ * ("en", or the first other language a stretch was heard in), auto: true, local: true, lines,
+ * listened: seconds, left: seconds not listened to}, or
  * {none: true, why} when it could not (no speech model, no yt-dlp, a download that failed). Never
  * throws except for a cancel. options: transcribe(file) → a speech transcript (required), kept
  * (stretches already listened to: [{start, end, lines}]), save(stretch) (called with each new one),
