@@ -567,6 +567,9 @@ test("cut facts: pace on each side of the turn, each cut's brightness and hue ju
   const short = cutsOnBeats(shots, { turn: 3, times: [3.1, 3.6, 4.1, 4.6, 5.1, 5.6], fits: (shot, dur) => !(shot.id === "S2" && dur > 1.05) });
   assert.deepEqual(short.shots.map((shot) => shot.cue), [0, 1, 2, 3, 4.1, 5.1]);
   assert.deepEqual(short.kept, [{ id: "S3", at: 3, to: 3.1 }]);
+  // A shot with drop:true (the agent pinned the song's drop to its cut) keeps its cut on the drop.
+  const pinned = cutsOnBeats(shots.map((shot) => (shot.id === "S3" ? { ...shot, drop: true } : shot)), { turn: 3, times: [3.1, 3.6, 4.1, 4.6, 5.1, 5.6] });
+  assert.deepEqual([pinned.shots.map((shot) => shot.cue), pinned.moved.map((entry) => entry.id)], [[0, 1, 2, 3, 4.1, 5.1], ["S4", "S5"]]);
   // The render answer's two lines: ours beside the references' range, at most `listed` cuts.
   const lines = cutLines({ ...facts, jumps: facts.jumps, cutCount: 20 }, [{ jumpMedian: 18, big10: 1.9 }, { jumpMedian: 41, big10: 14.9 }], { label: "draft R2", listed: 2 });
   assert.match(lines[0], /^cuts \(draft R2, every frame\): brightness jump median \d+ of 255; 50\+ jumps 1\.7 per 10 s; range 0-3 s \d+-\d+, 3-6 s \d+-\d+ · your 2 measured references: median 18 to 41, 50\+ jumps 1\.9 to 14\.9 per 10 s$/);

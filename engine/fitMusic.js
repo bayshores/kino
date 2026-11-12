@@ -445,11 +445,41 @@ export function songEnding({ payoff, bar, beat = bar / 4, end, start = 0, songEn
   return { end, ring: { at: round(hit), kind, tail: round(end - hit) }, offer };
 }
 
-/** One unbroken stretch of the song, its drop on the payoff. */
-function planStretch({ sections = [], seams = [], seconds, whole = true, bar, beat = bar / 4, downbeat = 0, payoff, turn = null, end, roomy: given, free = false, floor = 0, fps = 30 }) {
-  const { drop, parts, runUp, changeNear } = stretchDrop({ sections, seconds, whole, bar, beat, downbeat, payoff, turn, end });
-  if (!drop) fail("the song has no drop (no point where the kick and bass come in strong); pick a song with one, or place it with update_layer.");
+/**
+ * The agent's drop (a song second) for one stretch: exactly that second lands on the payoff, never
+ * snapped to a grid bar line. The drop section heard within 2 bars of it takes that time (so its
+ * cue lands on the payoff to the millisecond), else a drop is added there. Returns the drop and a
+ * note naming the drops not taken (kino's own pick first) by their song seconds (run dm3-a: drop
+ * 51.22 on 7.9 s took the song's other drop, 68.36 s).
+ */
+function givenDrop(parts, dropTime, picked, bar, how = "as given") {
+  const near = parts.filter((part) => part.kind === "drop" && Math.abs(part.heard - dropTime) <= 2 * bar).sort((a, b) => Math.abs(a.heard - dropTime) - Math.abs(b.heard - dropTime))[0];
+  const drop = near ?? { kind: "drop", at: dropTime, heard: dropTime, weight: null };
+  if (!near) parts.push(drop);
+  Object.assign(drop, { at: dropTime, heard: dropTime });
+  const weight = (part) => [Number.isFinite(part.weight) ? `weight ${part.weight}` : null, part === picked ? "kino's pick without drop" : null].filter(Boolean).join(", ");
+  const others = parts.filter((part) => part.kind === "drop" && part !== drop).sort((a, b) => (a === picked ? -1 : b === picked ? 1 : a.heard - b.heard))
+    .map((part) => `${round(part.heard)} s${weight(part) ? ` (${weight(part)})` : ""}`);
+  return { drop, note: `drop ${round(dropTime)} s of the song lands exactly on the payoff, ${how}${others.length ? `; drops not taken: ${others.join(", ")}` : ""}` };
+}
+
+/**
+ * One unbroken stretch of the song, its drop on the payoff (`drop`: the agent's song second, placed
+ * exactly). `pinned`: the payoff is a board shot's cut (drop:true), so the drop kino picks is placed
+ * by its heard second, not its bar line: the cut and the drop's cue are the same instant.
+ */
+function planStretch({ sections = [], seams = [], seconds, whole = true, bar, beat = bar / 4, downbeat = 0, payoff, turn = null, end, roomy: given, free = false, floor = 0, fps = 30, drop: asked = null, pinned: pin = false }) {
+  const found = stretchDrop({ sections, seconds, whole, bar, beat, downbeat, payoff, turn, end });
+  const { parts, runUp, changeNear } = found;
   const notes = [];
+  let drop = found.drop;
+  const dropTime = Number.isFinite(asked) ? asked : pin && drop ? drop.heard : null;
+  if (Number.isFinite(dropTime)) {
+    const pinned = givenDrop(parts, dropTime, found.drop, bar, Number.isFinite(asked) ? "as given" : "on the pinned shot's cut");
+    drop = pinned.drop;
+    notes.push(pinned.note);
+  }
+  if (!drop) fail("the song has no drop (no point where the kick and bass come in strong); pick a song with one, or place it with update_layer.");
   if (!runUp(drop, drop.at - payoff)) notes.push("no break or build before the drop in this stretch: nothing quiets the line before the payoff");
   const offset = payoff - drop.at; // video time = song time + offset
   const start = Math.max(0, offset);
@@ -901,7 +931,7 @@ export function applyFitMusic(document, operation) {
   const fps = typeof document.fps === "number" && document.fps > 0 ? document.fps : 30;
   const free = operation.end == null;
   const floor = free ? latestStart(document, scene, old, end) : null;
-  const input = { sections: shape.sections, seams: Array.isArray(shape.seams) ? shape.seams : [], seconds, whole: shape.whole !== false, ...grid, payoff: operation.payoff, turn: operation.turn ?? null, end, bars: shape.bars, drop: operation.drop ?? null, roomy: picked, free, floor: floor?.time ?? 0, fps };
+  const input = { sections: shape.sections, seams: Array.isArray(shape.seams) ? shape.seams : [], seconds, whole: shape.whole !== false, ...grid, payoff: operation.payoff, turn: operation.turn ?? null, end, bars: shape.bars, drop: operation.drop ?? null, pinned: typeof operation.pinned === "string", roomy: picked, free, floor: floor?.time ?? 0, fps };
   const plan = planFitMusic({ ...input, plan: which });
   if (plan.close?.taken) trimEnd(document, scene, old, plan.close.end);
 
@@ -945,6 +975,8 @@ export function applyFitMusic(document, operation) {
     // Which part of the song plays, in song order.
     plays: plan.pieces.map((piece) => `${clock(piece.from)}-${clock(piece.to)}`).join(", "),
     ...(chosen ? { payoff: payoffLine(operation.payoff, picked, grid.bar, grid.beat ?? grid.bar / 4, plan) } : {}),
+    // The payoff the board pinned (a shot with drop:true; the service sets `pinned`).
+    ...(typeof operation.pinned === "string" ? { payoff: `${operation.payoff} s (the cut of board ${operation.pinned})` } : {}),
     sections: lines,
     ...(plan.close ? { ending: endingLine(plan.close, end, floor) } : {}),
     ...(rhythm ? { rhythm: `${rhythm.bpm} bpm, first beat ${rhythm.offset} s (set from the song's measured beats)` } : {}),

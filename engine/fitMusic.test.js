@@ -29,6 +29,19 @@ test("planFitMusic: one unbroken stretch of the song, its drop on the payoff, fa
   assert.equal(close.ending, 48);
 });
 
+test("planFitMusic stretch with drop and payoff: exactly that song second on exactly the payoff, the drops not taken named", () => {
+  // Without drop kino takes the drop at 80 s (the test above); the agent's drop 32.37 s (37 ms off
+  // the grid's bar line at 32) is placed as given, not snapped and not swapped for the other drop.
+  const plan = planFitMusic({ sections: SECTIONS, seconds: 120, bar: 2, downbeat: 0, payoff: 21, turn: 8, end: 31, drop: 32.37 });
+  assert.equal(plan.pieces[0].from, 11.37);
+  assert.equal(plan.pieces[0].at, 0);
+  assert.deepEqual(plan.sections.filter((part) => part.kind === "drop").map((part) => [part.at, part.label]), [[21, "payoff"]]);
+  assert.ok(plan.notes.some((note) => note === "drop 32.37 s of the song lands exactly on the payoff, as given; drops not taken: 80 s (kino's pick without drop)"), plan.notes.join("; "));
+  // A drop second with no measured drop near it is placed too.
+  const bare = planFitMusic({ sections: SECTIONS, seconds: 120, bar: 2, downbeat: 0, payoff: 10, end: 20, drop: 50 });
+  assert.deepEqual([bare.pieces[0].from, bare.sections.find((part) => part.label === "payoff")?.at], [40, 10]);
+});
+
 test("planFitMusic recut: the drop on the payoff, an earlier drop on the turn, the song's own ending on the end, cuts on bar lines in song order, whole groups of 4 bars between joins", () => {
   const plan = planFitMusic({ sections: SECTIONS, seconds: 120, bar: 2, downbeat: 0, payoff: 36, turn: 12, end: 46, recut: true });
   const drops = plan.sections.filter((part) => part.kind === "drop");
@@ -78,6 +91,12 @@ test("fit_music keeps the music layer in one piece by default; recut:true cuts i
   assert.deepEqual([only[0].mediaStart, only[0].mediaOffset, only[0].mediaDuration], [0, 60, 30]);
   assert.equal([...whole.values()][0].plays, "1:00-1:30");
   assert.ok(single.cues.some((cue) => cue.name === "song-drop-1" && cue.time === 20.02 && cue.fitted === true) && only[0].animations.some((animation) => animation.name === "Fit out"));
+  // A payoff pinned by a board shot (drop:true, the service sets `pinned`): the heard drop lands on the shot's cut, not 20 ms after it.
+  const pinned = new Map();
+  const onCut = applyOperations(document, [{ ...op, recut: false, pinned: "shot 3 (drop:true)" }], { reports: pinned });
+  assert.equal(onCut.scenes[0].layers[0].mediaOffset, 60.02);
+  assert.ok(onCut.cues.some((cue) => cue.name === "song-drop-1" && cue.time === 20), JSON.stringify(onCut.cues));
+  assert.equal([...pinned.values()][0].payoff, "20 s (the cut of board shot 3 (drop:true))");
   const reports = new Map();
   const next = applyOperations(document, [op], { reports });
   const report = [...reports.values()][0];

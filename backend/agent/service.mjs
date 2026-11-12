@@ -83,7 +83,7 @@ import { addRejected } from "./style.mjs";
 import { originWord, pickedEnding, pickedType } from "./treatments.mjs";
 import { askShown } from "../../engine/quality/rules/ask.js";
 import { activeApproval, boardFacts, boardPrint, laterAnswer, reframeApproved, settleBoard } from "./board.mjs";
-import { boardSpan, mainScene, NONE, reframeBoard } from "../../engine/board.js";
+import { boardSpan, mainScene, NONE, pinnedDrop, reframeBoard } from "../../engine/board.js";
 import { cutFacts, cutLines } from "../../engine/cutFacts.js";
 import { boardKeepOps, keptDuck, shotFileSpan, shotKeep, silentBoardLine } from "../../engine/boardSound.js";
 import { boardLook, BoardLookError, boardShotImage, SHOT_WIDTHS, styleFrameFacts, styleFrameImage } from "./board-look.mjs";
@@ -2019,10 +2019,15 @@ export function createAgentService(deps) {
       const length = (await mediaRecord(layer.src))?.duration;
       if (length > 0 && !(operation.shape.seconds <= length)) operation.shape = { ...operation.shape, seconds: length };
     }
+    // A board shot with drop:true pins the drop: its cue is the payoff (before the spine's).
+    delete operation.pinned;
+    const pin = operation.payoff === undefined && mainScene(document)?.layers.some((item) => item.id === operation.layerId) ? pinnedDrop(document.board) : null;
+    if (pin) Object.assign(operation, { payoff: pin.shot.cue, pinned: `shot ${pin.number} (drop:true)` });
     const spine = (await agentState.read(document.id).catch(() => null))?.brief?.style?.spine;
     const beatOf = (role) => (Array.isArray(spine) ? spine.find((beat) => beat?.role === role)?.from : undefined);
     if (operation.payoff === undefined && typeof beatOf("payoff") === "number") operation.payoff = beatOf("payoff");
-    if (operation.turn === undefined && typeof beatOf("turn") === "number") operation.turn = beatOf("turn");
+    // The spine's turn only before the payoff: a pinned drop earlier than the spine's turn is not refused for it.
+    if (operation.turn === undefined && typeof beatOf("turn") === "number" && !(pin && beatOf("turn") >= operation.payoff)) operation.turn = beatOf("turn");
     const context = await operationContext(document, [operation]);
     if (work.reports) context.reports = work.reports;
     return parseDocument(applyOperations(document, [operation], context));

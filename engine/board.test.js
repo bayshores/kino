@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createDocument, createLayer, createScene, parseDocument } from "./model.js";
 import { boardPicks, pickWords, picksFor, SHOT_PICKS, CUT } from "./movePicks.js";
-import { boardCoverage, boardSpan, holdEnd, isPlainShot, keepShotIds, mainScene, MOVE_REF, moveProblems, movesNeeded, moveWords, normalizeBoard, ONE_FRAME, reframeBoard, SHOT_LAYERS } from "./board.js";
+import { boardCoverage, boardSpan, holdEnd, isPlainShot, keepShotIds, mainScene, MOVE_REF, moveProblems, movesNeeded, moveWords, normalizeBoard, ONE_FRAME, pinnedDrop, reframeBoard, SHOT_LAYERS } from "./board.js";
 import { boardKeepOps, keptDuck, keptSceneSpan, keptSeconds, silentBoardLine } from "./boardSound.js";
 import { applyKeepLine } from "./keepLine.js";
 
@@ -48,6 +48,10 @@ test("normalizeBoard names the field that is wrong", () => {
   // lift: true (toward the other shots' median) or a mean luma; a word is named.
   assert.deepEqual([true, 70.4].map((lift) => shaped([motion(0, 1, { lift })])().board.shots[0].lift), [true, 70]);
   assert.throws(shaped([motion(0, 1, { lift: "bright" })]), /shots\[0\]\.lift must be true .* or a mean luma 1 to 255/);
+  // drop: true pins the song's drop to the shot's cut (pinnedDrop names the first such shot).
+  const pinned = shaped([motion(0, 1), motion(1, 1, { drop: true })])().board;
+  assert.deepEqual([pinned.shots[0].drop, pinned.shots[1].drop, pinnedDrop(pinned)?.number, pinnedDrop(pinned)?.shot.cue], [undefined, true, 2, 1]);
+  assert.throws(shaped([motion(0, 1, { drop: "yes" })]), /shots\[0\]\.drop must be true/);
 });
 
 test("words held past their shot: text.until is a shot id or a second; holdEnd gives where they stop, or null", () => {

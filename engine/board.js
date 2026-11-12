@@ -45,7 +45,7 @@ const MOVE_KEYS = ["kind", "name", "ref", "planned"];
 
 const ID = /^[A-Za-z0-9_-]{1,24}$/;
 const HEX = /^#(?:[\da-fA-F]{6}|[\da-fA-F]{8})$/;
-const SHOT_KEYS = ["id", "cue", "dur", "pacing", ...SHOT_LAYERS, "move", "why", "alts", "speed", "lift"];
+const SHOT_KEYS = ["id", "cue", "dur", "pacing", ...SHOT_LAYERS, "move", "why", "alts", "speed", "lift", "drop"];
 const ALT_KEYS = ["media", "in", "crop", "subject", "why"];
 const TEXT_KEYS = ["text", "family", "weight", "size", "y", "fill", "until"];
 const MAX_SECONDS = 600;
@@ -62,6 +62,15 @@ function fail(path, message) {
 function text(value, path, limit) {
   if (typeof value !== "string" || !value.trim() || value.length > limit) fail(path, `must be text of 1 to ${limit} characters`);
   return value.trim();
+}
+
+/**
+ * The shot the agent pinned the song's drop to (drop:true), the first when several are: {shot,
+ * number (1-based)}, or null. fit_music takes its cue as the payoff when none is given.
+ */
+export function pinnedDrop(board) {
+  const index = (board?.shots ?? []).findIndex((shot) => shot?.drop === true);
+  return index < 0 ? null : { shot: board.shots[index], number: index + 1 };
 }
 
 /** The scene the board's times are on: the first scene that is not a component. */
@@ -245,6 +254,11 @@ function normalizeShot(shot, index) {
   if (shot.lift !== undefined && shot.lift !== false) {
     if (shot.lift !== true && !(isNumber(shot.lift) && shot.lift > 0 && shot.lift <= 255)) fail(`${path}.lift`, "must be true (lift toward the other shots' median brightness) or a mean luma 1 to 255");
     result.lift = shot.lift === true ? true : Math.round(shot.lift);
+  }
+  // drop: the song's drop is pinned to this shot's cue (fit_music's payoff when none is given).
+  if (shot.drop !== undefined && shot.drop !== false) {
+    if (shot.drop !== true) fail(`${path}.drop`, "must be true (the song's drop lands on this shot's cut) or left out");
+    result.drop = true;
   }
   if (shot.follow !== NONE && !FOLLOW.includes(shot.follow)) fail(`${path}.follow`, `must be ${FOLLOW.join(", ")} or "none"`);
   result.follow = shot.follow;

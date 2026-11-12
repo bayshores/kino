@@ -1322,6 +1322,14 @@ How to read it:
   rhythm from the tracked beats; board {music} fits a hand-laid song or keeps it as laid. Checked on
   a fixture and on one real song's shape files, unverified by ear. Evidence: `engine/fitMusic.test.js`,
   `backend/soundtrack.test.mjs`, `backend/agent-volume.test.mjs`.
+- **Drop pinned by the agent** (fit_music `drop`, board shot `drop:true`): Test-verified on a made-up
+  beat grid. In plan stretch, drop plus payoff puts exactly that song second on exactly that scene
+  second and the notes name the drops not taken; a board shot with drop:true is fit_music's payoff
+  when none is given, and the picked drop's heard second (its cue) lands on that cut; board
+  {snap:"beats"} keeps that cut, and the board's cue lines name the shot as the payoff. Evidence:
+  `engine/fitMusic.test.js`, `engine/board.test.js`, `engine/footage.test.js`,
+  `backend/agent-board.test.mjs`. Gap: a song placed by hand is not kept by fit_music, no cut moves
+  to bar lines are offered yet, and plans stop and recut still enter the drop's bar line.
 - **fit_music plan stop** (op): `plan:"stop"` plays the song's opening up to its own stop, a drop of
   whole 4-bar groups on the payoff (`drop` picks which), then the song's last bar, joined 2 ms before
   the hit with 3 ms and 5 ms fades; the receipt lists the plans not used. Joins measured against a
