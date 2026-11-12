@@ -186,7 +186,8 @@ export const upLines = (lines) => lines.filter((line) => line.level === "UP" && 
 export const blocksRender = (line) => line.level === "P0" && !line.ask;
 
 // "points to", not "asked for": the word can be kino's own search of what they named, not their text.
-const askedText = (line) => (line.asked ? ` · moves the shot the ask points to ("${line.asked}")` : "");
+// "changes", not "moves": a line is labeled for a trim or cut of the shot as well as a move.
+const askedText = (line) => (line.asked ? ` · changes the shot the ask points to ("${line.asked}")` : "");
 
 export const lineText = (line) => line.level === "OWN" ? `OWN t=${line.at} · ${line.what}`
   : line.level === "BAR" ? `BAR ${line.verdict} · ${line.why}`

@@ -617,7 +617,7 @@ test("critic lines: only P0|P1|P2 t= · where · problem → change · what stay
     "P1 t=9 · stairs climb 9.0–10.4 s · dark hands and legs → after moving it to the problem beat (see P0 t=1.5), fill 9.0–10.4 s with the mouth shot · the mouth close-up"];
   const pointed = parseCritique(climb, 15, { asked: { word: "stairs" } });
   assert.deepEqual(pointed.map((entry) => [entry.asked, entry.ask]), [["stairs", undefined], ["stairs", undefined]]);
-  assert.match(lineText(pointed[0]), /the DEAD AGAIN hook 0–1\.5 s · moves the shot the ask points to \("stairs"\)$/);
+  assert.match(lineText(pointed[0]), /the DEAD AGAIN hook 0–1\.5 s · changes the shot the ask points to \("stairs"\)$/);
   assert.deepEqual(parseCritique(climb, 15).map((entry) => entry.asked), [undefined, undefined], "without the ask's word nothing is labeled");
   assert.equal(parseCritique(["P1 t=3.2 · climb shot · blocky → swap in a cleaner frame range of the same stair climb · the climb"], 15, { asked: { word: "stairs" } })[0].asked, undefined);
   // A shot's seconds are half-open: a seam line at the shot's end is not caught; one inside it is.
@@ -713,7 +713,10 @@ test("look critique: a packet for a fresh critic (protocol, brief, trace, seam p
   // A round with no P0 on a packet the video was edited past is refused; a P0 on it is kept.
   assert.match((await agent("notes", { project: other, action: "critique", rev: third.data.rev, lines: ["none"] })).text, /changed since the rev \d+ packet/);
   assert.match((await agent("notes", { project: other, action: "critique", rev: third.data.rev, lines: ["P2 t=1 · box · plain → round its corners to 12 · its path"] })).text, /changed since/, "P1/P2 lines alone clear the gate too");
-  await agent("notes", { project: other, action: "critique", rev: third.data.rev, lines: ["P0 t=1 · box · too slow → move it in 0.5 s · its path"] });
+  // With an idea saved, the fix list is read against it (no idea: the head is as before, above).
+  await agent("notes", { project: other, action: "brief", fields: { idea: "the box arrives on time" } });
+  const against = await agent("notes", { project: other, action: "critique", rev: third.data.rev, lines: ["P0 t=1 · box · too slow → move it in 0.5 s · its path"] });
+  assert.match(against.text, /P0 1 · P1 0 · P2 0; fix list against the idea "the box arrives on time", worst first:/);
   await reviewAll(other);
   const waived = await agent("render", { project: other, action: "start", quality: "final", format: "gif" });
   assert.notEqual(waived.data?.error, "critique_open", waived.text);

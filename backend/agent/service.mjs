@@ -3948,7 +3948,7 @@ export function createAgentService(deps) {
     const notesOpen = (state.notes ?? []).filter((note) => note.status !== "resolved").slice(-12);
     const { findings, ask: askPoint } = await findingsFor(document, { fonts, codes, sceneId: scene.id, pixels: false });
     // What the ask points to and which shot shows it, as the check judged it: the critic weighs notes against it.
-    if (askPoint) direction.lines.push(askPoint.replace(/^Your ask/, "The ask"));
+    if (askPoint) direction.lines.push(askPoint.replace(/^Your ask/, "The ask").replace("what you asked for", "what the person asked for"));
     const briefTier = findings.filter((finding) => !finding.waived && (finding.severity === "error" || BRIEF_RULES.has(finding.rule)));
     const { listed } = triageFindings(briefTier.filter((finding) => finding.at == null || inRange(finding.at)), 12);
     const { text: trace } = await motionLook(range, { document, codes, fonts, scene });
