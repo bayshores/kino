@@ -1060,9 +1060,10 @@ How to read it:
 - **Held pictures and timing**: a last frame held past Play gets a hide fix; motion on or over a
   held picture keeps `frozen_picture` quiet, its fix is an eased push, a drawn hold under 2 s is
   the agent's waiver; a late first entrance is never pulled earlier; shapes take mediaStart and
-  mediaDuration as Show and Hide; preset-fade on audio is a Volume fade; receipts name in/out/show/hide.
+  mediaDuration on add_layer as Show and Hide (update_layer: a note with the call); preset-fade on audio
+  is a Volume fade, another preset's retry is that fade; receipts name in/out/show/hide.
   Evidence: `engine/qualityRules.test.js`, `engine/qualityPolish.test.js`, `engine/presetCatalog.test.js`,
-  `backend/agent-core.test.mjs`, probe log `.scratch/defaults/holds-motion/after.md`.
+  `backend/agent-core.test.mjs`, `backend/agent-service.test.mjs`, probe log `.scratch/defaults/holds-motion-review/after.md`.
 - **Lone zoom check** (`lone_zoom`, gate): a clip or picture growing 12% in 0.5 s over a still shot.
   Found a real trailer's phone push. Evidence: `engine/qualityRules.test.js`.
 - **Edge linger check** (`edge_linger`, gate): a slow moving layer seen only as a sliver at the frame

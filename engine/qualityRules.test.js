@@ -604,7 +604,12 @@ test("frozen_picture: a held picture with an eased push, or a text animating ove
   assert.equal(alive(clip()), false);
   // An eased push over the hold: its slow ends change few pixels, yet the picture moves.
   assert.equal(alive(clip([move(0, 3, "smooth", { scaleX: 1, scaleY: 1 }, { scaleX: 1.08, scaleY: 1.08 })])), true);
-  assert.equal(alive(clip([], [text("word", "KILL", { x: 600, y: 400, animations: [move(0.4, 1.8, "smooth", { y: 450 }, { y: 400 })] })])), true);
+  const word = text("word", "KILL", { x: 600, y: 400, animations: [move(0.4, 1.8, "smooth", { y: 450 }, { y: 400 })] });
+  assert.equal(alive(clip([], [word])), true);
+  // The same word drawn under the full-frame clip is not seen: the hold stays frozen.
+  const under = clip([], [word]);
+  under.scenes[0].layers.reverse();
+  assert.equal(alive(under), false);
   // Motion over only part of the hold leaves a still stretch.
   assert.equal(alive(clip([move(0.5, 0.4, "smooth", { scaleX: 1, scaleY: 1 }, { scaleX: 1.08, scaleY: 1.08 })])), false);
 });

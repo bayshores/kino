@@ -64,6 +64,9 @@ Camera rules read the model at 30 samples a second (no render).
   unchanged for 0.3 s+, sampled every 0.13 s; not repeating a `frozen_footage` finding. A clip
   hidden under a plate is not watched: a still graphic is `held_static`'s. A still placed on a
   sound hit or a spoken line only warns (not at the shot's own cut-in: that stays a gate).
+  A hold with motion on or over it all through (an eased push, a shake, text animating, an
+  effect) is alive; the fix is an eased push. A drawn hold under 2 s is yours to keep:
+  `waive_check {code:"frozen_picture", target:"<layer>", reason:"drawn hold"}`.
 - Scene drift (opt-in, worth it for footage and UI holds): `drift {dir:"auto", speed:0.02}`, a slow linear camera move
   (2% of the diagonal a second, push and slide, within the slow push) through each hold over
   0.8 s where nothing animates (one push per hold, never over 6 s or 12% of the diagonal from

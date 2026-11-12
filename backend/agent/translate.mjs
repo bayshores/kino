@@ -14,7 +14,7 @@ import { CUTOUT_ENGINES, CUTOUT_OUTPUTS } from "../cutout/cutout.mjs";
 import { RULES } from "../../engine/quality/index.js";
 import { closest, nearMiss, ReferenceError } from "./refs.mjs";
 import { refId } from "../inspire.mjs";
-import { RANGE_ROW_WORDS, isDrawnHoldWaiver, rangeRowsOf } from "./checks.mjs";
+import { DRAWN_HOLD_SECONDS, RANGE_ROW_WORDS, isDrawnHoldWaiver, rangeRowsOf } from "./checks.mjs";
 import { BLOCK_OPERATION_TYPES, blockCreatedIds, blockReferencedIds, isBlockOperation, translateBlock } from "./blocks.mjs";
 import { durationFromToken, easingFromToken } from "../../engine/blocks/tokens.js";
 import { MOVES } from "../../engine/blocks/moves/index.js";
@@ -268,8 +268,9 @@ function outlineGlowFontSize(operation, resolver, document) {
 // such a layer they mean when it shows, so they become a Show at mediaStart and a Hide at
 // mediaStart + mediaDuration (the hide-show topic), and the receipt says so.
 const PLAYS_MEDIA = new Set(["video", "audio", "image"]);
-function showWindowAsAnimations(operation, fixes) {
+function showWindowAsAnimations(operation, fixes, resolver, document) {
   const props = operation.properties;
+  if (operation.type === "update_layer" && props) return showWindowOnUpdate(operation, fixes, resolver, document);
   if (operation.type !== "add_layer" || PLAYS_MEDIA.has(operation.layerType) || !props) return;
   const { mediaStart: start, mediaDuration: length } = props;
   if (start === undefined && length === undefined) return;
@@ -282,6 +283,24 @@ function showWindowAsAnimations(operation, fixes) {
   fixes.push(`mediaStart/mediaDuration → ${added.map((entry) => `${entry.preset} at ${entry.start} s`).join(", ")} (a ${operation.layerType} shows by Show and Hide; mediaStart times Play on media)`);
 }
 
+// update_layer of a shape, text or group with mediaStart or mediaDuration: the layer may already
+// have a Show and a Hide, so which one moves is not certain. The fields are saved as sent (they
+// draw nothing, as before) and the receipt's notes give the calls that move when it shows.
+function showWindowOnUpdate(operation, fixes, resolver, document) {
+  const { mediaStart: start, mediaDuration: length } = operation.properties;
+  if ((start === undefined && length === undefined) || !resolver?.notes) return;
+  let layerId = null;
+  try { if (typeof operation.layerId === "string") layerId = resolver.resolve(operation.layerId, "layer"); } catch { return; }
+  const layer = layerId && document?.scenes?.flatMap((scene) => scene.layers ?? []).find((entry) => entry.id === layerId);
+  if (!layer || PLAYS_MEDIA.has(layer.type)) return;
+  const own = Array.isArray(layer.animations) ? layer.animations : [];
+  const show = own.find((animation) => animation?.kind === "show"), hide = own.find((animation) => animation?.kind === "hide");
+  const from = typeof start === "number" ? start : show?.start ?? 0;
+  const call = (existing, preset, at) => existing ? `{op:"update_animation", animation:"${resolver.codeOf?.(existing.id) ?? existing.id}", properties:{start:${at}}}` : `{op:"add_animation", layer:"${operation.layerId}", preset:"${preset}", start:${at}}`;
+  const calls = [...(typeof start === "number" ? [call(show, "show", start)] : []), ...(typeof length === "number" ? [call(hide, "hide", Math.round((from + length) * 1000) / 1000)] : [])];
+  if (calls.length) resolver.notes.push(`mediaStart/mediaDuration time Play on media and do nothing on a ${layer.type}: it shows by Show and Hide, ${calls.join(", ")}`);
+}
+
 function checkLayerProperties(operation, fixes, resolver, document) {
   let properties = operation.properties;
   if (!LAYER_PROPERTY_OPS.has(operation.type) || !properties || typeof properties !== "object" || Array.isArray(properties)) return;
@@ -290,7 +309,7 @@ function checkLayerProperties(operation, fixes, resolver, document) {
   if (properties.outlineGlow !== undefined) properties = withOutlineGlow(properties, outlineGlowFontSize(operation, resolver, document));
   operation.properties = fixLayerProperties(properties, fixes, { ...layerContext(operation, resolver, document), known: LAYER_PROPERTIES,
     exampleOp: (changes) => sameOpWith(operation, changes) });
-  showWindowAsAnimations(operation, fixes);
+  showWindowAsAnimations(operation, fixes, resolver, document);
   for (const alias of CORNER_ALIASES) {
     if (properties[alias] === undefined) continue;
     const field = Array.isArray(properties[alias]) ? "cornerRadii" : "radius";
@@ -833,11 +852,14 @@ function resolveReferences(operation, type, resolver, document) {
   const drawnHold = type === "waive_check" && !operation.quote && isDrawnHoldWaiver(operation);
   if (drawnHold && targetsStar)
     throw refusedWaiver(new Error(`waive_check frozen_picture names the layers whose drawn hold is meant, not target:"*".`), operation, resolver, document);
+  if (drawnHold) resolver.notes?.push(`waive_check frozen_picture (drawn hold) keeps holds under ${DRAWN_HOLD_SECONDS} s on ${[operation.target].flat().join(", ")}; a longer still stays open`);
   if (type === "waive_check" && VIEWER_WAIVERS.has(operation.code) && !drawnHold) {
     const quote = typeof operation.quote === "string" ? operation.quote.trim() : "";
     const own = PERSON_WORDS_ABOUT[operation.code];
+    // frozen_picture on drawn animation: the agent's own way to keep a held cel (checks.mjs DRAWN_HOLD).
+    const drawnRoute = operation.code === "frozen_picture" ? ` A held cel of drawn animation (under ${DRAWN_HOLD_SECONDS} s) is yours to keep: say "drawn hold" in reason, on the named layers.` : "";
     if (!quote || HANDED_OVER.test(quote) || quote.split(/\s+/).length < 4)
-      throw refusedWaiver(new Error(`${operation.code} is ${own ? `about ${own.about}` : "what viewers see"}: fix it (${own ? own.fix : `its finding's fix, or check {fix:"auto"}`}), do not waive it. Only the person can keep it: when they asked for it in their own words, send waive_check with quote (their words about this, word for word; "your call" is not one) and the layers it covers.`), operation, resolver, document);
+      throw refusedWaiver(new Error(`${operation.code} is ${own ? `about ${own.about}` : "what viewers see"}: fix it (${own ? own.fix : `its finding's fix, or check {fix:"auto"}`}), do not waive it. Only the person can keep it: when they asked for it in their own words, send waive_check with quote (their words about this, word for word; "your call" is not one) and the layers it covers.${drawnRoute}`), operation, resolver, document);
     if (targetsStar)
       throw refusedWaiver(new Error(`waive_check ${operation.code} names the layers the person kept, not target:"*".`), operation, resolver, document);
     operation.reason = `${String(operation.reason ?? "").trim() || "the person kept it"} (the person: "${quote.slice(0, 200)}")`;
@@ -1322,7 +1344,11 @@ export function translateAll(operations, resolver, document) {
         if (first.type === "cut_out") cutouts.push(first);
         made.push(...createdIds(first));
         parts.push(first);
-        inline?.animations.forEach((entry, number) => {
+        // mediaStart/mediaDuration on a shape or text became a Show and a Hide (showWindowAsAnimations):
+        // they run as inline animations, since the engine's add_layer takes none.
+        const timed = first.type === "add_layer" && Array.isArray(first.animations) ? first.animations : [];
+        if (timed.length) delete first.animations;
+        [...(inline?.animations ?? []), ...timed].forEach((entry, number) => {
           const animation = translateInlineAnimation(entry, number, first, resolver, document, part);
           made.push(...createdIds(animation));
           parts.push(animation);

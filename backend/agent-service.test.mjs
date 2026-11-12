@@ -82,7 +82,7 @@ test("edit answers with a receipt of new names and codes, times and check counts
   assert.equal(reply.isError, undefined, reply.text);
   assert.deepEqual(reply.data, {
     rev: 2, created: { card: "L1", title: "L2", "title.in": "A1" }, changed: [], removed: [],
-    times: { A1: [0.2, 0.8] }, fixed: ["type → layerType"],
+    times: { A1: [0.2, 0.8] }, kinds: { A1: "in" }, fixed: ["type → layerType"],
     // The title at (10, 10) is outside the 5% safe margin; nothing moves after the fade (held_static);
     // the default white background is pure #fff. The receipt does not render frames, so it says
     // contrast and flashing are not counted.
@@ -91,7 +91,7 @@ test("edit answers with a receipt of new names and codes, times and check counts
     newFindings: "E safe_zone title @0.8s, held_static card @1.27s, default_font title", turn: "T1", inbox: [],
   });
   // The text is the same receipt as compact JSON, without the empty lists.
-  assert.deepEqual(JSON.parse(reply.text), { rev: 2, created: { card: "L1", title: "L2", "title.in": "A1" }, times: { A1: [0.2, 0.8] }, fixed: ["type → layerType"], check: "1 err · 3 warn (safe_zone title, held_static card) · unchecked: contrast, flashing, luma_jump, frozen_picture", newFindings: "E safe_zone title @0.8s, held_static card @1.27s, default_font title", turn: "T1", next: 'check {"fix":"auto"}' });
+  assert.deepEqual(JSON.parse(reply.text), { rev: 2, created: { card: "L1", title: "L2", "title.in": "A1" }, times: { A1: [0.2, 0.8] }, kinds: { A1: "in" }, fixed: ["type → layerType"], check: "1 err · 3 warn (safe_zone title, held_static card) · unchecked: contrast, flashing, luma_jump, frozen_picture", newFindings: "E safe_zone title @0.8s, held_static card @1.27s, default_font title", turn: "T1", next: 'check {"fix":"auto"}' });
 
   const record = await saved("alpha");
   assert.equal(record.revision, 2);
@@ -134,6 +134,14 @@ test("an operation the engine refuses names its number and rules, and the whole 
   const record = await saved("alpha");
   assert.equal(record.revision, 3);
   assert.equal(layer(record, "card").x, 100);
+
+  // A slide on a sound layer: the retry sent next is the same op as a fade (a Volume fade).
+  const sound = await agent("edit", { project: "alpha", ops: [
+    { op: "add_layer", layerType: "audio", name: "song", properties: { src: "/api/media/song.mp3" } },
+    { op: "add_animation", layer: "song", preset: "preset-slide", start: 1, parameters: { direction: "up" } },
+  ] });
+  assert.match(sound.data.reason, /only preset-fade works/);
+  assert.deepEqual(nextCallOf(sound).input.fix["1"], { op: "add_animation", layer: "song", preset: "preset-fade", start: 1, mode: "out" });
 
   const unknownOp = await agent("edit", { project: "alpha", ops: [{ op: "add_layr" }] });
   assert.equal(unknownOp.data.error, "op_failed");

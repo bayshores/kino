@@ -441,7 +441,8 @@ export function aliveDuring(model, item, from, to) {
     ...(model.effects ?? []).filter((effect) => effect.itemId === entry.id).map((effect) => [effect.start, effect.end])];
   for (const entry of chain) for (const [start, end] of timed(entry)) add(start, end);
   for (const other of model.items) {
-    if (own.has(other.id) || other.isMask || other.kind === "audio" || other.kind === "group" || other.source?.sceneBackground) continue;
+    // Only what is drawn over the picture: a layer under a full-frame shot moves where no one sees it.
+    if (own.has(other.id) || other.z <= item.z || other.isMask || other.kind === "audio" || other.kind === "group" || other.source?.sceneBackground) continue;
     for (const [start, end] of timed(other)) if (over(other, start, end)) add(start, end);
     // A clip counts as moving whenever it shows (model.js), even when it is itself held: only drawn movers here.
     if (other.samples.moving && other.kind !== "video") for (const run of runs(model.times.length, (index) => other.samples.moving[index] > 0))

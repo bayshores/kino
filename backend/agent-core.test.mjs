@@ -302,15 +302,21 @@ test("waivers: crop and shape need the person's words on layers; face-cut codes 
     assert.match(kept.reason, /the person: "keep the tight crop on the eyes"/);
   }
   // frozen_picture: the agent keeps a drawn hold (named in its reason) on named layers; other reasons need the person.
-  assert.throws(() => send({ code: "frozen_picture", target: "shot-1", reason: "looks fine" }), /Only the person can keep it/);
+  // Its refusal names the drawn-hold way; "the animation holds" counts as naming one.
+  assert.throws(() => send({ code: "frozen_picture", target: "shot-1", reason: "looks fine" }), /Only the person can keep it.*say "drawn hold" in reason/);
+  assert.equal(send({ code: "frozen_picture", target: "shot-1", reason: "the source animation holds this frame" })[0].target, "shot-1");
   assert.throws(() => send({ code: "frozen_picture", target: "*", reason: "drawn hold of 1.2 s" }), /not target:"\*"/);
   assert.equal(send({ code: "frozen_picture", target: "shot-1", reason: "anime held cel, a drawn hold of 1.2 s" })[0].target, "shot-1");
   // mediaStart and mediaDuration on a shape mean when it shows: a Show and a Hide, said in the fixes.
   const bandResolver = createResolver(document, assignCodes(emptyCodes(), document));
-  const [band] = translateOperations([{ op: "add_layer", layerType: "rectangle", properties: { name: "band", mediaStart: 2, mediaDuration: 1.5 } }], bandResolver, document);
+  const [band, ...timed] = translateOperations([{ op: "add_layer", layerType: "rectangle", properties: { name: "band", mediaStart: 2, mediaDuration: 1.5 } }], bandResolver, document);
   assert.equal(band.properties.mediaStart, undefined);
-  assert.deepEqual(band.animations, [{ preset: "show", start: 2 }, { preset: "hide", start: 3.5 }]);
+  // They run as add_animation ops on the new layer (the engine's add_layer takes no animations).
+  assert.deepEqual(timed.map((op) => [op.type, op.layerId, op.preset, op.start]), [["add_animation", "band", "show", 2], ["add_animation", "band", "hide", 3.5]]);
   assert.match(bandResolver.fixes.at(-1), /mediaStart\/mediaDuration → show at 2 s, hide at 3.5 s/);
+  // On update_layer the Show to move is not certain: saved as sent, the notes give the calls.
+  translateOperations([{ op: "update_layer", layer: "shot-1", properties: { mediaStart: 2, mediaDuration: 1 } }], bandResolver, document);
+  assert.match(bandResolver.notes.at(-1), /do nothing on a rectangle.*\{op:"add_animation", layer:"shot-1", preset:"show", start:2\}, \{op:"add_animation", layer:"shot-1", preset:"hide", start:3\}/);
   // head_cut_off and narrow_window: the agent may waive them, on one layer at a time.
   for (const code of ["head_cut_off", "narrow_window"]) {
     assert.throws(() => send({ code, target: "*" }), /not target:"\*"/);

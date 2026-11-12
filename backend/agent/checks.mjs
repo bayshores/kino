@@ -285,7 +285,7 @@ export function waiverNotes(waivers = [], { codes = null } = {}) {
 // hold as drawn in its reason ("drawn hold", "held cel"); such a waiver covers only holds shorter
 // than DRAWN_HOLD_SECONDS (2 s is a guess: the study's held cels ran about 0.4 to 1.5 s). A longer
 // still stays the person's call (quote), like every other frozen picture.
-export const DRAWN_HOLD = /\b(?:drawn|cels?|hand[- ]drawn|animated)\b[^.]*\b(?:holds?|held)\b|\b(?:holds?|held)\b[^.]*\b(?:drawn|cels?)\b/i;
+export const DRAWN_HOLD = /\b(?:drawn|cels?|hand[- ]drawn|animated|animation|anime)\b[^.]*\b(?:holds?|held)\b|\b(?:holds?|held)\b[^.]*\b(?:drawn|cels?|animation|anime)\b/i;
 export const DRAWN_HOLD_SECONDS = 2;
 /** True for a frozen_picture waiver the agent sent for a drawn hold (no person's quote in it). */
 export const isDrawnHoldWaiver = (waiver) => waiver?.code === "frozen_picture" && DRAWN_HOLD.test(String(waiver.reason ?? "")) && !String(waiver.reason ?? "").includes("(the person: ");
