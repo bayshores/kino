@@ -32,8 +32,8 @@ export const FOOTAGE_VERSION = 2;
 export const LOUDNESS_VERSION = 1;
 export const FOOTAGE_FPS = 4;
 const SIDE = 480;
-// The helper's job bits (kino-measure.swift): 1 flow, 2 text, 8 saliency, 16 faces.
-const FLOW = 1, TEXT = 2, SALIENCY = 8, FACES = 16;
+// The helper's job bits (kino-measure.swift): 1 flow, 2 text, 8 saliency, 16 faces, 32 people.
+const FLOW = 1, TEXT = 2, SALIENCY = 8, FACES = 16, PEOPLE = 32;
 
 /** Average brightness (0 to 1) and a small gray copy of a BGRA frame, for differences. */
 function frameNumbers(bgra, width, height) {
@@ -60,6 +60,19 @@ function flowSpeed(flow, width) {
 }
 
 /**
+ * How fast the frame as a whole moves, in frame widths a second: the median cell of the flow grid.
+ * A pan or a push moves most cells alike, so the median is near the mean; a figure moving over a
+ * still background moves a few cells, so the median stays near 0.
+ */
+export function flowCamera(flow, width) {
+  if (!flow?.u?.length) return null;
+  const speeds = flow.u.map((u, index) => Math.hypot(u, flow.v[index])).sort((a, b) => a - b);
+  const middle = speeds.length >> 1;
+  const median = speeds.length % 2 ? speeds[middle] : (speeds[middle - 1] + speeds[middle]) / 2;
+  return (median / width) * FOOTAGE_FPS;
+}
+
+/**
  * Measures a video file. Resolves to {version, duration, width, height, fps, vision, samples:[{t,
  * luma, change, motion, faces, text}]}: faces [[x, y, w, h]] and text [{box, s}] in fractions of
  * the frame (null when not measured at that frame or not on this computer), motion in frame
@@ -67,7 +80,8 @@ function flowSpeed(flow, width) {
  * before (0 to 1). Also events [{t, kind: impact|light|motion, confidence, ...}], drawing
  * ({frames, perSecond, sure} or null) and rate (the clip's frames a second): footage/events.mjs.
  * options.events false skips them (the footage finder's scan); options.subjects true adds, where
- * faces are read, saliency [[x, y, w, h]] (where the eye goes) when this computer's Vision has it.
+ * faces are read, saliency [[x, y, w, h]] (where the eye goes) and people [[x, y, w, h]] (each
+ * whole-body box) when this computer's Vision has them, and camera (flowCamera) where motion is.
  */
 export function measureFootage(file, options = {}) {
   // One video decode at a time in this process (process-slots.mjs).
@@ -79,6 +93,8 @@ async function measureFootageNow(file, { width, height, duration, signal, events
   const abilities = await measureAbilities();
   // Where the eye goes (Vision saliency), with the faces, when asked and this computer can.
   const salient = subjects && abilities.saliency === true ? SALIENCY : 0;
+  // Each person's whole-body box too (a figure on the stairs, not only a face), where Vision has it.
+  const bodies = subjects && abilities.people === true ? PEOPLE : 0;
   const helper = abilities.flow === true || abilities.text === true ? abilities.helper : null;
   const session = helperSession(helper, { ...size, signal });
   const frameBytes = size.width * size.height * 4;
@@ -107,7 +123,7 @@ async function measureFootageNow(file, { width, height, duration, signal, events
       previous = numbers;
       samples.push({ t: round3(index / FOOTAGE_FPS), luma: round3(numbers.luma), change: round3(change) });
       let jobs = index > 0 ? FLOW : 0;
-      if (index % 2 === 0) jobs |= TEXT | FACES | salient;
+      if (index % 2 === 0) jobs |= TEXT | FACES | salient | bodies;
       await session.send(jobs, current);
       current = Buffer.alloc(frameBytes); filled = 0;
     }
@@ -115,20 +131,22 @@ async function measureFootageNow(file, { width, height, duration, signal, events
   const code = decode.exitCode ?? await new Promise((resolve) => decode.once("close", resolve));
   if (code !== 0 && !samples.length) throw new Error(`FFmpeg could not decode the video: ${decodeError.trim().split("\n").at(-1) || `exit ${code}`}`);
   const { answers, error } = await session.finish();
-  let faces = false, text = false;
+  let faces = false, text = false, people = false;
   samples.forEach((sample, index) => {
     const answer = answers[index] ?? {};
     const speed = flowSpeed(answer.flow, size.width);
     sample.motion = speed === null ? null : round3(speed);
+    if (subjects && speed !== null) sample.camera = round3(flowCamera(answer.flow, size.width));
     if (Array.isArray(answer.faces)) { sample.faces = answer.faces; faces = true; }
     if (salient && Array.isArray(answer.saliency)) sample.saliency = answer.saliency;
+    if (bodies && Array.isArray(answer.people)) { sample.people = answer.people.map((person) => person.box).filter(Array.isArray); people = true; }
     if (Array.isArray(answer.text)) { sample.text = answer.text.filter((line) => line.c >= 0.3).map((line) => ({ box: line.box, s: String(line.s).slice(0, 80) })); text = true; }
   });
   const length = duration || samples.length / FOOTAGE_FPS;
   const found = events ? await clipEvents(file, length, size, signal) : {};
   return {
     version: FOOTAGE_VERSION, duration: round3(length), width, height, fps: FOOTAGE_FPS,
-    vision: { faces, text, flow: samples.some((sample) => sample.motion !== null), ...(error ? { error } : {}) },
+    vision: { faces, text, flow: samples.some((sample) => sample.motion !== null), ...(bodies ? { people } : {}), ...(error ? { error } : {}) },
     samples, ...found,
   };
 }

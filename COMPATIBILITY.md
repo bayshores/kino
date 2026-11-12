@@ -1053,6 +1053,11 @@ How to read it:
   and its import call in one call; a fact the scan never measured (speech with no captions or listening,
   faces on drawn footage) is named and left out of the filter. Gap: saliency gives a box on a flat dark frame too, so it says where,
   not that something is there. Evidence: `backend/footage-finder.test.mjs` (dark shot, said lines).
+- **Shot framing and movement**: Stub-verified; measured by hand on 5 local clips. A scan reads each
+  person's whole-body box (Vision) and the flow's median: a shot line says `motion N still|subject|camera`
+  and `wide|medium|close (figure N% high, place, room N%)`; `filter {figure, scale, height, room, moving}`
+  and `sort wide|close|room` narrow it. Gap: on drawn footage Vision finds a body on 1 or 2 of 20 frames,
+  under the 25% a figure needs, so drawn stair shots get no framing. Evidence: `backend/footage-finder.test.mjs` (framing facts).
 - **What a found video says**: Stub-verified, one live caption fetch. A scan reads a video's captions once
   (yt-dlp, kept per video), prints `says` per shot, `said:"words"` ranks the shots that say them first and
   the next call imports that line. Evidence: `backend/footage-finder.test.mjs` (captions, said, says).
