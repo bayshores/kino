@@ -2140,7 +2140,7 @@ export function createAgentService(deps) {
       let file = null;
       if (entry.sound !== undefined) {
         const wanted = String(entry.sound).trim();
-        if (isLibraryId(wanted)) file = await libraryMedia(wanted, media);
+        if (isLibraryId(wanted)) file = await librarySoundMedia(wanted, media);
         else file = media.find((item) => [item.id, item.src, item.name].some((value) => String(value ?? "") === wanted)) ?? media.find((item) => item.id === mediaIdFromSource(wanted));
         if (!file) throw new AgentError("not_found", `place_sounds: no sound "${wanted}" in the media library. sfx:<id> (library sounds) or an imported file's name.`);
       } else {
@@ -2152,7 +2152,7 @@ export function createAgentService(deps) {
         const pick = pool.find((sound) => !taken.has(sound.id)) ?? pool[0];
         if (!pick) throw new AgentError("not_found", `no library sound for "${words}": library {topic:"inspire", search:${JSON.stringify(String(words))}, kind:"sounds"}`);
         taken.add(pick.id);
-        file = await libraryMedia(`sfx:${pick.id}`, media);
+        file = await librarySoundMedia(`sfx:${pick.id}`, media);
         kind ??= String(entry.what).split(/\s+/)[0];
       }
       const src = file.src ?? `/api/media/${file.id}`;
@@ -2191,7 +2191,7 @@ export function createAgentService(deps) {
   }
 
   // A library sound's media record: the one this project already imported (same credit id), or a new import.
-  async function libraryMedia(id, media) {
+  async function librarySoundMedia(id, media) {
     const known = media.find((item) => item.credit?.id === id);
     if (known) return known;
     if (!deps.soundLibrary) throw new AgentError("failed", "The sound library is not available here.");

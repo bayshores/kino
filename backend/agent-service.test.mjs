@@ -396,7 +396,7 @@ test("a note sent back is new again; an always note keeps its layers until you l
 test("look returns PNG images for a sheet and a frame, saved as files", async () => {
   const sheet = await agent("look", { project: "alpha" });
   assert.equal(sheet.isError, undefined);
-  assert.match(withoutNext(sheet.text), /^sheet s1: 1=0s 2=\S+ .* 12=\S+\nimage \S+\.png$/);
+  assert.match(withoutNext(sheet.text), /^sheet s1: 1=0s 2=\S+ .* 12=\S+\nreturns: [^\n]+\nimage \S+\.png$/);
   assert.equal(sheet.images.length, 1);
   const [image] = sheet.images;
   assert.equal(image.mime, "image/png");

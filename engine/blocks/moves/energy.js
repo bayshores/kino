@@ -53,7 +53,7 @@ export const energyAura = {
     subject: { kind: "layer", cutout: { of: "layer", auto: true, own: true }, about: "the subject cut-out (default: kino makes one, shown only during the aura, or reuses a cut_out of layer)" },
     color: { kind: "color", auto: true, about: "the energy's color (default auto: the shot's grade or picture hue, bright)" },
     style: { kind: "choice", values: ["flame", "smoke", "electric"], about: "flame (default: tongues rise and break up, embers), smoke (slow, soft, wide) or electric (a thin crackling edge, sparks)" },
-    height: { kind: "number", low: 0, high: 1, about: "how far the energy climbs, as a share of the frame height (default 0.22; 0 stays on the outline)" },
+    height: { kind: "number", low: 0, high: 1, about: "how far the energy climbs, as a share of the frame height (default 0.22 of the frame's shorter side; 0 stays on the outline)" },
     strength: { kind: "number", low: 0, high: 3, about: "how bright and dense (default 1)" },
     frameRate: { kind: "number", low: 1, high: 60, about: "pictures a second the energy is drawn at (default 12, on twos; smoke 8)" },
     seed: { kind: "number", low: 0, high: 100000, whole: true, about: "another whole number gives other tongues and lobes (default the move's seed)" },
@@ -92,7 +92,10 @@ export const energyAura = {
       const here = ctx.stateAt(subject.id, t);
       const base = { x: round(here.x ?? subject.x, 2), y: round(here.y ?? subject.y, 2), scaleX: round(here.scaleX ?? 1, 4), scaleY: round(here.scaleY ?? 1, 4) };
       const { id: _id, name: _name, animations: _animations, move: _move, parentId: _parent, cutoutFor: _for, isMask: _mask, ...picture } = subject;
-      const climb = ctx.reduced ? 0 : (input.height ?? 0.22) * ctx.frame.height * look.rise;
+      // The default climb is 0.22 of the frame's shorter side, so the flame is the same size beside
+      // its subject in a tall frame as in a wide one (0.22 of a 1920 px height flashed over 3.3% of
+      // a 9:16 frame, past the 2.8% the flashing gate allows; 0.22 of 1080 px passes).
+      const climb = ctx.reduced ? 0 : (input.height === undefined ? 0.22 * Math.min(ctx.frame.width, ctx.frame.height) : input.height * ctx.frame.height) * look.rise;
       const copies = ctx.reduced || climb === 0 ? 1 : 1 + look.copies;
       let below = null;
       for (let index = 0; index < copies; index += 1) {
