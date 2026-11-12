@@ -46,7 +46,9 @@ import { LINE_OVER_BED } from "./mixLevels.js";
 import { barLines } from "./songBars.js";
 import { round } from "./numbers.js";
 
-export const LINE_NAMES = Object.freeze({ mute: "Line mute", up: "Line up", down: "Line down" });
+// A sound kept by keep_line {sound} (not a line: never leveled) fades with "Sound up" and "Sound down",
+// so a layer that keeps a line and a sound keeps both levels (the export levels only the lines).
+export const LINE_NAMES = Object.freeze({ mute: "Line mute", up: "Line up", down: "Line down", soundUp: "Sound up", soundDown: "Sound down" });
 // The music's volume under the line, as a share of its own volume. 0.7 is about 3 dB down. It was
 // 0.5 (6 dB): a director keeping lines over a song's drop reported the song sank to 0.4 and raised
 // it to dip 0.8 by hand to keep the drop's energy (.scratch/ceiling/a/result.md, FRICTION 10).
@@ -138,25 +140,30 @@ function heardLines(words) {
   return `${shown.join(" · ")}${lines.length > 4 ? ` +${lines.length - 4} more` : ""}`;
 }
 
-// The stretches (scene seconds) an earlier keep_line left audible on the layer, from its animations.
+// The stretches (scene seconds) an earlier keep_line left audible on the layer, from its animations:
+// [{start, end, sound?}], sound: true for a kept sound (keep_line {sound}), played at its own level.
 export function keptRanges(layer) {
-  const marks = (layer.animations ?? []).filter((animation) => animation.name === LINE_NAMES.up || animation.name === LINE_NAMES.down).sort((a, b) => a.start - b.start);
+  const ups = [LINE_NAMES.up, LINE_NAMES.soundUp], downs = [LINE_NAMES.down, LINE_NAMES.soundDown];
+  const marks = (layer.animations ?? []).filter((animation) => ups.includes(animation.name) || downs.includes(animation.name)).sort((a, b) => a.start - b.start);
   const ranges = [];
   let open = null;
   for (const mark of marks) {
-    if (mark.name === LINE_NAMES.up) open = mark.start + mark.duration;
-    else { ranges.push({ start: open ?? 0, end: mark.start }); open = null; }
+    if (ups.includes(mark.name)) open = { at: mark.start + mark.duration, sound: mark.name === LINE_NAMES.soundUp };
+    else { ranges.push({ start: open?.at ?? 0, end: mark.start, ...(open ? (open.sound ? { sound: true } : {}) : mark.name === LINE_NAMES.soundDown ? { sound: true } : {}) }); open = null; }
   }
-  if (open !== null) ranges.push({ start: open, end: Infinity });
+  if (open !== null) ranges.push({ start: open.at, end: Infinity, ...(open.sound ? { sound: true } : {}) });
   return ranges;
 }
 
+// Stretches closer than the fades join; a join of a line and a sound is a line (leveled).
 function merged(ranges) {
   const out = [];
   for (const range of [...ranges].sort((a, b) => a.start - b.start)) {
     const last = out.at(-1);
-    if (last && range.start - last.end < UP_PAD + DOWN_PAD + 0.05) last.end = Math.max(last.end, range.end);
-    else out.push({ ...range });
+    if (last && range.start - last.end < UP_PAD + DOWN_PAD + 0.05) {
+      last.end = Math.max(last.end, range.end);
+      if (!range.sound) delete last.sound;
+    } else out.push({ ...range });
   }
   return out;
 }
@@ -169,8 +176,8 @@ function silenceAround(ranges, volume, sceneDuration) {
   for (const [index, range] of ranges.entries()) {
     const upStart = Math.max(0, range.start - UP_PAD);
     if (index === 0 && upStart > 0.002) ramp(LINE_NAMES.mute, 0, SHORTEST, volume, 0);
-    if (upStart > 0.002) ramp(LINE_NAMES.up, upStart, range.start, 0, volume);
-    if (Number.isFinite(range.end) && range.end + DOWN_PAD < sceneDuration - 0.002) ramp(LINE_NAMES.down, range.end, range.end + DOWN_PAD, volume, 0);
+    if (upStart > 0.002) ramp(range.sound ? LINE_NAMES.soundUp : LINE_NAMES.up, upStart, range.start, 0, volume);
+    if (Number.isFinite(range.end) && range.end + DOWN_PAD < sceneDuration - 0.002) ramp(range.sound ? LINE_NAMES.soundDown : LINE_NAMES.down, range.end, range.end + DOWN_PAD, volume, 0);
   }
   return added;
 }
@@ -375,7 +382,7 @@ export function applyKeepLine(document, operation, { fonts } = {}) {
     const from = Math.max(start, play.start);
     const to = Math.min(end, play.end);
     const volume = piece.volume > 0 ? piece.volume : 1;
-    const ranges = merged([...keptRanges(piece), ...(to - from > SHORTEST ? [{ start: from, end: to }] : [])]);
+    const ranges = merged([...keptRanges(piece), ...(to - from > SHORTEST ? [{ start: from, end: to, ...(sound ? { sound: true } : {}) }] : [])]);
     piece.volume = volume;
     piece.animations = [...(piece.animations ?? []).filter((animation) => !isLineMark(animation)), ...silenceAround(ranges, volume, scene.duration)];
     return { piece, play, ranges, volume };
@@ -439,7 +446,8 @@ export function applyKeepLine(document, operation, { fonts } = {}) {
     if (dip > level) notes.push(`dip ${dip} is above the music's volume ${level}, so the music gets louder under the line`);
     if (over?.own) {
       // Both levels as heard: the sound at its own level, the music under it before and after the dip.
-      for (const entry of kept) delete entry.piece.voiceLevel;
+      // A line kept earlier on the layer keeps its level (the export levels only the line stretches).
+      for (const entry of kept) if (!entry.ranges.some((item) => !item.sound)) delete entry.piece.voiceLevel;
       const { line: own, under: bed, around } = over.measured;
       const dipDb = out ? -Infinity : 20 * Math.log10(Math.max(1e-6, dip / level));
       const total = round(10 * Math.log10(10 ** (own / 10) + (Number.isFinite(dipDb) ? 10 ** ((bed + dipDb) / 10) : 0)), 1);

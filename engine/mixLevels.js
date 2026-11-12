@@ -140,6 +140,26 @@ export function leveledLoudness(curve, spans) {
   return energyMean(spans.flatMap((span) => curveValues(curve, [span]).map((value) => (Number.isFinite(value) ? value + levelAt(leveling, span.start) : value))));
 }
 
+/**
+ * A voiceLeveling result with `own` stretches ([{start, end}], file seconds: sounds keep_line kept at
+ * their own level) at 0 dB: {gain, lines} whose lines cover the file, or the result unchanged.
+ */
+export function withOwnLevel(leveling, own = []) {
+  if (!leveling || !own.length) return leveling;
+  const cuts = [...new Set([...(leveling.lines ?? []).flatMap((line) => [line.from, line.to]), ...own.flatMap((span) => [span.start, span.end])])]
+    .filter(Number.isFinite).sort((a, b) => a - b);
+  const edges = [-Infinity, ...cuts, Infinity];
+  const lines = [];
+  for (let index = 0; index < edges.length - 1; index += 1) {
+    const [from, to] = [edges[index], edges[index + 1]];
+    const probe = Number.isFinite(from) ? (Number.isFinite(to) ? (from + to) / 2 : from) : to - 1;
+    const gain = own.some((span) => probe >= span.start && probe < span.end) ? 0 : levelAt(leveling, probe);
+    if (lines.at(-1)?.gain === gain) lines.at(-1).to = to;
+    else lines.push({ from, to, gain });
+  }
+  return { gain: leveling.gain, lines };
+}
+
 /** The leveling gain (dB) at file second `time` of a voiceLeveling result (0 without one). */
 export const levelAt = (leveling, time) => (leveling?.lines?.find((line) => time >= line.from && time < line.to)?.gain ?? leveling?.gain ?? 0);
 

@@ -8,7 +8,7 @@ import { voiceLines } from "./mixLevels.js";
 import { mediaPlaybackRange } from "./playback.js";
 import { defaultFonts } from "./fonts.js";
 import { clipSoundsText, SOUND_LISTED, soundEvents } from "./speech.js";
-import { findLine } from "./keepLine.js";
+import { findLine, keptRanges } from "./keepLine.js";
 import { captionWordsFromSpeech, clipLines, clipLinesText, clipSoundText, readClipSound, cutSpeechIndices, fileWords, shiftScene, speechFlags, speechPieces, speechText, speechWords } from "./speech.js";
 
 // "So we will, we will um try. [mumble] Like, the Oaks app." in file seconds; cut = the quiet point before each word.
@@ -475,6 +475,29 @@ test("keep_line {sound} keeps the loudest matching scene sound at its own level,
   assert.throws(() => run({ sound: "gasp" }), /no "gasp" heard where laugh plays\. Heard there: laughter 2-3\.5 s, music 0-3\.5 s, laughter 0-1 s\./);
   assert.throws(() => run({ events: undefined, eventsWhy: "no helper" }), /laugh's sounds are not measured here \(no helper\); give from and to/);
   assert.throws(() => run({ from: 1, to: 2 }), /give one of sound/);
+  // A line and a sound kept on one layer: the line keeps its level, the sound plays at its own.
+  const levels = { clip: flat(-24, 12), music: flat(-13, 30) };
+  const line = { type: "keep_line", sceneId: "s", layerId: "clip", from: 6, to: 8, text: "Hi there", levels };
+  const lined = parseDocument(applyOperations(document, [line], { fonts: defaultFonts }));
+  const level = lined.scenes[0].layers.find((layer) => layer.id === "clip").voiceLevel;
+  assert.ok(Number.isFinite(level));
+  const both = parseDocument(applyOperations(lined, [{ type: "keep_line", sceneId: "s", layerId: "clip", sound: "laugh", events: soundEvents(windows, { sure: SOUND_LISTED }).events, levels }], { fonts: defaultFonts }));
+  const kept = both.scenes[0].layers.find((layer) => layer.id === "clip");
+  assert.equal(kept.voiceLevel, level);
+  assert.deepEqual(keptRanges(kept).map((range) => [range.start, range.end, range.sound ?? false]), [[2, 3.5, true], [6, 8, false]]);
+});
+
+test("the clip readout names the surest sound under 0.5 as maybe, and keep_line keeps it", () => {
+  // A laugh the classifier is 0.43 sure of, over a speech window it is sure of.
+  const windows = [0, 1, 2].map((t) => ({ t, d: 1, db: -20, top: [["speech", 0.9], ...(t === 1 ? [["laughter", 0.43], ["giggle", 0.2]] : [])] }));
+  const read = soundEvents(windows);
+  assert.deepEqual(read.maybe, { label: "laughter", start: 1, end: 2, sure: 0.43, db: -20 });
+  assert.equal(clipSoundsText(read), "maybe laughter (0.43) 1.0-2.0 s · bed speech");
+  const clip = createLayer("audio", { id: "clip", name: "laugh", src: "/api/media/clip.wav", mediaSourceDuration: 3 });
+  const reports = new Map();
+  const operation = { type: "keep_line", sceneId: "s", layerId: "clip", sound: read.maybe.label, events: soundEvents(windows, { sure: SOUND_LISTED }).events, duckNone: true };
+  applyOperations(documentWith([clip], 3), [operation], { reports, fonts: defaultFonts });
+  assert.deepEqual(reports.get(operation).scene, [1, 2]);
 });
 
 test("clipLines keeps the lines a clip says, shortest first, and drops sound tags, unsure guesses and one-word noises", () => {

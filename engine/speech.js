@@ -971,7 +971,16 @@ export function soundEvents(windows = [], { sure = SOUND_SURE } = {}) {
       events.push(event);
     }
   }
-  return { events, bed };
+  // The surest label under `sure` (and at SOUND_LISTED or more) that is neither the bed nor named
+  // above, in its best window: the readout lists it as "maybe", so keep_line {sound} can try it
+  // without guessing (run 8's laugh read 0.43 and was never named).
+  let maybe = null;
+  const named = new Set(events.map((event) => event.label));
+  for (const window of sorted) for (const [label, value] of window.top ?? []) {
+    if (!(value < sure) || value < SOUND_LISTED || named.has(label) || bed.includes(label) || (maybe && value <= maybe.sure)) continue;
+    maybe = { label, start: round(window.t), end: round(window.t + (window.d ?? 1)), sure: round(value), db: window.db ?? -120 };
+  }
+  return { events, bed, ...(maybe ? { maybe } : {}) };
 }
 
 /**
@@ -998,10 +1007,12 @@ export function soundMoments(events = []) {
  * skeptic proof (.scratch/barwave/wave/scene-sounds-review/RESULT.md) "mosquito buzz" and "insect"
  * windows inside the speech took 2 of the 3 places and hid the chime after it.
  */
-export function clipSoundsText({ events = [], bed = [] } = {}, most = 3) {
+export function clipSoundsText({ events = [], bed = [], maybe = null } = {}, most = 3) {
   const moments = soundMoments(events.filter((item) => !bed.includes(item.label)));
   const parts = [];
   if (moments.length) parts.push(`sounds ${moments.slice(0, most).map((moment) => `${moment.name} ${moment.start.toFixed(1)}-${moment.end.toFixed(1)} s (${Math.round(moment.db)} dB)`).join(", ")}${moments.length > most ? ", …" : ""}`);
+  // The surest sound under SOUND_SURE (soundEvents maybe), with its score: keep_line {sound} takes it.
+  if (maybe) parts.push(`maybe ${String(maybe.label).replaceAll("_", " ")} (${maybe.sure.toFixed(2)}) ${maybe.start.toFixed(1)}-${maybe.end.toFixed(1)} s`);
   if (bed.length) parts.push(`bed ${bed.slice(0, 2).map((label) => String(label).replaceAll("_", " ")).join(", ")}`);
   return parts.join(" · ");
 }

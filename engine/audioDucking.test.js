@@ -6,8 +6,8 @@ import { applyOperations } from "./operations.js";
 import { volumeAt } from "./animation.js";
 import { duckStretches } from "./audioDucking.js";
 import { voiceUnderBed } from "./quality/rules/sound.js";
-import { levelAt, voiceLeveling } from "./mixLevels.js";
-import { soundPlacement, visibleActions } from "./soundActions.js";
+import { levelAt, voiceLeveling, withOwnLevel } from "./mixLevels.js";
+import { louderSound, soundPlacement, visibleActions } from "./soundActions.js";
 
 const sound = (id, values = {}) => createLayer("audio", { id, name: id, src: `/api/media/${id}.wav`, ...values });
 
@@ -266,4 +266,33 @@ test("an effect lands its transient on its action, under the song", () => {
   const layer = next.scenes[0].layers.find((item) => item.id === "sfx-whip-1");
   assert.deepEqual([layer.type, layer.mediaStart, layer.mediaOffset, layer.volume], ["audio", 1.95, 0, 0.562]);
   assert.match(reports.get(operation).summary, /sfx-whip-1 at 1\.95 \(a1, transient at 2\), volume 0\.562, 3 LU under the song \(-12 LUFS\)/);
+});
+
+test("an effect's bed is measured where its own loudest window falls, not at the action", () => {
+  // The song is -20 LUFS to 2.5 s, -10 after; the effect's transient is its start, its loudest window 0.8 s in.
+  const music = sound("music", { mediaDuration: 10 });
+  const beds = [{ layer: music, curve: { step: 0.1, momentary: Array.from({ length: 100 }, (_, index) => (index < 25 ? -20 : -10)) }, range: { start: 0, end: 10, offset: 0 } }];
+  const placed = soundPlacement({ peaks: { peaks: [1, 0.5, 0.2], secondsPerPeak: 0.01 }, curve: { step: 0.1, momentary: [-20, -15, -12, -10, -9, -8, -7, -6, -5, -9] }, beds, at: 2 });
+  assert.deepEqual([placed.loudestAt, placed.bed, placed.effect], [2.8, -10, -5]);
+});
+
+test("a sound at the volume limit short of its aim is offered the next louder sound of its kind, one call", () => {
+  const music = sound("music", { mediaDuration: 10 });
+  const pool = [{ id: "soft", level: -19 }, { id: "mid", level: -12 }, { id: "loud", level: -5 }];
+  // Needs +15 dB at volume 1 (song -12, effect -30, aim 3 LU under): volume 2 leaves it 9 LU short.
+  const operation = { type: "place_sounds", sceneId: "s", sounds: [{ at: 2, kind: "whoosh", action: "a1", src: "/api/media/air.wav", duration: 1, level: -20, pool, curve: { step: 0.1, momentary: [-30] } }], beds: ["music"], levels: { music: { step: 0.1, momentary: Array(100).fill(-12) } } };
+  const reports = new Map();
+  applyOperations(documentWith([music]), [operation], { reports });
+  const report = reports.get(operation);
+  assert.deepEqual(report.louder, [{ layer: "sfx-whoosh-1", sound: "sfx:loud", db: 15, call: 'edit {ops:[{op:"delete_layer", layer:"sfx-whoosh-1"}, {op:"place_sounds", scene:"s", at:[{at:"a1", sound:"sfx:loud"}]}]}' }]);
+  assert.match(report.summary, /volume 2, 12 LU under the song .*at the volume limit, 9 LU short of the aim: sfx:loud measures 15 dB louder/);
+  // Within reach of the limit: no offer.
+  assert.equal(louderSound({ level: "measured", volume: 1.5, bed: -12, effect: -18 }, 3, -20, pool), null);
+});
+
+test("a sound kept at its own level stays at 0 dB inside a leveled voice", () => {
+  const leveled = withOwnLevel({ gain: 4 }, [{ start: 5, end: 6.5 }]);
+  assert.deepEqual(leveled.lines.map((line) => [line.from, line.to, line.gain]), [[-Infinity, 5, 4], [5, 6.5, 0], [6.5, Infinity, 4]]);
+  assert.deepEqual([levelAt(leveled, 2), levelAt(leveled, 5.5), levelAt(leveled, 7)], [4, 0, 4]);
+  assert.deepEqual(withOwnLevel({ gain: 4 }, []), { gain: 4 });
 });

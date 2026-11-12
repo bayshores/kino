@@ -104,13 +104,42 @@ export function soundPlacement({ peaks = null, curve = null, peak = null, beds =
   const start = at - transient;
   const mediaStart = start >= 0 ? round3(start) : 0;
   const mediaOffset = start >= 0 ? 0 : round3(-start);
-  const heard = (curve?.momentary ?? []).filter((value) => Number.isFinite(value) && value > -70);
-  const effect = heard.length ? Math.max(...heard) : Number.isFinite(peak) ? peak - PEAK_OVER_MOMENTARY : null;
-  const bed = bedLoudness(beds ?? [], at - 0.2, at + 0.2);
+  const momentary = Array.isArray(curve?.momentary) ? curve.momentary : [];
+  let loudest = -1;
+  momentary.forEach((value, index) => { if (Number.isFinite(value) && value > -70 && (loudest < 0 || value > momentary[loudest])) loudest = index; });
+  const effect = loudest >= 0 ? momentary[loudest] : Number.isFinite(peak) ? peak - PEAK_OVER_MOMENTARY : null;
+  // The bed is measured over the 0.4 s window where the effect's own loudest momentary value falls
+  // (its middle, in scene seconds), so the two numbers compared are the same moment: measured at the
+  // action alone, a 2.5 s riser sat 1.4 LU under and an impact 4.6 LU under an aim of 3 (sounds-on-actions).
+  // With a measured loudest window, the bed is its one momentary value there (the same 400 ms): an
+  // energy mean of the values 0.2 s either side reads 0.8 s of the bed, and a riser into a drop read
+  // the quiet build before it (7.9 LU under in the synthesized proof instead of 3).
+  const middle = loudest >= 0 && curve.step > 0 ? at - transient + loudest * curve.step : at;
+  const sample = Math.round(middle * 10) / 10;
+  const bed = loudest >= 0 ? bedLoudness(beds ?? [], sample + 0.001, sample + 0.002) : bedLoudness(beds ?? [], at - 0.2, at + 0.2);
   if (bed === null || effect === null) return { mediaStart, mediaOffset, transient, volume: UNMEASURED_VOLUME, level: "unmeasured", bed, effect };
   const volume = Math.max(MIN_VOLUME, Math.min(MAX_VOLUME, 10 ** ((bed - under - effect) / 20)));
-  return { mediaStart, mediaOffset, transient, volume: Math.round(volume * 1000) / 1000, level: heard.length ? "measured" : "peak", bed: round1(bed), effect: round1(effect) };
+  return { mediaStart, mediaOffset, transient, volume: Math.round(volume * 1000) / 1000, level: loudest >= 0 ? "measured" : "peak", bed: round1(bed), effect: round1(effect), loudestAt: round3(middle) };
 }
+
+/**
+ * A sound at the volume limit that still misses its aim by more than 0.05 LU: the next louder sound
+ * of its kind in `pool` ([{id, level}], the library catalog's measured level: LUFS, or its sample
+ * peak less PEAK_OVER_MOMENTARY for a sound under 0.4 s), compared with `own` (the sound's own
+ * catalog level, else its measured loudest moment). The first one louder by the shortfall, else the
+ * loudest louder one. Returns {id, db, short} or null.
+ */
+export function louderSound(where, under, own, pool = []) {
+  if (where.level === "unmeasured" || where.volume < MAX_VOLUME) return null;
+  const short = round1(where.bed - where.effect - 20 * Math.log10(where.volume) - under);
+  if (!(short > 0.05) || !Number.isFinite(own)) return null;
+  const louder = pool.filter((sound) => Number.isFinite(sound?.level) && sound.level > own + 0.05).sort((a, b) => a.level - b.level);
+  const pick = louder.find((sound) => sound.level - own >= short) ?? louder.at(-1);
+  return pick ? { id: pick.id, db: round1(pick.level - own), short } : null;
+}
+
+/** A library sound's measured level for louderSound: its LUFS when it has one, else its peak less PEAK_OVER_MOMENTARY. */
+export const catalogLevel = (sound) => (Number.isFinite(sound?.lufs) && sound.lufs > -70 ? sound.lufs : Number.isFinite(sound?.peak) ? sound.peak - PEAK_OVER_MOMENTARY : null);
 const round3 = (value) => Math.round(value * 1000) / 1000;
 const round1 = (value) => Math.round(value * 10) / 10;
 
@@ -133,7 +162,8 @@ export function applyPlaceSounds(document, operation) {
   for (const sound of sounds) {
     if (!Number.isFinite(sound?.at) || sound.at < 0 || sound.at >= scene.duration) throw new Error(`place_sounds at ${sound?.at} is outside the scene (0 to ${scene.duration} s).`);
     if (typeof sound.src !== "string" || !sound.src) throw new Error("place_sounds needs a sound file for each time.");
-    const where = soundPlacement({ peaks: sound.peaks, curve: sound.curve, peak: sound.peak, beds, at: sound.at, under: Number.isFinite(sound.under) ? sound.under : Number.isFinite(operation.under) ? operation.under : UNDER_BED });
+    const under = Number.isFinite(sound.under) ? sound.under : Number.isFinite(operation.under) ? operation.under : UNDER_BED;
+    const where = soundPlacement({ peaks: sound.peaks, curve: sound.curve, peak: sound.peak, beds, at: sound.at, under });
     const kind = String(sound.kind ?? "hit").replace(/[^a-z0-9-]/gi, "").toLowerCase() || "hit";
     let n = 1;
     while (used.has(`sfx-${kind}-${n}`)) n += 1;
@@ -145,16 +175,21 @@ export function applyPlaceSounds(document, operation) {
       ...(Number.isFinite(sound.duration) && sound.duration > 0 ? { mediaSourceDuration: sound.duration } : {}),
       ...(playLength > 0 ? { mediaDuration: Math.min(playLength, round3(scene.duration - where.mediaStart)) } : {}),
     }));
-    placed.push({ layer: id, at: sound.at, ...(sound.action ? { action: sound.action } : {}), ...(sound.tags ? { tags: sound.tags } : {}), file: sound.name ?? sound.src, ...where });
+    // At the volume limit and still under its aim: the next louder sound of its kind, as one edit call.
+    const louder = louderSound(where, under, Number.isFinite(sound.level) ? sound.level : where.effect, sound.pool);
+    const call = louder ? `edit {ops:[{op:"delete_layer", layer:"${id}"}, {op:"place_sounds", scene:"${scene.id}", at:[{at:${sound.action ? `"${sound.action}"` : sound.at}, sound:"sfx:${louder.id}"${Number.isFinite(sound.under) ? `, under:${sound.under}` : ""}}]}]}` : null;
+    placed.push({ layer: id, at: sound.at, ...(sound.action ? { action: sound.action } : {}), ...(sound.tags ? { tags: sound.tags } : {}), file: sound.name ?? sound.src, ...where, ...(louder ? { louder: { ...louder, call } } : {}) });
   }
   // The scene's sound effects after this (layers named sfx-*), so the receipt says how many it now has.
   const effects = scene.layers.filter((layer) => layer.type === "audio" && /^sfx-/.test(layer.id)).length;
-  return { placed: placed.length, summary: `${placed.map(placedLine).join(" · ")} · ${effects} ${effects === 1 ? "effect" : "effects"} in ${round(scene.duration)} s` };
+  const louder = placed.filter((entry) => entry.louder).map((entry) => ({ layer: entry.layer, sound: `sfx:${entry.louder.id}`, db: entry.louder.db, call: entry.louder.call }));
+  return { placed: placed.length, summary: `${placed.map(placedLine).join(" · ")} · ${effects} ${effects === 1 ? "effect" : "effects"} in ${round(scene.duration)} s`, ...(louder.length ? { louder } : {}) };
 }
 
 const tagsOf = (entry) => (entry.action ? ` (${entry.action}${entry.tags?.length ? ` ${entry.tags.join("+")}` : ""}, transient at ${entry.at})` : ` (transient at ${entry.at})`);
 function placedLine(entry) {
   const level = entry.level === "unmeasured" ? `volume ${entry.volume} (${entry.bed === null ? "no song measured there" : "the sound's loudness was not measured"})`
     : `volume ${entry.volume}, ${round1(entry.bed - entry.effect - 20 * Math.log10(entry.volume))} LU under the song (${entry.bed} LUFS)${entry.level === "peak" ? ", level from peak" : ""}`;
-  return `${entry.layer} at ${round3(entry.mediaStart)}${entry.mediaOffset ? ` (head trimmed ${entry.mediaOffset} s)` : ""}${tagsOf(entry)}, ${level}`;
+  const louder = entry.louder ? `; at the volume limit, ${entry.louder.short} LU short of the aim: sfx:${entry.louder.id} measures ${entry.louder.db} dB louder: ${entry.louder.call}` : "";
+  return `${entry.layer} at ${round3(entry.mediaStart)}${entry.mediaOffset ? ` (head trimmed ${entry.mediaOffset} s)` : ""}${tagsOf(entry)}, ${level}${louder}`;
 }
