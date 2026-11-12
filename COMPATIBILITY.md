@@ -657,7 +657,8 @@ How to read it:
   displacement passes; look and reference renderer match. Evidence: `backend/blur-effects-chromium.test.mjs`,
   `backend/agent-reach-effects.test.mjs`.
 - **Edge-only color fringe**: Verified. rgb-shift `where:"edges"`, `colors`, no bars at a picture's
-  box. Evidence: `engine/effects/postFx.test.js`, `backend/blur-effects-chromium.test.mjs`.
+  box; dark type over transparency fringes in color and stays solid. Evidence:
+  `engine/effects/postFx.test.js`, `backend/blur-effects-chromium.test.mjs`.
 - **Directional, zoom and spin blur**: Verified. Up to 512 copies (zoom and spin 256), each kept
   one GPU layer. Evidence:
   `engine/effects/motionBlurs.test.js`, `backend/blur-effects-chromium.test.mjs`,

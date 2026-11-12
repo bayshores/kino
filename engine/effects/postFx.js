@@ -637,6 +637,30 @@ export function renderRgbShift(frame) {
     // Full fringe 0.2 above the threshold (a guess; edgeThreshold moves the whole ramp).
     const slope = 5;
     reach = Math.max(reach, radius * 1.7);
+    let shifted = "postFxShifted";
+    if (!pixelLayer) {
+      // A layer over transparency (text, shapes) has no picture behind it to split, so dark type
+      // fringed only as a black doubling with no color (film-trailer r2-040, checked 2026-11-11).
+      // Where a channel's copy covers and another's does not, that missing channel is filled
+      // with 1 minus the brightest luma nearby: dark type gets the complement colors a split of
+      // a light card behind it would show (cyan and yellow for red-blue), light type keeps the
+      // channel colors (red and blue). Inside the shape every copy covers, so it stays as it was.
+      shifted = "postFxShiftedTinted";
+      primitives.push(
+        '<feFlood flood-color="#000000" flood-opacity="1" result="postFxBlack"/>',
+        '<feComposite in="postFxShifted" in2="postFxBlack" operator="over" result="postFxShiftedOnBlack"/>',
+        ...["Red", "Green", "Blue"].map((name) => `<feBlend in="postFxMaxAlphaGray" in2="postFx${name}AlphaGray" mode="difference" result="postFx${name}Missing"/>`),
+        ...["Red", "Green", "Blue"].map((name, index) => `<feColorMatrix in="postFx${name}Missing" type="matrix" values="${channelMatrix(index).replace(/0 0 0 1 0$/, "0 0 0 0 1")}" result="postFx${name}MissingOnly"/>`),
+        '<feBlend in="postFxRedMissingOnly" in2="postFxGreenMissingOnly" mode="lighten" result="postFxRedGreenMissing"/>',
+        '<feBlend in="postFxRedGreenMissing" in2="postFxBlueMissingOnly" mode="lighten" result="postFxMissing"/>',
+        '<feComposite in="SourceGraphic" in2="postFxBlack" operator="over" result="postFxSourceOnBlack"/>',
+        '<feColorMatrix in="postFxSourceOnBlack" type="matrix" values="-0.2126 -0.7152 -0.0722 0 1 -0.2126 -0.7152 -0.0722 0 1 -0.2126 -0.7152 -0.0722 0 1 0 0 0 0 1" result="postFxDarkness"/>',
+        `<feMorphology in="postFxDarkness" operator="erode" radius="${fmt(radius)}" result="postFxComplement"/>`,
+        '<feBlend in="postFxMissing" in2="postFxComplement" mode="multiply" result="postFxFill"/>',
+        '<feComposite in="postFxShiftedOnBlack" in2="postFxFill" operator="arithmetic" k1="0" k2="1" k3="1" k4="0" result="postFxTintedOpaque"/>',
+        `<feComposite in="postFxTintedOpaque" in2="postFxMaxAlphaMask" operator="in" result="${shifted}"/>`,
+      );
+    }
     primitives.push(
       '<feColorMatrix in="SourceGraphic" type="matrix" values="0.2126 0.7152 0.0722 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 1" result="postFxEdgeLuma"/>',
       `<feMorphology in="postFxEdgeLuma" operator="dilate" radius="${fmt(radius)}" result="postFxEdgeHigh"/>`,
@@ -645,7 +669,7 @@ export function renderRgbShift(frame) {
       '<feComposite in="postFxEdgeHigh" in2="postFxEdgeLowInverse" operator="arithmetic" k1="0" k2="1" k3="1" k4="-1" result="postFxEdgeRange"/>',
       `<feColorMatrix in="postFxEdgeRange" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 ${slope} ${slope} 0 0 ${fmt(-slope * threshold)}" result="postFxEdgeMask"/>`,
       `<feGaussianBlur in="postFxEdgeMask" stdDeviation="${fmt(radius * 0.35)}" result="postFxEdgeSoft"/>`,
-      '<feComposite in="postFxShifted" in2="postFxEdgeSoft" operator="in" result="postFxEdgeFringe"/>',
+      `<feComposite in="${shifted}" in2="postFxEdgeSoft" operator="in" result="postFxEdgeFringe"/>`,
       '<feComposite in="SourceGraphic" in2="postFxEdgeSoft" operator="out" result="postFxEdgeRest"/>',
       `<feComposite in="postFxEdgeFringe" in2="postFxEdgeRest" operator="arithmetic" k1="0" k2="1" k3="1" k4="0"${pixelLayer ? ' result="postFxEdged"' : ""}/>`,
     );
