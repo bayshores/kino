@@ -213,6 +213,7 @@ async function addOutlineLayer({ document, operation, scene, layer, made, report
 // at up to 4 times spread over the clip, and room {left, right, top, bottom}: the scene's pixels
 // clear of the box on each side. Boxes are at the layer's own place (its animations aside). `share`
 // is the same box in shares of the layer (type_covered reads it from the layer's subjectBox).
+const PATH_SAMPLES = 24;
 function subjectReport(layer, frames, scene) {
   const shown = frames.filter((frame) => frame.box);
   if (!shown.length) return null;
@@ -221,7 +222,11 @@ function subjectReport(layer, frames, scene) {
   const picks = [...new Set([0, 1, 2, 3].map((k) => Math.round((k * (shown.length - 1)) / 3)))];
   const [x, y, width, height] = px(share);
   const room = { left: Math.max(0, x), right: Math.max(0, Math.round((scene?.width ?? 0) - x - width)), top: Math.max(0, y), bottom: Math.max(0, Math.round((scene?.height ?? 0) - y - height)) };
-  return { share, report: { box: [x, y, width, height], at: picks.map((index) => [Math.round(shown[index].time * 100) / 100, ...px(shown[index].box)]), room } };
+  // The box over time (up to 24 samples, [t, x0, y0, x1, y1] in shares): place {around} reads it.
+  const count = Math.min(PATH_SAMPLES, shown.length);
+  const path = [...new Set(Array.from({ length: count }, (_, k) => Math.round((k * (shown.length - 1)) / Math.max(1, count - 1))))]
+    .map((index) => [shown[index].time, ...shown[index].box].map((value) => Math.round(value * 1000) / 1000));
+  return { share, path, report: { box: [x, y, width, height], at: picks.map((index) => [Math.round(shown[index].time * 100) / 100, ...px(shown[index].box)]), room } };
 }
 
 // Subject boxes of the matte's sampled frames (media.mjs boxes) at the scene times Play shows them.
@@ -384,7 +389,7 @@ async function cutOut(document, operation, { mediaRoot, cutoutMedia, operationCo
   // The subject's measured box (shares of the layer, around every shown frame): type_covered
   // judges type behind the cut-out by it instead of by the whole layer box.
   const subject = output === "matte" ? null : subjectReport(layer, shownBoxes(layer, made), scene);
-  if (subject) copy.subjectBox = subject.share;
+  if (subject) Object.assign(copy, { subjectBox: subject.share, subjectPath: subject.path });
   // Made by a move for its own frames (translate.mjs moveCutouts, field cutout.own): the copy keeps
   // the clip's other effects (curves, color) but not its glow or its one-hue grade (tritone,
   // duotone); the move puts its own tone on the subject or the clip's grade back (backdrop-flash

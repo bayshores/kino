@@ -76,7 +76,7 @@ export function createLayoutOps({ fontsOf, problem, sceneOf, faceTarget = null, 
       let placed;
       try {
         placed = placeAroundSubject(scene, layers, target.box, { fonts, scenes: document.scenes, gap: gapOf(operation, scene), bounds, side: operation.side,
-          least: typeFloor(frame).body, split: (layer) => splitCopy(document, scene, layer) });
+          least: typeFloor(frame).body, split: (layer) => splitCopy(document, scene, layer), time: target.time, moments: target.moments, follow: operation.follow === true });
       } catch (error) { throw problem(error.message); }
       const box = target.box, pct = (share) => `${Math.round(share * 100)}%`;
       const names = operation.layerIds.join(", ");
@@ -84,7 +84,14 @@ export function createLayoutOps({ fontsOf, problem, sceneOf, faceTarget = null, 
         ? `split at the word gap: "${layers[0].text}" left, "${scene.layers.find((layer) => layer.id === placed.splitId).text}" right (new layer ${placed.splitId})`
         : placed.side;
       const sized = placed.scale < 1 ? ` · size ${layers.map((layer, index) => `${placed.sizes[index]} → ${layer.fontSize}`).join(", ")} px to fit the room` : "";
-      work.notes.push(`place ${names} around ${target.line}${target.behind ? ", behind it" : ", over it"} (subject box x ${Math.round(box.x0)}-${Math.round(box.x1)}, y ${Math.round(box.y0)}-${Math.round(box.y1)}): ${how} · letters inside the subject box ${pct(placed.before)} → ${pct(placed.after)}${sized} · room ${roomLine(placed.room)}`);
+      // Over the hold: how far the subject's box moves, and the worst moment's covered share.
+      const moments = target.moments ?? [];
+      const spread = moments.length > 1 ? Math.round(Math.max(...["x0", "x1", "y0", "y1"].map((edge) => Math.max(...moments.map((moment) => moment.box[edge])) - Math.min(...moments.map((moment) => moment.box[edge]))))) : 0;
+      const at = (worst) => (spread > 0 && worst.share > 0 ? ` at ${worst.t} s` : "");
+      const held = spread > 0
+        ? ` over the hold ${target.hold[0]}-${target.hold[1]} s (${moments.length} moments; the subject's box moves up to ${spread} px)${placed.follow ? `: follows it, ${placed.keys} Follow keys` : ""}`
+        : "";
+      work.notes.push(`place ${names} around ${target.line}${target.behind ? ", behind it" : ", over it"} (subject box x ${Math.round(box.x0)}-${Math.round(box.x1)}, y ${Math.round(box.y0)}-${Math.round(box.y1)}${held}): ${how} · letters inside the subject box at the worst moment ${pct(placed.before.share)}${at(placed.before)} → ${pct(placed.after.share)}${at(placed.after)}${sized} · room ${roomLine(placed.room)}`);
       return;
     }
     if (operation.on !== undefined) {
