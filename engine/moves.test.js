@@ -140,6 +140,61 @@ test("every example builds at 16:9 and 9:16 and in reduced motion, the same way 
   assert.notDeepEqual(runExample("rgb-split-hit", sceneFor(1920, 1080), { seed: 2 }), runExample("rgb-split-hit", sceneFor(1920, 1080)));
 });
 
+test("punch-in snaps closer about its point and is refused over the layer's own push; shake needs no cue, dies down, covers its edges and passes check on its cue", async () => {
+  const scene = sceneFor(1920, 1080);
+  const run = (name, fields, at, dur = null) => runMove(MOVES[name], { id: name, input: readMoveInput(MOVES[name], fields), scene, style: styleFor({ look: "crisp", frame: { width: 1920, height: 1080 } }), fonts: defaultFonts, start: at, dur, media });
+  const shot = scene.layers.find((layer) => layer.id === "shot-a");
+  const stateOf = (made, own = []) => (time) => evaluateLayer({ ...shot, animations: [...own, ...made.animations.map(({ animation }) => animation)] }, time);
+  const punch = run("punch-in", { layer: "shot-a", scale: 1.5, point: [0, 0], hold: 0.4 }, 1);
+  const closer = stateOf(punch);
+  assert.deepEqual([1.3, 2].map((t) => round3(closer(t).scaleX)), [1.5, 1], "closer while it holds, back after");
+  assert.deepEqual([closer(1.3).x, closer(1.3).y], [480, 270], "the box moves so its scaled top-left corner stays at 0, 0");
+  assert.equal(punch.end, 1.75);
+  // A layer pushing on its own scale meanwhile is refused (the punch would pin it), with the window to use.
+  const pushed = sceneFor(1920, 1080);
+  pushed.layers.find((layer) => layer.id === "shot-a").animations.push({ id: "push", name: "push", kind: "custom", start: 0, duration: 2.5, easing: "linear", from: { scaleX: 1, scaleY: 1 }, to: { scaleX: 1.5, scaleY: 1.5 } });
+  const runPushed = (name, at) => runMove(MOVES[name], { id: name, input: readMoveInput(MOVES[name], { layer: "shot-a" }), scene: pushed, style: styleFor({ look: "crisp", frame: { width: 1920, height: 1080 } }), fonts: defaultFonts, start: at, dur: null, media });
+  assert.throws(() => runPushed("punch-in", 1), /already moves its place or size from 0 to 2.5 s/);
+  assert.throws(() => runPushed("shake", 2), /already moves its place or size from 0 to 2.5 s/);
+  assert.doesNotThrow(() => runPushed("punch-in", 2.6), "after the push it is fine");
+  // Placed in a document it is a valid edit, and check reads it as a punch-in.
+  const placed = sceneFor(1920, 1080);
+  placeMove(placed, { id: "punch-in", name: "punch-in", settings: {} }, run("punch-in", { layer: "shot-a" }, 1));
+  const parsed = parseDocument(createDocument({ id: "d", name: "punch", scenes: [{ ...placed, id: "scene" }] }));
+  assert.ok(techniquesUsed(kinoTimeline(parsed, "scene", { fonts: defaultFonts }))["punch-in"], "check finds the punch-in");
+
+  // Shake: one decaying wiggle, plus a scale that keeps the frame covered meanwhile.
+  const shook = run("shake", { layer: "shot-a", strength: 20 }, 2, 0.6);
+  const wiggle = shook.animations.find(({ animation }) => animation.behavior?.wiggle).animation;
+  assert.deepEqual([wiggle.start, wiggle.duration, wiggle.behavior.wiggle.amount.x, wiggle.behavior.wiggle.rate], [2, 0.6, 20, 8]);
+  assert.ok(wiggle.behavior.wiggle.decay > 0, "it dies down");
+  assert.equal(shook.end, 2.6);
+  const shaking = stateOf(run("shake", { layer: "shot-a" }, 2));
+  let bare = 0;
+  for (let t = 2; t <= 2.5; t += 1 / 60) {
+    const s = shaking(t), turn = (s.rotation ?? 0) * Math.PI / 180;
+    const [cx, cy] = [s.x + s.width / 2, s.y + s.height / 2];
+    for (const [px, py] of [[0, 0], [1920, 0], [1920, 1080], [0, 1080]]) {
+      const [dx, dy] = [px - cx, py - cy];
+      const u = (dx * Math.cos(turn) + dy * Math.sin(turn)), v = (-dx * Math.sin(turn) + dy * Math.cos(turn));
+      bare = Math.max(bare, Math.abs(u) - (s.width * s.scaleX) / 2, Math.abs(v) - (s.height * s.scaleY) / 2);
+    }
+  }
+  assert.ok(bare <= 0.5, `no edge shows while it shakes (${round3(bare)} px bare)`);
+  assert.equal(round3(shaking(2.6).scaleX), 1, "the layer is its own size again after it");
+  // In a music edit a default shake on its cue passes check: one shake, not 14 cycles a second, no speed jump.
+  const reasons = async (at) => {
+    const edit = sceneFor(1920, 1080);
+    placeMove(edit, { id: "shake", name: "shake", settings: {} }, run("shake", { layer: "shot-a" }, at));
+    const document = parseDocument(createDocument({ id: "d", name: "shake", scenes: [{ ...edit, id: "scene" }] }));
+    const { findings } = await runQuality(kinoTimeline(document, "scene", { fonts: defaultFonts }), { codes: ["effect_fit", "speed_jump"], pixels: false, context: { triggerCues: [{ name: "hit", kind: "accent", time: 2, weight: 0.9, rank: 1 }], scene: document.scenes[0] } });
+    return findings.map((finding) => finding.reason ?? finding.rule);
+  };
+  assert.deepEqual(await reasons(2), [], "no effect_fit or speed_jump finding on the cue");
+  const off = await reasons(3.5);
+  assert.ok(off.length > 0 && off.every((reason) => reason === "untriggered"), `off the cue, check still asks for one (${off})`);
+});
+
 test("freeze-shutter stops the clip on the beat, blinks once and plays again; masked-type fills a word with the clip or stands it behind the subject", () => {
   const scene = sceneFor(1920, 1080);
   const run = (name, fields, at, dur = null, reduced = false) => runMove(MOVES[name], { id: name, input: readMoveInput(MOVES[name], fields), scene, style: styleFor({ look: "crisp", frame: { width: 1920, height: 1080 } }), fonts: defaultFonts, start: at, dur, media, reduced });

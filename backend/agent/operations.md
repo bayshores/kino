@@ -264,6 +264,8 @@ Exports: video, GIF, APNG and PNG draw what the preview shows. Lottie stores a g
 
 Nine recipes, each the ops of one edit: library {topic:"rules", name:"particle-recipes"} (add search:"<name>" for one): embers-behind-title, snow-over-footage, sparks-shower (a burst at 1 s that dies out by 3 s), dust-in-light, rolling-fog, light-leak, rain-storm, bokeh-behind-title, snow-loop (repeats every 4 s).
 
+Drawn overlays on any layer (Post FX): `speed-lines` (streaks along `angle`, sliding at `speed`), `impact-lines` (wedges in toward `centerX`/`centerY`, a clear `inner` middle, redrawn `rate` times a second) and `film-burn` (a hot edge, `edge`/`reach`/`scale`, deep/mid/hot colors, screen). Lines take count, thickness, taper, variation, color, opacity, seed and blend. `invert` (Color) flips colors; keepHue swaps only light and dark. These four default to keepStill "off" (the effect shows only while it plays; send keepStill "both" to hold its first or last look). Example: {"op":"add_animation","layer":"footage","effect":"impact-lines","start":1,"duration":0.4}. Moves `punch-in` (snap closer on a point) and `shake` (on a cue in a music edit) are the agent's own accents; a layer that moves its own place or size meanwhile is refused with the window to use.
+
 ## particle-recipes: Particle overlay recipes
 ops: -
 

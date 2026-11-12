@@ -49,7 +49,8 @@ export function normalizeEffectAnimation(animation, { maxTime = MAX_TIME } = {})
   if (animation.intensity == null) delete result.intensity;
   else result.intensity = normalizeIntensity(animation.intensity);
   if (effect.kind === "ranged") {
-    result.keepStill = animation.keepStill ?? "both";
+    // An accent (invert, lines, a burn) draws only inside its range unless asked to hold.
+    result.keepStill = animation.keepStill ?? effect.keepStill ?? "both";
     if (!KEEP_STILL.some(([value]) => value === result.keepStill)) throw new RangeError("keepStill must be off, start, end, or both");
   } else if (animation.keepStill !== undefined) throw new TypeError("keepStill is only available on ranged effects");
   return result;
@@ -66,7 +67,7 @@ export function createEffectAnimation(key, layer, start, scene, id, parameters =
   return normalizeEffectAnimation({ id, name: effect.label, kind: "effect", effect: key,
     start: at, duration: effect.kind === "ranged" ? sceneDuration : Math.min(effect.duration, Math.max(0.001, sceneDuration - at)),
     easing: effect.easing, to: normalizeEffectParameters(key, parameters),
-    ...(Object.keys(from).length ? { from } : {}), ...(effect.kind === "ranged" ? { keepStill: "both" } : {}) });
+    ...(Object.keys(from).length ? { from } : {}), ...(effect.kind === "ranged" ? { keepStill: effect.keepStill ?? "both" } : {}) });
 }
 
 function colorAt(from, to, progress) {

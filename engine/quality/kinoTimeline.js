@@ -605,9 +605,10 @@ export function kinoTimeline(document, sceneId, { fonts, fps, reuse = true } = {
         if (!spec) continue;
         const keys = new Set([...Object.keys(animation.from ?? {}), ...Object.keys(animation.to ?? {})]);
         const amount = Math.max(0, ...["x", "y"].map((key) => Math.abs(typeof spec.amount === "number" ? (keys.has(key) || !keys.size ? spec.amount : 0) : finite(spec.amount?.[key]))));
-        if (amount > 0) behaviors.push({ itemId: item.id, animationId: animation.id ?? null, kind, start, end, amount, rate: kind === "wiggle" ? finite(spec.rate, 2) : 1 / Math.max(1e-3, finite(spec.period, 1)), decay: kind === "oscillate" ? finite(spec.decay, 0) : 0 });
+        if (amount > 0) behaviors.push({ itemId: item.id, animationId: animation.id ?? null, kind, start, end, amount, rate: kind === "wiggle" ? finite(spec.rate, 2) : 1 / Math.max(1e-3, finite(spec.period, 1)), decay: finite(spec.decay, 0) });
       }
-      if (Number.isFinite(animation.to?.speed)) retimes.push({ itemId: item.id, start, end, from: Number.isFinite(animation.from?.speed) ? animation.from.speed : null, to: animation.to.speed });
+      // A clip's Speed animation, not an effect that has a speed setting of its own (speed-lines, wiggle, fog).
+      if (animation.kind !== "effect" && Number.isFinite(animation.to?.speed)) retimes.push({ itemId: item.id, start, end, from: Number.isFinite(animation.from?.speed) ? animation.from.speed : null, to: animation.to.speed });
     }
   }
 

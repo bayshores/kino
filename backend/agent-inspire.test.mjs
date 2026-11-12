@@ -371,9 +371,10 @@ test("every look word an agent can search names an effect, move or op that exist
   const ops = [...AGENT_OPERATION_TYPES];
   for (const [word, names] of Object.entries(SEEN_AS)) for (const name of names) assert.ok(readCallFor(name, { ops }), `"${word}" maps to ${name}, which kino does not have`);
   assert.match(seenNames("typeface", { ops })[0], /^set_font \(op: library \{topic:"fonts", search:/);
-  assert.ok(seenNames("split screen", { ops }).some((line) => line.startsWith("create_mask (")));
+  assert.ok(seenNames("split screen", { ops }).some((line) => line.startsWith("split-screen (")));
   assert.ok(seenNames("duotone", { ops }).some((line) => line.startsWith("duotone (effect")));
-  assert.equal(noMakerLine("Speed lines!"), 'no kino name for "speed lines" yet: build it from shapes and draw-on, or say it is missing');
-  assert.equal(searchGuide("speed lines").split("\n")[0], noMakerLine("speed lines"));
+  assert.equal(noMakerLine("Halftone!"), 'no kino name for "halftone" yet: build it from shapes and draw-on, or say it is missing');
+  assert.equal(searchGuide("halftone").split("\n")[0], noMakerLine("halftone"));
+  assert.ok(seenNames("speed lines", { ops }).some((line) => line.startsWith("speed-lines (")));
   assert.equal(noMakerLine("glow"), "");
 });

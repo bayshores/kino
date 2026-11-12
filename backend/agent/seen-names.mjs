@@ -17,7 +17,7 @@ const SEEN_AS = {
   "speed ramp": ["speed-ramp", "clip-speed"], ramp: ["speed-ramp", "clip-speed"], "slow motion": ["speed-ramp", "clip-speed"],
   "slow mo": ["speed-ramp", "clip-speed"], slowmo: ["speed-ramp", "clip-speed"], "time remap": ["speed-ramp", "clip-speed"],
   "fast forward": ["clip-speed"], reverse: ["clip-speed"],
-  shake: ["impact-accent", "wiggle"], "camera shake": ["impact-accent", "wiggle"], jolt: ["impact-accent"], hit: ["impact-accent"],
+  shake: ["shake", "impact-accent", "wiggle"], "camera shake": ["shake", "impact-accent", "wiggle"], handheld: ["shake"], jolt: ["shake", "impact-accent"], hit: ["impact-accent", "punch-in"],
   flash: ["impact-accent", "flash"], strobe: ["impact-accent"], "white flash": ["impact-accent", "flash"],
   "light rays": ["light-rays"], "god rays": ["light-rays"], rays: ["light-rays"], beams: ["light-rays"],
   "lens flare": ["lens-flare"], flare: ["lens-flare"], "light leak": ["light-leaks", "light-leak"],
@@ -34,18 +34,22 @@ const SEEN_AS = {
   outline: ["outline_text", "glow", "cut_out"], outlined: ["outline_text", "glow", "cut_out"], stroke: ["outline_text", "glow", "cut_out"],
   duotone: ["duotone"], tritone: ["tritone"],
   "text behind": ["masked-type", "cut_out"], "behind text": ["masked-type", "cut_out"],
-  inset: ["create_mask", "frame"], "picture in picture": ["create_mask", "frame"], "split screen": ["create_mask", "frame"],
   "3d": ["card-flip", "3d-orbit"], "3d text": ["card-flip", "3d-orbit"], "3d type": ["card-flip", "3d-orbit"],
-  streaks: ["rain", "light-rays"], "code rain": ["rain", "light-rays"],
+  streaks: ["speed-lines", "rain", "light-rays"], "code rain": ["rain", "light-rays"],
   "zoom burst": ["zoom-blur", "radial-repeat-blur"],
+  "speed lines": ["speed-lines", "impact-lines"], "motion lines": ["speed-lines"], "action lines": ["impact-lines", "speed-lines"],
+  "impact lines": ["impact-lines"], "focus lines": ["impact-lines"], "radial lines": ["impact-lines"], "anime lines": ["impact-lines", "speed-lines"], "manga lines": ["impact-lines", "speed-lines"],
+  "punch in": ["punch-in"], punchin: ["punch-in"], "zoom punch": ["punch-in"], "snap zoom": ["punch-in"], "crash zoom": ["punch-in"],
+  invert: ["invert"], inverted: ["invert"], negative: ["invert"], "inverted colors": ["invert"],
+  "film burn": ["film-burn"], burn: ["film-burn"], "light burn": ["film-burn"], "film damage": ["film-burn", "grain"], "old film": ["film-burn", "grain", "vignette"],
 };
 // Looks kino has no maker for yet. Asked for alone, they print a line that says so (and what to do)
 // instead of a name that only sounds close.
-const NO_MAKER = ["speed lines", "impact lines", "action lines", "halftone", "film burn", "dirt texture", "burn texture"];
+const NO_MAKER = ["halftone", "dirt texture", "paper texture"];
 export { SEEN_AS };
 // Common words that mean a look only on their own: "green" alone is a tint, but "green screen" is
 // a cut-out and "repeat text" is not a footage stutter. Inside a longer query they lead nowhere.
-const LOOSE = new Set(["green", "repeat", "ramp", "reverse", "hit", "grade", "tint", "flash", "fire", "ash", "rays", "beams", "echo", "blur", "flare", "matte", "grain"]);
+const LOOSE = new Set(["green", "repeat", "ramp", "reverse", "hit", "grade", "tint", "flash", "fire", "ash", "rays", "beams", "echo", "blur", "flare", "matte", "grain", "burn", "negative", "inverted"]);
 
 // The last line of look {mode:"reference"}: what the agent sees there, as a lookup.
 export const REFERENCE_LOOKUP = 'to make what you see (kinds: type, overlay, composite, color, made, frame, spoken, plain): library {topic:"search", search:"<your words: font, glow, cut-out, split screen, duotone, outline>"}';
