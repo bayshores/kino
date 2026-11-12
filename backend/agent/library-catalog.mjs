@@ -38,7 +38,7 @@ const ANIMATION_TAGS = {
 };
 const EFFECT_TAGS = {
   "directional-blur": ["motion-blur"], "zoom-blur": ["motion-blur", "zoom-through"], "spin-blur": ["motion-blur"], "rgb-shift": ["rgb-split"],
-  embers: ["particles"], sparks: ["particles"], snow: ["particles"], dust: ["particles"], rain: ["particles"], bokeh: ["particles"], fog: ["particles"],
+  embers: ["particles"], sparks: ["particles"], snow: ["particles"], dust: ["particles"], rain: ["particles"], streaks: ["particles"], bokeh: ["particles"], fog: ["particles"],
   "light-leaks": ["light-sweep"], "light-rays": ["light-sweep"], "lens-flare": ["light-sweep"], glow: ["light-sweep"],
   "3d-orbit": ["orbit-3d"], "card-flip": ["orbit-3d"], wiggle: ["shake"], "focus-band": ["depth-blur"],
   grain: ["grain"], vignette: ["vignette"], "speed-lines": ["speed-lines"], "impact-lines": ["speed-lines"], "film-burn": ["light-sweep"],
@@ -120,7 +120,7 @@ const STROKE_STACKS = {
   "stroke-double": { line: "double outline: the layer field strokes stacks outside outlines on the letters, wide first, like a sticker",
     strokes: [{ color: "#FFFFFF", width: 26, align: "outside", join: "round" }, { color: "#141414", width: 11, align: "outside", join: "round" }],
     fill: "#FFE14D", ground: "#2E5BFF" },
-  "stroke-neon": { line: "neon tube: fill off, the layer field strokes in one color from wide and faint to a thin white core",
+  "stroke-neon": { line: "neon tube: fill off, the layer field strokes in one color from wide and faint to a thin white core (a dim neon line on any path is one entry {color, style:\"neon\"})",
     strokes: [{ color: "#26F0FF", width: 16, opacity: 0.25, join: "round" }, { color: "#26F0FF", width: 8, opacity: 0.6, join: "round" }, { color: "#E8FFFF", width: 2.5, join: "round" }],
     fillEnabled: false, shadows: [{ color: "#26F0FF", blur: 24, opacity: 0.7 }], ground: "#05121A" },
 };

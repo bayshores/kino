@@ -51,6 +51,14 @@ export const LIGHT_EFFECTS = [
       size: number("Size", 1, 0.05, 4, 0.01),
       angle: number("Angle", 0, -360, 360, 1, "°"),
       color: color("Color", "#FFC890"),
+      // Optional: left out, each style keeps its own (lensFlare.js STYLE_DEFAULTS).
+      // Ghosts scales the ghost and ring reflections (0 turns them off).
+      ghosts: number("Ghosts", 1, 0, 2, 0.01, "", { optional: true }),
+      // Softness blurs the streaks across their thickness (0 hard edges).
+      softness: number("Softness", 0, 0, 1, 0.01, "", { optional: true }),
+      // Thickness and length scale the streaks (length 1 on the streak style spans the picture).
+      thickness: number("Thickness", 1, 0.1, 6, 0.01, "", { optional: true }),
+      length: number("Length", 1, 0.1, 3, 0.01, "", { optional: true }),
     } },
   // Rim light from the layer's own alpha (rimLight.js says how, and where each default comes from).
   { key: "rim-light", label: "Rim Light", group: "Light", kind: "ranged", render: renderRimLight,

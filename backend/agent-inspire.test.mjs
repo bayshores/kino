@@ -378,5 +378,7 @@ test("every look word an agent can search names an effect, move or op that exist
   assert.ok(seenNames("speed lines", { ops }).some((line) => line.startsWith("speed-lines (")));
   // A whole-frame look names the scene field that makes it in one op.
   for (const word of ["letterbox", "black bars", "vignette", "film grain"]) assert.ok(seenNames(word, { ops }).some((line) => line.startsWith("scene-background (topic:") && line.includes('properties:{finish:true, letterbox:2.35}')), word);
+  assert.match(seenNames("code rain", { ops })[0], /^streaks \(effect/);
+  assert.match(seenNames("light streak", { ops })[0], /^lens-flare \(effect/);
   assert.equal(noMakerLine("glow"), "");
 });

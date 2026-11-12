@@ -27,6 +27,24 @@ test("two stacked strokes on text and on a path draw in order after the single s
   assert.equal((svg.match(/stroke="#ff0000"/g) ?? []).length, 1);
 });
 
+test("a strokes entry takes a cap, a taper to a point and the neon style with restrained defaults", () => {
+  assert.deepEqual(normalizeStrokeList([{ color: "#5CFF3A", style: "neon" }]), [{ color: "#5CFF3A", width: 4, style: "neon", glow: 24 }]);
+  assert.deepEqual(normalizeStrokeList([{ color: "#fff", width: 6, cap: "round", taper: 0.3 }])[0], { color: "#fff", width: 6, cap: "round", taper: { start: 0.3, end: 0.3 } });
+  assert.throws(() => normalizeStrokeList([{ color: "#fff", width: 2, glow: 10 }]), /glow needs style "neon"/);
+  assert.throws(() => normalizeStrokeList([{ color: "#fff", width: 2, cap: "arrow" }]), /cap must be butt, round, or square/);
+  const round = renderSceneSvg(scene(layer("path", { path: "M0 40 L160 40", fillEnabled: false, strokes: [{ color: "#ff0000", width: 8, cap: "round" }] })));
+  assert.match(round, /stroke="#ff0000" stroke-width="8" stroke-linecap="round"/);
+  // A tapered line is a filled outline: full width in the middle, a point at the end.
+  const draw = (strokes) => new Resvg(renderSceneSvg(scene(layer("path", { path: "M0 40 L320 40", width: 320, fillEnabled: false, strokeWidth: 0, strokes })))).render().pixels;
+  const red = (pixels, x, y) => pixels[(y * 400 + x) * 4];
+  const tapered = draw([{ color: "#ff0000", width: 20, taper: { end: 1 } }]);
+  assert.ok(red(tapered, 60, 88) > 200 && red(tapered, 340, 88) < 60, "wide at the start, gone near the end");
+  // Neon: a light core over a dim glow that reaches well past the core, never brighter than the core.
+  const neon = draw(normalizeStrokeList([{ color: "#00ff00", style: "neon" }]));
+  const green = (x, y) => neon[(y * 400 + x) * 4 + 1];
+  assert.ok(green(200, 80) > 150 && green(200, 92) > 5 && green(200, 92) < green(200, 80) / 3, `core ${green(200, 80)}, glow ${green(200, 92)}`);
+});
+
 test("layers without a list, or with an empty one, draw the same markup and save no field", () => {
   for (const type of ["rectangle", "text", "path", "star"]) {
     const extra = { text: "Hey", path: "M0 0 L60 0 L30 50 Z", stroke: "#ff0000", strokeWidth: 3, strokeAlign: "outside" };
@@ -64,7 +82,7 @@ test("a bad list is refused with the field it names", () => {
   assert.throws(() => normalizeStrokeList([{ color: "#000" }]), /strokes\[0\]\.width/);
   assert.throws(() => normalizeStrokeList([{ color: "#000", width: 2, align: "middle" }]), /align/);
   assert.throws(() => normalizeStrokeList([{ color: "#000", width: 2, dash: [0, 0] }]), /dash/);
-  assert.throws(() => normalizeStrokeList([{ color: "#000", width: 2, cap: "round" }]), /unknown field cap/);
+  assert.throws(() => normalizeStrokeList([{ color: "#000", width: 2, caps: "round" }]), /unknown field caps/);
   assert.deepEqual(normalizeStrokeList([{ color: "#000", width: 2, dash: [] }]), [{ color: "#000", width: 2 }]);
   const document = createDocument();
   document.scenes[0].layers = [{ ...createLayer("group"), id: "g", strokes: [{ color: "#000", width: 2 }] }];

@@ -54,6 +54,9 @@ export const OVERLAY_EFFECTS = [
       length: number("Length", 0.35, 0.02, 1.5, 0.01),
       // Layer widths a second the lines slide along their angle.
       speed: number("Speed", 2.5, -20, 20, 0.05, "widths/s"),
+      // How far each line fades from its head back to its tail: 0 even, 1 the tail fully clear
+      // (a comet or falling code-rain line). Optional, so saved lines draw as before.
+      fade: number("Fade", 0, 0, 1, 0.01, "", { optional: true }),
     } },
   { key: "impact-lines", label: "Impact Lines", group: "Post FX", kind: "ranged", keepStill: "off", render: (frame) => renderLines("impact-lines", frame),
     parameters: {
@@ -182,7 +185,16 @@ function renderLines(key, frame) {
   if (!paths.length) return frame.content;
   const blend = read(frame, key, "blend");
   const style = blend === "normal" ? "" : ` style="mix-blend-mode:${blend}"`;
-  const lines = `<g aria-hidden="true" pointer-events="none" fill="${read(frame, key, "color")}" opacity="${fmt(opacity)}"${style}><path d="${paths.join("")}"/></g>`;
+  const fade = key === "speed-lines" ? read(frame, key, "fade") : 0;
+  let shapes = `<path d="${paths.join("")}"/>`;
+  if (fade > 0) {
+    // One gradient along the travel direction in each line's own box: its tail end clear by `fade`.
+    const turn = read(frame, key, "angle") * Math.PI / 180, dx = Math.cos(turn) / 2, dy = Math.sin(turn) / 2;
+    const id = frame.helpers.id("line-fade");
+    frame.helpers.defs.push(`<linearGradient id="${id}" gradientUnits="objectBoundingBox" x1="${fmt(0.5 - dx)}" y1="${fmt(0.5 - dy)}" x2="${fmt(0.5 + dx)}" y2="${fmt(0.5 + dy)}"><stop offset="0" stop-color="${read(frame, key, "color")}" stop-opacity="${fmt(1 - fade)}"/><stop offset="1" stop-color="${read(frame, key, "color")}"/></linearGradient>`);
+    shapes = paths.map((d) => `<path d="${d}" fill="url(#${id})"/>`).join("");
+  }
+  const lines = `<g aria-hidden="true" pointer-events="none" fill="${read(frame, key, "color")}" opacity="${fmt(opacity)}"${style}>${shapes}</g>`;
   return clipEffect(frame, `<g style="isolation:isolate">${frame.content}${lines}</g>`);
 }
 
