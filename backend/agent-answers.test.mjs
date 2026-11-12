@@ -308,7 +308,8 @@ test("library effects lists the whole catalog small, with a name gives its field
 
   const found = (query, name) => searchGuide(query).split("\n").slice(0, 4).some((line) => line.startsWith(`${name} (`));
   for (const [query, name] of [["vignette", "vignette"], ["dark edges", "vignette"], ["depth of field", "focus-band"], ["tilt shift", "focus-band"], ["rim light", "rim-light"], ["light streak", "lens-flare"],
-    ["neon", "outline_text"], ["typed", "type-on"], ["highlight", "accent-hit"], ["brush", "set_font"], ["scrawl", "set_font"], ["handwritten", "set_font"], ["grain", "grain"], ["duotone", "duotone"]])
+    ["neon", "outline_text"], ["typed", "type-on"], ["highlight", "accent-hit"], ["brush", "set_font"], ["scrawl", "set_font"], ["handwritten", "set_font"], ["grain", "grain"], ["duotone", "duotone"],
+    ["smear", "smear"], ["datamosh look", "smear"], ["pixel drag", "smear"], ["glitch transition", "smear"], ["shatter", "shatter"], ["broken glass", "shatter"], ["glass break", "shatter"]])
     assert.ok(found(query, name), `${query} leads to ${name}: ${searchGuide(query)}`);
   // "edges" and "corners" alone mean a vignette; inside other words they do not.
   for (const query of ["rounded corners", "jagged edges", "soft edges"]) assert.ok(!found(query, "vignette"), `${query}: ${searchGuide(query)}`);

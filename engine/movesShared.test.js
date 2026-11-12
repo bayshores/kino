@@ -33,7 +33,7 @@ const json = (made) => JSON.stringify(made);
 const times = (made) => [...made.animations.map((entry) => entry.animation), ...made.added.flatMap((entry) => entry.layer.animations)]
   .flatMap((animation) => [animation.start, animation.start + (animation.duration ?? 0)]);
 
-for (const file of ["cuts.js", "transitions.js"]) test(`${file} names hex colors and curves only in its defaults table`, () => {
+for (const file of ["cuts.js", "transitions.js", "breakup.js"]) test(`${file} names hex colors and curves only in its defaults table`, () => {
   const source = readFileSync(new URL(`./blocks/moves/${file}`, import.meta.url), "utf8");
   const begin = source.indexOf("// defaults:start");
   const end = source.indexOf("// defaults:end");
@@ -201,4 +201,44 @@ test("transition knobs change the look, and their defaults give the old one", ()
   assert.equal(ringOf(runT("mask-through-shape", { ring: 12, accent: "#00ff88" })).strokeWidth, 12);
   assert.equal(ringOf(runT("mask-through-shape", { accent: "#00ff88" })).stroke, "#00FF88");
   assert.equal(ringOf(runT("mask-through-shape", { ring: 0 })), undefined);
+});
+
+// breakup.js: smear and shatter, each one call with defaults from the transitions study.
+const partsOf = (made) => Object.fromEntries(made.added.map((entry) => [entry.layer.move.part, entry.layer]));
+test("smear drags the old shot along its angle under the next shot's lines, on twos, then flicks back", () => {
+  const made = run("smear");
+  const parts = partsOf(made);
+  assert.equal(parts.smear.frameRate, 15);
+  assert.equal(parts.drag.src, "/a.png");
+  assert.equal(parts.lines.src, "/b.png");
+  assert.equal(parts.lines.blendMode, "multiply");
+  const drag = parts.drag.animations.find((animation) => animation.effect === "directional-blur");
+  assert.deepEqual(drag.to, { length: 320, angle: -25 });
+  assert.equal(run("smear", { angle: 40, amount: 0.5 }).added.find((entry) => entry.layer.move.part === "drag").layer.animations.find((animation) => animation.effect === "directional-blur").to.length, 160);
+  // Hidden at the landing, then shown for 2 frames twice; flicker 0 lands clean.
+  assert.deepEqual(parts.smear.animations.filter((animation) => animation.kind === "show").length, 3);
+  assert.equal(partsOf(run("smear", { flicker: 0 })).smear.animations.filter((animation) => animation.kind === "show").length, 1);
+  assert.ok(made.animations.some((entry) => entry.layerId === "shot-a" && entry.animation.kind === "hide"));
+  assert.throws(() => run("smear", {}, { scene: sceneOf(1920, 1080, true) }), /group cannot be copied/);
+});
+
+test("shatter breaks the old shot into seeded masked shards that fly away from the break point", () => {
+  const made = run("shatter", { seed: 3 });
+  const parts = partsOf(made);
+  const shards = Object.keys(parts).filter((part) => part.startsWith("shard-"));
+  assert.equal(shards.length, 12);
+  assert.equal(parts["shard-1"].isMaskGroup, true);
+  assert.equal(parts["mask-1"].isMask, true);
+  assert.equal(parts["piece-1"].src, "/a.png");
+  assert.equal(parts["piece-1"].x, -parts["shard-1"].x, "the piece keeps its place in the picture");
+  assert.equal(json(run("shatter", { seed: 3 })), json(made));
+  assert.notEqual(json(run("shatter", { seed: 4 })), json(made));
+  assert.equal(Object.keys(partsOf(run("shatter", { shards: 5, edge: 0, fringe: 0 }))).filter((part) => part.startsWith("edge-")).length, 0);
+  // Every shard moves outward from the break point (default 50%, 45%).
+  for (const part of shards) {
+    const shard = parts[part];
+    const fly = shard.animations.find((animation) => animation.name === "Fly apart");
+    const [mx, my] = [shard.x + shard.width / 2 - 960, shard.y + shard.height / 2 - 486];
+    assert.ok((fly.to.x - fly.from.x) * mx + (fly.to.y - fly.from.y - 86.4) * my >= 0, `${part} flies outward`);
+  }
 });

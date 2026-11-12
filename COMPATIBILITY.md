@@ -399,6 +399,9 @@ How to read it:
   9:16, 1:1 or 4:5, runs check {fix:"auto"} on each and lists what is left; hand-built scenes are refused. Proof:
   `backend/look-source.test.mjs`, `backend/agent-blocks.test.mjs`. Gap: title contrast over footage is
   not auto-fixed; moves added after compose {footage} are left out.
+- **Smear and shatter moves**: Verified. `move smear {from, to}` drags the old shot's colors into streaks
+  under the next shot's lines (on twos, flicks back); `move shatter {from, to}` breaks it into seeded
+  glass shards. Evidence: `engine/movesShared.test.js`, transitions study re-run (one call each). Gap: pictures and clips only, not groups.
 - **Original templates**: Verified. Four AGPL-3.0 designs in `engine/templates.js`, reached by
   `project manage {resource:"templates"}`. Evidence: `engine/templates.test.js`,
   `backend/templates.integration.test.mjs`, `backend/agent-reach-workspace.test.mjs`.
