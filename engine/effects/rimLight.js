@@ -10,19 +10,24 @@
 // 3. Soften: a small blur, so stair-stepped cut-out edges read as one smooth line.
 // 4. Brightness ("auto" angle only): the band is weighted by the layer's own blurred brightness,
 //    so the rim is strongest on the side of the subject that is already lit.
-// 5. Lobes (style "lobes"): the band times a slow noise, bright lobes and dim gaps that crawl.
-// 6. Glow: the band blurred by `spread`, added to the band.
-// 7. Color: `color`, or ("auto") the layer's own edge color, saturated and brightened.
+// 5. Lobes (style "lobes"): the band times a slow noise, bright lobes and dark gaps that crawl,
+//    thicker where a lobe is bright and thin where it fades, stepping on twos (lobeRate).
+// 6. Glow: the band blurred by `spread`, added to the band; haze: the band blurred far wider
+//    (`hazeSpread`), dim, added too, so one effect gives the core, the glow and the haze.
+// 7. Color: `color`, or ("auto") the layer's own edge color with a brightness floor, saturated.
 // 8. The light is added on top of the layer (lightOnly: the light alone).
 //
 // Defaults come from the technique studies (.scratch/studies, grade-bloom-flash and glow-outline,
 // the values that survived 5 or 6 rounds): width 8 and spread 20 match the rim beside cut-out
 // subjects (a 4 to 6 px rim at 480p, glow reaching 20 to 45 px at 1080p); lobeSize 100 matches
-// the reference lobes every 50 to 150 px. The auto color lift and the brightness weighting are
-// guesses.
+// the reference lobes every 50 to 150 px. Haze: measured across the glow-outline reference edge
+// (ref c1-15.6, in px at 1080p) the light falls to 50% in 7 px and 10% in 20 px, then a tail at
+// about 8% of the peak reaches 120 px; the first rim-light fell to 5% in 26 px with no tail.
+// hazeSpread 140 and haze 0.8 were tuned on the rim-tune re-run to that tail. The auto color
+// floor, the lobe gaps and the brightness weighting are guesses.
 import { filterEffect } from "./svg.js";
 import { numberParameter, booleanParameter } from "./periodicDisplacement.js";
-import { hexColor } from "./glow.js";
+import { cutoutBorderSteps, hexColor } from "./glow.js";
 import { inverse, point } from "../geometry.js";
 
 export const RIM_EDGES = Object.freeze(["inside", "outside"]);
@@ -72,6 +77,28 @@ export function autoColorMatrix(saturation = 1.8, gain = 1.3, lift = 0.08) {
 }
 
 /**
+ * The "auto" color's brightness floor, applied before autoColorMatrix: each channel raised to the
+ * power 0.5, which lifts a dark subject's edge (a near-black violet #120A22 becomes a mid violet
+ * about #7D4CC4 after the matrix) and barely changes a bright one. The first wave drew a dim,
+ * near-black rim on the darkened glow-outline subject; 0.5 is a guess tuned on that re-run.
+ */
+export const AUTO_COLOR_FLOOR = 0.5;
+
+/** The lobe lookup: noise below 0.4 is a dark gap, rising to a full lobe at 0.56 (smoothstep, a guess). */
+export function lobeTable(size = 21, low = 0.4, high = 0.56) {
+  return Array.from({ length: size }, (_, index) => {
+    const t = Math.max(0, Math.min(1, (index / (size - 1) - low) / (high - low)));
+    return t * t * (3 - 2 * t);
+  });
+}
+
+/** A repeatable 0..1 number for an integer step (lobe flicker). */
+function stepHash(step, seed) {
+  const value = Math.sin((step + 1) * 12.9898 + seed * 78.233) * 43758.5453;
+  return value - Math.floor(value);
+}
+
+/**
  * How far (blur radius, px) the layer's edge is smoothed before the rim follows it. "auto": 4 on
  * pixel layers (video, image: a cut-out matte steps in 6 to 12 px blocks at 1080p, seen in the
  * glow-outline and grade-bloom-flash studies; 4 rounds those off, a guess tuned on that re-run),
@@ -84,6 +111,18 @@ export function smoothRadius(frame) {
   return ["video", "image"].includes(frame?.helpers?.layerType) ? 4 : 0;
 }
 
+/**
+ * The line's width (px). "auto": 8, the acid rim beside cut-out subjects (grade-bloom-flash, 4 to 6
+ * px at 480p); with style "lobes" 4, the electric outline's thin pale core (glow-outline result:
+ * about 4 px at 1920). The rim-tune skeptic re-run drew the lobes at 8 as a 14 to 18 px tube at
+ * 1080p beside the reference's 4 px line, so the outline style keeps its own thinner start.
+ */
+export function rimWidth(frame, style) {
+  const value = frame?.parameters?.width;
+  if (Number.isFinite(value)) return Math.max(0.5, Math.min(200, value));
+  return style === "lobes" ? 4 : 8;
+}
+
 function choiceParameter(frame, key, options, fallback) {
   const value = frame?.parameters?.[key];
   return options.includes(value) ? value : fallback;
@@ -92,14 +131,20 @@ function choiceParameter(frame, key, options, fallback) {
 export function renderRimLight(frame) {
   const intensity = numberParameter(frame, "intensity", 1, 0, 4);
   if (intensity === 0) return frame.content;
-  const width = numberParameter(frame, "width", 8, 0.5, 200);
   const spread = numberParameter(frame, "spread", 20, 0, 400);
   const edge = choiceParameter(frame, "edge", RIM_EDGES, "inside");
   const style = choiceParameter(frame, "style", RIM_STYLES, "even");
+  const width = rimWidth(frame, style);
   const openEdges = choiceParameter(frame, "openEdges", RIM_OPEN_EDGES, "frame");
   const lobeSize = numberParameter(frame, "lobeSize", 100, 8, 1000);
   const crawl = numberParameter(frame, "crawl", 40, -1000, 1000);
   const seed = numberParameter(frame, "seed", 0, 0, 1_000_000, { integer: true });
+  // lobeRate: lobe updates a second; 12 is "on twos" at 24 fps (the electric outline steps, it does
+  // not glide); 0 moves every frame. flicker: how far (share of lobeSize) the lobes jump each step.
+  const lobeRate = numberParameter(frame, "lobeRate", 12, 0, 120);
+  const flicker = numberParameter(frame, "flicker", 0.3, 0, 2);
+  const haze = numberParameter(frame, "haze", 0.8, 0, 4);
+  const hazeSpread = numberParameter(frame, "hazeSpread", 140, 0, 800);
   const fill = !booleanParameter(frame, "lightOnly", false);
   const rawAngle = frame?.parameters?.angle;
   const angle = Number.isFinite(rawAngle) ? rawAngle : "auto";
@@ -152,6 +197,12 @@ export function renderRimLight(frame) {
     steps.push(`<feComposite in="${band}" in2="${shape}" operator="out" result="rimRing"/>`);
     band = "rimRing";
   }
+  // 3b. A cut-out's matte fades out along its source picture's border (glow.js): no band there.
+  const border = frame?.helpers?.cutout && openEdges !== "none" && frame.bounds ? cutoutBorderSteps(frame.bounds.width, frame.bounds.height, "rimBorder") : [];
+  if (border.length) {
+    steps.push(...border, `<feComposite in="${band}" in2="rimBorder" operator="in" result="rimKept"/>`);
+    band = "rimKept";
+  }
   // 4. Brightness weight with the "auto" angle on the inside edge (guess: 0.35 on dark parts,
   // full on parts brighter than mid grey).
   if (!toLight && edge === "inside") {
@@ -163,19 +214,25 @@ export function renderRimLight(frame) {
   }
   // 5. Lobes: noise at lobeSize, sharpened into bright lobes and dim gaps, sliding by `crawl` px/s.
   if (style === "lobes") {
-    const time = Number.isFinite(frame.time) ? frame.time : 0;
-    // The slide wraps every 4000 px (at 40 px/s, once in 100 s).
-    const shift = ((crawl * time) % 4000 + 4000) % 4000;
+    const raw = Number.isFinite(frame.time) ? frame.time : 0;
+    const step = lobeRate > 0 ? Math.floor(raw * lobeRate + 1e-6) : 0;
+    const time = lobeRate > 0 ? step / lobeRate : raw;
+    // The slide wraps every 4000 px (at 40 px/s, once in 100 s); each step also jumps by up to
+    // flicker x lobeSize, so the lobes flicker as they crawl.
+    const jump = lobeRate > 0 ? flicker * lobeSize * stepHash(step, seed) : 0;
+    const shift = ((crawl * time + jump) % 4000 + 4000) % 4000;
     const reach = frame.paintBounds ?? frame.bounds;
-    const pad = spread * 2 + width;
+    const pad = Math.max(spread, haze > 0 ? hazeSpread : 0) * 2 + width;
     steps.push(`<feTurbulence type="fractalNoise" baseFrequency="${fmt(1 / lobeSize)}" numOctaves="2" seed="${seed}" x="${fmt(reach.x - pad - shift)}" y="${fmt(reach.y - pad - shift)}" width="${fmt(reach.width + 2 * pad + shift)}" height="${fmt(reach.height + 2 * pad + shift)}" result="rimNoise"/>`,
       `<feOffset in="rimNoise" dx="${fmt(shift)}" dy="${fmt(shift * 0.6)}" result="rimNoiseMoved"/>`,
       `<feColorMatrix in="rimNoiseMoved" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0" result="rimNoiseAlpha"/>`,
-      // Dim gaps keep a fifth of the light and most of the edge is lit: the first table (0.08 at
-      // the floor, lit only above mid noise) left long dark stretches in the glow-outline re-run,
-      // dimmer than the reference, where the bright lobes cover most of the edge (a tuned guess).
-      `<feComponentTransfer in="rimNoiseAlpha" result="rimLobes"><feFuncA type="table" tableValues="0.2 0.25 0.6 1 1 1"/></feComponentTransfer>`,
-      `<feComposite in="${band}" in2="rimLobes" operator="arithmetic" k1="1" k2="0" k3="0" k4="0" result="rimLobed"/>`);
+      // Dark gaps between lobes: the reference's electric outline breaks up (glow-outline study);
+      // the first wave's floor of 0.2 left an unbroken band.
+      `<feComponentTransfer in="rimNoiseAlpha" result="rimLobes"><feFuncA type="table" tableValues="${lobeTable().map(fmt).join(" ")}"/></feComponentTransfer>`,
+      `<feComposite in="${band}" in2="rimLobes" operator="arithmetic" k1="1" k2="0" k3="0" k4="0" result="rimLobedFlat"/>`,
+      // Uneven thickness: a steep alpha curve on the lobed band, so a bright lobe's soft band widens
+      // and a fading one narrows instead of only dimming (slope and cut are guesses).
+      `<feComponentTransfer in="rimLobedFlat" result="rimLobed"><feFuncA type="linear" slope="1.4" intercept="-0.1"/></feComponentTransfer>`);
     band = "rimLobed";
   }
   // 6. Glow: the band blurred by spread, added to it. A thin band blurred far spreads thin, so the
@@ -185,13 +242,23 @@ export function renderRimLight(frame) {
   const glow = spread > 0;
   const glowGain = Math.min(6, Math.max(1.5, 0.625 * spread / width));
   if (glow) steps.push(`<feGaussianBlur in="${band}" stdDeviation="${fmt(spread / 2)}" result="rimGlow"/>`);
+  const hazed = haze > 0 && hazeSpread > 0;
   steps.push(glow
-    ? `<feComposite in="${band}" in2="rimGlow" operator="arithmetic" k1="0" k2="${fmt(intensity)}" k3="${fmt(intensity * glowGain)}" k4="0" result="rimLight"/>`
-    : `<feComposite in="${band}" in2="${band}" operator="arithmetic" k1="0" k2="${fmt(intensity)}" k3="0" k4="0" result="rimLight"/>`);
+    ? `<feComposite in="${band}" in2="rimGlow" operator="arithmetic" k1="0" k2="${fmt(intensity)}" k3="${fmt(intensity * glowGain)}" k4="0" result="${hazed ? "rimNear" : "rimLight"}"/>`
+    : `<feComposite in="${band}" in2="${band}" operator="arithmetic" k1="0" k2="${fmt(intensity)}" k3="0" k4="0" result="${hazed ? "rimNear" : "rimLight"}"/>`);
+  // 6b. Haze: the same gain rule as the glow (a thin band blurred far spreads thin), capped at 16.
+  if (hazed) {
+    const hazeGain = haze * Math.min(16, Math.max(1.5, 0.625 * hazeSpread / width));
+    steps.push(`<feGaussianBlur in="${band}" stdDeviation="${fmt(hazeSpread / 2)}" result="rimHaze"/>`,
+      `<feComposite in="rimNear" in2="rimHaze" operator="arithmetic" k1="0" k2="1" k3="${fmt(intensity * hazeGain)}" k4="0" result="rimLight"/>`);
+  }
   // 7. Color.
   if (autoColor) {
     steps.push(`<feGaussianBlur in="SourceGraphic" stdDeviation="${fmt(Math.max(4, width, spread))}" result="rimEdgeColor"/>`,
-      `<feColorMatrix in="rimEdgeColor" type="matrix" values="${autoColorMatrix().map(fmt).join(" ")}" result="rimColor"/>`);
+      `<feComponentTransfer in="rimEdgeColor" result="rimEdgeLifted"><feFuncR type="gamma" exponent="${AUTO_COLOR_FLOOR}"/><feFuncG type="gamma" exponent="${AUTO_COLOR_FLOOR}"/><feFuncB type="gamma" exponent="${AUTO_COLOR_FLOOR}"/></feComponentTransfer>`,
+      // Saturation 2.4 after the floor (1.8 before it): the lift pulls channels together, and 2.4
+      // gives back the acid yellow-green study rim's hue (a guess checked on #C0F040).
+      `<feColorMatrix in="rimEdgeLifted" type="matrix" values="${autoColorMatrix(2.4).map(fmt).join(" ")}" result="rimColor"/>`);
   } else {
     const rgb = hexColor(frame, "color", "#FFFFFF");
     steps.push(`<feFlood flood-color="rgb(${rgb.join(",")})" result="rimColor"/>`);
@@ -206,5 +273,5 @@ export function renderRimLight(frame) {
   // 8. Added on top of the layer, or alone (lightOnly; a parameter named fill would read as a Fill animation).
   steps.push(fill ? `<feComposite in="SourceGraphic" in2="rimPaint" operator="arithmetic" k1="0" k2="1" k3="1" k4="0"/>`
     : `<feMerge><feMergeNode in="rimPaint"/></feMerge>`);
-  return filterEffect(frame, steps, { padding: Math.ceil(width + 1.5 * spread) + 2 });
+  return filterEffect(frame, steps, { padding: Math.ceil(width + 1.5 * Math.max(spread, hazed ? hazeSpread : 0)) + 2 });
 }

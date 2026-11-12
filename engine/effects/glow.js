@@ -71,6 +71,23 @@ export function brightPassSteps({ threshold, softness, rgb, colorMix, result, pr
   return steps;
 }
 
+/**
+ * A cut-out's matte fades to nothing over 3% of its short side toward the source picture's border
+ * (DEFAULT_OPEN_EDGES in backend/cutout/matte.mjs), so a subject cut by its frame has no straight
+ * edge there. A glow or shadow made from that faded strip still drew the straight edge (the
+ * cutout-composite re-run). These steps write `result`: a soft mask over the layer box (`width` x
+ * `height`, layer units): 0 from the box border to the fade's width in (where the faded matte
+ * crosses half, about half the fade in, an edge would be found), rising to 1 at twice the fade.
+ */
+export const CUTOUT_BORDER_FADE = 0.03;
+export function cutoutBorderSteps(width, height, result) {
+  const fade = CUTOUT_BORDER_FADE * Math.min(width, height);
+  const inset = 1.5 * fade;
+  if (!(fade > 0) || width <= 2 * inset || height <= 2 * inset) return [];
+  return [`<feFlood flood-color="#fff" flood-opacity="1" x="${fmt(inset)}" y="${fmt(inset)}" width="${fmt(width - 2 * inset)}" height="${fmt(height - 2 * inset)}" result="${result}Inner"/>`,
+    `<feGaussianBlur in="${result}Inner" stdDeviation="${fmt(fade / 3)}" result="${result}"/>`];
+}
+
 /** The blur radii (Gaussian standard deviations are half of each) for a glow's passes. */
 export function glowRadii(radius, passes) {
   return Array.from({ length: passes }, (_, index) => radius * 2 ** index);
@@ -116,6 +133,9 @@ export function renderGlow(frame) {
       steps.push(`<feComposite in="glowSum" in2="glowPass" operator="arithmetic" k1="0" k2="1" k3="${fmt(weights[index])}" k4="0" result="glowSum"/>`);
     }
   });
+  // On a cut-out the halo stays off the faded strip along its source picture's border.
+  const border = frame?.helpers?.cutout && frame.bounds ? cutoutBorderSteps(frame.bounds.width, frame.bounds.height, "glowBorder") : [];
+  if (border.length) steps.push(...border, `<feComposite in="glowSum" in2="glowBorder" operator="in" result="glowSum"/>`);
   if (behind) {
     steps.push(`<feComposite in="glowSum" in2="glowSum" operator="arithmetic" k1="0" k2="${fmt(several ? 1 : strength)}" k3="0" k4="0" result="glowHalo"/>`,
       `<feMerge><feMergeNode in="glowHalo"/><feMergeNode in="SourceGraphic"/></feMerge>`);

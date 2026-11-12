@@ -13,7 +13,7 @@ import { glowRadii, glowWeights, renderGlow, thresholdTable } from "./glow.js";
 import { MAX_RAY_COPIES_PER_STAGE, MAX_RAY_STAGES, rayFade, rayStages, renderLightRays, sceneBoxInLayer } from "./lightRays.js";
 import { flareVisibility, renderLensFlare } from "./lensFlare.js";
 import { calmLightAnimations } from "./light.js";
-import { renderRimLight } from "./rimLight.js";
+import { lobeTable, renderRimLight, rimWidth } from "./rimLight.js";
 import { createLayer, createScene } from "../model.js";
 import { renderSceneSvg } from "../render.js";
 import { CPU_RASTER } from "../../tests/golden/raster.mjs";
@@ -32,11 +32,11 @@ after(async () => {
  * Draws `render` with `parameters` over `content` (a width × height layer at `layer` in a scene
  * of the same size, unless `scene` says otherwise) and returns a pixel reader.
  */
-async function draw(render, parameters, { width, height, content, under = "", layer = { x: 0, y: 0 }, scene = { width, height }, layerType }) {
+async function draw(render, parameters, { width, height, content, under = "", layer = { x: 0, y: 0 }, scene = { width, height }, layerType, cutout }) {
   const defs = [];
   let sequence = 0;
   const output = render({ content, bounds: { x: 0, y: 0, width, height }, parameters: { ...parameters }, time: 0, progress: 1,
-    helpers: { id: (kind) => `${kind}-${++sequence}`, defs, includeBounds: () => {}, layerType,
+    helpers: { id: (kind) => `${kind}-${++sequence}`, defs, includeBounds: () => {}, layerType, cutout,
       scene: { ...scene, matrix: [1, 0, 0, 1, layer.x, layer.y] } } });
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${scene.width}" height="${scene.height}" viewBox="0 0 ${scene.width} ${scene.height}"><defs>${defs.join("")}</defs>${under}<g transform="translate(${layer.x} ${layer.y})">${output}</g></svg>`;
   const image = await loadImage((await chromium.render(svg, scene.width, scene.height)).buffer);
@@ -113,7 +113,7 @@ test("glow mode behind: an orange square keeps its orange and gets an orange hal
 test("rim light: a band on the lit side, a ring alone outside, and no rim along the frame border", async () => {
   const size = 120;
   const rim = (parameters, content = SQUARE("#404040")) => draw(renderRimLight,
-    { ...effectDefaults("rim-light"), spread: 0, ...parameters }, { width: size, height: size, content });
+    { ...effectDefaults("rim-light"), spread: 0, haze: 0, ...parameters }, { width: size, height: size, content });
   const right = await rim({ angle: 90, color: "#00FF00" });
   assert.ok(right.pixel(68, 60)[1] > 150, `inside the right edge it is lit: ${right.pixel(68, 60)}`);
   assert.deepEqual(right.pixel(52, 60).slice(0, 3), [64, 64, 64], "the left edge stays as it was");
@@ -134,13 +134,44 @@ test("rim light on a video matte: stair steps are smoothed, the frame border sta
   const size = 120;
   // A staircase that runs off the left and bottom of the frame, 20 px steps.
   const stairs = `<path d="M0 120 V30 H30 V50 H50 V70 H70 V90 H90 V120 Z" fill="#404040"/>`;
-  const ring = (layerType) => draw(renderRimLight, { ...effectDefaults("rim-light"), edge: "outside", color: "#00FF00", width: 6, spread: 0, core: 0, lightOnly: true },
+  const ring = (layerType) => draw(renderRimLight, { ...effectDefaults("rim-light"), edge: "outside", color: "#00FF00", width: 6, spread: 0, haze: 0, core: 0, lightOnly: true },
     { width: size, height: size, content: stairs, layerType });
   const drawn = await ring("text"), matte = await ring("video");
   assert.ok(drawn.pixel(32, 48)[3] > 100, `a drawn layer's ring follows the step into its corner: ${drawn.pixel(32, 48)}`);
   assert.ok(matte.pixel(32, 48)[3] < 60, `a matte's corner is rounded off: ${matte.pixel(32, 48)}`);
   assert.ok(matte.pixel(40, 46)[1] > 100, `the ring still runs along the step: ${matte.pixel(40, 46)}`);
   for (const [x, y] of [[100, 2], [118, 60], [60, 118], [2, 60]]) assert.equal(matte.pixel(x, y)[3], 0, `no ring along the frame border at ${x},${y}`);
+});
+
+test("rim light: haze reaches far by default, auto color lifts a dark subject, lobes leave dark gaps", async () => {
+  const size = 200;
+  const dark = `<rect x="80" y="80" width="40" height="40" fill="#120A22"/>`;
+  const ring = (parameters) => draw(renderRimLight, { ...effectDefaults("rim-light"), edge: "outside", spread: 0, lightOnly: true, ...parameters }, { width: size, height: size, content: dark });
+  const hazy = await ring({}), bare = await ring({ haze: 0 });
+  assert.ok(hazy.pixel(165, 100)[3] > 3, `haze 45 px out: ${hazy.pixel(165, 100)}`);
+  assert.equal(bare.pixel(165, 100)[3], 0, "haze 0 keeps only the line");
+  const [r, g, b] = hazy.pixel(124, 100);
+  assert.ok(Math.max(r, g, b) > 150 && b > g, `a dark violet subject gets a bright violet rim: ${[r, g, b]}`);
+  const table = lobeTable();
+  assert.equal(table[0], 0, "low noise is a dark gap");
+  assert.equal(table.at(-1), 1);
+  const width = (parameters) => rimWidth({ parameters: { ...effectDefaults("rim-light"), ...parameters } }, parameters.style ?? "even");
+  assert.deepEqual([width({}), width({ style: "lobes" }), width({ style: "lobes", width: 8 })], [8, 4, 8], "auto width: 4 for lobes, a saved 8 stays 8");
+});
+
+test("glow and shadows on a cut-out stay off the faded strip along its source picture's border", async () => {
+  // A bust cut by the bottom of its 200 px box, in a taller scene: below the box is open picture.
+  const bust = `<rect x="60" y="100" width="80" height="100" fill="#FFFFFF"/>`;
+  const glow = (cutout) => draw(renderGlow, { ...effectDefaults("glow"), radius: 16, threshold: 0 },
+    { width: 200, height: 200, content: bust, under: BLACK(200, 260), scene: { width: 200, height: 260 }, cutout });
+  const plain = await glow(false), cut = await glow(true);
+  assert.ok(plain.pixel(100, 206)[0] > 20, `a plain layer glows past its box: ${plain.pixel(100, 206)}`);
+  assert.ok(cut.pixel(100, 206)[0] < 4, `a cut-out does not trace its box border: ${cut.pixel(100, 206)}`);
+  assert.ok(cut.pixel(52, 140)[0] > 20, `its real edge still glows: ${cut.pixel(52, 140)}`);
+  const shadowed = (extra) => renderSceneSvg(createScene({ id: "s", width: 200, height: 200, duration: 1, layers: [
+    createLayer("rectangle", { id: "bust", x: 0, y: 0, width: 200, height: 200, shadows: [{ color: "#00FF00", x: 0, y: 0, blur: 10, opacity: 1 }], ...extra })] }), 0);
+  assert.match(shadowed({ cutoutOf: "source" }), /shadow-border/);
+  assert.doesNotMatch(shadowed({}), /shadow-border/);
 });
 
 test("light rays: the copy plan, the fade along a streak and the scene box", () => {

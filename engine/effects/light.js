@@ -64,14 +64,21 @@ export const LIGHT_EFFECTS = [
   { key: "rim-light", label: "Rim Light", group: "Light", kind: "ranged", render: renderRimLight,
     parameters: {
       color: { ...color("Color", "auto"), auto: true },
-      width: number("Width", 8, 0.5, 200, 0.5, "px"),
+      // "auto": 4 px with style lobes, else 8 (rimWidth in rimLight.js says where each comes from).
+      width: number("Width", "auto", 0.5, 200, 0.5, "px", { auto: true }),
       angle: number("Angle", "auto", -360, 360, 1, "°", { auto: true }),
       spread: number("Spread", 20, 0, 400, 1, "px"),
+      // Haze: a second, wide and dim falloff around the glow (0 turns it off).
+      haze: number("Haze", 0.8, 0, 4, 0.05, "", { optional: true }),
+      hazeSpread: number("Haze Spread", 140, 0, 800, 1, "px", { optional: true }),
       intensity: number("Intensity", 1, 0, 4, 0.05),
       edge: choice("Edge", "inside", RIM_EDGES.map((value) => [value, value[0].toUpperCase() + value.slice(1)])),
       style: choice("Style", "even", RIM_STYLES.map((value) => [value, value[0].toUpperCase() + value.slice(1)])),
       lobeSize: number("Lobe Size", 100, 8, 1000, 1, "px"),
       crawl: number("Crawl", 40, -1000, 1000, 1, "px/s"),
+      // Lobe updates a second (12: on twos at 24 fps, 0: every frame) and the jump at each one.
+      lobeRate: number("Lobe Rate", 12, 0, 120, 1, "/s", { optional: true }),
+      flicker: number("Flicker", 0.3, 0, 2, 0.05, "", { optional: true }),
       seed: number("Seed", 0, 0, 1_000_000, 1, "", { integer: true, animatable: false, optional: true }),
       smooth: number("Smooth", "auto", 0, 50, 0.5, "px", { auto: true }),
       core: number("Core", 0.3, 0, 1, 0.05),
