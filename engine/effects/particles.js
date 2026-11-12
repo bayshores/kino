@@ -117,9 +117,12 @@ export const PARTICLE_LOOKS = Object.freeze({
     // bright middle plane (#38F0A8 at 0.8) did; shade 2 left them the dim far color.
     deep: { parallax: [0.52, 1.9], depthAlpha: 0.6, depth: [0.6, 1.5], shade: 1 },
     // count and opacity raised after the first re-run (900 and 0.75 read sparser than the reference).
+    // haze 0.12 (a guess tuned by eye on the streak-field re-run): at 0.3 the blurred copy's 8x
+    // alpha gain clipped where streaks cluster and left dark holes between, a blotchy pattern the
+    // reference's even mist does not have; 0.12 keeps a faint bloom without the blotches.
     defaults: { count: 1400, size: 2.5, speed: 420, direction: 180, spread: 0, gravity: 0, wind: 0, turbulence: 0,
       lifetime: 4, color: "#1C9E70", color2: "#D4FFE9", opacity: 0.9, softness: 0.3, glow: 0.6, flicker: 0.15,
-      trail: 0.45, emitter: "area", variation: 0.8, haze: 0.3 } },
+      trail: 0.45, emitter: "area", variation: 0.8, haze: 0.12 } },
   bokeh: { label: "Bokeh", shape: "dot", profile: "bokeh", colorMode: "pick", maxCount: 300, size: [4, 400],
     lifeJitter: 0.4, sizeJitter: 0.9, speedJitter: 0.6, depth: [0.5, 1.3], parallax: [0.6, 1.1], depthAlpha: 0.55,
     fade: [0.3, 0.3], sizeOverLife: [1, 1], flickerHz: [0.2, 0.6], wanderHz: [0.05, 0.2],
@@ -325,8 +328,9 @@ export function particlesAt(key, frame) {
     const trailShare = variation > 0 ? 1 + variation * (1.2 * random(base, 14) - 0.6) : 1;
     // With variation each particle wraps with its own margin (its own trail at its own speed):
     // one shared margin sized for the fastest, longest streak left most slow far streaks off
-    // screen (a field of 2600 showed about 40% of them at 1080p).
-    const wrap = variation > 0 ? Math.ceil(radiusLimit + t.trail.high * trailShare * (t.speed.high * speedFactor +
+    // screen (a field of 2600 showed about 40% of them at 1080p). Only looks with their own `deep`
+    // ranges (streaks) wrap this way, so a saved rain or dust layer with variation keeps its positions.
+    const wrap = variation > 0 && plain.deep ? Math.ceil(radiusLimit + t.trail.high * trailShare * (t.speed.high * speedFactor +
       parallax * Math.max(Math.abs(t.wind.low), Math.abs(t.wind.high)) + Math.max(Math.abs(t.gravity.low), Math.abs(t.gravity.high)) * maxAge) + 1) : margin;
     const wrapX = width + 2 * wrap, wrapY = height + 2 * wrap;
 
@@ -463,7 +467,11 @@ export function linkLines(particles, p, tones) {
     if (used[i] >= MAX_LINKS || used[j] >= MAX_LINKS) continue;
     used[i] += 1; used[j] += 1;
     const a = particles[i], b = particles[j];
-    const alpha = opacity * Math.min(a.alpha, b.alpha) / Math.max(p.opacity, 0.001) * (1 - smoothstep(0.7 * distance, distance, length));
+    // The square root of the dimmer end's own brightness share: a line fades in and out with its
+    // nodes, but a mid-bright pair still draws a clear line (linear, a dust pair at about 0.45 drew
+    // the line at 0.25, fainter than the study's 0.55 path; the root is a guess tuned on that re-run).
+    const share = Math.sqrt(clamp(Math.min(a.alpha, b.alpha) / Math.max(p.opacity, 0.001), 0, 1));
+    const alpha = opacity * share * (1 - smoothstep(0.7 * distance, distance, length));
     if (alpha < MIN_ALPHA) continue;
     lines.push(`<path d="M${fmt(a.x)} ${fmt(a.y)}L${fmt(b.x)} ${fmt(b.y)}" stroke="${tones[Math.max(a.tone, b.tone)]}" stroke-width="${fmt(width)}" stroke-linecap="round" stroke-opacity="${fmtAlpha(alpha)}" fill="none"/>`);
   }

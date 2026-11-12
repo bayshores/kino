@@ -668,7 +668,8 @@ How to read it:
 - **Streaks, variation and haze**: Verified. `streaks`, `variation` and `haze` spread depth per particle
   and bloom where streaks cluster, so one layer replaced five in the streak-field study. Evidence: `engine/effects/particles.test.js`.
 - **Particle links**: Test-verified. `links` N joins dots closer than N px (at most 3 each), so one
-  layer replaced the hand-drawn constellation paths. Evidence: `engine/effects/particles.test.js`.
+  layer replaced the hand-drawn constellation paths. Evidence: `engine/effects/particles.test.js`,
+  refusals in `backend/agent-particles.test.mjs`, streak-field study re-run.
 - **Speed-lines fade**: Verified. Lines clear toward their tails. Evidence: `engine/effects/overlays.test.js`.
 - **Generators**: Verified. Nine deterministic particle effects, so scrub, play and export match;
   nine recipes. Evidence: `engine/effects/particles.test.js`, `backend/agent-particles.test.mjs`, golden
