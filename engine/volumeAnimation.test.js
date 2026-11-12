@@ -240,14 +240,54 @@ test("a limiter place keeps the level keep_line set for a kept line and takes th
     playing: [{ layerId: "line", name: "line", peakDbfs: -3 }, { layerId: "song", name: "song", peakDbfs: -4 }] };
   // Measured alone, the line is the loudest: it was the one turned down (x0.36).
   assert.deepEqual([...peakCauses(place)], [["line", 0.36]]);
-  // The song alone would need x0.25: it stops at x0.3 (as any cause does), and what stays over is printed with the line's factor.
-  const trim = peakTrims(document.scenes[0], [place]);
-  assert.deepEqual(trim.ops.map((op) => [op.op, op.layerId]), [["add_animation", "song"], ["add_animation", "song"]]);
-  assert.deepEqual(trim.fixed, ["mix 2.4 s (2.4-2.6 s, 3 dB over): song x0.3 1->0.3 (alone -4 dBFS); kept line at the level keep_line set (line 2-3 s)"]);
-  assert.deepEqual(trim.dropped, ["mix 2.4 s: the others come down to x0.3 at most, so with line at the level keep_line set about 0.2 dB stays over for the limiter (each layer's peak alone, summed in phase); volume x0.97 on line clears it"]);
+  // The song alone would need x0.25: even at x0.3 (as low as any cause goes) it does not clear the place, so
+  // the song keeps its level, and the line's factor that clears it with the song as it is is printed.
+  const trim = peakTrims(document.scenes[0], [place], { bed: (layer) => layer.id === "song" });
+  assert.deepEqual([trim.ops, trim.fixed], [[], []]);
+  assert.deepEqual(trim.dropped, ["mix 2.4 s: with line at the level keep_line set, song even at x0.3 would leave about 0.2 dB over for the limiter (each layer's peak alone, summed in phase), so it keeps its level; volume x0.28 on line there clears it"]);
+  // A clip that is not a song still comes down to x0.3 there, and what stays over is printed with the line's factor.
+  const clip = peakTrims(document.scenes[0], [place], { bed: () => false });
+  assert.deepEqual(clip.fixed, ["mix 2.4 s (2.4-2.6 s, 3 dB over): song x0.3 1->0.3 (alone -4 dBFS); kept line at the level keep_line set (line 2-3 s)"]);
+  assert.deepEqual(clip.dropped, ["mix 2.4 s: the others come down to x0.3 at most, so with line at the level keep_line set about 0.2 dB stays over for the limiter (each layer's peak alone, summed in phase); volume x0.97 on line clears it"]);
   // A song that can share the cut comes down only as far as its measured share: line -8, song -4 dBFS.
   const shared = { ...place, playing: [{ layerId: "line", name: "line", peakDbfs: -8 }, { layerId: "song", name: "song", peakDbfs: -4 }] };
   const sharedTrim = peakTrims(document.scenes[0], [shared]);
   assert.deepEqual([sharedTrim.fixed, sharedTrim.dropped],
     [["mix 2.4 s (2.4-2.6 s, 3 dB over): song x0.54 1->0.54 (alone -4 dBFS); kept line at the level keep_line set (line 2-3 s)"], []]);
+});
+
+// .scratch friction replay 7 (dm4-b rev 13): places a kept line held over the ceiling cut the song to
+// x0.3 there, and that factor took the whole song from 0.8 to 0.24 (-9.5 to -12.6 LUFS) at 23% share.
+test("places a kept line holds over the ceiling leave the song's level alone; the song dips only at the stomps", () => {
+  const ramp = (id, name, start, duration, from, to) => ({ id, name, kind: "custom", easing: "smooth", start, duration, from: { volume: from }, to: { volume: to } });
+  const line = (id, from, to) => createLayer("audio", { id, name: id, src: `/api/media/${id}.wav`, volume: 1, voiceLevel: -12, mediaSourceDuration: 15,
+    animations: [ramp(`${id}-mute`, "Line mute", 0, 0.001, 1, 0), ramp(`${id}-up`, "Line up", from - 0.08, 0.08, 0, 1), ...(to < 15 ? [ramp(`${id}-down`, "Line down", to, 0.12, 1, 0)] : [])] });
+  const document = parseDocument({ ...createDocument(), scenes: [createScene({ id: "s", duration: 15, layers: [
+    createLayer("audio", { id: "song", name: "song", src: "/api/media/a.wav", volume: 0.8, mediaSourceDuration: 15 }),
+    line("lineA", 5.14, 7.69), line("lineB", 13.6, 15),
+    createLayer("audio", { id: "stomp4", name: "stomp4", src: "/api/media/c.wav", volume: 0.8, mediaStart: 9.5, mediaSourceDuration: 0.6 }),
+    createLayer("audio", { id: "stomp5", name: "stomp5", src: "/api/media/d.wav", volume: 0.9, mediaStart: 11.1, mediaSourceDuration: 0.6 })] })] });
+  const place = (at, from, to, peakDbtp, factor, playing) => ({ at, from, to, peakDbtp, overDb: round1(peakDbtp + 1.5), factor,
+    playing: Object.entries(playing).map(([layerId, peakDbfs]) => ({ layerId, name: layerId, peakDbfs })) });
+  const trim = peakTrims(document.scenes[0], [place(6.4, 6.4, 6.5, -0.5, 0.89, { song: -14, lineA: -1 }),
+    place(9.5, 9.5, 10.1, 3.5, 0.56, { song: -2.5, stomp4: -1 }), place(11.2, 11.1, 11.7, 4.5, 0.5, { song: -2.5, stomp5: 0 }),
+    place(14.3, 13.5, 14.8, 8.5, 0.31, { song: -3, lineB: 8 })], { bed: (layer) => layer.id === "song" });
+  assert.equal(trim.ops.filter((op) => op.layerId === "song" && op.op === "update_layer").length, 0, "the song is not lowered whole");
+  const scene = applyOperations(document, trim.ops.map(({ op, ...rest }) => ({ type: op, ...rest }))).scenes[0];
+  for (const time of [1, 6.45, 8, 13, 14.3]) assert.equal(volumeAt(scene.layers[0], time), 0.8, `song at ${time} s`);
+  assert.ok(volumeAt(scene.layers[0], 9.8) < 0.5, "the song dips at the stomps");
+  assert.equal(churnRun(scene.layers[0], scene), null);
+  assert.deepEqual(trim.dropped.map((line) => line.split(":")[0]), ["mix 6.4 s", "mix 14.3 s"]);
+  assert.match(trim.dropped[1], /^mix 14\.3 s: with lineB at the level keep_line set, song even at x0\.3 would leave about 9\.8 dB over .*so it keeps its level; volume x0\.04 on lineB there clears it$/);
+  // Ducked under lineA, with two small places there too: even one dip over all four churns, and at 12% of
+  // its time the song is not lowered whole: it dips where it can without churning and keeps its level at the rest.
+  const ducked = parseDocument({ ...document, scenes: [{ ...document.scenes[0], layers: [{ ...document.scenes[0].layers[0],
+    animations: [ramp("dd", "Duck down", 5, 0.14, 0.8, 0.2), ramp("du", "Duck up", 7.69, 0.2, 0.2, 0.8)] }, ...document.scenes[0].layers.slice(1)] }] });
+  const four = peakTrims(ducked.scenes[0], [place(5.6, 5.6, 5.7, -1.46, 0.99, { song: -14.4, lineA: -1.9 }), place(6.9, 6.9, 7, -1.4, 0.98, { song: -13.9, lineA: -1.9 }),
+    place(9.5, 9.5, 10.1, 3.5, 0.56, { song: -2.5, stomp4: -1 }), place(11.2, 11.1, 11.7, 4.5, 0.5, { song: -2.5, stomp5: 0 })], { bed: (layer) => layer.id === "song" });
+  assert.equal(four.ops.filter((op) => op.layerId === "song" && op.op === "update_layer").length, 0, "not whole");
+  const fourScene = applyOperations(ducked, four.ops.map(({ op, ...rest }) => ({ type: op, ...rest }))).scenes[0];
+  for (const time of [1, 8, 9.8, 11.4, 13]) assert.equal(volumeAt(fourScene.layers[0], time), 0.8, `ducked song at ${time} s`);
+  assert.equal(churnRun(fourScene.layers[0], fourScene), null);
+  assert.match(four.dropped.find((line) => line.startsWith("mix 9.5 s song")), /churn \(volume_churn\), and its places cover 12% of its heard time, so it keeps its level here \(not whole\): lower it x0\.56 there/);
 });

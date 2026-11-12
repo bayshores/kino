@@ -73,7 +73,8 @@ test("check {fix:\"auto\"} leaves a layer the latest edit moved (until another e
   assert.equal(held.data.rev, moved.data.rev, "nothing saved");
   // An edit that moves nothing: the auto fix applies again.
   await agent("edit", { project: "placed", ops: [{ op: "update_layer", layer: "tag", properties: { text: "LIVE NOW" } }] });
-  assert.match((await agent("check", { project: "placed", fix: "auto", pixels: false, rules: ["held_static"] })).text, /fixed held_static counter/);
+  // The applied line names each fix it applied.
+  assert.match((await agent("check", { project: "placed", fix: "auto", pixels: false, rules: ["held_static"] })).text, /^applied 1 auto fix in one edit \(now rev \d+\): held_static counter; each under fixed below;[^\n]*\n[\s\S]*fixed held_static counter/m);
   // A layer a waiver names is a designed element: a warning's move leaves it too.
   await agent("project", { action: "create", id: "waived", name: "Waived", width: 1920, height: 1080, duration: 3, background: "#101010" });
   await agent("edit", { project: "waived", ops: [text("counter", "75.6 m", { x: 600, y: 400 }, shown(0, 2.5)), text("tag", "LIVE", { fontSize: 60, x: 600, y: 800 }, shown(0, 2.5)),

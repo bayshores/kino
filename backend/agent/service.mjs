@@ -3685,13 +3685,14 @@ export function createAgentService(deps) {
     // The mix before check {fix:"auto"} turned its limiter places down, and whether it did.
     let mixBefore = null, mixTrimmed = false;
     if (input.fix === "auto") {
-      const keep = placedByYou(await agentState.read(projectId), codes, record.document);
-      // The missing_glyphs fix (a range in a font that has the characters) is worked out first so it can be applied.
+      const keep = placedByYou(await agentState.read(projectId), codes, record.document);      // The missing_glyphs fix (a range in a font that has the characters) is worked out first so it can be applied.
       await explainMissingGlyphs(result.findings, record.document, { fonts, catalog: fontCatalog, codes });
       const outcome = await autoFix(record.document, result.findings, { ...options, fonts, keep });
       // The mix's limiter places (the "mix:" line): each place's xN on the layers playing there,
       // over its span (engine/peakTrim.js). Layers another fix of this check changes wait for the next one.
-      const mixScene = !options.listen ? null : scene ? record.document.scenes.find((item) => item.id === scene.id) : videoScene(record.document);
+      // rules limits the fixes too: the mix's places are turned down only without rules or with "mix" among them.
+      const mixRule = !rules || rules.includes("mix");
+      const mixScene = !options.listen || !mixRule ? null : scene ? record.document.scenes.find((item) => item.id === scene.id) : videoScene(record.document);
       mixBefore = mixScene ? await mixPeaksOf(mixScene, { perLayer: true, projectId }) : null;
       // When the default render's "auto" gain alone keeps every peak under the ceiling (not held by
       // them), those places only matter at loudness "off": the mix keeps its shape.
@@ -3742,7 +3743,7 @@ export function createAgentService(deps) {
     for (const note of waiverNotes(liveWaivers(record.document.checkWaivers, result.stale))) lines.push(`note: ${note}`);
     const staleLine = staleWaiverLine(result.stale, (id) => (id === "*" ? "*" : refName(id, codes)));
     if (staleLine) lines.push(staleLine);
-    if (applied) lines.push(applied.ops ? `applied ${applied.fixed.length} auto ${applied.fixed.length === 1 ? "fix" : "fixes"} in one edit (now rev ${applied.rev}); history can undo it.` : "No auto fixes to apply.");
+    if (applied) lines.push(applied.ops ? appliedLine(applied) : "No auto fixes to apply.");
     if (applied?.mix) lines.push(applied.mix);
     // Why an auto fix was not applied explains the error still open, so it stays under the applied
     // line (the probe on the run 6 copy had it at line 15, past the first 8, before this); the
@@ -3849,6 +3850,17 @@ export function createAgentService(deps) {
 
   // check's own edits (its auto fixes): they do not count as the agent placing a layer.
   const autoFixEdits = new WeakSet();
+
+  // The applied line names each fix: its rule and layer, and the mix's places by second (each one's
+  // layers and factors are on its "fixed mix" line). A mix summary line (a whole song, one dip over
+  // several places) is not counted as a fix of its own.
+  function appliedLine(applied) {
+    const places = applied.fixed.filter((line) => /^mix [\d.]+ s \(/.test(line)).map((line) => line.split(" ")[1]);
+    const others = applied.fixed.filter((line) => !line.startsWith("mix ")).map((line) => line.split(":")[0]);
+    const count = places.length + others.length;
+    const named = [...others.slice(0, 6), ...(others.length > 6 ? [`+${others.length - 6} more`] : []), ...(places.length ? [`mix at ${places.map((at) => `${at} s`).join(", ")}`] : [])];
+    return `applied ${count} auto ${count === 1 ? "fix" : "fixes"} in one edit (now rev ${applied.rev}): ${named.join(", ")}; each under fixed below; history can undo it.`;
+  }
 
   // The layers that were there before and whose x or y an edit changed, as ids (new layers are
   // not: a fresh build still gets its auto fixes).

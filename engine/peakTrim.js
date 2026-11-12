@@ -268,8 +268,16 @@ function sparedCauses(scene, place, spared, bed) {
   const kept = sum([...spared.keys()].filter((id) => peaks.has(id)));
   const lowered = Math.max(0, mix - kept) * MIN_CAUSE_FACTOR;
   const left = round(20 * Math.log10(Math.max(1e-9, kept + lowered) / target), 1);
+  if (!(left > 0)) return { causes: all(MIN_CAUSE_FACTOR) };
+  // Only songs or beds besides the kept line, and even at x0.3 the place stays over: they keep their
+  // level (a cut that does not clear it, and that would size a whole-song cut), and `line` is the
+  // kept line's factor that clears it with them as they are (in phase).
+  if (others.every(isBed)) {
+    const line = kept > 0 ? Math.floor(100 * (target - sum(others)) / kept) / 100 : 0;
+    return { causes: new Map(), left, keep: true, ...(line > 0 && line < 1 ? { line } : {}) };
+  }
   const line = kept > 0 ? Math.floor(100 * (target - lowered) / kept) / 100 : 0;
-  return { causes: all(MIN_CAUSE_FACTOR), ...(left > 0 ? { left, ...(line > 0 && line < 1 ? { line } : {}) } : {}) };
+  return { causes: all(MIN_CAUSE_FACTOR), left, ...(line > 0 && line < 1 ? { line } : {}) };
 }
 
 /**
@@ -309,14 +317,17 @@ export function peakTrims(scene, places, { bed = (layer) => isMusicLayer(layer, 
     const causes = sparing ? sparing.causes : peakCauses(place);
     if (sparing?.left) {
       const lines = [...spared.keys()].map((id) => scene.layers.find((layer) => layer.id === id)?.name ?? id).join(", ");
-      dropped.push(`mix ${place.at} s: the others come down to x${MIN_CAUSE_FACTOR} at most, so with ${lines} at the level keep_line set about ${sparing.left} dB stays over for the limiter (each layer's peak alone, summed in phase)` +
-        (sparing.line ? `; volume x${sparing.line} on ${lines} clears it` : ""));
+      dropped.push(sparing.keep
+        ? `mix ${place.at} s: with ${lines} at the level keep_line set, ${[...new Set(place.playing.map((clip) => clip.layerId))].filter((id) => !spared.has(id)).map((id) => scene.layers.find((layer) => layer.id === id)?.name ?? id).join(", ")} even at x${MIN_CAUSE_FACTOR} would leave about ${sparing.left} dB over for the limiter (each layer's peak alone, summed in phase), so it keeps its level` +
+          (sparing.line ? `; volume x${sparing.line} on ${lines} there clears it` : "")
+        : `mix ${place.at} s: the others come down to x${MIN_CAUSE_FACTOR} at most, so with ${lines} at the level keep_line set about ${sparing.left} dB stays over for the limiter (each layer's peak alone, summed in phase)` +
+          (sparing.line ? `; volume x${sparing.line} on ${lines} clears it` : ""));
     }
     const ids = causes ? [...causes.keys()] : [...new Set((place.playing ?? []).map((clip) => clip.layerId).filter(Boolean))];
     const ownPeak = (id) => place.playing.find((clip) => clip.layerId === id)?.peakDbfs;
     const kept = causes ? [...new Set(place.playing.map((clip) => clip.layerId))].filter((id) => !causes.has(id))
       .map((id) => `${scene.layers.find((layer) => layer.id === id)?.name ?? id} ${spared.has(id) ? `at the level keep_line set (line ${spared.get(id)} s)` : `(alone ${ownPeak(id)} dBFS)`}`) : [];
-    if (spared.size && !ids.length) dropped.push(`mix ${place.at} s: only the line keep_line leveled plays there; lower it by hand x${place.factor}`);
+    if (spared.size && !ids.length && !sparing?.left) dropped.push(`mix ${place.at} s: only the line keep_line leveled plays there; lower it by hand x${place.factor}`);
     const changed = [];
     for (const id of ids) {
       const original = scene.layers.find((layer) => layer.id === id);
@@ -389,7 +400,22 @@ export function peakTrims(scene, places, { bed = (layer) => isMusicLayer(layer, 
     const entries = changes.flatMap(({ place, changed }) => changed.filter(([layerId]) => layerId === id).map(([, , factor]) => ({ place, factor })));
     const why = `${entries.length} dips would turn its level ${turns.length} times in ${round(turns.at(-1).time - turns[0].time)} s (volume_churn)`;
     const share = placeShare(scene, original, entries.map(({ place }) => place));
-    const bridge = share > MOST_SHARE ? null : bridgeDips(scene, original, entries);
+    let bridge = share > MOST_SHARE ? null : bridgeDips(scene, original, entries);
+    // Under the share, a song whose dips churn even as one keeps its level outside the places it can
+    // dip without churning: the places most over first, each kept when the dips still do not churn;
+    // the others are named under "not applied" with its factor there (never whole).
+    if (!bridge && share <= MOST_SHARE) {
+      let chosen = [];
+      for (const entry of [...entries].sort((a, b) => b.place.overDb - a.place.overDb)) {
+        const tried = bridgeDips(scene, original, [...chosen, entry]);
+        if (tried) { chosen = [...chosen, entry]; bridge = tried; }
+      }
+      const left = entries.filter((entry) => !chosen.includes(entry));
+      for (const entry of changes) entry.changed = entry.changed.filter((change) => change[0] !== id || chosen.some((item) => item.place === entry.place));
+      for (const { place, factor } of left) dropped.push(`mix ${place.at} s ${original.name ?? id}: a dip here too would turn its level often enough to churn (volume_churn), and its places cover ${Math.round(100 * share)}% of its heard time, so it keeps its level here (not whole): lower it x${factor} there by hand, or let the limiter take it`);
+      if (!bridge) { added.delete(id); layers.delete(id); continue; }
+      entries.splice(0, entries.length, ...chosen);
+    }
     if (!bridge) { needWhole(id, null, null, share > MOST_SHARE ? why : `${why}, and so would one dip over them all`); continue; }
     layers.get(id).animations = bridge.layer.animations;
     added.set(id, bridge.pieces);

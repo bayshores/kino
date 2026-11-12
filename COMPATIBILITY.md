@@ -1181,8 +1181,13 @@ How to read it:
   only, the same volume at 1, 5, 8 and 13.5 s). Causes go loudest first (dm3-b shape: the step clears its place alone,
   the song dips only at the impact, was whole x0.3). A song comes down whole only past 50% of its heard time, and the
   line prints the share; dips that would churn it (volume_churn) become one dip (dm3-b shape with its duck: 0 turns,
-  was whole x0.3), and a dip on a fade to 0 follows it. Evidence: `engine/volumeAnimation.test.js`. Gap: not replayed
-  on dm3 data or rendered; follow dips use straight 0.05 s ramps, not measured for clicks.
+  was whole x0.3), and a dip on a fade to 0 follows it. Under 50%, a song never comes down whole: where even one dip
+  churns, it dips at the places it can without churning and is named at the rest; where only a song plays beside a
+  kept line and x0.3 would not clear the place, the song keeps its level. Replayed on a copy of dm4-b rev 13: song 0.8
+  whole x0.3 (-9.5 to -12.6 LUFS) before, now 0.8 outside dips at 6.85-7.05 and 9.45-11.75 s (-9.5 to -10.4 LUFS).
+  With rules, fix:auto turns the mix down only with "mix" named; the applied line names each fix. Evidence:
+  `engine/volumeAnimation.test.js`, `backend/agent-polish-fix.test.mjs`. Gap: not rendered; follow dips use straight
+  0.05 s ramps, not measured for clicks; the rules filter on the mix has no server test.
 - **Kept line evened and peak-held** (`keep_line {even}`, receipt `even`, `peak`): Rendered once in a test on
   generated stereo speech-like audio over pink noise. Words over 3 LU off the line's median word come back to 3 LU
   with 0.04 s "Line level" ramps (render moved them -6.0 and +4.9 dB, receipt -6 and +4.9); a leveled line that sends
