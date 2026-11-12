@@ -106,7 +106,7 @@ import { namesFamily, styleContext } from "../../engine/styleSpec.js";
 import { blocksFinal, FINAL_GATES, tasteNotes } from "../../engine/quality/index.js";
 import { ideaLines, signatureRanges } from "../../engine/quality/rules/signature.js";
 import { hasMusic, isMusicLayer } from "../../engine/quality/rules/sound.js";
-import { renderSceneFrames, sceneSoundClips, soundCurve } from "../export.mjs";
+import { measureMixPeaks, renderSceneFrames, sceneSoundClips, soundCurve } from "../export.mjs";
 import { decodeMono } from "../audio-analysis.mjs";
 import { songShape } from "../song-shape.mjs";
 import { barGrid } from "../../engine/fitMusic.js";
@@ -149,7 +149,7 @@ import { spokenLine } from "../../engine/blocks/moves/footage.js";
 import { VIDEO_FORMAT_NAMES, videoFormatsText } from "../../engine/blocks/videoFormats.js";
 import { existsSync } from "node:fs";
 import { avOffsetFinding } from "./av-offset.mjs";
-import { describeLevels, measureFileLevels } from "../audio-levels.mjs";
+import { describeLevels, describeMixPeaks, measureFileLevels } from "../audio-levels.mjs";
 import { mediaIdFromSource } from "../../engine/replaceMedia.js";
 import { createBeatAnalysisCache, isSoundEffect, soundIsMusic, steadyBeat } from "../audio-analysis.mjs";
 import { createSongShapeCache } from "../song-shape.mjs";
@@ -3179,6 +3179,9 @@ export function createAgentService(deps) {
     // What comes back in the checked (or main) scene: a fact beside techniques, never a finding.
     const returnsScene = scene ? record.document.scenes.find((item) => item.id === scene.id) : videoScene(record.document);
     if (returnsScene) lines.push(sceneReturnsLine(returnsScene, { scenes: record.document.scenes }));
+    // Where the mix passes the limiter, measured without a render: a fact line when the scene has sound.
+    const mix = returnsScene && options.listen ? await mixPeaksOf(returnsScene) : null;
+    if (mix) lines.push(describeMixPeaks(mix, { tail: "; all of them: look {mode:\"motion\", ref:\"sound\"}" }));
     for (const note of result.notes) lines.push(`note: ${note}`);
     // The rules line comes with the agent's first check of a project since kino started, and
     // with {rules:true}. The dashboard's own checks (by you) do not count.
@@ -5147,6 +5150,26 @@ export function createAgentService(deps) {
     return speech;
   }
 
+  // Where a scene's mix passes the master limiter (export.mjs measureMixPeaks: the render's own mix,
+  // one FFmpeg run, nothing drawn or encoded), kept per sound setup so a check that changed no
+  // sound does not measure again. Null when nothing is heard or the sound cannot be read.
+  const mixPeaksKept = new Map();
+  async function mixPeaksOf(scene) {
+    if (!scene.layers.some((layer) => (layer.type === "audio" || layer.type === "video") && layer.src)) return null;
+    // Groups too: a hidden group silences the video inside it.
+    const key = createHash("sha1").update(JSON.stringify([scene.duration, scene.layers.filter((layer) => ["audio", "video", "group"].includes(layer.type))])).digest("hex");
+    if (!mixPeaksKept.has(key)) {
+      mixPeaksKept.set(key, (async () => {
+        const directory = await makeTempFolder("kino-mix-");
+        try { return await measureMixPeaks(await sceneSoundClips(scene, { mediaRoot: deps.mediaRoot, directory, duration: scene.duration }), scene.duration); }
+        catch { mixPeaksKept.delete(key); return null; }
+        finally { await removeTempFolder(directory); }
+      })());
+      if (mixPeaksKept.size > 32) mixPeaksKept.delete(mixPeaksKept.keys().next().value);
+    }
+    return mixPeaksKept.get(key);
+  }
+
   // look {mode:"sound"} (sound-map.mjs): the scene's mix measured three ways (all, the music
   // alone, the rest alone), one FFmpeg run at a time, with the beats, spoken lines, song
   // sections and ducking dips. Nothing is played.
@@ -5194,7 +5217,11 @@ export function createAgentService(deps) {
     } finally {
       await removeTempFolder(directory);
     }
-    return { image: { png: soundMapImage(map) }, text: soundMapText(map, { scene: refName(scene.id, codes) }) };
+    // Every place the mix passes the limiter (the worst 8 when there are more; under 1,500
+    // characters), the same numbers as check's mix: line.
+    const peaks = await mixPeaksOf(scene);
+    const limiter = peaks ? `\n${describeMixPeaks(peaks, { limit: 8, label: "limiter", tail: ` (${peaks.places.length - 8} more)` })}` : "";
+    return { image: { png: soundMapImage(map) }, text: `${soundMapText(map, { scene: refName(scene.id, codes) })}${limiter}` };
   }
   // Whether the person turned on sound search in Settings (backend/sound-search.mjs).
   const soundSearchOn = () => Boolean(deps.soundSearch?.enabled?.());

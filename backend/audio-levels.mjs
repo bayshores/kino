@@ -214,6 +214,82 @@ export function describeLevels({ integratedLufs, loudnessRangeLu = null, truePea
   return `${measured}${range}, true peak ${signed(truePeakDbtp)} dBTP${truePeakDbtp > 0 ? " (clips)" : ""}`;
 }
 
+// ---------------------------------------------------------------- limiter places
+// Where the mix passes the master limiter, measured without drawing or encoding anything (check's
+// "mix:" line, look {mode:"sound"}). ebur128 reads the integrated loudness and true peak as the
+// render's own meter does; then each 0.1 s of the mix at 192 kHz (the limiter's own oversampled
+// copy) gives its peak, so every loud moment shows, not only the loudest.
+export const PEAK_METER = "ebur128=peak=true:metadata=1,aresample=192000,aformat=sample_fmts=dblp,asetnsamples=n=19200," +
+  "astats=metadata=1:reset=1:measure_perchannel=Peak_level:measure_overall=none,ametadata=mode=print:file=-";
+// Peaks this close (s) are one place: a loud stretch, not one place per 0.1 s.
+const PLACE_GAP = 0.3;
+
+/** Reads PEAK_METER's printout: { integratedLufs, truePeakDbtp, windows: [{t, peak}] } (peak in dBFS per 0.1 s). */
+export function readPeakWindows(printed) {
+  let loudness = null, truePeak = 0, window = null;
+  const windows = [];
+  for (const line of String(printed).split("\n")) {
+    const frame = line.match(/pts_time:(\S+)/);
+    if (frame) { window = { t: Math.round(Number(frame[1]) * 100) / 100, peak: -Infinity }; windows.push(window); continue; }
+    if (line.startsWith("lavfi.r128.I=")) loudness = Number(line.slice("lavfi.r128.I=".length));
+    else if (/^lavfi\.r128\.true_peaks?(?:_ch\d+)?=/.test(line)) truePeak = Math.max(truePeak, Number(line.split("=")[1]) || 0);
+    else if (window && /^lavfi\.astats\.\d+\.Peak_level=/.test(line)) {
+      const peak = Number(line.split("=")[1]);
+      if (Number.isFinite(peak)) window.peak = Math.max(window.peak, peak);
+    }
+  }
+  return {
+    integratedLufs: Number.isFinite(loudness) && loudness > -70 ? round1(loudness) : null,
+    truePeakDbtp: truePeak > 0 ? round1(20 * Math.log10(truePeak)) : null,
+    windows: windows.filter((entry) => Number.isFinite(entry.peak)),
+  };
+}
+
+/**
+ * Every place where the mix's peak passes the limiter's ceiling, in time order: [{at, from, to,
+ * peakDbtp, overDb, factor}]. `at` is its loudest 0.1 s, `overDb` how far the limiter turns it
+ * down there, `factor` the volume multiplier for the sounds playing there that brings the peak to
+ * the ceiling (the limiter then does nothing).
+ */
+export function limiterPlaces(windows, { ceiling = LIMITER_CEILING_DB } = {}) {
+  const places = [];
+  for (const window of windows) {
+    if (!(window.peak > ceiling)) continue;
+    const last = places.at(-1);
+    if (last && window.t - last.at(-1).t - 0.1 <= PLACE_GAP) last.push(window);
+    else places.push([window]);
+  }
+  return places.map((place) => {
+    const peak = Math.max(...place.map((window) => window.peak));
+    // Its time is where it first comes within 0.1 dB of its peak, as the render's warning names it.
+    const at = place.find((window) => window.peak >= peak - 0.1).t;
+    return { at: round1(at), from: round1(place[0].t), to: round1(place.at(-1).t + 0.1), peakDbtp: round1(peak),
+      overDb: round1(peak - ceiling), factor: Math.floor(100 * 10 ** ((ceiling - peak) / 20)) / 100 };
+  });
+}
+
+const placeText = (place) => {
+  const names = place.playing ?? [];
+  const shown = names.slice(0, 4).map((clip) => `${String(clip.name).slice(0, 24)} ${clip.volume}`);
+  if (names.length > 4) shown.push(`${names.length - 4} more`);
+  return `${place.at} s ${signed(place.peakDbtp)} dBTP, ${place.overDb} dB over${shown.length ? ` (${shown.join(", ")})` : ""} x${place.factor}`;
+};
+
+/**
+ * The mix in one line: "mix: -10.3 LUFS, true peak +4.1 dBTP; the limiter works at 3 places, ...".
+ * `mix` is { integratedLufs, truePeakDbtp, places } (places with `playing` [{name, volume}]);
+ * `limit` how many of the worst places are named, `tail` what follows them.
+ */
+export function describeMixPeaks(mix, { limit = 3, tail = "", label = "mix" } = {}) {
+  const level = `${label}: ${mix.integratedLufs === null ? "too short to measure LUFS" : `${mix.integratedLufs} LUFS`}, true peak ${mix.truePeakDbtp === null ? "silent" : `${signed(mix.truePeakDbtp)} dBTP`} at its own level (render loudness "off"; a loudness target adds one gain first)`;
+  if (!mix.places.length) return `${level}; the limiter (ceiling ${LIMITER_CEILING_DB} dBFS) never works`;
+  // All of them in time order when they fit, else the worst first.
+  const all = limit >= mix.places.length;
+  const shown = all ? mix.places : [...mix.places].sort((a, b) => b.overDb - a.overDb || a.at - b.at).slice(0, limit);
+  return `${level}; the limiter (ceiling ${LIMITER_CEILING_DB} dBFS) works at ${mix.places.length} ${mix.places.length === 1 ? "place" : "places"}${all ? "" : `, worst ${shown.length}`}: ` +
+    `${shown.map(placeText).join(" · ")} (xN: multiply the volumes playing there by N to clear it)${all ? "" : tail}`;
+}
+
 /**
  * The warning for a mix that would have clipped without the limiter, or null. `levels` measure the
  * mix before the limiter; `sound` is fitLimiterCeiling's result. `clips` are the sounds in the mix

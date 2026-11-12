@@ -21,7 +21,7 @@ import { renderRange } from "./render-range.mjs";
 import { normalizeRenderQuality, motionSampleTimes, createSampleBlend, MAX_MOTION_SAMPLES } from "./render-quality.mjs";
 import { shutterFps, shutterSampleCount } from "../engine/previewBlur.js";
 import { frameReference, inspectRenderedOutput } from "./render-output-audit.mjs";
-import { fitLoudness, loudMixWarning, masterLimiter, measureMixLevels, mixLead } from "./audio-levels.mjs";
+import { PEAK_METER, fitLoudness, limiterPlaces, loudMixWarning, masterLimiter, measureMixLevels, mixLead, readPeakWindows } from "./audio-levels.mjs";
 import { analyzeAudioFile, isSoundEffect, steadyBeat } from "./audio-analysis.mjs";
 import { encodeRenderPng } from "./render-png.mjs";
 import { createCanvas, loadImage } from "@napi-rs/canvas";
@@ -951,6 +951,24 @@ export async function soundCurve(clips, duration, signal) {
     if (point && peak && Number(peak[1]) > 0) point.tp = Math.max(point.tp ?? -Infinity, Math.round(200 * Math.log10(Number(peak[1]))) / 10);
   }
   return curve;
+}
+
+/**
+ * Where the mix of `clips` (from sceneSoundClips) passes the master limiter, from the same mix the
+ * render measures before its limiter (planMasterLimiter), in one FFmpeg run that writes nothing:
+ * { integratedLufs, truePeakDbtp, places: [{at, from, to, peakDbtp, overDb, factor, playing}] }
+ * (audio-levels.mjs limiterPlaces; playing: [{name, volume}] at `at`), or null when nothing is heard.
+ */
+export async function measureMixPeaks(clips, duration, signal) {
+  const heard = audibleClips(clips, duration);
+  if (!heard.length) return null;
+  const printed = await runProcess(ffmpegCommand(), ["-hide_banner", "-nostdin", "-loglevel", "error", ...audioInputArgs(heard),
+    "-filter_complex", `${audioMixGraph(heard, duration, "mp4", 0)},${PEAK_METER}`, "-f", "null", "-"], signal);
+  const { integratedLufs, truePeakDbtp, windows } = readPeakWindows(printed);
+  const places = limiterPlaces(windows).map((place) => ({ ...place,
+    playing: heard.filter((clip) => clip.start < place.at + 0.1 && clip.end > place.at)
+      .map((clip) => ({ name: clip.name, volume: clip.volumeTrack ? trackVolumeAt(clip, place.at) : clip.volume })) }));
+  return { integratedLufs, truePeakDbtp, places };
 }
 
 // `frameTimes` are the output frames' times; `samples` the times their pictures are drawn at, with
