@@ -70,7 +70,7 @@ export const REFERENCES_WANTED = 2;
 export const REFERENCE_SKIP_UNDER = 5;
 // A reply may be long (dictated on a phone); the log is kept, never sent back in an answer
 // (briefData leaves it out, so 100 replies of 2,000 characters stay out of a --json answer).
-export const BRIEF_LIMITS = Object.freeze({ text: 80, quote: 120, q: 300, a: 2000, reason: 80, entriesPerCall: 4, logKept: 100, ask: 2000, asksKept: 30 });
+export const BRIEF_LIMITS = Object.freeze({ text: 120, quote: 120, q: 300, a: 2000, reason: 80, entriesPerCall: 4, logKept: 100, ask: 2000, asksKept: 30 });
 // passed_on: the person's earlier words a lead agent passed on (a brief, not a new reply); kept
 // with the log but not counted as a reply or a question.
 const LOG_KINDS = ["question", "playback", "rejected", "passed_on"];
@@ -270,7 +270,10 @@ function lineProblem(name, line, current, said = null) {
     return { code: "bad_input", message: 'about is who or what the video is about, in their words: by:"you" with quote (by:"guessed" only when ask is "none"). Quote the part of their message that says what it is for.' };
   // The idea line takes as many characters as a treatment's idea and style.idea, so a picked treatment fits.
   const text = textProblem(`${name}.text`, line.text, name === "idea" ? STYLE_LIMITS.idea : BRIEF_LIMITS.text);
-  if (text) return { code: "bad_input", message: `${text} Keep the line short; the quote holds their words.` };
+  if (text) {
+    const over = typeof line.text === "string" ? line.text.trim().length - (name === "idea" ? STYLE_LIMITS.idea : BRIEF_LIMITS.text) : 0;
+    return { code: "bad_input", message: `${text} ${over > 0 ? `Cut ${over} character${over === 1 ? "" : "s"}: keep` : "Keep"} the line short; the quote holds their words.` };
+  }
   if (line.by === "you") {
     if (!hasText(line.quote))
       return { code: "quote_needed", message: `${name} is by:"you", so it needs quote: the person's exact words from the chat, copied, not retold. If they did not say it, send by:"guessed".`,

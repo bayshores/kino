@@ -45,7 +45,10 @@ test("opacity 0 under a fade-in warns that the fade's value is drawn and gives v
   const reply = await edit([{ op: "update_layer", layer: "miasma", properties: { opacity: 0 } }]);
   assert.equal(reply.isError, undefined, reply.text);
   assert.deepEqual(reply.data.warnings, ["miasma opacity 0 does not show: from 0.5 s miasma.in (Fade In) holds opacity 0.6, and an animation's value is drawn over the layer's. "
-    + "To hide the layer: {\"op\":\"update_layer\",\"layer\":\"miasma\",\"properties\":{\"visible\":false}}"]);
+    + "To hide the layer: {\"op\":\"update_layer\",\"layer\":\"miasma\",\"properties\":{\"visible\":false}} "
+    + "Or delete the animation that draws over it: {\"op\":\"delete_animation\",\"animation\":\"miasma.in\"}"]);
+  // The receipt's next is that one call.
+  assert.equal(JSON.parse(reply.text).next, `edit {"ops":[{"op":"update_layer","layer":"miasma","properties":{"visible":false}}]}`);
   assert.ok(await brightest() > 120, "the overlay still shows");
 
   // The op the warning gives hides it, with no warning.

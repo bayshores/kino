@@ -122,6 +122,13 @@ test("the skill's fit_music example runs as written: one stretch of the song, it
   }
   const boarded = (await (await server.api("/api/projects/fit-board")).json()).document;
   assert.ok(boarded.cues.some((cue) => cue.name === "song-drop-1" && Math.abs(cue.time - 5.4) <= 0.1) && boarded.rhythm?.bpm > 0, JSON.stringify([boarded.cues, boarded.rhythm]));
+
+  // fit_music alone after a board gives the same offer as board {music}: a late payoff leaves the drop
+  // under 4 bars, and the note names the shots' cues and the fit_music that move the payoff shots.
+  const scene = boarded.scenes[0];
+  const late = await agent("edit", { project: "fit-board", ops: [{ op: "fit_music", sceneId: scene.id, layerId: scene.layers.find((layer) => layer.name === "music").id, payoff: 10 }] });
+  assert.equal(late.isError, undefined, late.text);
+  assert.match(JSON.stringify(late.data.notes), /fit_music: the drop plays [\d.]+ s before the fade, under 4 bars: payoff [\d.]+ s gives it .*to move the payoff shots to the drop, send one edit: board with each shot as it is but these cues \(1 0-12\), then \{op:\\"fit_music\\"/);
 });
 
 test("look sound measures the ducked mix: loudness every 0.5 s and the dip", { skip: skipWithoutMediaTools }, async () => {

@@ -98,9 +98,10 @@ function layerUpdates(operations) {
  * `ref(id)` gives the name an agent uses for a layer or animation. `previous` is the document
  * before the edit: a layer's move (for x and y) is its new value minus its value there.
  * `covered` gets "layerId key" for each place a line gives ops for, so jumps.mjs does not give
- * a second set of ops for the same chain.
+ * a second set of ops for the same chain. `hides` gets the update_layer ops that hide a layer whose
+ * opacity 0 shows nothing (an animation draws over it): the receipt's next call.
  */
-export function overriddenValues(document, operations, ref, previous = null, covered = new Set()) {
+export function overriddenValues(document, operations, ref, previous = null, covered = new Set(), hides = []) {
   const entries = [];
   const oldLayers = new Map((previous?.scenes ?? []).flatMap((entry) => entry.layers).map((layer) => [layer.id, layer]));
   for (const { layerId, sceneId, properties, animated, placed } of layerUpdates(operations)) {
@@ -172,12 +173,16 @@ export function overriddenValues(document, operations, ref, previous = null, cov
       const sent = JSON.stringify(ops.length === 1 ? ops[0] : ops);
       const named = `${layerName} ${head ?? `${key} ${shown(value)}`}`;
       const note = !hide && ops.some((op) => op.properties?.preset) ? PRESET_NOTE : "";
-      entries.push({ named, text: `${named} ${what}${note} ${advice(sent)}`,
-        ops: hide ? [{ op: "update_layer", layer: layerName, properties: { visible: false } }] : ops });
+      // Opacity 0 under one animation: the other one-call fix is to delete that animation (its code).
+      const orDelete = hide && involved.length === 1 ? ` Or delete the animation that draws over it: ${JSON.stringify({ op: "delete_animation", animation: nameOf(involved[0]) })}` : "";
+      entries.push({ named, hide, text: `${named} ${what}${note} ${advice(sent)}${orDelete}`,
+        ops: hide ?[{ op: "update_layer", layer: layerName, properties: { visible: false } }] : ops });
     }
   }
   // The first LIST get a line each; the rest share one line with every op they need, so no
   // advice is dropped (an edit that moves 7 slid-in layers gets ops for all 7).
+  // `hides` gets the update_layer ops that hide the layers whose opacity 0 shows nothing: the receipt's next call.
+  hides.push(...entries.filter((entry) => entry.hide).flatMap((entry) => entry.ops));
   const warnings = entries.slice(0, LIST).map((entry) => entry.text);
   const rest = entries.slice(LIST);
   if (rest.length) {
