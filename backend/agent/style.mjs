@@ -170,10 +170,12 @@ const SIGNATURE_HELP = { what: "the designed moment", source: "the material it u
 // with "why only this product can show it" for an edit with no product (T220).
 const SUBJECT_HELP = { ...SIGNATURE_HELP, source: "the material it uses (a clip or found shot, and the moment)", why: `why ${ONLY.subject.only} can show it` };
 const IDEA_HELP = { product: 'what only this product can show, such as "your notes turn into a deck while you watch"', subject: `what ${ONLY.subject.only} can show, such as "the rookie misses twice, then takes the last shot anyway"` };
+const SUBJECT_EXAMPLE = '[{beat:3, what:"freeze on the last shot as it drops", source:"F2.4, the final shot", why:"the miss twice, then this: only her season has it"}]';
 
 // The problems with idea, signatures and moments. A beat is the index of a spine beat.
 function ideaProblems(spec, subject = false) {
   const help = subject ? SUBJECT_HELP : SIGNATURE_HELP;
+  const example = subject ? SUBJECT_EXAMPLE : SIGNATURE_EXAMPLE;
   const found = [];
   const beats = Array.isArray(spec.spine) ? spec.spine.length : 0;
   const beatOk = (beat) => Number.isInteger(beat) && beat >= 0 && (!beats || beat < beats);
@@ -184,11 +186,11 @@ function ideaProblems(spec, subject = false) {
     found.push(problem('style.type is the type direction, 1 to 60 characters: "<family class>, <size>, <case>, <how it appears>", from the references you studied.'));
   if (spec.signatures !== undefined) {
     if (!Array.isArray(spec.signatures) || !spec.signatures.length || spec.signatures.length > STYLE_LIMITS.signatures)
-      found.push(problem(`style.signatures is 1 or ${STYLE_LIMITS.signatures} designed moments: ${SIGNATURE_EXAMPLE}.`));
+      found.push(problem(`style.signatures is 1 or ${STYLE_LIMITS.signatures} designed moments: ${example}.`));
     else for (const [index, entry] of spec.signatures.entries()) {
       const where = `style.signatures[${index}]`;
       const extra = isRecord(entry) ? Object.keys(entry).filter((key) => !SIGNATURE_KEYS.includes(key)) : [];
-      if (!isRecord(entry) || extra.length) { found.push(problem(`${where} is {beat, what, source, why, at?}${extra.length ? `, not ${extra.join(", ")}` : ""}: ${SIGNATURE_EXAMPLE}.`)); continue; }
+      if (!isRecord(entry) || extra.length) { found.push(problem(`${where} is {beat, what, source, why, at?}${extra.length ? `, not ${extra.join(", ")}` : ""}: ${example}.`)); continue; }
       if (!beatOk(entry.beat)) found.push(problem(`${where}.beat is ${beatHelp}.`));
       for (const key of ["what", "source", "why"]) if (!shortText(entry[key])) found.push(problem(`${where}.${key} is 1 to ${STYLE_LIMITS.short} characters: ${help[key]}.`));
       if (entry.at !== undefined && !(Array.isArray(entry.at) && entry.at.length === 2 && number(entry.at[0], 0, 3600) && number(entry.at[1], entry.at[0] + 0.1, 3600)))

@@ -189,7 +189,7 @@ function subjectNeed(entry, who, tension, search) {
     why: tension.length >= NEED_LIMITS.why[0] ? tension : BLANK_NEED.why,
     ask: turn ? `Which clip shows it: "${turn.replace(/"/g, "'")}"?` : `Which clip shows ${onCamera}?`,
     options: [
-      { do: "<make it now from the clips you found: the shot that shows it, a freeze or push in on it, or the line it says>", cost, recommended: true },
+      { do: "<make it now from the clips you have: the shot that shows it, a freeze or push in on it, or the line it says>", cost, recommended: true },
       ...(search ? [{ do: findDo(viewerWho(who) ? "<the subject's name>" : who, "<the moment the turn needs>"), cost: FOUND_COST }] : []),
       { do: "tell it with what exists, no new footage", cost: `${cost}; the clips you have carry the story` },
     ],

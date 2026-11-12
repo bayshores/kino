@@ -15,7 +15,7 @@ import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { aboutWords, applyBrief, aspectLabel, BRIEF_FIELDS, BRIEF_LIMITS, briefChanges, briefData, briefText, compareSearch, compareStep, isSaid, directionLines, emptyBrief, guessedBans, nextMove, orderStep, orderSteps, namedThings, PLAN_CALL, realEdit, referenceSearches, shapeLine, songTitleOf, REPLY_LIMIT, replyCount, savedText } from "./agent/brief.mjs";
+import { aboutWords, applyBrief, aspectLabel, BRIEF_FIELDS, BRIEF_LIMITS, briefChanges, briefData, briefText, compareSearch, compareStep, isSaid, directionLines, emptyBrief, guessedBans, lockCall, nextMove, orderStep, orderSteps, namedThings, PLAN_CALL, realEdit, referenceSearches, shapeLine, songTitleOf, REPLY_LIMIT, replyCount, savedText } from "./agent/brief.mjs";
 import { namedShape, shapeGuess } from "../engine/quality/rules/shape.js";
 import { createAgentStateStore } from "./agent/state.mjs";
 import { styleContext } from "../engine/styleSpec.js";
@@ -1463,6 +1463,13 @@ test("an edit of a subject in footage is asked about the subject and its shots; 
   // Found footage imported counts as a subject edit unless the words name a product.
   const found = { candidates: [{ code: "F1", imported: true }] };
   assert.deepEqual([isSubjectEdit({ ...ask("the keeper who never looks back"), footage: found }), isSubjectEdit({ ...product, footage: found })], [true, false]);
+  // A plain product word wins over the edit words; the person's own clip (videoFacts footage) counts like found footage.
+  const clip = { footage: true };
+  assert.deepEqual([isSubjectEdit(ask("a promo edit for our travel app")), isSubjectEdit(ask("cut my interview into a 15 second reel"), clip),
+    isSubjectEdit(ask("cut my interview into a 15 second reel")), isSubjectEdit(ask("a launch video for my notes app"), clip)], [false, true, false, false]);
+  // The lock's draft places no logo in a subject edit.
+  const withIdea = (state) => ({ brief: { ...state.brief, fields: { ...state.brief.fields, idea: { text: "x", by: "guessed" } } } });
+  assert.deepEqual([withIdea(subject), withIdea(product)].map((state) => Boolean(lockCall(state).input.fields.style.logo)), [false, true]);
   // The picture line, the signature refusal and the drafted signature and spine follow the project.
   assert.match(pictureLine(true), /from the subject's own footage \(the shot where it happens/);
   assert.match(pictureLine(false), /from the product's own picture \(a screenshot or footage/);

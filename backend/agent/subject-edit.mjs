@@ -18,21 +18,28 @@ export function briefWords(brief) {
   return [...lines, ...asks].filter((text) => typeof text === "string").join(" ");
 }
 
-// Words that name a product's own things. A guess, not a measurement: found footage in a brief that
-// says one of these is B-roll for a product video, so its answers keep the product wording.
-const PRODUCT_WORDS = /\b(apps?|products?|launch(?:es|ing)?|features?|startups?|saas|software|websites?|brand|stores?|shop|platform|tool|service|demo|promo|ad|commercial)\b/i;
+// Words that name a product's own things. A guess, not a measurement: footage in a brief that says
+// one of these is B-roll for a product video, so its answers keep the product wording.
+const PRODUCT_WORDS = /\b(apps?|products?|launch(?:es|ing)?|features?|startups?|saas|software|websites?|brand|stores?|shop|platform|tool|service|demo|promo|ad|commercial|screenshots?|screen recordings?)\b/i;
+// The plainest of them name a product even in an ask that also says "edit" or "montage" ("a promo
+// edit for our travel app"): they win over the edit words. Also a guess; "brand", "store" or
+// "service" are left out here because "highlights for the team's brand page" is still a subject edit.
+const NAMES_PRODUCT = /\b(apps?|products?|startups?|saas|software|websites?|demo|promo|commercial|screenshots?|screen recordings?)\b/i;
 
 /**
  * True when the project is an edit of a subject in footage with no product: the stored words ask
- * for an edit or montage of existing material (footage-finder/step.mjs footageLedWords), or kino
- * imported found footage (state.footage) and the words name no product. False for a product video,
+ * for an edit or montage of existing material (footage-finder/step.mjs footageLedWords) and name no
+ * product outright (NAMES_PRODUCT), or the project has footage (kino's found clips in
+ * state.footage, or `video.footage` from videoFacts: a clip placed or imported, such as a
+ * talking-head take) and the words name no product (PRODUCT_WORDS). False for a product video,
  * for a brief with no words yet, and for every project from before kino kept these.
  */
-export function isSubjectEdit(state) {
+export function isSubjectEdit(state, video = null) {
   const words = briefWords(state?.brief);
+  if (!words.trim() || NAMES_PRODUCT.test(words)) return false;
   if (footageLedWords(words)) return true;
   const found = (state?.footage?.candidates ?? []).some((candidate) => candidate?.imported);
-  return found && words.trim() !== "" && !PRODUCT_WORDS.test(words);
+  return (found || Boolean(video?.footage)) && !PRODUCT_WORDS.test(words);
 }
 
 // A who that is the viewer ("you, the viewer", "the audience"): never on camera in found footage.

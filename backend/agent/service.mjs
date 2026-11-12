@@ -3896,7 +3896,7 @@ export function createAgentService(deps) {
     const pageNumber = Math.min(Math.max(1, input.page ?? (pages.length ? first + 1 : 1)), all.length);
     const file = await look.save(projectId, "critique", all[pageNumber - 1]);
     const images = [{ path: file, mime: "image/png", data: input.inline === false ? undefined : all[pageNumber - 1].toString("base64") }];
-    const critic = `${bar ? `${BAR_PROTOCOL}\n` : ""}${critiqueProtocol({ subject: isSubjectEdit(state) })}`;
+    const critic = `${bar ? `${BAR_PROTOCOL}\n` : ""}${critiqueProtocol({ subject: isSubjectEdit(state, videoFacts(record.document)) })}`;
     const viewerFile = path.join(folder, "viewer.txt");
     const prompt = viewer
       ? `Two parts. Part 1, the viewer: read ${heardFile}, then ${folder}/${sheetName(1)} to ${sheetName(first)}.\n${VIEWER_PROTOCOL}\nWrite that report, whole, to ${viewerFile}. Only then does packet.txt appear beside it (if not yet, wait a second).\nPart 2, the critic: read ${written.heard}${pages.length ? `, then ${sheetName(first + 1)} to ${sheetName(all.length)}` : ""}.\n${critic}\nYour answer is part 2's lines only. If you cannot write files, answer with part 1 only.`
@@ -3954,7 +3954,7 @@ export function createAgentService(deps) {
       // A helper that could not write files answered part 1 only: save it, free packet.txt.
       await writeFile(path.join(folder, "viewer.txt"), `${String(input.report).trim()}\n`, { mode: 0o600 });
       if (!await releasePacket(folder)) throw new AgentError("bad_input", `The rev ${rev} packet is gone: make a new one (look {mode:"critique"}).`);
-      const prompt = `Read ${path.join(folder, "packet.txt")}, then ${folder}/sheet-01.jpg to sheet-${String(packetEntry.sheets ?? 1).padStart(2, "0")}.jpg in order.\n${critiqueProtocol({ subject: isSubjectEdit(state) })}`;
+      const prompt = `Read ${path.join(folder, "packet.txt")}, then ${folder}/sheet-01.jpg to sheet-${String(packetEntry.sheets ?? 1).padStart(2, "0")}.jpg in order.\n${critiqueProtocol({ subject: isSubjectEdit(state, videoFacts(record.document)) })}`;
       return done(record.document.id, { text: `viewer part saved for ${sceneName} rev ${rev}; packet.txt is ready. Start one fresh subagent that never saw this chat; give it only this prompt:\n---\n${prompt}\n---\nThen record: notes {action:"critique", rev:${rev}, lines:[its answer], matches, bugs}.`,
         nextCall: nextOf("notes", { action: "critique", rev, lines: ["<the critic's lines, as it wrote them>"], matches: [{ beat: 1, got: "<yes|partly|no>", note: "<what it shows>" }], bugs: [], ...sceneField }), data: { rev, prompt } });
     }
@@ -3993,7 +3993,7 @@ export function createAgentService(deps) {
     // record (state critique), and the critique stop shows them to the person.
     const ups = upLines(parsed);
     const own = parsed.find((line) => line.level === "OWN");
-    const only = isSubjectEdit(state) ? "only this subject" : "only this product";
+    const only = isSubjectEdit(state, videoFacts(record.document)) ? "only this subject" : "only this product";
     const ownText = own ? `\n${only[0].toUpperCase()}${only.slice(1)}: ${lineText(own)} (make it land harder, never cut it).` : parsed.some((line) => line.generic) ? "" : `\nThe critic did not say which moment ${only} could have: ask it for an OWN or GENERIC line next round.`;
     const raise = (ups.length ? `\nTo raise it (suggestions, not gates; act on the best one):\n${ups.slice(0, 6).map((line) => `  ${lineText(line)}`).join("\n")}` : `\nNo UP lines: the critic skipped the elevation pass${number < CRITIQUE_ROUNDS ? "; ask it for UP lines next round" : ""}.`) + ownText;
     const text = (p0.length ? `${head}; the P0s block a final render:\n${listedLines.join("\n")}\n${after}` : `${head}; ${asks.length ? "no blocking P0" : "no P0"}. ${listedLines.length ? `Worth fixing:\n${listedLines.join("\n")}\n` : ""}${goAhead}`) + raise + asked + (viewer ? `\n${viewer.text}` : "");
@@ -6033,7 +6033,7 @@ export function createAgentService(deps) {
         // A quote may come from what they said when they answered a stop (notes answer words) or
         // in a note they typed, both recorded by kino in an earlier call (a note an agent adds is not theirs).
         const said = saidElsewhere(draft);
-        const changes = briefChanges(draft.brief, input, { said, origin: draft.origin ?? null, subject: isSubjectEdit(draft) });
+        const changes = briefChanges(draft.brief, input, { said, origin: draft.origin ?? null, subject: isSubjectEdit(draft, video) });
         applyBrief(draft, changes, { now: now(), client: meta.client ?? null });
         answer = { text: savedText(draft, changes, video), data: briefData(draft, video) };
       } });
