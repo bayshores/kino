@@ -164,6 +164,19 @@ test("a directional blur smears a small shape evenly on both sides, with no step
     assert.ok(Math.abs(row[index] - row[index - 1]) <= 4, `no step at x=${80 + index}: ${row.join(" ")}`);
 });
 
+// The look (Chromium) and the reference renderer draw a twirl and an edges-only RGB split alike;
+// the twirl turns the middle and leaves the corners where they were.
+test("twirl and an edges-only rgb-shift match the reference renderer", async () => {
+  const plain = await drawResvg(card({ parts: 20 }));
+  for (const effects of [[["twirl", { angle: 180 }]], [["rgb-shift", { where: "edges", colors: "green-magenta" }]]]) {
+    const scene = card({ parts: 20, effects });
+    const [browser, reference] = [await drawChromium(scene), await drawResvg(scene)];
+    assert.ok(meanDifference(browser, reference) < 1.5, `${effects[0][0]}: mean difference ${meanDifference(browser, reference).toFixed(2)}`);
+    assert.ok(meanDifference(reference, plain) > 1, `${effects[0][0]} changes the picture`);
+    if (effects[0][0] === "twirl") assert.equal(reference.red(3, 3), plain.red(3, 3), "the corner stays");
+  }
+});
+
 test("edge fill and kaleidoscope on a group with many parts match the reference renderer", async () => {
   for (const effects of [[["edge-fill", { mode: "tile", extend: 3 }]], [["kaleidoscope", { segments: 32, angle: 0, centerX: 0.5, centerY: 0.5 }]]]) {
     const scene = card({ parts: 60, effects });

@@ -653,6 +653,11 @@ How to read it:
 
 ### Blur and edges
 
+- **Twirl**: Verified. Timed Distortion effect, angle falls to 0 at the radius; drawn as up to 6
+  displacement passes; look and reference renderer match. Evidence: `backend/blur-effects-chromium.test.mjs`,
+  `backend/agent-reach-effects.test.mjs`.
+- **Edge-only color fringe**: Verified. rgb-shift `where:"edges"`, `colors`, no bars at a picture's
+  box. Evidence: `engine/effects/postFx.test.js`, `backend/blur-effects-chromium.test.mjs`.
 - **Directional, zoom and spin blur**: Verified. Up to 512 copies (zoom and spin 256), each kept
   one GPU layer. Evidence:
   `engine/effects/motionBlurs.test.js`, `backend/blur-effects-chromium.test.mjs`,

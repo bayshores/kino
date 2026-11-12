@@ -37,6 +37,8 @@ const SEEN_AS = {
   smear: ["smear", "whip-pan"], drag: ["smear"], "pixel drag": ["smear"], datamosh: ["smear"], mosh: ["smear"],
   shatter: ["shatter"], shattered: ["shatter"], glass: ["shatter", "fluted-glass"], "broken glass": ["shatter"], break: ["shatter"], shards: ["shatter"],
   "rgb split": ["rgb-split-hit", "rgb-shift"], "chromatic aberration": ["rgb-shift"],
+  "color fringe": ["rgb-shift"], fringe: ["rgb-shift"], "edge fringe": ["rgb-shift"],
+  twirl: ["twirl"], swirl: ["twirl"], vortex: ["twirl"], whirl: ["twirl"],
   "split screen": ["split-screen"], splitscreen: ["split-screen"], "side by side": ["split-screen"], panes: ["split-screen"], composite: ["split-screen", "picture-in-picture"],
   "picture in picture": ["picture-in-picture"], pip: ["picture-in-picture"], inset: ["picture-in-picture"],
   grain: ["grain", "scene-background"], vignette: ["vignette", "scene-background"], blur: ["zoom-blur", "directional-blur"], "freeze frame": ["freeze-shutter"],

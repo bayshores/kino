@@ -600,23 +600,70 @@ export function renderRgbShift(frame) {
   ].join(" ");
   const blackFromRedAlpha = ["0 0 0 0 0", "0 0 0 0 0", "0 0 0 0 0", "1 0 0 0 0"].join(" ");
   const blackFromSourceAlpha = ["0 0 0 0 0", "0 0 0 0 0", "0 0 0 0 0", "0 0 0 1 0"].join(" ");
-  const primitives = [
-    `<feColorMatrix in="SourceGraphic" type="matrix" values="${channelMatrix(0)}" result="postFxRedChannel"/>`,
-    `<feOffset in="postFxRedChannel" ${extent} dx="${fmt(dx)}" dy="${fmt(dy)}" result="postFxRedShift"/>`,
-    `<feColorMatrix in="SourceGraphic" type="matrix" values="${channelMatrix(1)}" result="postFxGreenChannel"/>`,
-    `<feColorMatrix in="SourceGraphic" type="matrix" values="${channelMatrix(2)}" result="postFxBlueChannel"/>`,
-    `<feOffset in="postFxBlueChannel" ${extent} dx="${fmt(-dx)}" dy="${fmt(-dy)}" result="postFxBlueShift"/>`,
-    '<feComposite in="postFxRedShift" in2="postFxGreenChannel" operator="arithmetic" k1="0" k2="1" k3="1" k4="0" result="postFxRedGreen"/>',
-    '<feComposite in="postFxRedGreen" in2="postFxBlueShift" operator="arithmetic" k1="0" k2="1" k3="1" k4="0" result="postFxRgbSum"/>',
-    `<feColorMatrix in="postFxRedShift" type="matrix" values="${alphaGrayMatrix}" result="postFxRedAlphaGray"/>`,
-    `<feColorMatrix in="postFxGreenChannel" type="matrix" values="${alphaGrayMatrix}" result="postFxGreenAlphaGray"/>`,
-    `<feColorMatrix in="postFxBlueShift" type="matrix" values="${alphaGrayMatrix}" result="postFxBlueAlphaGray"/>`,
+  // Each channel moves along the direction (1), against it (-1) or stays (0). red-blue is the
+  // split from before `colors` existed (its markup is unchanged).
+  const moves = RGB_SHIFT_COLORS[RGB_SHIFT_COLORS[frame.parameters?.colors] ? frame.parameters.colors : "red-blue"];
+  const names = ["Red", "Green", "Blue"].map((name, index) => moves[index] ? `postFx${name}Shift` : `postFx${name}Channel`);
+  const primitives = [];
+  ["Red", "Green", "Blue"].forEach((name, index) => {
+    primitives.push(`<feColorMatrix in="SourceGraphic" type="matrix" values="${channelMatrix(index)}" result="postFx${name}Channel"/>`);
+    if (moves[index]) primitives.push(`<feOffset in="postFx${name}Channel" ${extent} dx="${fmt(moves[index] * dx)}" dy="${fmt(moves[index] * dy)}" result="postFx${name}Shift"/>`);
+  });
+  const edges = frame.parameters?.where === "edges";
+  // Pixel layers (video, image) go on past their box, so the band the shift uncovers along the
+  // box keeps the picture unshifted there. Without it the shift painted a cyan and a yellow bar at
+  // the frame edges (GAPS item 10, contest-a p875: saturation 82 against 128).
+  const pixelLayer = ["video", "image"].includes(frame.helpers?.layerType);
+  const finish = edges || pixelLayer ? ' result="postFxShifted"' : "";
+  primitives.push(
+    `<feComposite in="${names[0]}" in2="${names[1]}" operator="arithmetic" k1="0" k2="1" k3="1" k4="0" result="postFxRedGreen"/>`,
+    `<feComposite in="postFxRedGreen" in2="${names[2]}" operator="arithmetic" k1="0" k2="1" k3="1" k4="0" result="postFxRgbSum"/>`,
+    ...names.map((input, index) => `<feColorMatrix in="${input}" type="matrix" values="${alphaGrayMatrix}" result="postFx${["Red", "Green", "Blue"][index]}AlphaGray"/>`),
     '<feBlend in="postFxRedAlphaGray" in2="postFxGreenAlphaGray" mode="lighten" result="postFxMaxRedGreenAlpha"/>',
     '<feBlend in="postFxMaxRedGreenAlpha" in2="postFxBlueAlphaGray" mode="lighten" result="postFxMaxAlphaGray"/>',
     `<feColorMatrix in="postFxMaxAlphaGray" type="matrix" values="${blackFromRedAlpha}" result="postFxMaxAlphaMask"/>`,
     `<feColorMatrix in="postFxRgbSum" type="matrix" values="${blackFromSourceAlpha}" result="postFxSumAlphaMask"/>`,
     '<feComposite in="postFxSumAlphaMask" in2="postFxMaxAlphaMask" operator="arithmetic" k1="0" k2="1" k3="-1" k4="0" result="postFxBlackExcess"/>',
-    '<feComposite in="postFxRgbSum" in2="postFxBlackExcess" operator="arithmetic" k1="0" k2="1" k3="-1" k4="0"/>',
-  ];
+    `<feComposite in="postFxRgbSum" in2="postFxBlackExcess" operator="arithmetic" k1="0" k2="1" k3="-1" k4="0"${finish}/>`,
+  );
+  let stage = "postFxShifted", reach = Math.hypot(dx, dy);
+  if (edges) {
+    // Only where the picture has an edge: the range of luma and of alpha within `edgeWidth` of
+    // each point (dilate minus erode), above `edgeThreshold`, softened, picks the shifted
+    // picture; elsewhere the layer stays as it was. Alpha counts so that text and shapes fringe
+    // along their outlines. edgeWidth 0 follows the shift, so the band covers the whole fringe.
+    const threshold = number(frame, "edgeThreshold", 0.1, 0, 1);
+    const radius = number(frame, "edgeWidth", 0, 0, 64) || Math.max(1, distance);
+    // Full fringe 0.2 above the threshold (a guess; edgeThreshold moves the whole ramp).
+    const slope = 5;
+    reach = Math.max(reach, radius * 1.7);
+    primitives.push(
+      '<feColorMatrix in="SourceGraphic" type="matrix" values="0.2126 0.7152 0.0722 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 1" result="postFxEdgeLuma"/>',
+      `<feMorphology in="postFxEdgeLuma" operator="dilate" radius="${fmt(radius)}" result="postFxEdgeHigh"/>`,
+      `<feMorphology in="postFxEdgeLuma" operator="erode" radius="${fmt(radius)}" result="postFxEdgeLow"/>`,
+      '<feColorMatrix in="postFxEdgeLow" type="matrix" values="-1 0 0 0 1 0 -1 0 0 1 0 0 -1 0 1 0 0 0 1 0" result="postFxEdgeLowInverse"/>',
+      '<feComposite in="postFxEdgeHigh" in2="postFxEdgeLowInverse" operator="arithmetic" k1="0" k2="1" k3="1" k4="-1" result="postFxEdgeRange"/>',
+      `<feColorMatrix in="postFxEdgeRange" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 ${slope} ${slope} 0 0 ${fmt(-slope * threshold)}" result="postFxEdgeMask"/>`,
+      `<feGaussianBlur in="postFxEdgeMask" stdDeviation="${fmt(radius * 0.35)}" result="postFxEdgeSoft"/>`,
+      '<feComposite in="postFxShifted" in2="postFxEdgeSoft" operator="in" result="postFxEdgeFringe"/>',
+      '<feComposite in="SourceGraphic" in2="postFxEdgeSoft" operator="out" result="postFxEdgeRest"/>',
+      `<feComposite in="postFxEdgeFringe" in2="postFxEdgeRest" operator="arithmetic" k1="0" k2="1" k3="1" k4="0"${pixelLayer ? ' result="postFxEdged"' : ""}/>`,
+    );
+    stage = "postFxEdged";
+  }
+  if (pixelLayer) primitives.push(
+    `<feMorphology in="SourceAlpha" operator="erode" radius="${fmt(reach + 1)}" result="postFxInset"/>`,
+    `<feComposite in="${stage}" in2="postFxInset" operator="in" result="postFxInner"/>`,
+    '<feComposite in="SourceGraphic" in2="postFxInset" operator="out" result="postFxOuter"/>',
+    '<feComposite in="postFxInner" in2="postFxOuter" operator="arithmetic" k1="0" k2="1" k3="1" k4="0"/>',
+  );
   return filterEffect(frame, primitives, { padding, contain: !overflow });
 }
+
+// Which channels move with the direction (1), against it (-1) or stay (0). The pair names the
+// two fringe colors: green-magenta is the green and purple line fringe of GAPS item 10
+// (contest-a p875); red-blue (red and blue apart, green still) gives the cyan-left,
+// orange-right fringe on title letters (film-trailer r2-040).
+export const RGB_SHIFT_COLORS = Object.freeze({
+  "red-blue": [1, 0, -1], "green-magenta": [-1, 1, -1], "red-cyan": [1, -1, -1], "blue-yellow": [-1, -1, 1],
+});
