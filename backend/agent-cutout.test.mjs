@@ -546,6 +546,9 @@ test("a subject cut-out leaves the clip's glow on the clip, so the glow sits beh
   // The clip moved 1 s later: the copy's path moves with it, so place {around} reads the same moments.
   const moved = applyOperations(next, [{ type: "update_layer", sceneId: "scene", layerId: "clip", properties: { mediaStart: 1 } }]);
   assert.deepEqual(moved.scenes[0].layers.find((layer) => layer.id === "clip-cut").subjectPath.map((sample) => sample[0]), [1, 1.967]);
+  // The copy moved 0.5 s later on its own: its path moves too.
+  const alone = applyOperations(next, [{ type: "update_layer", sceneId: "scene", layerId: "clip-cut", properties: { mediaStart: 0.5 } }]);
+  assert.deepEqual(alone.scenes[0].layers.find((layer) => layer.id === "clip-cut").subjectPath.map((sample) => sample[0]), [0.5, 1.467]);
 });
 
 test("behind picks the engine from the clip's people scan, and a person pass that finds no one tries the subject engine", async (t) => {

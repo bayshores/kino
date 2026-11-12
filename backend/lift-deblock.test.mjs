@@ -72,6 +72,12 @@ test("lift_dark measures the block step on the source's grid, deblocks before th
   assert.ok(oldStep.step > entry.blocks.step, "the plain lift makes the block steps larger");
   assert.ok(entry.blocksAfter.step < oldStep.step * 0.6, `the deblocked lift keeps under 60% of them: ${entry.blocksAfter.step} vs ${oldStep.step}`);
   assert.match(lifted.lines[0], /block step \(16 px grid, levels on the grid lines over inside the blocks\) [\d.]+ to [\d.]+, deblock radius 8 threshold [\d.]+/);
+  // The target and the means are in one range (full, 0 to 255), and the rendered mean after the lift is within 2 levels of it.
+  assert.match(lifted.lines[0], /^lift_dark target 90 \(full range 0-255; video range 16-235: 93\): wall mean \d+ to \d+ measured on the render/);
+  // 90 needs more than the 4-stop cap (76 on the render); a reachable 60 lands within 2 levels.
+  const reach = await liftDark(document, { ...options, target: 60, grain: false });
+  t.diagnostic(reach.lines[0].split(", contrast")[0]);
+  assert.ok(Math.abs(reach.lifted[0].after.mean * 255 - 60) <= 2, `rendered mean ${(reach.lifted[0].after.mean * 255).toFixed(2)} against target 60`);
   // Under reduced motion the grain holds still; its grains are the source's pixels (2 scene pixels).
   sent.length = 0;
   await liftDark(document, { ...options, reduced: true });

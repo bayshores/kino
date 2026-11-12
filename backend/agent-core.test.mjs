@@ -1022,7 +1022,7 @@ test("lift_dark aims a dark shot at the other shots' median, adds a curve and gr
   };
   const first = await liftDark(document, { layerIds: ["dark"], fonts: defaultFonts, render, runOps });
   assert.deepEqual(sent.map((op) => [op.op, op.layerId, op.id, op.effect]), [["add_animation", "dark", "dark.lift", "curves"], ["add_animation", "dark", "dark.lift-grain", "grain"]]);
-  assert.match(first.lines[0], /^lift_dark target 90 \(median of 1 other shot\): dark mean 33 to (8[89]|9[0-2]), contrast \(p90-p10\) 43 to \d+, black 7 to 7 \(a plain gamma [\d.]+ to the same mean: contrast \d+, black \d+\); \+[\d.]+ stops, grain [\d.]+ size 1\./);
+  assert.match(first.lines[0], /^lift_dark target 90 \(median of 1 other shot; full range 0-255; video range 16-235: 93\): dark mean 33 to (8[89]|9[0-2]) measured on the render \(3 frames\), contrast \(p90-p10\) 43 to \d+, black 7 to 7 \(a plain gamma [\d.]+ to the same mean: contrast \d+, black \d+\); \+[\d.]+ stops, grain [\d.]+ size 1\./);
   // The black point stays, the contrast grows past the gamma's.
   const [lift] = first.lifted;
   assert.ok(lift.after.contrast > lift.gamma.stats.contrast && lift.gamma.stats.p2 > lift.after.p2);
@@ -1033,7 +1033,7 @@ test("lift_dark aims a dark shot at the other shots' median, adds a curve and gr
   // In a 9:16 frame the same shots sit between black bars: each is measured inside its own box, so
   // the bars neither set the black point nor pull the shot past the other shot's 90.
   const tall = await liftDark(shotsIn([1080, 1920], [656, 608]), { layerIds: ["dark"], fonts: defaultFonts, render, runOps });
-  assert.match(tall.lines[0], /^lift_dark target 90 \(median of 1 other shot\): dark mean 33 to (8[89]|9[0-2]), contrast \(p90-p10\) 43 to \d+, black 7 to 7 /, tall.lines[0]);
+  assert.match(tall.lines[0], /^lift_dark target 90 \(median of 1 other shot; full range 0-255; video range 16-235: 93\): dark mean 33 to (8[89]|9[0-2]) measured on the render \(3 frames\), contrast \(p90-p10\) 43 to \d+, black 7 to 7 /, tall.lines[0]);
   const [picked] = translateOperations([{ op: "lift_dark", layer: "dark", target: 80 }], createResolver(document), document);
   assert.deepEqual([picked.layerIds, picked.target], [["dark"], 80]);
 });

@@ -1589,10 +1589,14 @@ How to read it:
   `backend/agent-fonts.test.mjs`. Gap: labels are measured on small strip frames and can box the wrong area; board shot text is not covered.
 - **Text around a moving subject** (`place {around, follow?}`): Verified on rendered frames of a generated clip. The subject is
   measured over the whole hold; `follow:true` writes a path that keeps the text beside it. Evidence: `engine/subjectRoom.test.js`,
-  `backend/subject-room-render.test.mjs`. Gap: check measures the subject box its own way, so the two can differ.
+  `backend/subject-room-render.test.mjs`. check's type_covered and place read one cut-out subject box (same box at every sampled
+  second for a punched-in, cropped, turned cut-out); the hold follows parent groups; a cut-out copy retimed alone moves its path.
+  Evidence: `engine/subjectRoom.test.js`, `backend/agent-blocks.test.mjs`, `backend/agent-cutout.test.mjs`. Gap: a cut-out in a
+  box of another shape than its file is measured over the box, not the contained picture.
 - **Lift without block edges** (`lift_dark`): Verified on a rendered generated clip (block step 2.73 after the old lift, 0.98 after
-  the new one). Smooths compression block edges when the measured step is high; grain size follows the source scale. Evidence:
-  `backend/lift-deblock.test.mjs`. Gap: the lift can overshoot its target by a few levels on real footage.
+  the new one). Smooths compression block edges when the measured step is high; grain size follows the source scale. The target
+  and means print in one range (full 0-255, with the target's video-range level); rendered mean 58 for target 60. Evidence:
+  `backend/lift-deblock.test.mjs`. Gap: the means come from 3 rendered frames a shot, not the whole shot on real footage.
 - **Footage added above text goes under it**: Test-verified. Full-frame footage added above overlapping text is placed below the
   text; masks and explicit order ops are left alone. Evidence: `backend/agent-edit-repair.test.mjs`, `backend/agent-moves.test.mjs`.
 - **Cut facts in the render answer**: Test-verified. A draft or final mp4, webm or mov is decoded to 32x18 frames

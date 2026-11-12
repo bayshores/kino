@@ -113,7 +113,10 @@ export async function liftDark(document, { sceneId = null, layerIds = [], target
   }
   const otherMean = median(others.map((shot) => lumaStats(shot.frames)?.mean));
   const aim = Number.isFinite(target) ? target / 255 : otherMean ?? FALLBACK_TARGET / 255;
-  const aimLine = Number.isFinite(target) ? `target ${target}` : otherMean !== null ? `target ${levels255(otherMean)} (median of ${others.length} other shot${others.length === 1 ? "" : "s"})` : `target ${FALLBACK_TARGET} (no other shot to follow; target:<0-255> sets it)`;
+  // One range for the target and every mean: full range 0-255 (Rec. 709 luma of the rendered RGB),
+  // with the target's video-range level (16-235, what a meter on the encoded file reads) beside it.
+  const range = `full range 0-255; video range 16-235: ${Math.round(16 + aim * 219)}`;
+  const aimLine = Number.isFinite(target) ? `target ${target} (${range})` : otherMean !== null ? `target ${levels255(otherMean)} (median of ${others.length} other shot${others.length === 1 ? "" : "s"}; ${range})` : `target ${FALLBACK_TARGET} (a starting guess, no other shot to follow; target:<0-255> sets it; ${range})`;
   const pitchOf = (layerId) => (grids.has(layerId) ? grids.get(layerId)[0].pitchX : 1);
   // Block steps are read at full scene size (a 240 px frame cannot show a 16 px block), inside the
   // shot's box, on the shot's layer drawn alone: text, other pictures and overlays on top add steps
@@ -152,7 +155,7 @@ export async function liftDark(document, { sceneId = null, layerIds = [], target
   const level = (value) => Math.round(value * 100) / 100;
   const blockLine = (entry) => !entry.blocks ? ""
     : `, block step (${entry.blocks.side} px grid, levels on the grid lines over inside the blocks) ${level(entry.blocks.step)} to ${entry.blocksAfter ? level(entry.blocksAfter.step) : "?"}${entry.deblock ? `, deblock radius ${entry.deblock.radius} threshold ${entry.deblock.threshold}` : " (no deblock: under the 1.5x line)"}`;
-  const shotLine = (entry) => `${name(entry.layerId)} mean ${levels255(entry.before.mean)} to ${levels255(entry.after.mean)}, contrast (p90-p10) ${levels255(entry.before.contrast)} to ${levels255(entry.after.contrast)}, black ${levels255(entry.before.p2)} to ${levels255(entry.after.p2)} (a plain gamma ${entry.gamma.gamma} to the same mean: contrast ${levels255(entry.gamma.stats.contrast)}, black ${levels255(entry.gamma.stats.p2)}); +${entry.stops} stops${entry.amount ? `, grain ${entry.amount} size ${entry.size}${still ? " still" : ""}` : ""}${blockLine(entry)}`;
+  const shotLine = (entry) => `${name(entry.layerId)} mean ${levels255(entry.before.mean)} to ${levels255(entry.after.mean)} measured on the render (${entry.times.length} frame${entry.times.length === 1 ? "" : "s"}), contrast (p90-p10) ${levels255(entry.before.contrast)} to ${levels255(entry.after.contrast)}, black ${levels255(entry.before.p2)} to ${levels255(entry.after.p2)} (a plain gamma ${entry.gamma.gamma} to the same mean: contrast ${levels255(entry.gamma.stats.contrast)}, black ${levels255(entry.gamma.stats.p2)}); +${entry.stops} stops${entry.amount ? `, grain ${entry.amount} size ${entry.size}${still ? " still" : ""}` : ""}${blockLine(entry)}`;
   const kept = skipped.length ? `; ${skipped.map((shot) => `${name(shot.layerId)} ${levels255(lumaStats(shot.frames)?.mean ?? 0)}`).join(", ")} already at or above it, left alone` : "";
   const lines = [lifted.length
     ? `lift_dark ${aimLine}: ${lifted.map(shotLine).join("; ")}${kept}. Effects ${lifted.some((entry) => entry.deblock) ? "<layer>.lift-deblock (deblock), " : ""}<layer>.lift (curves) and <layer>.lift-grain; again replaces them, remove:true takes them off.`
