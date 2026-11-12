@@ -22,7 +22,7 @@ Related effects that are not light: `vignette` and `grain` (finish), `duotone` a
   (deep glow); `color` with `colorMix` tints it (a red tint at the bright edges is halation).
   `mode:"behind"` puts the halo under the layer so its fill keeps its color.
 - `rim-light` lights the edge of a layer's own shape (cut-out subject, text, shape) in one
-  call: `color` "auto" (the layer's edge hue), `width` 8, `angle` "auto" or degrees (0 above),
+  call: `color` "auto" (the layer's edge hue), `width` 8 (4 lobes), `angle` "auto" or degrees (0 above),
   `spread` 20; `edge:"outside"` is a ring outline alone, `style:"lobes"` uneven electric lobes.
   `smooth` rounds matte steps; `core` 0.3 mixes the line toward white; `haze` 0.8 adds a wide dim
   falloff (`hazeSpread` 140, 0 off). Glow, shadows and rims on a cut-out skip its faded border.

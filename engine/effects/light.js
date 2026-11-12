@@ -64,7 +64,8 @@ export const LIGHT_EFFECTS = [
   { key: "rim-light", label: "Rim Light", group: "Light", kind: "ranged", render: renderRimLight,
     parameters: {
       color: { ...color("Color", "auto"), auto: true },
-      width: number("Width", 8, 0.5, 200, 0.5, "px"),
+      // "auto": 4 px with style lobes, else 8 (rimWidth in rimLight.js says where each comes from).
+      width: number("Width", "auto", 0.5, 200, 0.5, "px", { auto: true }),
       angle: number("Angle", "auto", -360, 360, 1, "°", { auto: true }),
       spread: number("Spread", 20, 0, 400, 1, "px"),
       // Haze: a second, wide and dim falloff around the glow (0 turns it off).

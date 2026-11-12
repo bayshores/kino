@@ -13,7 +13,7 @@ import { glowRadii, glowWeights, renderGlow, thresholdTable } from "./glow.js";
 import { MAX_RAY_COPIES_PER_STAGE, MAX_RAY_STAGES, rayFade, rayStages, renderLightRays, sceneBoxInLayer } from "./lightRays.js";
 import { flareVisibility, renderLensFlare } from "./lensFlare.js";
 import { calmLightAnimations } from "./light.js";
-import { lobeTable, renderRimLight } from "./rimLight.js";
+import { lobeTable, renderRimLight, rimWidth } from "./rimLight.js";
 import { createLayer, createScene } from "../model.js";
 import { renderSceneSvg } from "../render.js";
 import { CPU_RASTER } from "../../tests/golden/raster.mjs";
@@ -155,6 +155,8 @@ test("rim light: haze reaches far by default, auto color lifts a dark subject, l
   const table = lobeTable();
   assert.equal(table[0], 0, "low noise is a dark gap");
   assert.equal(table.at(-1), 1);
+  const width = (parameters) => rimWidth({ parameters: { ...effectDefaults("rim-light"), ...parameters } }, parameters.style ?? "even");
+  assert.deepEqual([width({}), width({ style: "lobes" }), width({ style: "lobes", width: 8 })], [8, 4, 8], "auto width: 4 for lobes, a saved 8 stays 8");
 });
 
 test("glow and shadows on a cut-out stay off the faded strip along its source picture's border", async () => {

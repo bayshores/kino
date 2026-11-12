@@ -111,6 +111,18 @@ export function smoothRadius(frame) {
   return ["video", "image"].includes(frame?.helpers?.layerType) ? 4 : 0;
 }
 
+/**
+ * The line's width (px). "auto": 8, the acid rim beside cut-out subjects (grade-bloom-flash, 4 to 6
+ * px at 480p); with style "lobes" 4, the electric outline's thin pale core (glow-outline result:
+ * about 4 px at 1920). The rim-tune skeptic re-run drew the lobes at 8 as a 14 to 18 px tube at
+ * 1080p beside the reference's 4 px line, so the outline style keeps its own thinner start.
+ */
+export function rimWidth(frame, style) {
+  const value = frame?.parameters?.width;
+  if (Number.isFinite(value)) return Math.max(0.5, Math.min(200, value));
+  return style === "lobes" ? 4 : 8;
+}
+
 function choiceParameter(frame, key, options, fallback) {
   const value = frame?.parameters?.[key];
   return options.includes(value) ? value : fallback;
@@ -119,10 +131,10 @@ function choiceParameter(frame, key, options, fallback) {
 export function renderRimLight(frame) {
   const intensity = numberParameter(frame, "intensity", 1, 0, 4);
   if (intensity === 0) return frame.content;
-  const width = numberParameter(frame, "width", 8, 0.5, 200);
   const spread = numberParameter(frame, "spread", 20, 0, 400);
   const edge = choiceParameter(frame, "edge", RIM_EDGES, "inside");
   const style = choiceParameter(frame, "style", RIM_STYLES, "even");
+  const width = rimWidth(frame, style);
   const openEdges = choiceParameter(frame, "openEdges", RIM_OPEN_EDGES, "frame");
   const lobeSize = numberParameter(frame, "lobeSize", 100, 8, 1000);
   const crawl = numberParameter(frame, "crawl", 40, -1000, 1000);
