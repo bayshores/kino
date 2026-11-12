@@ -5,6 +5,7 @@ import test from "node:test";
 import { barAtOrAfter, beatGrid, editBeats, snapToImpact, speechSpan } from "./footage/cuts.js";
 import { markedSubject, openingMoment } from "./footage/moments.js";
 import { frameShot, shotLayout } from "./footage/layout.js";
+import { facePartPoint, pickFace } from "./footage/faceParts.js";
 import { accentTimes, burstPassages, phrasePlan, songSections } from "./footage/pace.js";
 import { defaultPace, nearestBeats, shotStats } from "./footage/refPace.js";
 import { planEdit } from "./footage/plan.js";
@@ -124,6 +125,20 @@ test("frame: a hand-placed 16:9 layer in 9:16 gets blur-fill; a face from subjec
   const framed = applyOperations(createDocument({ scenes: [createScene({ id: "s", width: 1080, height: 1920, duration: 4, layers: [createLayer("video", { id: "keeper", name: "keeper", src: "/api/media/keeper.mp4", x: -1167, y: 0, width: 3413, height: 1920, mediaSourceDuration: 10 })] })] }),
     [{ type: "frame_shot", sceneId: "s", layerId: "keeper", size: wide, samples: [] }]);
   assert.throws(() => applyOperations(framed, [{ type: "frame_shot", sceneId: "s", layerId: "keeper", size: wide, samples: [] }]), /keeper is already framed: keeper blur is its blurred backdrop/);
+});
+
+test("face parts: a part mark is exact, a person-shaped mark is not a head, a measured face stands in, above-head sits on the box top", () => {
+  const size = { width: 1920, height: 1080 };
+  const samples = [{ t: 1, subjects: [{ box: [0.4, 0.2, 0.2, 0.4], kind: "face" }, { box: [0, 0, 1, 1], kind: "saliency" }] }];
+  const person = { at: 1, box: [40, 5, 10, 90], by: "agent" };
+  const found = pickFace({ marks: [person], samples, sourceTime: 1.2, on: "eyes", size });
+  assert.equal(found.how, "detected", "a mark 5x taller than wide on screen is a person, not a head");
+  assert.deepEqual(facePartPoint(found, "eyes").point.map(Math.round), [50, 35]);
+  const strip = { at: 1, box: [30, 30, 40, 10], by: "agent", part: "eyes" };
+  assert.deepEqual(facePartPoint(pickFace({ marks: [person, strip], samples, sourceTime: 1, on: "between-eyes", size }), "between-eyes").point, [50, 35]);
+  assert.deepEqual(facePartPoint(pickFace({ marks: [], samples, sourceTime: 1, on: "above-head", size }), "above-head", { offset: [0, -10] }), { point: [50, 16], edge: "bottom" });
+  assert.equal(pickFace({ marks: [person], samples, sourceTime: 3, on: "mouth", size }), null, "nothing within half a second");
+  assert.equal(pickFace({ marks: [{ at: 1, box: [30, 10, 40, 80], by: "agent", part: "face" }], sourceTime: 1, on: "face", size }).how, "head", "a face mark is the head, placed by shares");
 });
 
 test("compose footage: a face from subjects-v1 leads the crop, a saliency box only decides fill or card", () => {

@@ -17,7 +17,8 @@ import { randomUUID } from "node:crypto";
 import { applyOperations } from "../../engine/operations.js";
 import { createLayer, createScene, parseDocument } from "../../engine/model.js";
 import { hasMediaPlay, mediaFrameState, mediaPlaybackRange } from "../../engine/playback.js";
-import { MAX_ASK_SHOWS, MAX_SUBJECT_BOXES, SAME_MOMENT, subjectBox } from "../../engine/sourceView.js";
+import { MAX_ASK_SHOWS, MAX_SUBJECT_BOXES, SAME_MOMENT, subjectBox, subjectOnScene } from "../../engine/sourceView.js";
+import { FACE_PARTS, facePartPoint, pickFace } from "../../engine/footage/faceParts.js";
 import { moveBeatCues } from "../../engine/beatCues.js";
 import { shiftScene } from "../../engine/speech.js";
 import { nextScenePosition } from "../../engine/sceneLayout.js";
@@ -160,8 +161,8 @@ const OPERATIONS = {
   },
   pick_variant: { fields: ["sceneId"], rules: "pick_variant {scene}: marks this scene as the chosen one of its variant set (the others stay until you delete_scene them)." },
   place: {
-    fields: ["layerIds", "layerId", "sceneId", "below", "above", "left_of", "right_of", "gap", "align", "slot", "valign"],
-    rules: "place {layers, below|above|left_of|right_of: <layer>, gap?, align?: start|center|end} moves layers (as one group) next to another layer; place {layers, slot, align?: left|center|right, valign?: top|middle|bottom} moves them into a slot (C2:E4, center, bottom, …).",
+    fields: ["layerIds", "layerId", "sceneId", "below", "above", "left_of", "right_of", "gap", "align", "slot", "valign", "on", "of", "at", "offset"],
+    rules: "place {layers, below|above|left_of|right_of: <layer>, gap?, align?: start|center|end} moves layers (as one group) next to another layer; place {layers, slot, align?: left|center|right, valign?: top|middle|bottom} moves them into a slot (C2:E4, center, bottom, …); place {layers, on: mouth|eyes|between-eyes|face|above-head, of: <video layer>, at?, offset?: [x, y]} centers them on that part of the face the footage shows at at (default: the layers' first entrance): a mark_subject box with that part is exact, a head mark or a face kino found is an estimate from the box (look to confirm; offset moves it by % of the face box).",
   },
   align: {
     fields: ["layerIds", "layerId", "sceneId", "to", "within"],
@@ -525,6 +526,18 @@ const TRANSLATE = {
   },
   place(operation, resolver) {
     layoutLayers(operation, resolver);
+    if (operation.on !== undefined || operation.of !== undefined) {
+      // place {layers, on, of, at?, offset?}: on a face part of a footage layer (engine/footage/faceParts.js).
+      if (!FACE_PARTS.includes(operation.on)) throw problem(`on is ${FACE_PARTS.join(", ")}: the face part of the footage layer \`of\` to place on.`, closest(String(operation.on ?? ""), FACE_PARTS));
+      if (operation.of === undefined) throw problem("place {on} needs of: the video layer whose face it places on.");
+      if (["below", "above", "left_of", "right_of", "slot"].some((key) => operation[key] !== undefined)) throw problem("place takes on + of, or a side, or a slot: one of them.");
+      operation.of = layerRef(resolver, operation.of);
+      if (operation.at !== undefined) parseAt(operation.at);
+      const offset = operation.offset;
+      if (offset !== undefined && !(Array.isArray(offset) && offset.length === 2 && offset.every((value) => typeof value === "number" && Number.isFinite(value) && Math.abs(value) <= 200)))
+        throw problem("offset is [x, y] in % of the face box's width and height (-200 to 200), such as [0, 5] to move 5% of the face's height down.");
+      return;
+    }
     const sides = ["below", "above", "left_of", "right_of"].filter((key) => operation[key] !== undefined);
     if (sides.length + (operation.slot !== undefined ? 1 : 0) !== 1) throw problem("place needs one of below, above, left_of, right_of (a layer) or slot.");
     for (const key of sides) operation[key] = layerRef(resolver, operation[key]);
@@ -884,7 +897,7 @@ function copyText(value, depth = 0) {
 // samples [{t, faces, subjects?}], the same ones check reads; [] when none were saved. frame_shot uses them.
 export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationContext, deckDeals = null, footageFacts = null, footageDeck = null, runOps = null, pictureAlpha = null, clipEvents = null, styleType = null, savedRefs = null, subjectSamples = null }) {
   async function fontsOf(document, work) { return work.fonts ??= await fontsFor(document); }
-  const layout = createLayoutOps({ fontsOf, problem, sceneOf });
+  const layout = createLayoutOps({ fontsOf, problem, sceneOf, faceTarget });
   async function mediaOf(document, work) {
     work.mediaList ??= await listMedia();
     return mediaFinder(work.mediaList, document.id);
@@ -1967,6 +1980,41 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     const shown = (seconds) => Number(seconds.toFixed(2));
     const done = [mark.marked && `${mark.marked} agent boxes marked`, mark.removed && `${mark.removed} removed`].filter(Boolean).join(", ");
     work.notes[mark.index] = `mark_subject ${name}: ${done} at file ${shown(mark.from)}–${shown(mark.to)} s · ${total}`;
+  }
+
+  // ---- place {on, of}: a face part of a footage layer, in scene pixels (engine/footage/faceParts.js) ----
+  // Reads the layer's own marks and the faces a full check saved (never a new decode). Returns
+  // {x, y, edge, time, faceWidth, line}: the point, whether the layers' center or bottom goes on it,
+  // the face box's width on screen (to size type against) and the receipt's words for the source.
+  async function faceTarget(document, scene, operation, work, layers) {
+    const footage = scene.layers.find((layer) => layer.id === operation.of);
+    if (!footage) throw problem(`No video layer "${operation.of}" in ${sceneLabel(scene)} (the layers placed are there).`, closest(String(operation.of), scene.layers.filter((layer) => layer.type === "video").map((layer) => layer.name || layer.id)));
+    const name = footage.name || footage.id;
+    if (footage.type !== "video") throw problem(`place {on} needs a video layer in of; ${name} is ${/^[aeiou]/.test(footage.type) ? "an" : "a"} ${footage.type} layer.`);
+    const fonts = await fontsOf(document, work);
+    // Default: the earliest entrance among the placed layers (0 when none has one).
+    const entrances = layers.map((layer) => entranceWindow(layer, fonts)?.[0]).filter((start) => Number.isFinite(start));
+    const time = operation.at !== undefined ? resolveAt(operation.at, timeLookup(document, scene, fonts, work)) : (entrances.length ? Math.min(...entrances) : 0);
+    if (!(time >= 0 && time <= scene.duration)) throw problem(`at is ${round(time)} s, outside the scene (0 to ${round(scene.duration)} s).`);
+    const sourceTime = mediaFrameState(footage, time).sourceTime;
+    let size = null;
+    try { const file = (await mediaOf(document, work))(footage.src); if (file?.width > 0 && file?.height > 0) size = { width: file.width, height: file.height }; } catch { /* drawn as the box's shape */ }
+    const marks = footage.subjectBoxes?.src === footage.src ? footage.subjectBoxes.boxes : [];
+    const samples = (await subjectSamples?.(footage).catch(() => null)) ?? [];
+    const found = pickFace({ marks, samples, sourceTime, on: operation.on, size });
+    const t = round(time);
+    // No face: the refusal names the mark call (its own example would place on a slot instead).
+    if (!found)
+      throw Object.assign(problem(`No face on ${name} near file ${round(sourceTime)} s (no mark there${samples.length ? ", and kino found no face in the saved samples" : ", and no faces measured yet: check measures them in camera footage, drawn faces are mostly missed"}). Look at the frame (look {mode:"source", layer:"${name}", t:${t}}), mark the head: mark_subject {layer:"${name}", t:${t}, box:[x, y, w, h], part:"face"} (or part:"${operation.on === "above-head" ? "face" : operation.on}" for the part itself), then place again.`), { noExample: true });
+    const { point, edge } = facePartPoint(found, operation.on, { offset: operation.offset });
+    const spot = subjectOnScene(scene, footage, time, [point[0], point[1], 0, 0], size);
+    const face = subjectOnScene(scene, footage, time, found.box, size);
+    if (!spot || !face) throw problem(`${name} has no size at ${t} s.`);
+    const shares = found.how === "part" ? null : facePartPoint(found, operation.on, {}).point;
+    const how = found.how === "part"
+      ? `your ${operation.on === "between-eyes" ? "eyes" : operation.on} mark at file ${round(found.at)} s (exact)`
+      : `${found.how === "head" ? "your head mark" : "the face kino found"} at file ${round(found.at)} s, an estimate from the box${shares && operation.on !== "above-head" ? ` (${operation.on} at ${Math.round(((shares[1] - found.box[1]) / found.box[3]) * 100)}% of its height)` : ""}: look {mode:"frame", t:${t}} confirms it; offset:[x, y] (% of the face box)${["face", "above-head"].includes(operation.on) ? "" : ` or mark_subject {part:"${operation.on}"}`} corrects it`;
+    return { x: spot.x0, y: spot.y0, edge, time: t, faceWidth: Math.round(face.x1 - face.x0), line: `${{ "between-eyes": "between the eyes", "above-head": "above the head" }[operation.on] ?? `on the ${operation.on}`} of ${name} at ${t} s: ${how}` };
   }
 
   // ---- frame_shot: kino's own shot layout on hand-placed video layers (engine/footage/layout.js) ----
