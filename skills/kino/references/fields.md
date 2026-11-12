@@ -41,7 +41,7 @@ Contents: Building blocks · Layers · Layout · Text · Animations · Scenes ·
 
 ## Layout
 
-- `place {layers, below|above|left_of|right_of: <layer>, gap?, align?: start|center|end}`
+- `place {layers, below|above|left_of|right_of: <layer>, gap?, align?: start|center|end} or {layers, around: <video layer or cut-out>|"subject", side?: left|right|above|below|split, at?, gap?}`
 - `align {layers, to: left|center|right|top|middle|bottom (or a list of two), within?: safe|frame|<slot>|<layer>}`
 - `distribute {layers, axis?: x|y, within?}`
 - `stack {layers, direction?: down|right, gap?, slot?, align?: start|center|end}`
@@ -91,7 +91,7 @@ Contents: Building blocks · Layers · Layout · Text · Animations · Scenes ·
 
 - `replace_media {scene?, layer, mediaId}`
 - `sync_clips {scene?, layer, to, search? | at?}`
-- `duck_audio {scene?, layer, under, to?, fade?, fadeUp?}`
+- `duck_audio {scene?, layer, under, to?, fade?, fadeUp?, replace?}`
 - `isolate_voice {scene?, layer, keep?, engine?, amount?}`
 - `cut_out {scene?, layer, output?, engine?, grow?, feather?, color?, invert?, points?, exclude?, time?, above?, behind?, name?, refine?, fillHoles?, openEdges?, edge?, width?, step?, detail?}`
 - `add_captions {scene?, text | file | words | speech, fix?, offset? | layer?, timing?, name?, start?, end?, fontSize?, fontFamily?, fontWeight?, fill?, box?, position?, appear?, look?, accent?, keywords?, hook?, reduced?}`
@@ -126,8 +126,9 @@ Contents: Building blocks · Layers · Layout · Text · Animations · Scenes ·
 - `shift {at, by, scene?}`
 - `mark_subject {layer, t, box, part?, shows?}`
 - `match_references {scene?, layer? | layers?, remove?, lower?}`
+- `lift_dark {layer | layers, target?, grain?, remove?}`
 - `split_image {layer, boxes:[{name, rect:[x, y, w, h]}]}`
 - `source {name, text}`
-- `board {music, shots:[{cue, dur, pacing, media, in, crop, subject, follow, text, sound, move, why, speed?, alts?, id?}], calls?, open?} or {snap:"beats"}`
+- `board {music, shots:[{cue, dur, pacing, media, in, crop, subject, follow, text, sound, move, why, speed?, lift?, alts?, id?}], calls?, open?} or {snap:"beats"}`
 - `split_layer {layer, at} or {layer, from, to}`
 - `trace_image {layer|media, time?, region?, colors?:4, smooth?:1, minArea?:16, background?, as?, name?}`
