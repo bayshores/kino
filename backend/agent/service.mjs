@@ -158,7 +158,7 @@ import { access } from "node:fs/promises";
 import { REACH_HELP, REACH_OPERATIONS, applyReachOperation } from "./reach-operations.mjs";
 import { WORKSPACE_HELP, createReachWorkspace } from "./reach-workspace.mjs";
 import { createReachExports, selectedScenes } from "./reach-exports.mjs";
-import { CLOSED_PLATFORM, cleanTake, closedPlatform, fitNote, takeSaysWhat, takeStretch, takeWithoutStretch, quietDoubt, ideasAnswerText, ideasProposedText, isYouTubeUrl, MAX_SOUND_SECONDS, numbersLine, originPhrase, originQuery, projectText, rankedSoundsText, referenceText, refId, rhythmCues, SEARCH_KINDS, searchText } from "../inspire.mjs";
+import { CLOSED_PLATFORM, cleanTake, closedPlatform, fitNote, takeSaysWhat, takeStretch, takeWithoutStretch, quietDoubt, ideasAnswerText, heardLinesText, ideasProposedText, isYouTubeUrl, MAX_SOUND_SECONDS, numbersLine, originPhrase, originQuery, projectText, rankedSoundsText, referenceText, refId, rhythmCues, SEARCH_KINDS, searchText } from "../inspire.mjs";
 import { suggestStyleLines } from "../measure/suggest.mjs";
 import { changedParts, RENDER } from "./crew-locks.mjs";
 import { CrewError } from "./crew.mjs";
@@ -7095,7 +7095,9 @@ export function createAgentService(deps) {
         const as = key ? ` as ${key.toLowerCase()} (a board move.ref "${key.toLowerCase()}@<seconds>" pins its moment for look versus)` : "";
         const message = (await agentState.read(projectId)).brief?.fields?.message?.text ?? "";
         const doubt = verb === "save" ? [known.doubt, quietDoubt(known.measuredDoubt, message)].filter(Boolean).join(", ") : "";
-        return { project: projectId, text: `${verb === "save" ? "Saved" : "Unsaved"} ${id}${as} in ${projectId} (${count} saved).${take ? ` Takes: ${take}.` : ""}${doubt ? ` Doubt: ${doubt}: look {mode:"reference", ref:"${id}"} before building on it.` : ""}`,
+        // The lines its voice says, when measured, with a footage call that looks for the picture that says one.
+        const says = verb === "save" ? heardLinesText(await deps.inspire.reference(id, { full: true }).catch(() => null)) : "";
+        return { project: projectId, text: `${verb === "save" ? "Saved" : "Unsaved"} ${id}${as} in ${projectId} (${count} saved).${take ? ` Takes: ${take}.` : ""}${doubt ? ` Doubt: ${doubt}: look {mode:"reference", ref:"${id}"} before building on it.` : ""}${says ? `\n${says}` : ""}`,
           data: { saved: count, ...(key ? { key: key.toLowerCase() } : {}), ...(take ? { take } : {}) } };
       }
       if (verb === "measure") await deps.inspire.remeasure(id);

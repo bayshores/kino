@@ -1336,6 +1336,7 @@ test("the skill's footage calls search, scan and import a stub video's shots; a 
 // ---- what is said: captions (footage-finder/words.mjs) ----------------------------------------
 import { applySaid, captionArgs, fetchCaptions, parseCaptions, saidMatches, saysOf, saysText } from "./footage-finder/words.mjs";
 import { importLineCall } from "./footage-finder/actions.mjs";
+import { spokenBudget } from "./footage-finder/spoken.mjs";
 
 // An uploaded caption file as YouTube serves it: a cue can wrap one sentence over two rows.
 const MANUAL_VTT = `WEBVTT
@@ -1518,7 +1519,15 @@ test("a video with no captions is said once, and asked-for words say they were n
   const footage = addCandidates(null, [found(1)]);
   const none = createFootageActions({ finder: saidFinder({ none: true }) });
   const first = await none.handle({ scan: "F1" }, { footage, personClips: 0 });
-  assert.match(first.text, /^No captions on this video\.$/m);
+  assert.match(first.text, /^No captions on this video\. said:"<words>" listens to the scanned part on this computer/m);
+  assert.doesNotMatch(first.text, /your reference/);
+  // A measured reference of this project said a line (inspire's projectView lines): the hint names it as a ready scan
+  // call, saved references first; a hook heard twice (a song) is not offered.
+  const known = knownEdits({ saved: ["yt:saved"], refs: {
+    "yt:listed": { lines: [{ at: 0.5, text: "Here we go again, every single time", times: 1 }] },
+    "yt:saved": { lines: [{ at: 0, text: "la la love you", times: 2 }, { at: 3.3, text: "I'll just kill you.", times: 1 }] } } });
+  const offered = await none.handle({ scan: "F1" }, { footage, personClips: 0, known });
+  assert.match(offered.text, /^A line your reference yt:saved says at 3\.3 s \(a voice or the song\): library \{"topic":"footage","scan":"F1","said":"I'll just kill you"\}$/m);
   const again = first.update(footage);
   assert.equal(again.candidates[0].noCaptions, true);
   assert.doesNotMatch((await none.handle({ scan: "F1" }, { footage: again, personClips: 0 })).text, /No captions/);
@@ -1528,6 +1537,59 @@ test("a video with no captions is said once, and asked-for words say they were n
   assert.doesNotMatch(quiet.text, /aption/);
   assert.equal(quiet.update(footage).candidates[0].noCaptions, undefined);
   assert.match((await limited.handle({ scan: "F1", said: "hello" }, { footage, personClips: 0 })).text, /^Captions could not be read now \(HTTP Error 429\), so "hello" was not looked for\.$/m);
+});
+
+// A video without captions, asked for words: the scan listens here (finder.spoken), ranks the shot that says them first, says what it heard where; and says why when listening failed.
+test("said on a video with no captions listens on this computer: the shot that says it goes first, nobody-says names the seconds listened, a failed listen says why", async () => {
+  const footage = addCandidates(null, [found(1)]);
+  const heard = { lang: "en", auto: true, local: true, lines: SAID_LINES, listened: 40, left: 0 };
+  const asked = [];
+  const finder = (answer) => ({ ...saidFinder({ none: true }), spoken: async (candidate, windows) => { asked.push(windows); return answer; } });
+  const listens = await createFootageActions({ finder: finder(heard) }).handle({ scan: "F1", said: "protect them" }, { footage, personClips: 0 });
+  assert.deepEqual(asked, [[{ start: 0, end: 40 }]], "listens to the stretch the scan looked at, nothing more");
+  assert.match(listens.text, /^Lines \(en, heard on this computer\):/m);
+  assert.ok(listens.text.indexOf("F1.2 ") < listens.text.indexOf("F1.1 "), listens.text);
+  assert.match(listens.text, /^0:05 "I will protect them all" \(F1\.2\) says it$/m);
+  assert.equal(listens.data.captions.local, true);
+  assert.deepEqual(listens.nextCall, importLineCall("F1", SAID_LINES[1]));
+  assert.equal(listens.update(footage).candidates[0].noCaptions, true, "the video has no captions, whatever was heard here");
+  const nobody = await createFootageActions({ finder: finder(heard) }).handle({ scan: "F1", said: "dragon" }, { footage, personClips: 0 });
+  assert.match(nobody.text, /^Nobody says "dragon" in the scanned part \(listened to 40 s here\)\.$/m);
+  const failed = await createFootageActions({ finder: finder({ none: true, why: "No speech model" }) }).handle({ scan: "F1", said: "protect them" }, { footage, personClips: 0 });
+  assert.match(failed.text, /^No captions, and listening here failed \(No speech model\), so "protect them" was not looked for: shots rank on the picture\.$/m);
+  // Without words nothing is listened to.
+  asked.length = 0;
+  await createFootageActions({ finder: finder(heard) }).handle({ scan: "F1" }, { footage, personClips: 0 });
+  assert.equal(asked.length, 0);
+});
+
+test("the finder listens to a captionless video's scanned stretch once: the audio of only that stretch, lines in the video's seconds, kept so a second ask transcribes nothing; a missing speech model is an answer", async (t) => {
+  const directory = await mkdtemp(path.join(tmpdir(), "kino-test-spoken-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const calls = [];
+  const ytDlp = async (args) => {
+    calls.push(args);
+    await writeFile(args[args.indexOf("-o") + 1].replace("%(section_start)s", "30.0").replace("%(ext)s", "m4a"), "sound");
+    return "";
+  };
+  const word = (text, start, end) => ({ text, start, end, p: 0.9 });
+  let transcribed = 0;
+  const transcribe = async () => { transcribed += 1; return { words: [word("I", 1, 1.2), word("will", 1.2, 1.5), word("protect", 1.5, 2), word("them.", 2, 2.5)] }; };
+  const video = { source: "youtube", videoId: "jNQXAC9IVRw" };
+  const finder = createFootageFinder({ directory, ytDlp, transcribe, runtime: withRuntime.runtime });
+  const heard = await finder.spoken(video, [{ start: 30, end: 90 }]);
+  assert.deepEqual([heard.local, heard.listened, heard.left, heard.lines], [true, 60, 0, [{ start: 31, end: 32.5, text: "I will protect them." }]]);
+  assert.equal(calls.length, 1);
+  assert.ok(calls[0].includes("--download-sections") && calls[0].includes("*30-90") && calls[0].includes("wa/ba/b"), calls[0].join(" "));
+  assert.ok(!calls[0].some((arg) => /cookies/.test(arg)));
+  const again = await createFootageFinder({ directory, ytDlp, transcribe, runtime: withRuntime.runtime }).spoken(video, [{ start: 30, end: 90 }]);
+  assert.deepEqual([again.lines.length, calls.length, transcribed], [1, 1, 1], "a second finder reads the kept lines");
+  assert.deepEqual(await finder.spoken({ source: "commons", id: "clip:commons-1" }, [{ start: 0, end: 5 }]), { none: true, why: "not a YouTube video" });
+  const noModel = createFootageFinder({ directory: path.join(directory, "other"), ytDlp, runtime: withRuntime.runtime,
+    transcribe: async () => { throw new Error("The speech model is missing."); } });
+  assert.deepEqual(await noModel.spoken(video, [{ start: 30, end: 90 }]), { none: true, why: "The speech model is missing." });
+  // The budget keeps whole windows up to 120 s, the first always; a window that would pass it is left.
+  assert.deepEqual(spokenBudget([{ start: 0, end: 70 }, { start: 100, end: 160 }, { start: 200, end: 210 }]), { listen: [{ start: 0, end: 70 }, { start: 200, end: 210 }], left: 60 });
 });
 
 test("an import answer says what a clip of 1.5 s or more says, in the clip's own seconds, from where the cut really starts; a tiny clip says nothing", () => {

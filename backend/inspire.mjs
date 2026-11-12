@@ -34,6 +34,79 @@ import { keyframeStills, lookVector, rankLooks, sameFrames, shotMiddles } from "
 import { junkSound, rankSounds, sfxPrompt, soundVector } from "./sfx-rank.mjs";
 import { COPY_RUN, copiedRun } from "../engine/quality/rules/reference.js";
 import { beatSecondsOf, numbersWithMedian, shotStats } from "../engine/footage/refPace.js";
+import { call, callText } from "./agent/next-call.mjs";
+
+/** Spoken lines a measured reference keeps (the first ones in time). */
+export const HEARD_LINES_KEPT = 12;
+/** Lines the save and read answers print, and the longest line printed (characters). */
+export const HEARD_LINES_SHOWN = 4;
+const HEARD_LINE_CHARS = 60;
+const HEARD_SAID_WORDS = 6;
+
+const heardKey = (text) => String(text).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+
+/**
+ * A reference's heard lines, each text once: [{at, text, times}] in time order. The voice measure
+ * hears song lyrics as well as speech, and a sung hook (or whisper repeating itself) comes back as
+ * the same text again and again: run 8's song gave one hook 8 times in 30 s
+ * (.scratch/run8/wave/said-local-review/RESULT.md).
+ */
+export function heardLinesOnce(lines = []) {
+  const byText = new Map();
+  for (const line of lines) {
+    if (!line?.text) continue;
+    const key = heardKey(line.text);
+    if (byText.has(key)) byText.get(key).times += 1;
+    else byText.set(key, { at: line.at, text: line.text, times: 1 });
+  }
+  return [...byText.values()];
+}
+
+// A line that repeats three words or more inside itself ("in love with you I'm going to be in love with you").
+function loops(text) {
+  const words = heardKey(text).split(" ");
+  const seen = new Set();
+  for (let at = 0; at + 3 <= words.length; at += 1) {
+    const three = words.slice(at, at + 3).join(" ");
+    if (seen.has(three)) return true;
+    seen.add(three);
+  }
+  return false;
+}
+
+/** The words a said: takes from a line: its first clause of 3 words or more, at most six words, no ellipsis (said: matches words, a cut "e…" matches nothing). */
+export function saidWords(text) {
+  const words = String(text).replace(/"/g, "'").split(/\s+/).filter(Boolean).slice(0, HEARD_SAID_WORDS);
+  const stop = words.findIndex((word, index) => index >= 2 && /[,;:.!?]$/.test(word));
+  return (stop >= 0 ? words.slice(0, stop + 1) : words).join(" ").replace(/[\s,;:.!?]+$/, "");
+}
+
+/**
+ * The line of these a footage said: can look for, or null: the first one said once, of three
+ * words or more and not looping (a short "No." matches every video; a repeated or looping line is
+ * most likely the song's hook, which no found video says). lines: heardLinesOnce's.
+ */
+export function offeredLine(lines = []) {
+  return lines.find((line) => (line.times ?? 1) === 1 && line?.text && line.text.split(/\s+/).length >= 3 && !loops(line.text)) ?? null;
+}
+
+/**
+ * The words kino already holds for a measured reference, and a footage call that looks for the
+ * picture that says one of them, or "". The lines are what the voice measure (heard.lines) wrote
+ * while it found where a voice plays: nothing is transcribed for this. That measure hears singing
+ * too, so the head says "a voice or the song", a repeated text is shown once with its count, and
+ * the call is offered only for a line offeredLine accepts. The slot names the source of the
+ * footage, not the reference.
+ */
+export function heardLinesText(ref) {
+  const lines = heardLinesOnce(ref?.heard?.lines);
+  if (!lines.length) return "";
+  const clip = (text) => (text.length > HEARD_LINE_CHARS ? `${text.slice(0, HEARD_LINE_CHARS - 1).trimEnd()}…` : text).replaceAll('"', "'");
+  const shown = lines.slice(0, HEARD_LINES_SHOWN);
+  const offered = offeredLine(shown);
+  return [`words heard in it (a voice or the song): ${shown.map((line) => `${Number(line.at).toFixed(1)} "${clip(line.text)}"${line.times > 1 ? ` (${line.times} times)` : ""}`).join(", ")}${lines.length > shown.length ? `, … (${lines.length} in all)` : ""}`,
+    offered ? `footage that says one: ${callText(call("library", { topic: "footage", search: "<series or subject>", said: saidWords(offered.text) }))}` : ""].filter(Boolean).join("\n");
+}
 
 // What a search looks for: edits, short vertical edits (YouTube Shorts) or sound effects.
 export { SEARCH_KINDS };
@@ -1196,6 +1269,8 @@ export function createInspire(deps) {
       ...(record.fingerprint ? { print: screenNumbers(record.fingerprint), strips: record.strips?.length ?? 0 } : {}),
       ...(record.fingerprintError ? { fingerprintError: record.fingerprintError } : {}),
       ...(full && record.fingerprint ? { fingerprint: record.fingerprint, stripList: record.strips ?? [] } : {}),
+      // Where a voice plays and the lines it says (heard.lines): the agent's read lists them (heardLinesText).
+      ...(full && record.heard ? { heard: record.heard } : {}),
     };
   }
 
@@ -1209,7 +1284,8 @@ export function createInspire(deps) {
     const refList = {};
     for (const id of ids) {
       const record = await load(id);
-      if (record) refList[id] = summary(record);
+      // The words heard in a measured reference ride along, so a footage scan can offer one as said: (search.mjs knownEdits).
+      if (record) refList[id] = { ...summary(record), ...(record.heard?.lines?.length ? { lines: heardLinesOnce(record.heard.lines).slice(0, HEARD_LINES_SHOWN) } : {}) };
     }
     const searches = [];
     for (const search of state.searches) {
@@ -2129,13 +2205,15 @@ export async function inspireTools({ command } = {}) {
     // The loudest change (the song's section with the most weight, not the intro or outro) and the
     // voice spans (whisper, when a model is installed: by "none" says it was not heard).
     async heard(file, { seconds, bpm } = {}) {
-      const { songShape, songVocals, whisperModelReady } = await import("./song-shape.mjs");
+      const { songShape, songVoice, whisperModelReady } = await import("./song-shape.mjs");
       const { samples, sampleRate } = await decodeMono(file);
       const top = songShape(samples, sampleRate, { bpm }).sections.filter((part) => part.kind !== "intro" && part.kind !== "outro" && Number.isFinite(part.weight))
         .sort((a, b) => b.weight - a.weight || a.at - b.at)[0];
       let voice = null;
-      if (whisperModelReady()) { try { voice = await songVocals(file, { seconds }); } catch { voice = null; } }
-      return { change: top ? { at: top.at, kind: top.kind } : null, voice, by: voice ? "whisper" : "none" };
+      let lines = [];
+      if (whisperModelReady()) { try { ({ spans: voice, lines } = await songVoice(file, { seconds })); } catch { voice = null; } }
+      // The words whisper wrote for those spans stay too (no extra run): library inspire lists them.
+      return { change: top ? { at: top.at, kind: top.kind } : null, voice, by: voice ? "whisper" : "none", ...(lines.length ? { lines: lines.slice(0, HEARD_LINES_KEPT) } : {}) };
     },
     // steady: kino's own test of whether the beat grid is a song's (a voice scores low).
     findBeats: async (file) => { const analysis = await analyzeAudioFile(file); return { ...analysis, steady: steadyBeat(analysis) }; },
@@ -2301,6 +2379,7 @@ export function referenceText(ref, { full = false } = {}) {
   const median = filled.median != null ? `median shot ${round(filled.median, 1)} s${medianBeatWords(filled, ref.bpm)}` : "";
   return [head, `measured ${span}: ${[`${numbers.shots} shots`, `${numbers.cutsPerSecond} cuts/s`, median, longest, beat].filter(Boolean).join(" · ")}`, ...(fit ? [fit] : []), cuts, lendLine(numbers),
     ...fingerprintLines(ref),
+    ...heardLinesText(ref).split("\n").filter(Boolean),
     `borrow: edit {ops:[{op:"borrow_rhythm", ref:"${ref.id}", fit:true}]} (each section's shot lengths in a new order, cut on the song's seams when fit_music marked them; fit:true scales to the scene)`].join("\n");
 }
 

@@ -226,7 +226,12 @@ export function knownEdits(view, study = null) {
     const found = patchOf(ref?.measuredDoubt);
     if (found) patch[id] = found;
   }
-  return { listed, saved: new Set(view?.saved ?? []), patch, ...(study ? { study, studied: new Set() } : {}) };
+  // The words heard in the measured references ({id, at, text, times}), saved ones first: a scan
+  // of a video without captions offers one as said: (actions.mjs).
+  const saved = new Set(view?.saved ?? []);
+  const lines = Object.entries(view?.refs ?? {}).sort(([a], [b]) => Number(saved.has(b)) - Number(saved.has(a)))
+    .flatMap(([id, ref]) => (ref?.lines ?? []).map((line) => ({ id, ...line })));
+  return { listed, saved, patch, ...(lines.length ? { lines } : {}), ...(study ? { study, studied: new Set() } : {}) };
 }
 
 /**
