@@ -237,16 +237,19 @@ test("each line gets its own dip at its own measured depth, the song comes back 
   const document = documentWith([sound("music", { mediaSourceDuration: 30 }), sound("v1", { mediaStart: 0.2, mediaDuration: 2.4 }),
     sound("v2", { mediaStart: 4.6, mediaDuration: 1.8 }), sound("v3", { mediaStart: 7.4, mediaDuration: 1.8 })], 14);
   document.cues = [{ name: "song-drop-1", time: 7.9, kind: "marker" }];
+  // A dip per line (the 2 s gap gets the song back) would turn the song 3 times in 4.4 s
+  // (volume_churn), so the lines share one dip whose fade up is done by the drop, and joined says so.
+  const apart = duck(document, { under: ["v1", "v2", "v3"], levels, fadeUp: 0.8 });
+  assert.deepEqual([apart.report.times, apart.report.joined], [[[0.05, 3.4], [4.45, 7.9]], undefined]);
+  assert.deepEqual([1.5, 3.8, 5.5].map((time) => Math.round(volumeAt(apart.music, time) * 1000) / 1000), [0.2, 1, 0.1], "depth per line: v1 (-18) needs 0.2, v2 (-24) stops at the floor 0.1");
   const { report, music } = duck(document, { under: ["v1", "v2", "v3"], levels });
-  // The 2 s gap gets the song back; v2 and v3, 1 s apart, leave no 0.3 s for it to stay up, so they
-  // share a dip whose fade up is done by the drop.
-  assert.deepEqual(report.times, [[0.05, 3.4], [4.45, 7.9]]);
+  assert.deepEqual(report.times, [[0.05, 7.9]]);
+  assert.equal(report.joined, "a dip per line would turn music's level 3 times in 4.4 s (volume_churn), so the lines share 1 dip instead of 2 (a given to or fadeUp keeps a dip per line)");
+  assert.equal(volumeChurn(null, { scene: { ...document.scenes[0], layers: [music] } }).length, 0);
   // The headline is the deepest dip made, not a measured depth under the floor (0.071 for v2).
   assert.equal(report.to, 0.1);
-  assert.match(report.summary, /^music ducked to 0\.1 at 0\.05-3\.4 s \(v1; to 0\.2\) and 4\.45-7\.9 s \(v2, v3\)$/);
-  assert.deepEqual([3.8, 7.95, 8.5].map((time) => volumeAt(music, time)), [1, 1, 1]);
-  // Depth per line: v1 (-18) 6 LU over the song needs 0.2; v2 (-24) stops at the floor 0.1.
-  assert.deepEqual([1.5, 5.5].map((time) => Math.round(volumeAt(music, time) * 1000) / 1000), [0.2, 0.1]);
+  assert.match(report.summary, /^music ducked to 0\.1 at 0\.05-7\.9 s \(v1, v2, v3\)$/);
+  assert.deepEqual([3.8, 7.95, 8.5].map((time) => Math.round(volumeAt(music, time) * 1000) / 1000), [0.1, 1, 1]);
   // Every fade up takes 0.3 s or more, so bed_jump reads no step.
   assert.ok(music.animations.filter((animation) => animation.name === "Duck up").every((animation) => animation.duration >= 0.3));
   // The receipt says the dip ended before the drop, with v3 measured over the song there and the volume that lifts it.
@@ -258,8 +261,8 @@ test("each line gets its own dip at its own measured depth, the song comes back 
   assert.match(report.ways[0], /^v1 0\.2-2\.6 s: song untouched, line x1\.93 \(\+5\.7 dB\): -2\.3 LU over it \(8\.3 LU short of \+6\), 0 dB under the song's loudest moment · dip 0\.562 \(-5 dB\), line x2\.82 \(\+9 dB\): \+6 LU/);
   assert.match(report.ways[1], /^v2 4\.6-6\.4 s: .* · dip 0\.398 \(-8 dB\), line x3\.98 \(\+12 dB\): \+6 LU, 3 dB under .* · music out: the line alone at -12 LUFS$/);
   assert.match(report.ways[2], /^v3 7\.4-9\.2 s: song untouched, line x1 \(\+0 dB\): \+0\.\d LU over it/);
-  // The volume_churn hint names the calls that keep the song's level (3 turns in 4.4 s here).
-  const churn = volumeChurn(null, { scene: { ...document.scenes[0], layers: [music] } });
+  // The volume_churn hint names the calls that keep the song's level (3 turns in 4.4 s apart).
+  const churn = volumeChurn(null, { scene: { ...document.scenes[0], layers: [apart.music] } });
   assert.match(churn[0].fix.text, /keep_line \{lift:true\} keeps the song untouched.*duck_audio \{replace:true, fadeUp:/);
   // Over a quiet bed the lift alone reaches the aim, so no dip is needed.
   assert.deepEqual(lineWays({ line: -24, under: -30, ceiling: -30 }), { lift: { reach: -16, db: 8, over: 14, headroom: 5.8, factor: 2.51, short: 0 }, dip: null, out: { reach: -16 } });

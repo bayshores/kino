@@ -424,7 +424,8 @@ export function applyKeepLine(document, operation, { fonts } = {}) {
   if (operation.wait !== undefined && (typeof operation.wait !== "number" || !(operation.wait >= 0 && operation.wait <= 4))) fail("wait is how many seconds the music may stay out for the next downbeat, 0 to 4 (default half a bar; past it the music hits back on the next beat).");
   if (operation.dropout && operation.dip !== undefined) fail("give dip or dropout:true, not both: dropout takes the music out under the line.");
   if (operation.lift !== undefined && typeof operation.lift !== "boolean") fail("lift is true (the song stays untouched and the line is lifted over it) or false.");
-  if (operation.lift === true && (operation.dip !== undefined || operation.dropout === true)) fail("give one of lift:true, dip or dropout:true.");
+  // A given dip or dropout is kept as given; lift:true beside it is set aside, and a note says so.
+  if (operation.lift === true && (operation.dip !== undefined || operation.dropout === true)) notes.push(`lift:true is set aside: the ${operation.dropout === true ? "dropout" : "dip"} given takes the music down under the line`);
   let duck = null;
   let mix = null;
   // The line's level over the song each way (lineWays), for the receipt.
@@ -446,19 +447,21 @@ export function applyKeepLine(document, operation, { fonts } = {}) {
     // untouched with the line lifted, the shallowest dip with the lift, the music out.
     const ways = over && !over.own ? lineWays(over.measured) : null;
     const asked = operation.dip !== undefined || operation.dropout !== undefined;
+    // lift:true keeps the song untouched, measured or not (unmeasured, the line plays at its own level).
+    const untouched = operation.lift === true && !asked;
     // The way taken: lift (song untouched) when asked, or by default when the lift alone reaches
     // the aim within the headroom; else the shallowest dip that reaches it with the lift.
-    let way = operation.lift === true ? (ways ? "lift" : null) : !asked && !sound && ways ? (ways.lift.short === 0 ? "lift" : ways.dip ? "dip" : null) : null;
-    if (operation.lift === true && !ways) notes.push("lift needs the line and the music measured; the music dips as before");
+    let way = untouched ? (ways ? "lift" : null) : !asked && !sound && ways ? (ways.lift.short === 0 ? "lift" : ways.dip ? "dip" : null) : null;
+    if (untouched && !ways) notes.push(`song untouched (lift:true); the ${sound ? "sound keeps its own level" : "line or the music is not measured, so the line plays at its own level"}`);
     let out = operation.dropout === true;
     let tooQuiet = null;
-    if (!way && !out && !asked && over?.short) {
+    if (!way && !untouched && !out && !asked && over?.short) {
       tooQuiet = over;
       out = true;
       over = lineOverMusicAt(scene, owner, music.layer, start, end, { ...operation, dropout: true }) ?? over;
     }
     const wayDip = () => (way === "dip" ? round(Math.max(0, Math.min(level, level * 10 ** (ways.dip.dipDb / 20)))) : level);
-    const dip = way ? wayDip() : out ? 0
+    const dip = way ? wayDip() : untouched ? level : out ? 0
       : operation.dip ?? (over ? round(Math.max(0, Math.min(level, level * 10 ** (over.dipDb / 20)))) : round(level * DEFAULT_DIP));
     if (dip > level) notes.push(`dip ${dip} is above the music's volume ${level}, so the music gets louder under the line`);
     // The line leveled for the way taken (lift or dip), its mix and one note; a second call (the
@@ -473,8 +476,8 @@ export function applyKeepLine(document, operation, { fonts } = {}) {
       const total = round(10 * Math.log10(10 ** (taken.reach / 10) + 10 ** (bed / 10)), 1);
       mix = { line: taken.reach, around: over.measured.around, under: total, change: round(total - over.measured.around, 1) };
       const text = chosen === "lift"
-        ? `${why || "song untouched: "}the line is lifted x${ways.lift.factor} to ${taken.reach} LUFS, ${signed(taken.over)} LU over the song${ways.lift.short > 0 ? ` (${ways.lift.short} LU short of +${LINE_OVER_BED})` : ""}${ways.lift.headroom === null ? "" : `, ${ways.lift.headroom} dB under the song's loudest moment`}`
-        : `the lift alone reaches ${signed(ways.lift.over)} LU over the song (${ways.lift.short} LU short of +${LINE_OVER_BED} within the headroom), so the shallowest dip that reaches it:dip ${dip} (${ways.dip.dipDb} dB) with the line at ${taken.reach} LUFS, ${signed(taken.over)} LU over`;
+        ? `${why || "song untouched: "}the line is lifted x${ways.lift.factor} to ${taken.reach} LUFS, ${signed(taken.over)} LU over the song${ways.lift.short > 0 ? ` (${ways.lift.short} LU short of +${LINE_OVER_BED})` : ""}${ways.lift.headroom === null ? "" : `, ${Math.abs(ways.lift.headroom)} dB ${ways.lift.headroom >= 0 ? "under" : "over"} the song's loudest moment`}`
+        : `the lift alone reaches ${signed(ways.lift.over)} LU over the song (${ways.lift.short} LU short of +${LINE_OVER_BED} within the headroom), so the shallowest dip that reaches it: dip ${dip} (${ways.dip.dipDb} dB) with the line at ${taken.reach} LUFS, ${signed(taken.over)} LU over`;
       if (wayNote >= 0) notes[wayNote] = text;
       else wayNote = notes.push(text) - 1;
     };
@@ -505,9 +508,9 @@ export function applyKeepLine(document, operation, { fonts } = {}) {
           + (hold === null ? "" : `; dip:${hold} keeps the music in and holds the mix, the line ${buried} LU under the music`));
       }
     } else for (const entry of kept) delete entry.piece.voiceLevel;
-    if (!over && operation.dip === undefined && !operation.dropout) notes.push(`the music dips to ${dip} under the line (${DEFAULT_DIP} of its volume ${level}, about 3 dB; not measured); dip:<0 to 1> sets it`);
+    if (!over && !untouched && operation.dip === undefined && !operation.dropout) notes.push(`the music dips to ${dip} under the line (${DEFAULT_DIP} of its volume ${level}, about 3 dB; not measured); dip:<0 to 1> sets it`);
     // A kept sound the music does not mask: no dip at all.
-    if (way !== "lift" && !(over?.own && !out && dip >= level)) {
+    if (way !== "lift" && !untouched && !(over?.own && !out && dip >= level)) {
       // This line's own dip, at its own depth: duck_audio keeps the dips earlier lines made.
       const under = kept.filter((entry) => entry.play.start < end && entry.play.end > start);
       const speech = {};

@@ -60,10 +60,14 @@ import { FIT_NAMES } from "./fitMusic.js";
 import { clearVolume, duckDepth, energyMean, heardLoudness, leveledLoudness, leveledVoice, lineWays, loudestHeard, loudnessOver, sectionCues, voiceLines, waysText, VOICE_OVER_BED, VOICE_OVER_MUSIC, VOICE_TARGET_LUFS } from "./mixLevels.js";
 import { breakAfter, spokenWords, withPauses } from "./quality/rules/speech.js";
 import { round } from "./numbers.js";
+import { churnRun } from "./quality/rules/sound.js";
 
 export const DUCK_NAMES = Object.freeze({ down: "Duck down", up: "Duck up" });
 const SOUND_TYPES = new Set(["audio", "video"]);
 const MAX_FADE_SECONDS = 10;
+// The longest gap (s, between one dip's fade up and the next one's fade down) that churning
+// default dips are joined across; a guess, not measured by listening.
+const JOIN_MAX_GAP = 3;
 // A default dip longer than this (seconds) goes no deeper than LONG_DIP_DB under the level it
 // leaves, unless a measured line in it needs it deeper to stay VOICE_OVER_BED LU over the music.
 export const LONG_DIP = 2;
@@ -175,7 +179,7 @@ export function loudSpans(curve, layer, range, spans) {
  * their fades must stop. Returns sorted [{ start, end, names?, upBy?, downFrom? }] of the
  * stretches themselves; `names` lists the names of the spans in each, when the spans have them.
  */
-export function duckStretches(spans, fade, sceneDuration, fadeUp = fade, breaks = []) {
+export function duckStretches(spans, fade, sceneDuration, fadeUp = fade, breaks = [], join = 0) {
   const sorted = spans
     .map((span) => ({ ...span, start: Math.max(0, span.start), end: Math.min(sceneDuration, span.end) }))
     .filter((span) => span.end > span.start)
@@ -189,7 +193,8 @@ export function duckStretches(spans, fade, sceneDuration, fadeUp = fade, breaks 
     // An earlier dip keeps its own fades; the music comes back up whenever the two ramps fit in the gap.
     const up = last?.ramps?.fadeUp ?? fadeUp;
     const down = ramps?.fade ?? fade;
-    if (last && cue == null && span.start - down < last.end + up + MIN_UP) {
+    // `join`: stretches this close are one dip as well (the ramps keep their own lengths).
+    if (last && cue == null && span.start - down < last.end + Math.max(up, join) + MIN_UP) {
       last.end = Math.max(last.end, span.end);
       if (earlier === undefined || last.ramps !== ramps) delete last.ramps;
     } else {
@@ -278,6 +283,35 @@ function duckSummary(name, to, dips) {
 
 /** Applies duck_audio to `document` (changed in place). Returns a short report. */
 export function applyDuckAudio(document, operation) {
+  // Without `to` or fadeUp, a dip per line can make the song churn (volume_churn: 3 turns in 10 s).
+  // Then the dips are one dip under the whole spoken stretch when that does not churn, and the
+  // receipt's joined says so. A given `to` or fadeUp and keep_line's own dips stay as made.
+  if (operation.to !== undefined || operation.fadeUp !== undefined || operation.ownLine) return duckOnce(document, operation);
+  const scene = document.scenes.find((item) => item.id === operation.sceneId);
+  const layer = scene?.layers.find((item) => item.id === operation.layerId);
+  if (!layer || !SOUND_TYPES.has(layer.type)) return duckOnce(document, operation);
+  const pieces = fitPieces(scene, layer);
+  const saved = pieces.map((piece) => [piece, piece.animations]);
+  const before = churnRun(layer, scene);
+  const report = duckOnce(document, operation);
+  const churn = before ? null : churnRun(layer, scene);
+  if (!churn || !(report.times?.length > 1)) return report;
+  const made = pieces.map((piece) => [piece, piece.animations]);
+  const gap = Math.max(...report.times.slice(1).map((time, index) => time[0] - report.times[index][1]));
+  // A longer gap lets the song be heard at full between the lines: those dips stay apart.
+  if (gap > JOIN_MAX_GAP) return report;
+  const fadeUp = operation.fade ?? DUCK_FADES.up;
+  for (const [piece, animations] of saved) piece.animations = animations;
+  const one = duckOnce(document, { ...operation, join: round(fadeUp + gap + 0.05) });
+  if (churnRun(layer, scene) || one.dips >= report.dips) {
+    for (const [piece, animations] of made) piece.animations = animations;
+    return report;
+  }
+  const spread = round(churn.at(-1).time - churn[0].time, 1);
+  return { ...one, joined: `a dip per line would turn ${layer.name}'s level ${churn.length} times in ${spread} s (volume_churn), so the lines share ${plural(one.dips, "dip")} instead of ${report.dips} (a given to or fadeUp keeps a dip per line)` };
+}
+
+function duckOnce(document, operation) {
   const scene = document.scenes.find((item) => item.id === operation.sceneId);
   if (!scene) throw new Error(`Scene ${operation.sceneId} was not found.`);
   const layer = scene.layers.find((item) => item.id === operation.layerId);
@@ -373,7 +407,7 @@ export function applyDuckAudio(document, operation) {
     ...ducked.map(({ start, end, name, voice, unlined }) => ({ start, end, ...(name ? { name } : {}), voice, unlined })),
     ...rest,
     ...kept,
-  ], fade, scene.duration, fadeUp, sections.map((cue) => cue.time));
+  ], fade, scene.duration, fadeUp, sections.map((cue) => cue.time), operation.join ?? 0);
   for (const stretch of stretches) {
     const cue = stretch.onlyEarlier ? undefined : drops.find((time) => time >= stretch.end - 1e-6 && time < stretch.end + fadeUp);
     if (cue !== undefined) stretch.upBy = Math.min(stretch.upBy ?? Infinity, cue);

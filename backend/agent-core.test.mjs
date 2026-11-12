@@ -186,6 +186,12 @@ test("an effect choice that reads like a color word stays as written; a fill of 
   assert.equal(card.properties.fill, "#00000000");
 });
 
+test("keep_line takes lift through the agent's edit", () => {
+  const { document, resolver } = titleAndCard();
+  const [kept] = translateOperations([{ op: "keep_line", layer: "card", from: 1, to: 2, lift: true }], resolver, document);
+  assert.deepEqual([kept.type, kept.layerId, kept.lift], ["keep_line", "card", true]);
+});
+
 test("a new layer named without an ID gets a slug ID, with -2 when the slug is taken, usable later in the batch", () => {
   const document = sceneDocument([text("hero-title")]);
   const resolver = createResolver(document, assignCodes(emptyCodes(), document));

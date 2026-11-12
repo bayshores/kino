@@ -433,7 +433,10 @@ test("keep_line over measured music levels the line against the music around it,
   const lifted = run({ lift: true });
   assert.deepEqual([volumeAt(lifted.music, 5), lifted.clip.voiceLevel, lifted.report.duck], [1, -13, "none"]);
   assert.match(lifted.report.notes[0], /^song untouched: the line is lifted x3\.55 to -13 LUFS, \+0 LU over the song \(6 LU short of \+6\), 0 dB under the song's loudest moment$/);
-  assert.throws(() => run({ lift: true, dip: 0.5 }), /one of lift:true, dip or dropout:true/);
+  // A given dip beside lift:true is kept as given, with a note (no refusal).
+  const liftAndDip = run({ lift: true, dip: 0.5 });
+  assert.equal(volumeAt(liftAndDip.music, 5), 0.5);
+  assert.ok(liftAndDip.report.notes.includes("lift:true is set aside: the dip given takes the music down under the line"), liftAndDip.report.notes.join(" | "));
   // A second line 2 s after the first: its own dip would turn the song 3 times in 10 s (volume_churn),
   // so the default leaves the song untouched under it and lifts the line, and says so.
   const first = { type: "keep_line", sceneId: "s", layerId: "clip", from: 4, to: 6, subtitle: false, levels, beats };
@@ -473,6 +476,13 @@ test("keep_line over measured music levels the line against the music around it,
   const old = run({ levels: {}, beats: {} });
   assert.equal(volumeAt(old.music, 5), 0.7);
   assert.equal(old.clip.voiceLevel, undefined);
+  // Unmeasured, lift:true still keeps the song untouched; the line plays at its own level.
+  const plainLift = run({ levels: {}, beats: {}, lift: true });
+  assert.deepEqual([volumeAt(plainLift.music, 5), plainLift.report.duck, plainLift.clip.voiceLevel], [1, "none", undefined]);
+  assert.match(plainLift.report.notes.join(" | "), /song untouched \(lift:true\); the line or the music is not measured/);
+  // A line already over the song's loudest moment says "over", never a negative "under".
+  const loud = run({ levels: { clip: flat(-8, 12), music: flat(-10, 30) }, lift: true });
+  assert.match(loud.report.notes[0], /, 4\.1 dB over the song's loudest moment$/);
 });
 
 test("keep_line {sound} keeps the loudest matching scene sound at its own level, with no subtitle, and the music makes room only when masked", () => {
