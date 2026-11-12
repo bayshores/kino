@@ -182,6 +182,7 @@ const USES = {
   "punch-in": ["shot-a"],
   shake: ["shot-a"],
   "backdrop-flash": ["shot-a"],
+  "energy-aura": ["shot-a"],
 };
 // screen-recording's clip carries a recording (as project record stop leaves one): a pointer
 // slide, a click in the middle of the frame, and the pointer moving on to the next control.

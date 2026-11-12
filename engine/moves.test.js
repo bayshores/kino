@@ -87,7 +87,7 @@ function runExample(name, scene, { reduced = false, seed = 1 } = {}) {
 }
 
 test("every move is described for the library with tags from the vocabulary and an example", () => {
-  assert.equal(MOVE_NAMES.length, 56);
+  assert.equal(MOVE_NAMES.length, 57);
   for (const name of MOVE_NAMES) {
     const move = MOVES[name];
     assert.equal(move.name, name);
@@ -131,6 +131,43 @@ test("backdrop-flash puts a color field between the clip and its cut-out on the 
   assert.deepEqual(kept.animations.filter((entry) => entry.animation.effect === "tritone").map((entry) => [entry.animation.to.midtoneColor, entry.animation.start]), [["#2FA866", 1], ["#2FA866", 1.1]]);
   assert.throws(() => readMoveInput(definition, { layer: "clip", frames: [1, 2] }), /1 \(on\) and 0 \(off\)/);
   assert.equal(readMoveInput(definition, { layer: "clip", color: "auto" }).color, "auto");
+});
+
+test("energy-aura puts rising rim-light copies of the cut-out in an add group on twos behind the subject", () => {
+  const scene = sceneFor(1920, 1080);
+  const clip = scene.layers.find((layer) => layer.id === "clip");
+  clip.animations = [{ id: "grade", kind: "effect", effect: "tritone", start: 0, duration: 5, to: { midtoneColor: "#2FA866" } }];
+  scene.layers.splice(1, 0, createLayer("video", { ...clip, id: "clip-subject", name: "clip-subject", cutoutOf: "clip", cutoutFor: "energy-aura", animations: [] }));
+  const definition = MOVES["energy-aura"];
+  const made = runMove(definition, { id: "aura", input: readMoveInput(definition, { layer: "clip", subject: "clip-subject" }), scene, style: styleFor({ look: "crisp", frame: { width: 1920, height: 1080 } }), fonts: defaultFonts, start: 1, media });
+  const group = made.added.find((entry) => entry.layer.type === "group");
+  assert.deepEqual(group.place, { below: "clip-subject" });
+  assert.equal(group.layer.blendMode, "add");
+  assert.equal(group.layer.frameRate, 12);
+  const tongues = made.added.filter((entry) => entry.layer.parentId === group.layer.id).map((entry) => entry.layer);
+  assert.equal(tongues.length, 4);
+  for (const tongue of tongues) {
+    assert.equal(tongue.volume, 0);
+    const ring = tongue.animations.find((animation) => animation.effect === "rim-light");
+    // color auto: the grade's hue (147°), bright; the ring alone, outside the outline.
+    assert.deepEqual([ring.to.color, ring.to.lightOnly, ring.to.edge, ring.to.style], ["#25F483", true, "outside", "lobes"]);
+  }
+  // The first copy stays on the outline; the others climb and fade.
+  assert.equal(tongues[0].animations.some((animation) => animation.name === "Energy rise"), false);
+  const rise = tongues[1].animations.find((animation) => animation.name === "Energy rise");
+  assert.ok(rise.to.y < rise.from.y && rise.to.opacity < rise.from.opacity);
+  // kino's own cut-out shows only during the aura, with spill and the clip's grade.
+  const subjectAt = (time) => visibleByOperations(made.animations.filter((entry) => entry.layerId === "clip-subject").map((entry) => entry.animation), time);
+  assert.deepEqual([0.9, 1.5, 3.1].map(subjectAt), [false, true, false]);
+  assert.deepEqual(made.animations.filter((entry) => entry.layerId === "clip-subject" && entry.animation.kind === "effect").map((entry) => entry.animation.effect), ["rim-light", "tritone"]);
+  assert.ok(made.added.some((entry) => entry.layer.animations.some((animation) => animation.effect === "embers")));
+  assert.equal(made.end, 3);
+  // smoke: slower, no embers, on threes; reduced motion: one copy on the outline only.
+  const smoke = runMove(definition, { id: "aura", input: readMoveInput(definition, { layer: "clip", subject: "clip-subject", style: "smoke" }), scene, style: styleFor({ look: "crisp", frame: { width: 1920, height: 1080 } }), fonts: defaultFonts, start: 1, media });
+  assert.equal(smoke.added.find((entry) => entry.layer.type === "group").layer.frameRate, 8);
+  assert.equal(smoke.added.some((entry) => entry.layer.animations.some((animation) => animation.effect === "embers")), false);
+  const calm = runMove(definition, { id: "aura", input: readMoveInput(definition, { layer: "clip", subject: "clip-subject" }), scene, style: styleFor({ look: "crisp", frame: { width: 1920, height: 1080 } }), fonts: defaultFonts, start: 1, media, reduced: true });
+  assert.equal(calm.added.filter((entry) => entry.layer.parentId).length, 1);
 });
 
 test("align puts a move's span starting at, centered on or ending at its at (FilmCraft start_for)", () => {
