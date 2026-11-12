@@ -503,10 +503,10 @@ test("keep_line over measured music levels the line against the music around it,
   assert.doesNotMatch(joinedNotes, /comes back up on the beat/);
   // lift:true inside a dip another line made: the note and the mix give the song as heard (6 dB down),
   // not as measured without the dip (dm2-b replay: "-1.3 LU over" with the song held at 0.25).
-  const liftReports = new Map();
+  const heardReports = new Map();
   const liftLine = { type: "keep_line", sceneId: "s", layerId: "clip", from: 4, to: 6, subtitle: false, levels: later.levels, beats, lift: true };
-  applyOperations(documentWith([clip, other, musicLayer()], 12), [{ ...later, from: 3.5, to: 6.5 }, liftLine], { reports: liftReports });
-  const liftReport = liftReports.get(liftLine);
+  applyOperations(documentWith([clip, other, musicLayer()], 12), [{ ...later, from: 3.5, to: 6.5 }, liftLine], { reports: heardReports });
+  const liftReport = heardReports.get(liftLine);
   assert.match(liftReport.notes.join(" | "), /a dip already under this stretch holds music at -19 LUFS \(-6 LU from its own -13\): the line is \+6 LU over the song as heard/);
   assert.deepEqual([liftReport.mix.line, liftReport.mix.under], [-13, -12]);
   // wait:2 waits for the downbeat (8 s).

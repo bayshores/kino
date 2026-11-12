@@ -6,6 +6,8 @@
 // receipt names where each came from. A payoff word with no entrance gets a letter-level entrance
 // picked by the song cue it lands on.
 
+import { SAFE_ZONES } from "./quality/rules/layout.js";
+
 // Only the roles that name one of the three jobs; body, subhead and ui text keep the plain defaults
 // (a paragraph or the product's own words is not a subtitle line or a payoff word).
 const JOBS_BY_ROLE = { caption: "subtitle", headline: "payoff", hero: "payoff", label: "label", cta: "label" };
@@ -103,9 +105,11 @@ export function jobTreatment(job, { scene, labels = [], text, advance = null, fa
   const measuredFill = label?.fill && hex(label.fill) && contrast(hex(label.fill), background) >= MIN_CONTRAST ? hex(label.fill) : null;
   const properties = { fontSize: size, textAlign: "center" };
   if (label) Object.assign(properties, { fontFamily: label.family, fontWeight: label.weight });
+  // On a 9:16 video the phone app's own captions cover the bottom (SAFE_ZONES.portrait): a subtitle sits just above them.
+  const portrait = Math.abs(width / height / (9 / 16) - 1) <= 0.02;
   if (job === "subtitle") {
     // A line read over footage: the reference's fill (else the plain color for the background) with a thin dark edge.
-    Object.assign(properties, { fill: measuredFill ?? plain, stroke: light ? "#000000" : "#ffffff", strokeWidth: Math.max(2, Math.round(size * 0.06)), strokeAlign: "outside", lineHeight: 1.15, x: Math.round(width * 0.08), width: boxWidth, height: Math.round(size * 2.6), y: Math.round(height * 0.86 - size * 1.3) });
+    Object.assign(properties, { fill: measuredFill ?? plain, stroke: light ? "#000000" : "#ffffff", strokeWidth: Math.max(2, Math.round(size * 0.06)), strokeAlign: "outside", lineHeight: 1.15, x: Math.round(width * 0.08), width: boxWidth, height: Math.round(size * 2.6), y: Math.round(portrait ? height * (1 - SAFE_ZONES.portrait.bottom) - size * 2.6 : height * 0.86 - size * 1.3) });
     if (!label) properties.fontWeight = 600;
   } else if (job === "payoff") {
     Object.assign(properties, { fill: measuredFill ?? accent ?? plain, lineHeight: 1, x: Math.round(width * 0.05), width: boxWidth, height: Math.round(size * 1.3), y: Math.round(height * 0.5 - size * 0.65) });

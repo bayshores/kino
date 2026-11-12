@@ -269,7 +269,7 @@ test("the shots cover the music when there is a music layer, else the whole vide
   const saved = await editBoard("board-music", [motion(0, 2), motion(2, 4)], { music: "song" });
   assert.equal(saved.isError, undefined, saved.text);
   // Words sent with a family only take the subtitle treatment, printed with the fields that change them.
-  const typed = "from scene colors (background #101114; no measured type label for this job): weight 600, size 86 px, fill #ffffff, y 86 % (text.weight, text.size, text.fill, text.y change them)";
+  const typed = "from scene colors (background #101114; no measured type label for this job): weight 600, size 86 px, fill #ffffff, y 57 % (text.weight, text.size, text.fill, text.y change them)";
   assert.deepEqual(saved.data.notes, ['board r1: 2 shots, 0–6 s, music song · look {mode:"board"} shows it', `board shot 1 text as subtitle ${typed}`, `board shot 2 text as subtitle ${typed}`,
     "board music: kept as laid (the song has no drop measured; update_layer mediaOffset places it)"]);
   assert.equal(saved.data.board, undefined, "no approval yet, so no board field in the answer");
@@ -277,7 +277,7 @@ test("the shots cover the music when there is a music layer, else the whole vide
   const songLayer = document.scenes[0].layers.find((layer) => layer.name === "song");
   assert.equal(document.board.music, songLayer.id, "music keeps the layer's id");
   assert.deepEqual(document.board.shots.map((shot) => [shot.id, shot.cue, shot.dur]), [["S1", 0, 2], ["S2", 2, 4]]);
-  assert.deepEqual(document.board.shots[0].text, { text: "The dragon is back", family: "Inter", weight: 600, size: 86, y: 86, fill: "#ffffff" }, "a subtitle line: 4.5% of 1920 px");
+  assert.deepEqual(document.board.shots[0].text, { text: "The dragon is back", family: "Inter", weight: 600, size: 86, y: 57, fill: "#ffffff" }, "a subtitle line: 4.5% of 1920 px, above the phone captions");
   const again = await editBoard("board-music", [motion(0, 2), motion(2, 4)], { music: "song" });
   assert.deepEqual(again.data.notes, ["board r1: no change", "board music: kept as laid (the song has no drop measured; update_layer mediaOffset places it)"]);
   assert.equal((await record("board-music")).document.board.rev, 1, "the same board keeps its rev");
@@ -655,7 +655,7 @@ test("after the approval, next: is compose {from:\"board\"}: it builds the shots
   // The lifted shot's layer has the curve, and the receipt prints its numbers from the render.
   const lifted = layers.find((layer) => layer.mediaStart === shots[0].cue && layer.type === "video");
   assert.ok(lifted.animations.some((animation) => animation.id === `${lifted.id}.lift`), JSON.stringify(lifted.animations.map((animation) => animation.id)));
-  assert.match(built.text, /lift_dark target 200: \S+ mean \d+ to \d+, contrast \(p90-p10\) \d+ to \d+/, built.text);
+  assert.match(built.text, /lift_dark target 200 \(full range 0-255; video range 16-235: \d+\): \S+ mean \d+ to \d+[^,]*, contrast \(p90-p10\) \d+ to \d+/, built.text);
   assert.equal(document.scenes.length, 1, "no stray scene");
   const after = await agent("check", { project: id, pixels: false, rules: ["assertions"] });
   assert.notEqual(after.text.match(/^next: (.*)$/m)?.[1], BUILD, "built once, next: moves on");
