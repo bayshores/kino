@@ -943,13 +943,13 @@ function resolveReferences(operation, type, resolver, document) {
   // A drawn hold (checks.mjs DRAWN_HOLD): the agent may keep it, on named layers; the waiver covers holds under 2 s.
   const drawnHold = type === "waive_check" && !operation.quote && isDrawnHoldWaiver(operation);
   if (drawnHold && targetsStar)
-    throw refusedWaiver(new Error(`waive_check frozen_picture names the layers whose drawn hold is meant, not target:"*".`), operation, resolver, document);
-  if (drawnHold) resolver.notes?.push(`waive_check frozen_picture (drawn hold) keeps holds under ${DRAWN_HOLD_SECONDS} s on ${[operation.target].flat().join(", ")}; a longer still stays open`);
+    throw refusedWaiver(new Error(`waive_check ${operation.code} names the layers whose drawn hold is meant, not target:"*".`), operation, resolver, document);
+  if (drawnHold) resolver.notes?.push(`waive_check ${operation.code} (drawn hold) keeps holds under ${DRAWN_HOLD_SECONDS} s on ${[operation.target].flat().join(", ")}${operation.code === "frozen_footage" ? " where the file itself holds the pose (its measured line says so); a stop the edit made or" : ";"} a longer still stays open`);
   if (type === "waive_check" && VIEWER_WAIVERS.has(operation.code) && !drawnHold) {
     const quote = typeof operation.quote === "string" ? operation.quote.trim() : "";
     const own = PERSON_WORDS_ABOUT[operation.code];
     // frozen_picture on drawn animation: the agent's own way to keep a held cel (checks.mjs DRAWN_HOLD).
-    const drawnRoute = operation.code === "frozen_picture" ? ` A held cel of drawn animation (under ${DRAWN_HOLD_SECONDS} s) is yours to keep: say "drawn hold" in reason, on the named layers.` : "";
+    const drawnRoute = ["frozen_picture", "frozen_footage"].includes(operation.code) ? ` A held cel of drawn animation (under ${DRAWN_HOLD_SECONDS} s) is yours to keep: say "drawn hold" in reason, on the named layers.` : "";
     if (!quote || HANDED_OVER.test(quote) || quote.split(/\s+/).length < 4)
       throw refusedWaiver(new Error(`${operation.code} is ${own ? `about ${own.about}` : "what viewers see"}: fix it (${own ? own.fix : `its finding's fix, or check {fix:"auto"}`}), do not waive it. Only the person can keep it: when they asked for it in their own words, send waive_check with quote (their words about this, word for word; "your call" is not one) and the layers it covers.${drawnRoute}`), operation, resolver, document);
     if (targetsStar)

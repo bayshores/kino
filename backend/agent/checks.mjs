@@ -13,6 +13,7 @@ import { documentTextLayers } from "../../engine/fontDocuments.js";
 import { documentGlyphProblems, layerGlyphProblems } from "../../engine/fontGlyphReferences.js";
 import { missingDocumentFonts } from "../../engine/fontRecovery.js";
 import { RULES } from "../../engine/quality/index.js";
+import { DRAWN_HOLD_SECONDS } from "../../engine/quality/rules/footage.js";
 import { mediaIdFromSource } from "../../engine/replaceMedia.js";
 import { animationSpan, layerAnimations, refName, sec } from "./describe.mjs";
 import { missingGlyphsHelp } from "./font-help.mjs";
@@ -310,9 +311,12 @@ export function waiverNotes(waivers = [], { codes = null } = {}) {
 // than DRAWN_HOLD_SECONDS (2 s is a guess: the study's held cels ran about 0.4 to 1.5 s). A longer
 // still stays the person's call (quote), like every other frozen picture.
 export const DRAWN_HOLD = /\b(?:drawn|cels?|hand[- ]drawn|animated|animation|anime)\b[^.]*\b(?:holds?|held)\b|\b(?:holds?|held)\b[^.]*\b(?:drawn|cels?|animation|anime)\b/i;
-export const DRAWN_HOLD_SECONDS = 2;
-/** True for a frozen_picture waiver the agent sent for a drawn hold (no person's quote in it). */
-export const isDrawnHoldWaiver = (waiver) => waiver?.code === "frozen_picture" && DRAWN_HOLD.test(String(waiver.reason ?? "")) && !String(waiver.reason ?? "").includes("(the person: ");
+export { DRAWN_HOLD_SECONDS };
+// frozen_footage takes the same waiver, but it keeps only a stop on the file's own still pose
+// (the finding's `native`, measured on import); a clip the edit froze stays the person's call.
+const DRAWN_HOLD_CODES = new Set(["frozen_picture", "frozen_footage"]);
+/** True for a frozen_picture or frozen_footage waiver the agent sent for a drawn hold (no person's quote in it). */
+export const isDrawnHoldWaiver = (waiver) => DRAWN_HOLD_CODES.has(waiver?.code) && DRAWN_HOLD.test(String(waiver.reason ?? "")) && !String(waiver.reason ?? "").includes("(the person: ");
 
 // reference_range has a row per measure (engine/quality/rules/reference.js). A waiver keeps only
 // the rows its reason names by one of these words, so "kept dark on purpose" leaves the text row open.

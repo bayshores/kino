@@ -88,6 +88,16 @@ test("blend mixes the two file frames around each time: at 0.25× a quarter, a h
   t.diagnostic(`blend grey levels: ${levels.slice(0, 16).join(", ")}`);
   const nearest = (await exportedLevels(root, mediaRoot, clipScene({ mediaSpeed: 0.25, mediaDuration: 1 }))).slice(0, 8).map(Math.round);
   assert.deepEqual(nearest, [0, 0, 0, 0, 1, 1, 1, 1], "nearest (the default) holds each file frame instead");
+  // Drawn on 3s (each drawing held 3 file frames, drawings black and grey in turn) at 0.33x: nearest
+  // shows one whole drawing in every frame; blend lays two drawings over each other where they change.
+  await makeVideo(join(mediaRoot, "threes.mp4"), { width: SIZE, height: SIZE, fps: FILE_FPS, frames: 30, frameColor: (n) => (Math.floor(n / 3) % 2 ? [240, 240, 240] : [0, 0, 0]) });
+  const drawn = (play) => exportedLevels(root, mediaRoot, clipScene({ src: "/api/media/threes.mp4", mediaSpeed: 0.33, mediaDuration: 1, ...play }));
+  const whole = (await drawn({})).map((level) => level * STEP);
+  assert.ok(whole.every((level) => level <= 12 || level >= 228), `nearest on 3s: ${whole.map(Math.round).join(", ")}`);
+  assert.ok(whole.some((level) => level >= 228), "it reaches the second drawing");
+  const doubled = (await drawn({ mediaInterpolation: "blend" })).map((level) => level * STEP);
+  assert.ok(doubled.some((level) => level > 40 && level < 200), `blend on 3s mixes two drawings: ${doubled.map(Math.round).join(", ")}`);
+  t.diagnostic(`on 3s at 0.33x, nearest: ${whole.slice(0, 16).map(Math.round).join(", ")}; blend: ${doubled.slice(0, 16).map(Math.round).join(", ")}`);
 });
 
 test("a Speed animation ramps the clip: 1× then slowing to 0.25×, with the same frames every export", { skip: skipWithoutMediaTools }, async (t) => {

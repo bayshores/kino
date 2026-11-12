@@ -12,7 +12,7 @@ import { after, before, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { createAgentClient, importedText } from "./agent/client.mjs";
 import { probeMedia } from "./media-probe.mjs";
-import { FLASH_FRAMES, MAX_VIDEO_SECONDS, MIN_SHOT_FRAMES, createShotFinder, cutsFromScores, findShots, shotFilters, shotsFromCuts, shotsLine } from "./shot-detection.mjs";
+import { FLASH_FRAMES, MAX_VIDEO_SECONDS, MIN_SHOT_FRAMES, createShotFinder, cutsFromScores, findShots, holdsLine, shotFilters, shotsFromCuts, shotsLine } from "./shot-detection.mjs";
 import { ffmpeg, run, skipWithoutMediaTools, startTestServer } from "./media.test.support.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -294,6 +294,18 @@ describe("findShots with FFmpeg", { skip: skipWithoutMediaTools }, () => {
     assert.ok(levels[0].hue < 10 || levels[0].hue > 350, `red is near 0 degrees (${levels[0].hue})`);
     assert.ok(Math.abs(levels.at(-1).hue - 240) < 10, `blue is near 240 degrees (${levels.at(-1).hue})`);
     assert.ok(levels[0].y > levels.at(-1).y, "red is brighter than blue by BT.709 luma");
+  });
+
+  test("drawn footage on 3s with a held pose: its hold pattern, and the import line that says it", async () => {
+    // 8 drawings a second shown at 24 fps (each held 3 frames); the last drawing held 0.6 s more.
+    const clip = path.join(folder, "threes.mp4");
+    await run(ffmpeg, ["-hide_banner", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=320x180:r=8:d=1",
+      "-vf", "tpad=stop_mode=clone:stop_duration=0.6,fps=24,format=yuv420p", "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", clip]);
+    const { holds } = await findShots(clip, { duration: 1.6 });
+    assert.deepEqual([holds.frames, holds.fps, holds.stills], [3, 24, [{ start: 0.875, end: 1.6 }]]);
+    assert.ok(holds.repeated >= 0.7, `repeated ${holds.repeated}`);
+    assert.match(holdsLine(holds), /^ · drawn on 3s \(\d+% repeated frames, 8 drawings a second; slowed, nearest keeps whole drawings, blend overlays two; still poses 0\.88–1\.6 s\)$/);
+    assert.equal(holdsLine({ repeated: 0, frames: 1, stills: [] }), "", "live footage adds nothing");
   });
 
   test("a white flash over a moving picture does not split the shot", async () => {
