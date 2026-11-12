@@ -108,6 +108,8 @@ import { sceneShots, shotTiles } from "../../engine/sceneShots.js";
 import { boxesAt, cropOnSource, insideShare } from "../../engine/sourceView.js";
 import { mediaFrameState, mediaPlaybackRange, mediaSoundTime } from "../../engine/playback.js";
 import { shapeOf } from "../../engine/footage/layout.js";
+import { cropLine } from "../../engine/quality/rules/footage.js";
+import { namedShape } from "../../engine/quality/rules/shape.js";
 import { constantSpeed, isRemapped, isReversed } from "../../engine/mediaTime.js";
 import { visionBoxes } from "../cutout/cutout.mjs";
 import { shotsLine } from "../shot-detection.mjs";
@@ -701,7 +703,7 @@ export function createAgentService(deps) {
     const findings = mergeFindings(basic, checked.findings, { document, codes });
     const missed = checked.unchecked ?? [];
     const unchecked = missed.length && missed.length === checked.scenes ? "all" : missed.map((id) => refName(id, codes));
-    return { findings: rules ? findings.filter((finding) => rules.includes(finding.rule)) : findings, notes: checked.notes, ms: checked.ms, unchecked, techniques: checked.techniques ?? {}, styleSpec, stale: listen ? checked.stale ?? [] : [] };
+    return { findings: rules ? findings.filter((finding) => rules.includes(finding.rule)) : findings, notes: checked.notes, ms: checked.ms, unchecked, techniques: checked.techniques ?? {}, styleSpec, stale: listen ? checked.stale ?? [] : [], crops: checked.crops ?? null };
   }
 
   // The project's waivers that still silence a finding (stale ones left out): what the waived
@@ -1908,7 +1910,8 @@ export function createAgentService(deps) {
     // An unknown name needs the right name, not another op.
     const example = isReference ? undefined : exampleOf(error.type, error, error.layer);
     if (example) details.example = example;
-    const problem = new AgentError(isReference ? "unknown_ref" : "op_failed", `Operation ${error.index}${error.type ? ` (${error.type})` : ""}: ${error.message}`, details);
+    // look_first keeps its own code: the agent looks at the shot, then waives or marks it.
+    const problem = new AgentError(isReference ? "unknown_ref" : error.code === "look_first" ? "look_first" : "op_failed", `Operation ${error.index}${error.type ? ` (${error.type})` : ""}: ${error.message}`, details);
     // The names that were not found ({kind, ref} each), for the refusal's `missing` list (not
     // sent on their own): one, or one for each part of an op such as delete_layer {layers:[…]}.
     if (error.waive) problem.waive = error.waive;
@@ -2623,7 +2626,9 @@ export function createAgentService(deps) {
     // saved for this revision, after any auto fixes. The person's own checks (by you) are not.
     const full = !scene && !rules && options.pixels;
     const saveChecked = (draft) => {
-      draft.checked = { rev: record.revision, errors: report.errors, warnings: report.warnings, at: new Date(now()).toISOString(), client: caller.getStore()?.client ?? null };
+      // cropLine: how many shots are narrow crops and how each was marked, for the stop asks.
+      const crops = cropLine(result.crops);
+      draft.checked = { rev: record.revision, errors: report.errors, warnings: report.warnings, at: new Date(now()).toISOString(), client: caller.getStore()?.client ?? null, ...(crops ? { cropLine: crops } : {}) };
     };
     const data = { rev: record.revision, ...report, notes: result.notes, ms: result.ms, techniques: result.techniques, ...(applied ? { applied } : {}) };
     const repeat = applied ? null : repeatedCheck(projectId, input, record.revision, lines);
@@ -4032,7 +4037,7 @@ export function createAgentService(deps) {
       const where = scenes.length > 1 ? `${refName(item.id, codes)} ` : "";
       for (const finding of findings) range.push(`${where}outside your ${measuredRefs} references: ${finding.measured} (theirs: ${String(finding.required).replace(/^inside your \d+ saved references: /, "")}). check lists each fix.`);
     }
-    if (measuredRefs >= 2 && !range.length) range.push(`inside your ${measuredRefs} references in brightness, dark share, text per 10 s, voice.`);
+    if (measuredRefs >= 2 && !range.length) range.push(`inside your ${measuredRefs} references in brightness, contrast, dark share, text per 10 s, voice.`);
     const fair = pairs.filter((pair) => pair.still).length;
     const lines = [
       `versus rev ${record.revision}: ${pairs.length} rows, yours (left) beside a saved reference (right) of the same kind of shot: ${fair} matched${fair < pairs.length ? `, ${pairs.length - fair} with no fair match` : ""}. Compare craft (hero size, type, motion, holds, contrast), not content or footage colors.`,
@@ -5362,6 +5367,8 @@ export function createAgentService(deps) {
           // The approved storyboard is compared with the board now before the stops decide.
           settleBoard(draft, { ...board, rev: step.rev, now: step.now });
           if (checkpoint) {
+            // The crops the check of this revision counted (draft.checked.cropLine), shown in the ask.
+            if (draft.checked?.rev === step.rev && draft.checked.cropLine) video.cropLine = draft.checked.cropLine;
             answer = checkpointStep(draft, { ...step, kind: input.id, video, rules, all: input.all === true, words: input.words, soundFiles, soundSearch: soundSearchOn(), songSearch: songSearchOn(), fresh: input.fresh, critique, styleFrame: styled?.facts ?? null });
             const asked = answer.data.status === "waiting_for_you" ? roundOf(draft, answer.data.id) : null;
             if (asked && !asked.steady) asked.steady = { at: steady, boot: bootedAt };
@@ -7228,17 +7235,11 @@ export function createAgentService(deps) {
   // shape most of the listed clips share (more than half of 2 or more), else the scene's own
   // ratio. The scene's ratio alone repeated a guess back to the agent as if it were settled.
   const FORMAT_OF_SHAPE = { portrait: "9:16", landscape: "16:9", square: "1:1" };
-  const SHAPE_WORDS = {
-    portrait: /\b(vertical|portrait|phone|tall|stor(?:y|ies)|reels?|shorts|9\s*[:x]\s*16|4\s*[:x]\s*5)\b/i,
-    landscape: /\b(horizontal|landscape|widescreen|tv|television|desktop|laptop|monitor|cinema|16\s*[:x]\s*9)\b/i,
-    square: /\b(square|1\s*[:x]\s*1)\b/i,
-  };
   function namedFormat(playsOn) {
     if (playsOn?.by !== "you") return null;
     if (FORMAT_OF_SHAPE[playsOn.named]) return FORMAT_OF_SHAPE[playsOn.named];
-    const words = `${playsOn.text ?? ""} ${playsOn.quote ?? ""}`;
-    const found = Object.keys(SHAPE_WORDS).filter((shape) => SHAPE_WORDS[shape].test(words));
-    return found.length === 1 ? FORMAT_OF_SHAPE[found[0]] : null;
+    // A line saved before kino stored `named`: read the person's own words (the quote).
+    return FORMAT_OF_SHAPE[playsOn.named === undefined ? namedShape(playsOn.quote) : null] ?? null;
   }
   function clipsFormat(listed) {
     if (listed.length < 2) return null;

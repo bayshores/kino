@@ -32,18 +32,36 @@ function footageShape(scene, mediaSizes) {
 }
 
 // The words that name a shape. Matched as whole words, any case; no brand or platform names.
+// SHAPE_WORDS say a shape outright. PLACE_WORDS say where it plays, and are also everyday words
+// ("love the story", "the phone shot"): in a free reply they count only in a place phrase
+// ("for my phone", "on tv").
 const SHAPE_WORDS = {
-  portrait: ["vertical", "portrait", "phone", "tall", "story", "stories", "reel", "reels", "shorts", "9:16", "9x16", "9 x 16", "4:5"],
-  landscape: ["horizontal", "landscape", "widescreen", "tv", "television", "desktop", "laptop", "monitor", "cinema", "16:9", "16x9"],
+  portrait: ["vertical", "portrait", "9:16", "9x16", "9 x 16", "4:5"],
+  landscape: ["horizontal", "landscape", "widescreen", "16:9", "16x9"],
   square: ["square", "1:1"],
 };
-const SHAPE_PATTERNS = Object.entries(SHAPE_WORDS).map(([shape, words]) => [shape,
-  new RegExp(`(?<![\\p{L}\\p{N}_:])(?:${words.map((word) => word.replace(/ /g, "\\s+")).join("|")})(?![\\p{L}\\p{N}_:])`, "iu")]);
+const PLACE_WORDS = {
+  portrait: ["phone", "tall", "story", "stories", "reel", "reels", "shorts"],
+  landscape: ["tv", "television", "desktop", "laptop", "monitor", "cinema"],
+  square: [],
+};
+const START = "(?<![\\p{L}\\p{N}_:])";
+const END = "(?![\\p{L}\\p{N}_:])";
+const anyOf = (words) => words.map((word) => word.replace(/ /g, "\\s+")).join("|");
+const SHAPES = Object.keys(SHAPE_WORDS);
+const LINE_PATTERNS = SHAPES.map((shape) => [shape, new RegExp(`${START}(?:${anyOf([...SHAPE_WORDS[shape], ...PLACE_WORDS[shape]])})${END}`, "iu")]);
+const REPLY_PATTERNS = SHAPES.map((shape) => [shape, new RegExp(
+  `${START}(?:${anyOf(SHAPE_WORDS[shape])})${END}` + (PLACE_WORDS[shape].length
+    ? `|${START}(?:for|on|in)\\s+(?:(?:my|our|your|the|a|an)\\s+)?(?:${anyOf(PLACE_WORDS[shape])})${END}` : ""), "iu")]);
 
-/** The shape the person's words name: "portrait", "landscape" or "square"; null for none, or for two different shapes. */
-export function namedShape(words) {
+/**
+ * The shape the person's words name: "portrait", "landscape" or "square"; null for none, or for
+ * two different shapes. `reply` is for a free answer to a stop, where a place word counts only
+ * in a place phrase; a brief's plays_on line is about the place already, so any of the words count.
+ */
+export function namedShape(words, { reply = false } = {}) {
   const text = String(words ?? "");
-  const found = SHAPE_PATTERNS.filter(([, pattern]) => pattern.test(text)).map(([shape]) => shape);
+  const found = (reply ? REPLY_PATTERNS : LINE_PATTERNS).filter(([, pattern]) => pattern.test(text)).map(([shape]) => shape);
   return found.length === 1 ? found[0] : null;
 }
 

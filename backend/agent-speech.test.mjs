@@ -15,6 +15,7 @@ import { jsonBlocks, skillSection } from "./skill.test.support.mjs";
 import { toneWords, writeFakeWhisper } from "../tests/fake-whisper-cli.mjs";
 import { writeWav } from "../tests/voice-mix.mjs";
 import { TRANSCRIPT_VERSION, whisperSetup } from "./speech/transcribe.mjs";
+import { skipBoardOn } from "./stops.test.support.mjs";
 
 // "So we will, we will um try. Like, the Acmes app.": a repeat (1-2), a filler (5), a 1.15 s pause
 // before "Like," and a misheard name. Tone 11 is one the stand-in does not write down, so kino
@@ -31,6 +32,7 @@ before(async () => {
   folder = await mkdtemp(path.join(tmpdir(), "kino-speech-agent-"));
   const env = await writeFakeWhisper(folder, WORDS);
   server = await startTestServer({ env });
+  await skipBoardOn(server);
   wav = path.join(folder, "voiceover.wav");
   if (!skipWithoutMediaTools) await writeWav(wav, toneWords(TONES, DURATION));
 });

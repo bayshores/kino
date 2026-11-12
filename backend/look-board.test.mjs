@@ -349,6 +349,9 @@ test("a 15-shot board: 4 pages of at most 4 rows, each text within 200 tokens; t
   }
   assert.deepEqual(sizes, [[1092, 1092, 1_521], [1092, 1092, 1_521], [1092, 1092, 1_521], [1092, 819, 1_170]]);
 
+  // The person named the shape, so the board ask has no shape guess line to count.
+  const shape = await agent("notes", { project: "fifteen", action: "brief", fields: { ask: "a vertical for my phone", plays_on: { text: "vertical, 9:16", by: "you", quote: "vertical for my phone" } } });
+  assert.equal(shape.isError, undefined, shape.text);
   const brief = await agent("notes", { project: "fifteen", action: "brief", no_playback: "just start" });
   assert.equal(brief.isError, undefined, brief.text);
   const asked = await agent("notes", { project: "fifteen", action: "checkpoint", id: "board" });

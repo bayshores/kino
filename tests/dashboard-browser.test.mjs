@@ -3710,6 +3710,9 @@ test("a screen reader hears the stop: its row, the status line, the card, its th
   // The rough cut again: the person reopens C1 (here through the dashboard's route), and the agent asks it again.
   await asDashboard("stops", { project: "stops-a", action: "reopen", id: "C1" });
   const checkedAfter = await stopCheck("stops-a");
+  // The sound on this same revision was just approved, so the rough would merge into it: a real edit makes a new revision and the rough is asked on its own.
+  await agent("edit", { project: "stops-a", ops: [moveTitle(770)] });
+  await stopCheck("stops-a");
   const asked = await askStop("stops-a", "rough");
   assert.equal(asked.id, "C6", asked.reply.text);
   // The agent's first call after the reopen (the check) carries it.
@@ -3828,6 +3831,8 @@ test("on the stop screen d and a answer by key; after a redo the screen moves to
 });
 
 test("with needs you closed the orange top line still names a stop and nothing is answered; the row's [a] approve button approves by mouse; reopen keeps the focus on the line", async () => {
+  // The rough cut was approved on this revision, so the color would merge into it: a real edit asks the color on its own.
+  await agent("edit", { project: "stops-r", ops: [moveTitle(780)] });
   await stopCheck("stops-r");
   const asked = await askStop("stops-r", "color");
   assert.equal(asked.id, "C3", asked.reply.text);

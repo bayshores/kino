@@ -14,9 +14,10 @@ import { cleanTreatments, pickedEnding, pickedSignature, pickedType, pickLines, 
 import { briefChanges, lockCall } from "./agent/brief.mjs";
 import { mediaKeys, newDeal } from "./agent/deck.mjs";
 import { startTestServer } from "./media.test.support.mjs";
+import { skipBoardOn } from "./stops.test.support.mjs";
 
 let server;
-before(async () => { server = await startTestServer(); });
+before(async () => { server = await startTestServer(); await skipBoardOn(server); });
 after(() => server?.stop());
 
 async function agent(verb, body = {}) {

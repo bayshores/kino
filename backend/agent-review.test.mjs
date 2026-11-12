@@ -18,6 +18,7 @@ import { addVerdict, anchorLines, barOf, barPairs, barTimeAt, parseVerdict } fro
 import { CRITIQUE_PROTOCOL, barGap, blocksRender, critiqueDirectionKey, critiqueOf, critiqueQuestions, critiqueSpine, critiqueTimes, lineText, openCritique, parseCritique, upLines } from "./agent/critique.mjs";
 import { VIEWER_WAIVERS } from "./agent/translate.mjs";
 import { serviceFor } from "./agent-ask.test.support.mjs";
+import { skipBoardOn } from "./stops.test.support.mjs";
 import { createDocument, createLayer, createScene } from "../engine/model.js";
 
 // A viewer-facing finding is kept only on the person's words, on named layers: not "*", not a scene,
@@ -774,6 +775,7 @@ test("one helper a round: look critique carries the viewer's sheets when both ga
   const report = "Sheet 1: a colored frame that slowly shifts from blue to pink. I expect it to keep shifting.\nKEEP start=6 middle=6 end=6\nDRAG none\nCARED t=4";
   // A real edit (a brief, over 30 layers) of 16 s with footage: both the viewer and the critic gate ask.
   async function build(id) {
+    await skipBoardOn(server);
     await agent("project", { action: "create", id, width: 320, height: 180, duration: 16 });
     await agent("notes", { project: id, action: "brief", no_playback: "just start" });
     const style = { wants: [], avoids: [], lines: [], by: "guessed", waived: "a gate test, no one watching", spine: [{ role: "hook", from: 0, to: 16, purpose: "the street" }], fonts: { caption: { family: "Inter", size: 40 } } };

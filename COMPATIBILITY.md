@@ -1346,12 +1346,20 @@ edit by hand. Dark only, no purple. Main tests: `backend/dashboard.test.mjs`, `f
   lines are guesses; flow and closeness only advise; reveal styles are read at 4 frames a second,
   misread interface labels and are not checked on the render.
 - **Reference range**: Test-verified on synthetic scenes and stubbed references. `reference_range` warns when the
-  edit's brightness, dark share or text entrances fall outside the project's 2+ saved references, or no clip's own
+  edit's brightness, contrast, dark share or text entrances fall outside the project's 2+ saved references, or no clip's own
   speech plays before the loudest song change (cues, else the music's song shape) where most references have a voice
   (`heard` at measure, or later in the background for older ones); names the stretch, a gamma fix or the clips' lines,
   and `look versus` says it in one line. Evidence: `engine/qualityRules.test.js`, `backend/inspire.test.mjs`,
   `backend/agent-review.test.mjs`. Gap: the reference voice is whisper's (sung and spoken alike, agreed with hand
   notes on 3 of 5 measured edits); the real listen is not run in tests.
+- **Shape and crops in the stop asks**: Test-verified. A stop's ask shows the video's shape against its footage and
+  how many shots are narrow crops (marked after a look, part crops, not looked at); `shape_guess` clears only on a
+  shape the person named. Evidence: `backend/agent-stops.test.mjs`, `engine/qualityRules.test.js`.
+- **Board before the cut**: Test-verified. A first build or a second video clip in a row answers `board_needed`
+  until the storyboard stop passed (skipped under 8 s); draft renders wait too. Evidence: `backend/agent-checkpoint.test.mjs`.
+- **Marks count after a look**: Test-verified. `narrow_window` and `crop_no_subject` clear only on a mark made
+  after `look {mode:"source"}` on that layer that the crop keeps; a waiver on an unlooked layer answers `look_first`.
+  Evidence: `engine/qualityRules.test.js`, `backend/agent-core.test.mjs`.
 - **Inspire live view and ideas**: Verified in the desktop app. F3 shows the frame being measured;
   agents propose ideas that the person allows or holds. Evidence: `backend/inspire-live.test.mjs`,
   `backend/agent-inspire.test.mjs`, `frontend/dashboardInspire.test.js`. Gap: agents add allowed ideas to

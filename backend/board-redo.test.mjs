@@ -551,6 +551,9 @@ const editBoard = async (project, shots) => {
 async function stopProject(id) {
   assert.equal((await agent("project", { action: "create", id, name: id, width: 1080, height: 1920, duration: 8.8, background: "#101114" })).isError, undefined);
   assert.equal((await agent("edit", { project: id, ops: [{ op: "add_layer", layerType: "video", name: "footage", properties: { src: clip.src } }] })).isError, undefined);
+  // The person named the shape, so these stops carry no shape guess line.
+  const shape = await agent("notes", { project: id, action: "brief", fields: { ask: "a vertical for my phone", plays_on: { text: "vertical, 9:16", by: "you", quote: "vertical for my phone" } } });
+  assert.equal(shape.isError, undefined, shape.text);
   assert.equal((await agent("notes", { project: id, action: "brief", no_playback: "just start" })).isError, undefined);
   await editBoard(id, STOP_SHOTS());
 }

@@ -834,6 +834,11 @@ test("a brief saved as \"no one can answer\" while a stop waits releases nothing
   assert.equal(await revision(project), rev);
   await gap(asked.at);
   assert.equal((await answer(project, { id: "C1", rev, words: "looks good", read_as: "approve" })).data.passed, true);
+  // Color asked on the same unchanged revision would merge into the answered rough stop, so the
+  // work changes first (a new revision): then the next stop still asks.
+  const edited = await agent("edit", { project, ops: [move(700)] });
+  assert.equal(edited.isError, undefined, edited.text);
+  assert.equal((await agent("check", { project })).isError, undefined);
   const color = await checkpoint(project, "color");
   assert.equal(color.data.status, "waiting_for_you", color.text);
 });

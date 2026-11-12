@@ -23,6 +23,7 @@ import { originLine, pickLines, wordsOnly } from "./agent/treatments.mjs";
 import { estimateTextTokens } from "./meter.mjs";
 import { hasMediaTools, makeToneAfterSilence, nextCallOf, startTestServer, withoutNext } from "./media.test.support.mjs";
 import { ASK_TEXT, serviceFor, withAsk } from "./agent-ask.test.support.mjs";
+import { skipBoardOn } from "./stops.test.support.mjs";
 import { createDocument, createLayer, createScene } from "../engine/model.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -275,8 +276,10 @@ test("an unconfirmed brief: status and notes say play it back, other answers nam
   assert.equal(nextCallOf(await agent("inspect", { project: "brief-hint", targets: ["s1"] })).input.action, "brief");
   assert.equal(nextCallOf(await agent("look", { project: "brief-hint", mode: "frame", t: 1, width: 160 })).input.action, "brief");
   await brief("brief-hint", { fields: FULL });
+  await skipBoardOn(server);
   await agent("edit", { project: "brief-hint", ops: [{ op: "add_layer", layerType: "text", name: "headline", properties: { text: "Skate now" },
     animations: [{ preset: "preset-fade", start: 0, duration: 0.5 }] }] });
+  await skipBoardOn(server, 8);
   const playback = (reply) => nextCallOf(reply).input.log?.[0]?.kind;
   const inspected = async (targets, fields) => nextCallOf(await agent("inspect", { project: "brief-hint", targets, fields })).input.ops[0];
   // Not a field an edit sets, a scene, an animation: no refused edit, no guessed layer.
@@ -618,7 +621,10 @@ test("turn revert and dashboard undo leave the brief as it was", async () => {
   assert.equal(reverted.isError, undefined, reverted.text);
   assert.deepEqual((await brief("brief-revert")).data.brief, before, "history revert left the brief alone");
 
+  await skipBoardOn(server);
   const again = await agent("edit", { project: "brief-revert", ops: [...ORDER_WAIVERS, { op: "add_layer", layerType: "rectangle", name: "card2", properties: { x: 10, y: 10, width: 100, height: 100 } }] });
+  await skipBoardOn(server, 8);
+  assert.equal(again.data.error, undefined, JSON.stringify(again.data));
   assert.notEqual(again.data.turn, edited.data.turn);
   await brief("brief-revert", { fields: { plays_on: PLAYS_ON } });
   const saved = (await brief("brief-revert")).data.brief;
@@ -1075,6 +1081,9 @@ test("check hands the brief's plays_on to shape_guess: portrait over landscape f
   // namedShape: whole words, any case, two shapes name none.
   assert.deepEqual(["Make it VERTICAL", "for a 9 x 16 feed", "a 16:9 TV", "square please", "your call", "vertical or horizontal", "verticality"].map(namedShape),
     ["portrait", "portrait", "landscape", "square", null, null, null]);
+  // A free reply to a stop: a place word counts only in a place phrase ("for my phone"), a shape word always.
+  assert.deepEqual(["love the story, keep going", "the phone shot is great", "make it for my phone", "on TV please", "vertical"].map((words) => namedShape(words, { reply: true })),
+    [null, null, "portrait", "landscape", "portrait"]);
   // A line of theirs saved before `named` existed, naming no shape, reads as left to the agent.
   const legacy = shapeGuess({ width: 1080, height: 1920, duration: 4 }, { scene: { layers: [{ type: "video", src: "a.mp4", name: "clip" }] }, sceneName: "s1",
     mediaSizes: { "a.mp4": { width: 1920, height: 1080 } }, playsOn: { text: "the feed", by: "you", quote: "for the feed" }, quote: (words) => words });
@@ -1276,7 +1285,9 @@ test("idea first: a briefed video builds only after 2 references (each studied),
   const turnCall = await refused("add the spine's turn \\(notes brief style\\.spine\\)");
   assert.deepEqual(turnCall.input.fields.style.spine.map((beat) => beat.role), ["hook", "problem", "turn", "signature", "payoff", "end"]);
   assert.equal((await brief(id, turnCall.input)).isError, undefined);
+  await skipBoardOn(server);
   const built = await agent("edit", compose);
+  await skipBoardOn(server, 8);
   assert.equal(built.isError, undefined, built.text);
   assert.equal(built.data.rev, 2, "the refused edits saved nothing");
   // The check carries the picked ending (service findingsFor): the video's scene (the longest,

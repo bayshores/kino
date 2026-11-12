@@ -723,8 +723,8 @@ export function answerStep(draft, { input = {}, video = null, rules = DEFAULT_ST
  * follows the footage. A line that is already saved this way changes nothing.
  */
 function saveShape(draft, round, words, { now, client }) {
-  const shape = namedShape(words);
-  const sentence = shape ? words.split(/(?<=[.!?])\s+|\n+/).find((part) => namedShape(part) === shape) ?? words : words;
+  const shape = namedShape(words, { reply: true });
+  const sentence = shape ? words.split(/(?<=[.!?])\s+|\n+/).find((part) => namedShape(part, { reply: true }) === shape) ?? words : words;
   const quote = sentence.trim().slice(0, 200);
   const line = shape ? { text: `${shape} (their words)`, by: "you", quote, named: shape } : { text: `${round.shape.footage}, like the footage`, by: "you", quote, named: false };
   const before = draft.brief?.fields?.plays_on;

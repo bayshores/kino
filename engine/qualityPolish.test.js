@@ -941,10 +941,16 @@ test("crop_no_subject: footage drawn past the frame needs a subject, and keeps i
   await silent("crop_no_subject", ...footage([clip("walk", "/api/media/walk.mp4")]));
   // A head marked at the top is cut off by the crop: a gate. Marked in the middle it is kept.
   const marked = (box) => ({ ...big, subjectBoxes: { src: "/api/media/walk.mp4", boxes: [0, 1, 2, 3, 4].map((at) => ({ at, box, by: "agent" })) } });
-  const [head] = await fires("crop_no_subject", ...footage([clip("walk", "/api/media/walk.mp4", marked([40, 0, 20, 30]))]));
+  // Marks count only after a source look at the file on that layer (ctx.sourceLooks).
+  const looked = ([document, context]) => [document, { ...context, sourceLooks: { walk: { src: "/api/media/walk.mp4", at: [0, 1, 2, 3, 4] } } }];
+  const [head] = await fires("crop_no_subject", ...looked(footage([clip("walk", "/api/media/walk.mp4", marked([40, 0, 20, 30]))])));
   assert.equal(head.severity, "error");
   assert.match(head.message, /only 67% of it/);
-  await silent("crop_no_subject", ...footage([clip("walk", "/api/media/walk.mp4", marked([40, 30, 20, 30]))]));
+  await silent("crop_no_subject", ...looked(footage([clip("walk", "/api/media/walk.mp4", marked([40, 30, 20, 30]))])));
+  // The same marks made without a look are a guess: judged as if nothing were marked (a warning).
+  const [guess] = await fires("crop_no_subject", ...footage([clip("walk", "/api/media/walk.mp4", marked([40, 30, 20, 30]))]));
+  assert.equal(guess.severity, "warn");
+  assert.match(guess.message, /marked without a look/);
 });
 
 test("frozen_footage: a clip whose picture stops on screen is a gate", async () => {

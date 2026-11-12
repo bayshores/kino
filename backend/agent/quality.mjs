@@ -18,7 +18,7 @@ import { moveLayerByWorldDelta } from "../../engine/geometry.js";
 import { expandComponents } from "../../engine/linkedComponents.js";
 import { RULES, runQuality } from "../../engine/quality/index.js";
 import { kinoTimeline } from "../../engine/quality/kinoTimeline.js";
-import { heldStill } from "../../engine/quality/rules/footage.js";
+import { cropCounts, heldStill } from "../../engine/quality/rules/footage.js";
 import { judderBlurId, techniqueCounts, techniquesUsed } from "../../engine/quality/techniques.js";
 import { mediaIdFromSource } from "../../engine/replaceMedia.js";
 import { SCREEN_NAME } from "../../engine/movePicks.js";
@@ -833,6 +833,8 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
     const media = await mediaSizes(document);
     // Stale waivers are judged only when every rule had what it measures (media sizes, transcripts, people, drift).
     let measuredAll = !media.pending;
+    // The video scene's narrow crops, counted as narrow_window judges them (a stop's ask shows the line).
+    let crops = null;
     // What shape_guess and ask_unmet read besides the document: part of each scene's key.
     const askStamp = JSON.stringify([origin?.words ?? null, origin?.top?.[0]?.title ?? null, playsOn?.by ?? null, playsOn?.text ?? null, media.ownFootage, media.foundTitles, sourceLooks]);
     // The story spine is the video's: only its scene is held to it (a format variant or a
@@ -853,6 +855,7 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
       const sceneLines = clipLines && isVideo && pixels ? await clipLines(document, scene).catch(() => []) : [];
       const { people, stamp: peopleStamp, why: peopleWhy } = await peopleIn(scene, peopleOf, pixels);
       if (peopleWhy && !notes.includes(peopleWhy)) notes.push(peopleWhy);
+      if (isVideo) crops = cropCounts(scene, { mediaSizes: media.sizes, sourceLooks, people });
       const base = `${sceneBase(document, scene, { fonts, codes, styleSpec: sceneStyle, deck: sceneDeck, briefFonts, length: sceneLength, asks: sceneAsks })}\n${refStamp}${closeRefs.length ? `\nlent:${closeRefs.map((ref) => `${ref.id}:${ref.cuts.length}`).join(",")}` : ""}\nhouse:${houseStamp}\nvideo:${isVideo}\n${speechStamp}\n${peopleStamp}\nsearch:${soundSearch}${media.pending ? `\nunmeasured:${media.pending}` : ""}\nsubject:${askStamp}`;
       const latestFps = fullCheckFps.get(baseKey(base));
       const full = !pixels && renderFrames
@@ -893,7 +896,7 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
     // or each scene's full check kept): a quick check without saved faces or words would miss findings.
     const pixelsRan = Boolean(renderFrames) && !unchecked.length;
     const stale = !sceneId && measuredAll && (pixels || pixelsRan) ? staleWaivers(waivers, silencing, { pixelsRan }) : [];
-    return { findings, notes, ms: Math.round(performance.now() - started), scenes: scenes.length, unchecked, techniques: sorted, stale };
+    return { findings, notes, ms: Math.round(performance.now() - started), scenes: scenes.length, unchecked, techniques: sorted, stale, crops };
   }
 
   return { check };
