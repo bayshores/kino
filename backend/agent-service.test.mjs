@@ -73,6 +73,7 @@ test("project create opens the new project; a taken or malformed ID is refused",
   const changed = await agent("edit", { project: "rated", ops: [{ op: "update_project", properties: { fps: 20 } }] });
   assert.ok(changed.data.notes?.some((note) => /^project now 20 fps; off its frames: \S+ start [\d.]+s \(f30\.0\)/.test(note)), JSON.stringify(changed.data));
   assert.equal((await agent("project", { action: "create", id: "bad-rate", fps: 7.5 })).data.error, "bad_input");
+  assert.match((await agent("project", { action: "create", id: "rate-word", frameRate: 24 })).text, / 24 fps bg/);
   await agent("project", { action: "open", id: "alpha" });
 
   const taken = await agent("project", { action: "create", id: "alpha" });

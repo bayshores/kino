@@ -670,7 +670,9 @@ export function createAgentService(deps) {
     return realEdit(state, videoFacts(document));
   }
 
-  async function findingsFor(document, { fonts, codes, sceneId = null, pixels = false, rules = null, outputFps = 30, listen = true } = {}) {
+  // outputFps defaults to the project's own rate (30 without one), so the edit receipt's check
+  // counts, review and check all judge judder on the same grid.
+  async function findingsFor(document, { fonts, codes, sceneId = null, pixels = false, rules = null, outputFps = projectFps(document), listen = true } = {}) {
     const basic = checkDocument(document, { fonts, mediaRoot: deps.mediaRoot, codes, sceneId });
     // The brief's style spec (notes brief fields.style) sets the style rules; none is kino's default style.
     const saved = await agentState.read(document.id).catch(() => null);
@@ -6059,7 +6061,7 @@ export function createAgentService(deps) {
       } catch (error) { matched = `match_references: not run (${String(error.message).slice(0, 120)})`; }
     }
     let fonts = await fontsFor(document);
-    const options = { codes, sceneId, pixels: true, rules: null, outputFps: 30 };
+    const options = { codes, sceneId, pixels: true, rules: null, outputFps: projectFps(document) };
     let result = await findingsFor(document, { ...options, fonts });
     const fixable = match === false ? result.findings.filter((finding) => finding.fix?.op !== "match_references") : result.findings;
     const outcome = await autoFix(document, fixable, { ...options, fonts });
@@ -7557,7 +7559,9 @@ export function createAgentService(deps) {
       const width = input.width ?? 1920, height = input.height ?? 1080, duration = input.duration ?? 5;
       // fps: the project's frame rate (frameRate.js); look, check and renders step at it. Before
       // it was kept, {fps:20} was dropped and every grid was 30 (recreate GAPS item 3).
-      const fps = input.fps == null ? null : readFps(input.fps, (message) => new AgentError("bad_input", message));
+      // frameRate is the word agents also guess for it (a 24 fps create came back at 30 without it).
+      const askedRate = input.fps ?? input.frameRate;
+      const fps = askedRate == null ? null : readFps(askedRate, (message) => new AgentError("bad_input", message));
       const document = createDocument({ ...(id ? { id } : {}), name: String(input.name ?? id ?? "New video").slice(0, 120), ...(fps ? { fps } : {}) });
       document.scenes[0] = { ...document.scenes[0], name: String(input.scene ?? "Scene 1").slice(0, 120), width, height, duration, background: input.background ?? "#ffffff" };
       let created;

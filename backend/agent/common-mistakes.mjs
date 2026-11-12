@@ -1488,6 +1488,10 @@ export function fixOperation(operation, fixes, context) {
       }
     }
     const properties = isRecord(operation.properties) ? operation.properties : null;
+    // The frame rate is the project's (update_project {fps}); a scene kept none, so update_scene
+    // {fps:24} used to save without a word and the project stayed at 30.
+    const rate = ["fps", "frameRate"].find((field) => operation[field] !== undefined || properties?.[field] !== undefined);
+    if (rate) throw mistake(`${rate} is the project's frame rate, set with update_project (look, check and renders step at it).`, { op: "update_project", properties: { fps: operation[rate] ?? properties[rate] } });
     for (const field of ["size", "format", "aspect", "aspectRatio", "resolution", "dimensions"]) {
       const value = operation[field] ?? properties?.[field];
       if (value === undefined) continue;
