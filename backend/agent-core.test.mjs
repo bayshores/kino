@@ -309,9 +309,9 @@ test("waivers: crop and shape need the person's words on layers; face-cut codes 
   assert.throws(() => send({ code: "ask_unmet", target: "main", reason: "not needed" }), /names the origin word in its reason \("tower"\)/);
   assert.throws(() => send({ code: "ask_unmet", target: "main", reason: "towers are off screen" }), /names the origin word/);
   assert.equal(send({ code: "ask_unmet", target: "main", reason: "no Tower here: the keeper's story is on the stairs" })[0].target, "main");
-  // reference_kinds: plain on purpose is kept only with words the person typed (stored ask or logged reply), on a scene.
-  const brief = { fields: { ask: [{ text: "make me a fan edit, keep it plain and simple, no effects", at: 1 }] }, log: [{ q: "style?", a: "just cuts please" }] };
-  resolver.storedQuoteProblem = (quote) => storedQuoteProblem(brief, quote);
+  // reference_kinds: plain on purpose is kept only with words the person typed (stored ask, stop answer or typed note), on a scene.
+  const brief = { fields: { ask: [{ text: "make me a fan edit, keep it plain and simple, no effects", at: 1 }] }, log: [{ q: "style?", a: "only hard cuts ok" }] };
+  resolver.storedQuoteProblem = (quote) => storedQuoteProblem(brief, quote, ["just cuts please"]);
   resolver.plainQuoteProblem = (quote) => plainWordsProblem(brief, quote);
   // Their words, but not about plain: refused with their sentence that is.
   assert.throws(() => send({ code: "reference_kinds", target: "s1", quote: "make me a fan edit" }), /does not say what is plain.*Closest of their sentences that does: "make me a fan edit, keep it plain and simple, no effects"/);
@@ -322,6 +322,8 @@ test("waivers: crop and shape need the person's words on layers; face-cut codes 
   const [plain] = send({ code: "reference_kinds", target: "s1", quote: "keep it plain and simple", reason: "they want cuts only" });
   assert.equal(plain.reason, 'they want cuts only (the person: "keep it plain and simple")');
   assert.equal(send({ code: "reference_kinds", target: "s1", reason: 'they said "just cuts please"' })[0].reason, 'they said "just cuts please" (the person: "just cuts please")');
+  // A log reply is the agent's note of what they said, so it is not their words.
+  assert.throws(() => send({ code: "reference_kinds", target: "s1", quote: "only hard cuts ok" }), /not in the person's stored words/);
   resolver.storedQuoteProblem = (quote) => storedQuoteProblem({}, quote);
   assert.throws(() => send({ code: "reference_kinds", target: "s1", quote: "keep it plain and simple" }), /no message of theirs is stored/);
   delete resolver.storedQuoteProblem;

@@ -79,7 +79,8 @@ export const OVERLAY_EFFECTS = [
     } },
   { key: "invert", label: "Invert", group: "Color", kind: "ranged", keepStill: "off", render: renderInvert,
     parameters: {
-      amount: number("Amount", 1, 0, 1, 0.01, "", { initial: 0 }),
+      // No ramp in: a partly flipped picture is flat gray, so the flip is whole from its first frame.
+      amount: number("Amount", 1, 0, 1, 0.01, ""),
       keepHue: boolean("Keep Hue", false),
     } },
 ];

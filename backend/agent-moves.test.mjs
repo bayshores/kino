@@ -29,8 +29,8 @@ test("library moves lists every move in a line and gives one move's fields and e
   assert.equal(list.isError, undefined, list.text);
   const lines = list.text.split("\n").filter((line) => line.startsWith("- "));
   assert.deepEqual(lines.map((line) => line.slice(2).split("(")[0]), MOVE_NAMES);
-  assert.equal(MOVE_NAMES.length, 49);
-  assert.ok(list.text.length < 7000, `the list stays small (${list.text.length} characters)`);
+  assert.equal(MOVE_NAMES.length, 51);
+  assert.ok(list.text.length < 7500, `the list stays small (${list.text.length} characters)`);
   for (const name of MOVE_NAMES) {
     const one = await api.agent("lib", "library", { topic: "moves", name });
     assert.equal(one.isError, undefined, one.text);

@@ -795,7 +795,7 @@ function resolveReferences(operation, type, resolver, document) {
   }
   // reference_kinds: the edit lacks a kind its own references show. Plain on purpose is the person's
   // call, so the waiver carries words they typed: `quote`, else a quoted part of the reason, found in
-  // the brief's stored asks and logged replies (resolver.storedQuoteProblem, brief.mjs), never "your call".
+  // the brief's stored asks, stop answers and typed notes (resolver.storedQuoteProblem, brief.mjs), never "your call".
   if (type === "waive_check" && operation.code === "reference_kinds") {
     const spans = [...String(operation.reason ?? "").matchAll(/["“]([^"”]{3,})["”]/g)].map((match) => match[1].trim()).sort((a, b) => b.length - a.length);
     const quote = (typeof operation.quote === "string" ? operation.quote.trim() : "") || spans[0] || "";

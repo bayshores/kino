@@ -216,11 +216,12 @@ const quoteProblem = (where, quote, said) => (!said.missing && isSaid(quote, sai
 
 /**
  * The check a waiver of the person's words uses: whether `quote` is in what the brief stores of
- * theirs (the asks as typed and the replies they logged; the same check by:"you" quotes pass).
+ * theirs (the asks as typed, plus `extra`: stop answers and notes they typed; the same check
+ * by:"you" quotes pass. A log reply is the agent's note, so it does not count).
  * Null when it was said, else { missing } (no ask stored), { none } (ask "none") or { closest }.
  */
-export function storedQuoteProblem(brief, quote) {
-  const said = saidBy(brief, [], false, [], []);
+export function storedQuoteProblem(brief, quote, extra = []) {
+  const said = saidBy(brief, [], false, [], extra);
   if (said.missing) return { missing: true };
   if (isSaid(quote, said.texts)) return null;
   return { ...(said.none ? { none: true } : {}), closest: closestSentence(quote, said.texts) };

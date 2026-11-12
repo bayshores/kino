@@ -142,7 +142,7 @@ test("compose {footage} with a saved reference makes a brand of colors only, and
   const folder = path.join(server.dataDirectory, "inspire");
   await mkdir(folder, { recursive: true });
   await writeFile(path.join(folder, "kinoType001.json"), JSON.stringify({ id: "yt:kinoType001", title: "A reference", state: "measured", version: 2, seconds: 9, fingerprint: { seconds: 20, look: { brightness: 0.3, darkShare: 0.3 } } }));
-  const saved = await agent("library", { project: "type-refs", topic: "inspire", name: "save yt:kinoType001" });
+  const saved = await agent("library", { project: "type-refs", topic: "inspire", name: "save yt:kinoType001", take: "type: the big title" });
   assert.equal(saved.isError, undefined, saved.text);
   const composed = await agent("edit", { project: "type-refs", ops: [{ op: "compose", footage: [clip.src], duration: 6, treatment: "loud", seed: 2 }] });
   assert.equal(composed.isError, undefined, composed.text);

@@ -345,9 +345,15 @@ export function searchGuide(search) {
   // A word also matches its plain stem, so "synced" finds "sync" and "reveals" finds "reveal".
   const forms = words.map((word) => [...new Set([word, word.replace(/(ed|ing|es|s)$/, "")])].filter((form) => form === word || form.length > 3));
   const score = (text) => (text.includes(needle) ? words.length + 1 : 0) + forms.filter((list) => list.some((form) => text.includes(form))).length;
-  // A word in a topic's name or title counts once more than a word only in its text.
-  const rank = (entries, textOf, titleOf = () => "") => entries.map((entry) => [entry, score(textOf(entry)), score(titleOf(entry))])
-    .filter(([, points]) => points > 0).sort((a, b) => b[1] + b[2] - a[1] - a[2]).map(([entry]) => entry);
+  // A word in a topic's name or title counts once more than a word only in its text. Among equal
+  // scores, the entry holding the rarer words comes first ("reveal" says more than "layer").
+  const rank = (entries, textOf, titleOf = () => "") => {
+    const held = entries.map((entry) => forms.map((list) => list.some((form) => textOf(entry).includes(form))));
+    const shared = forms.map((_, index) => held.filter((row) => row[index]).length || 1);
+    const rare = (row) => row.reduce((sum, has, index) => sum + (has ? 1 / shared[index] : 0), 0);
+    return entries.map((entry, index) => [entry, score(textOf(entry)) + score(titleOf(entry)), rare(held[index])])
+      .filter(([, points]) => points > 0).sort((a, b) => b[1] - a[1] || b[2] - a[2]).map(([entry]) => entry);
+  };
   const allOps = [...OPERATION_TYPES, ...SERVICE_OPERATION_TYPES, ...REACH_OPERATIONS];
   const ops = rank(allOps, (type) => type).slice(0, SEARCH_SHOWN);
   const topics = rank(guideTopics(), (entry) => `${entry.title}\n${entry.text}`.toLowerCase(), (entry) => `${entry.id} ${entry.title}`.toLowerCase());
@@ -1020,6 +1026,11 @@ export function createAgentService(deps) {
     return (hasBrief(brief) ? referenceSearches(brief, await songTitleFor(projectId))?.search : null) ?? "<an edit like yours>";
   }
 
+  // What the person said outside the brief's asks: their words when they answered a stop and the
+  // notes they typed, both recorded by kino (a note an agent adds is not theirs).
+  const saidElsewhere = (state) => [...(state?.stops ?? []).map((round) => round?.answer?.words), ...(state?.notes ?? []).filter((note) => note?.typed === true).map((note) => note.text)]
+    .filter((words) => typeof words === "string" && words.trim());
+
   // videoFacts plus what the direction step needs about references: how many the project saved
   // (left out when kino has no inspire, so the step is skipped) and whether the check is waived;
   // and about the material: needs {checked} when the video has footage or speech (left out
@@ -1099,8 +1110,9 @@ export function createAgentService(deps) {
     }
     // A reference_kinds waiver quotes the person: checked against their stored asks and replies.
     if (list.some((op) => op?.code === "reference_kinds")) {
-      const brief = (await agentState.read(document.id).catch(() => null))?.brief;
-      resolver.storedQuoteProblem = (quote) => storedQuoteProblem(brief, quote);
+      const state = await agentState.read(document.id).catch(() => null);
+      const brief = state?.brief;
+      resolver.storedQuoteProblem = (quote) => storedQuoteProblem(brief, quote, saidElsewhere(state));
       resolver.plainQuoteProblem = (quote) => plainWordsProblem(brief, quote);
     }
     if (!list.some((op) => op?.code === "type_seen")) return resolver;
@@ -5531,8 +5543,7 @@ export function createAgentService(deps) {
       const finished = await done(projectId, {}, { change(draft) {
         // A quote may come from what they said when they answered a stop (notes answer words) or
         // in a note they typed, both recorded by kino in an earlier call (a note an agent adds is not theirs).
-        const said = [...(draft.stops ?? []).map((round) => round?.answer?.words), ...(draft.notes ?? []).filter((note) => note?.typed === true).map((note) => note.text)]
-          .filter((words) => typeof words === "string" && words.trim());
+        const said = saidElsewhere(draft);
         const changes = briefChanges(draft.brief, input, { said });
         applyBrief(draft, changes, { now: now(), client: meta.client ?? null });
         answer = { text: savedText(draft, changes, video), data: briefData(draft, video) };
