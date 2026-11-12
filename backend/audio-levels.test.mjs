@@ -17,7 +17,7 @@ import { applyLinePeak, capLinePeak } from "./line-peak.mjs";
 import { createAgentClient } from "./agent/client.mjs";
 import { askedLead, describeLevels, describeMixFix, describeMixPeaks, limiterPlaces, restCallFor, loudMixWarning, loudnessGain, loudnessOption, measureFileLevels, mixLead, readLevels, readPeakWindows, referenceLead } from "./audio-levels.mjs";
 import { createLoudnessCurves, measureLoudnessCurve, readMomentary, savedWordsOf } from "./loudness-curve.mjs";
-import { exportScene, measureMixPeaks, sceneSoundClips, soundMixArgs } from "./export.mjs";
+import { exportScene, measureMixPeaks, sceneSoundClips, soundCurve, soundMixArgs } from "./export.mjs";
 import { ffmpeg, makeToneAfterSilence, run, skipWithoutMediaTools, startTestServer } from "./media.test.support.mjs";
 import { validateRenderFile } from "./render-validation.mjs";
 
@@ -414,11 +414,19 @@ test("the mix line's readings carry the momentary loudness that reads a drop's r
       animations: [{ id: "stop", kind: "custom", start: 5.5, duration: 0.03, easing: "linear", from: { volume: 1 }, to: { volume: 0 } }] })] });
   const directory = join(root, "clips");
   await mkdir(directory);
-  const mix = await measureMixPeaks(await sceneSoundClips(scene, { mediaRoot, directory, duration: 6.5 }), 6.5);
+  const clips = await sceneSoundClips(scene, { mediaRoot, directory, duration: 6.5 });
+  const mix = await measureMixPeaks(clips, 6.5, undefined, { heard: true });
   assert.ok(mix.windows.every((window) => Number.isFinite(window.m)), "each 0.1 s reading has its momentary loudness");
   const rise = cueRise(mix.windows, { at: 3, kind: "drop" });
   t.diagnostic(`before ${rise.before}, after ${rise.after}, rise ${rise.rise} LU`);
   assert.ok(Math.abs(rise.rise - 18) <= 1, `the drop rises ${rise.rise} LU`);
+  // heard: the mix as a default render plays it ("auto"'s gain, then the limiter).
+  assert.equal(mix.heard.gainDb, mix.auto?.gainDb ?? 0);
+  assert.ok(Math.abs(cueRise(mix.heard.windows, { at: 3, kind: "drop" }).rise - 18) <= 1);
+  // A +12 dB gain puts the drop (-8 dBFS peaks) into the limiter and not the bed: the rise reads shorter.
+  const held = cueRise(await soundCurve(clips, 6.5, undefined, { gainDb: 12 }), { at: 3, kind: "drop" });
+  t.diagnostic(`with +12 dB and the limiter: before ${held.before}, after ${held.after}, rise ${held.rise} LU`);
+  assert.ok(held.rise < 16 && held.rise > 10, `the limited drop rises ${held.rise} LU`);
   const ending = songEnding({ layer: scene.layers[0], duration: 6.5, windows: mix.windows, grid: { onsets: [5.45], beats: [] }, fileSeconds: 6 });
   assert.deepEqual([ending.kind, ending.at, ending.onset], ["stop", 5.5, 5.45]);
   assert.ok(Math.abs(ending.soundEnd - 5.55) <= 0.1 && Math.abs(ending.after - 0.95) <= 0.1, `sound ends ${ending.soundEnd}, picture after ${ending.after}`);

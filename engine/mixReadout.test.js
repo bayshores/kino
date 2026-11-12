@@ -43,6 +43,10 @@ test("the ending: a hard stop on an onset, a fade across a bar line, a tail, and
   const fade = songEnding({ layer: song([{ start: 4.8, duration: 0.8, from: { volume: 1 }, to: { volume: 0 } }]), duration: 6, grid, fileSeconds: 30 });
   assert.deepEqual([fade.kind, fade.at, fade.to, fade.length, fade.crosses], ["fade", 4.8, 5.6, 0.8, [{ at: 5, kind: "bar" }]]);
   assert.match(endingText("song", songEnding({ layer: song([{ start: 4.8, duration: 0.8, from: { volume: 1 }, to: { volume: 0 } }]), duration: 6 })), /fades 0\.8 s from 4\.8 to 5\.6 s \(no beat grid saved\)/);
+  assert.match(endingText("song", fade), /crossing the bar line at 5 s \(a guess: every 4 beats from the first tracked beat/);
+  // The song's measured bar lines win over the beat guess, and say so.
+  const measured = songEnding({ layer: song([{ start: 4.8, duration: 0.8, from: { volume: 1 }, to: { volume: 0 } }]), duration: 6, grid: { ...grid, bars: [{ at: 4.4, kind: "bar" }, { at: 5.3, kind: "phrase" }] }, fileSeconds: 30 });
+  assert.match(endingText("song", measured), /crossing the phrase line at 5\.3 s \(the song's measured bar lines\)/);
   // Played to the file's own end: a tail. Still up when the picture ends: up.
   assert.equal(songEnding({ layer: song([], { mediaDuration: 4, mediaOffset: 26 }), duration: 6, fileSeconds: 30 }).kind, "tail");
   assert.equal(songEnding({ layer: song(), duration: 6, fileSeconds: 30 }).kind, "up");

@@ -3787,7 +3787,7 @@ export function createAgentService(deps) {
     // What plays on the song's drop and section starts, and whether it was shown before: facts.
     if (returnsScene) lines.push(...await sceneCueLinesFor(record.document, returnsScene).catch(() => []));
     // Where the mix passes the limiter, measured without a render: a fact line when the scene has sound.
-    const mix = returnsScene && options.listen ? await mixPeaksOf(returnsScene, { projectId }) : null;
+    const mix = returnsScene && options.listen ? await mixPeaksOf(returnsScene, { projectId, heard: true }) : null;
     // What check {fix:"auto"} would turn down (peakTrims planned on the places as measured; its own
     // run measures each layer alone first, so it may pick fewer layers at a place and other factors:
     // a whole-song factor is named only by the fix, never guessed here).
@@ -5808,15 +5808,16 @@ export function createAgentService(deps) {
   const mixPeaksKept = new Map();
   // perLayer: each layer sharing a place is measured alone too (check {fix:"auto"}).
   // projectId: "auto" reads that project's saved references' loudness, as a render does.
-  async function mixPeaksOf(scene, { perLayer = false, projectId = null } = {}) {
+  // heard: also the momentary loudness as a default render plays the mix (the drop readout).
+  async function mixPeaksOf(scene, { perLayer = false, projectId = null, heard = false } = {}) {
     if (!scene.layers.some((layer) => (layer.type === "audio" || layer.type === "video") && layer.src)) return null;
     const references = projectId ? await referenceLoudness(projectId) : [];
     // Groups too: a hidden group silences the video inside it.
-    const key = createHash("sha1").update(JSON.stringify([scene.duration, perLayer, references, scene.layers.filter((layer) => ["audio", "video", "group"].includes(layer.type))])).digest("hex");
+    const key = createHash("sha1").update(JSON.stringify([scene.duration, perLayer, heard, references, scene.layers.filter((layer) => ["audio", "video", "group"].includes(layer.type))])).digest("hex");
     if (!mixPeaksKept.has(key)) {
       mixPeaksKept.set(key, (async () => {
         const directory = await makeTempFolder("kino-mix-");
-        try { return await measureMixPeaks(await sceneSoundClips(scene, { mediaRoot: deps.mediaRoot, directory, duration: scene.duration, lead: true }), scene.duration, undefined, { perLayer, references }); }
+        try { return await measureMixPeaks(await sceneSoundClips(scene, { mediaRoot: deps.mediaRoot, directory, duration: scene.duration, lead: true }), scene.duration, undefined, { perLayer, references, heard }); }
         catch { mixPeaksKept.delete(key); return null; }
         finally { await removeTempFolder(directory); }
       })());
@@ -5902,7 +5903,7 @@ export function createAgentService(deps) {
     }
     // Every place the mix passes the limiter (the worst 6 when there are more; at most about 1,450
     // characters with 4 long layer names a place), the same numbers as check's mix: line.
-    const peaks = await mixPeaksOf(scene, { projectId: document.id });
+    const peaks = await mixPeaksOf(scene, { projectId: document.id, heard: true });
     const readout = peaks ? await mixReadoutFor(document, scene, peaks).catch(() => ({ lines: [], quiet: "" })) : { lines: [], quiet: "" };
     const limiter = peaks ? `\n${describeMixPeaks(peaks, { limit: 6, label: "limiter", tail: ` (${peaks.places.length - 6} more)` })}${readout.quiet}${readout.lines.map((line) => `\n${line}`).join("")}` : "";
     return { image: { png: soundMapImage(map) }, text: `${soundMapText(map, { scene: refName(scene.id, codes) })}${limiter}` };
@@ -8903,12 +8904,24 @@ export function createAgentService(deps) {
       fileSeconds = Number.isFinite(beats.duration) ? beats.duration : null;
       if (!range.remapped) grid = { onsets: (beats.onsets ?? []).map((onset) => toScene(onset.time)).filter(Number.isFinite), beats: (beats.beats ?? []).map(toScene) };
     } catch { /* no saved beat grid: the ending says so */ }
+    // The song shape's measured bar lines (song-shape.mjs bars.lines), phrases every 4 bars from its
+    // first drop (fitMusic.js reads phrases the same way).
+    const barLines = song && !range.remapped && Array.isArray(song.shape?.bars?.lines) && song.shape.bars.lines.length >= 2 ? song.shape.bars.lines : null;
+    if (barLines) {
+      const dropBar = (song.shape.sections ?? []).find((part) => part.kind === "drop" && Number.isInteger(part.bar))?.bar ?? 0;
+      grid = { onsets: grid?.onsets ?? [], beats: grid?.beats ?? [], bars: barLines.map((time, index) => ({ at: toScene(time), kind: (index - dropBar) % 4 === 0 ? "phrase" : "bar" })) };
+    }
     const lines = [];
     const sections = song && !range.remapped ? songSections(song.shape, { offset: range.offset - range.start, to: scene.duration })?.sections ?? [] : [];
     const cues = sections.filter((part) => part.from > 0.05 && part.from < scene.duration - 0.05 && part.kind !== "open").map((part) => ({ at: part.from, kind: part.kind }));
     const read = [...cues.filter((cue) => /drop/.test(cue.kind)), ...cues.filter((cue) => !/drop/.test(cue.kind))].slice(0, CUES_READ).sort((a, b) => a.at - b.at);
     const kept = keptLinesOf(scene, (each) => String(each.name ?? each.id).slice(0, 24));
-    for (const cue of read) lines.push(`cue: ${cueRiseText(cueRise(mix.windows, cue, kept))} (momentary 0.4 s readings, energy mean)`);
+    // Read as a default render plays the mix ("auto"'s gain, then the limiter: a drop the limiter
+    // holds down reads as the file will), else at loudness "off" before the limiter.
+    const heard = mix.heard?.windows?.length ? mix.heard : null;
+    const gain = heard ? `${heard.gainDb >= 0 ? "+" : ""}${heard.gainDb} dB` : "";
+    const which = heard ? `the mix as a default render plays it: loudness "auto" ${gain}, then the limiter` : "the mix at loudness \"off\", before the limiter";
+    for (const cue of read) lines.push(`cue: ${cueRiseText(cueRise(heard?.windows ?? mix.windows, cue, kept))} (momentary 0.4 s readings, energy mean; ${which})`);
     const ending = songEnding({ layer, duration: scene.duration, windows: mix.windows, grid, fileSeconds });
     if (ending) lines.push(endingText(name, ending));
     const line = kept.find((entry) => entry.name !== name) ?? null;

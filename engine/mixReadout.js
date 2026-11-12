@@ -100,8 +100,10 @@ export function volumeFall(layer, end, start = 0) {
  * plays to its file's own end) or "up" (still up when the picture ends). onset: the song onset
  * within HARD_STOP s before a stop (null when none; nearest: the closest one before it). soundEnd:
  * where the mix's last heard 0.1 s window ends; after: how long the picture runs on past it.
- * `grid` (scene s): { onsets: [s], beats: [s] } from the song's saved beat grid; bars are every 4
- * beats and phrases every 16 from the grid's first beat. `fileSeconds` is the song file's length.
+ * `grid` (scene s): { onsets: [s], beats: [s], bars?: [{at, kind}] } from the song's saved beat grid
+ * and its shape's measured bar lines (kind "bar" or "phrase"); with no bars, a guess: bars every 4
+ * beats and phrases every 16 from the grid's first beat (barsFrom "measured" or "beats").
+ * `fileSeconds` is the song file's length.
  */
 export function songEnding({ layer, duration, windows = [], grid = null, fileSeconds = null }) {
   const range = mediaPlaybackRange(layer, duration);
@@ -124,10 +126,15 @@ export function songEnding({ layer, duration, windows = [], grid = null, fileSec
   if (!fall) return { kind: "up", at: r2(range.end), ...facts };
   const length = r2(fall.to - fall.from);
   if (length <= HARD_STOP + 1e-6) return { kind: "stop", at: fall.from, length, ...onsetFacts(fall.from), ...facts };
+  const inside = (time) => time > fall.from + 1e-6 && time < fall.to - 1e-6;
+  // The song's measured bar lines first (its shape's bars, phrases every 4 bars from its first
+  // drop); else a guess from the beat grid: every 4 beats from its first tracked beat.
+  const bars = grid?.bars ?? [];
+  if (bars.length) return { kind: "fade", at: fall.from, to: fall.to, length, crosses: bars.filter((bar) => inside(bar.at)).map((bar) => ({ at: r2(bar.at), kind: bar.kind })), barsFrom: "measured", ...facts };
   const beats = grid?.beats ?? [];
-  const crosses = beats.length ? beats.map((time, index) => ({ time, index })).filter(({ time, index }) => index % 4 === 0 && time > fall.from + 1e-6 && time < fall.to - 1e-6)
+  const crosses = beats.length ? beats.map((time, index) => ({ time, index })).filter(({ time, index }) => index % 4 === 0 && inside(time))
     .map(({ time, index }) => ({ at: r2(time), kind: index % 16 === 0 ? "phrase" : "bar" })) : null;
-  return { kind: "fade", at: fall.from, to: fall.to, length, crosses, ...facts };
+  return { kind: "fade", at: fall.from, to: fall.to, length, crosses, ...(crosses ? { barsFrom: "beats" } : {}), ...facts };
 }
 
 /**
@@ -166,7 +173,8 @@ export function endingText(name, ending) {
     const onset = ending.onset !== null && ending.onset !== undefined ? `, ${r2(ending.at - ending.onset)} s after its onset at ${ending.onset} s` : `, not on an onset${Number.isFinite(ending.nearest) ? ` (the last before it at ${ending.nearest} s)` : ""}`;
     return `ending: ${name} stops hard at ${ending.at} s (${ending.length} s)${onset}${picture}`;
   }
-  const lines = ending.crosses === null ? " (no beat grid saved)" : ending.crosses.length ? `, crossing the ${ending.crosses.map((line) => `${line.kind} line at ${line.at} s`).join(", ")}` : ", inside one bar";
+  const source = ending.barsFrom === "measured" ? " (the song's measured bar lines)" : ending.barsFrom === "beats" ? " (a guess: every 4 beats from the first tracked beat; the song has no measured bars)" : "";
+  const lines = ending.crosses === null ? " (no beat grid saved)" : `${ending.crosses.length ? `, crossing the ${ending.crosses.map((line) => `${line.kind} line at ${line.at} s`).join(", ")}` : ", inside one bar"}${source}`;
   return `ending: ${name} fades ${ending.length} s from ${ending.at} to ${ending.to} s${lines}${picture}`;
 }
 

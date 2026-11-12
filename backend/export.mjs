@@ -943,11 +943,14 @@ export function soundMixArgs(clips, duration, output) {
  * The loudness of the MP4 export's mix of `clips` (from sceneSoundClips) every 0.1 s, as FFmpeg's
  * ebur128 meters it: [{t, m, s}] (momentary 0.4 s and short-term 3 s windows, LUFS; -70 is its
  * floor). One FFmpeg run that writes nothing; [] when nothing is heard. look {mode:"sound"}.
+ * With `gainDb` (a number), the mix as a render plays it: that loudness gain, then the master
+ * limiter at its starting ceiling (the drop readout, engine/mixReadout.js).
  */
-export async function soundCurve(clips, duration, signal) {
+export async function soundCurve(clips, duration, signal, { gainDb = null } = {}) {
   const heard = audibleClips(clips, duration);
   if (!heard.length) return [];
-  const graph = `${audioMixGraph(heard, duration, "mp4", 0)},${SAMPLE_TIMES},apad=whole_dur=${duration},ebur128=peak=true:metadata=1,ametadata=mode=print:file=-`;
+  const rendered = Number.isFinite(gainDb) ? `volume=${gainDb}dB,${masterLimiter()},` : "";
+  const graph = `${audioMixGraph(heard, duration, "mp4", 0)},${rendered}${SAMPLE_TIMES},apad=whole_dur=${duration},ebur128=peak=true:metadata=1,ametadata=mode=print:file=-`;
   const printed = await runProcess(ffmpegCommand(), ["-hide_banner", "-nostdin", "-loglevel", "error", ...audioInputArgs(heard),
     "-filter_complex", graph, "-t", String(duration), "-f", "null", "-"], signal);
   const curve = [];
@@ -975,8 +978,11 @@ export async function soundCurve(clips, duration, signal) {
  * The gain is its first trial's; a render corrects it by a few tenths of a dB when the limiter gives some back.
  * `windows` are the mix's 0.1 s peaks ([{t, peak}], dBFS). With perLayer, each playing entry at a
  * place shared by two or more layers gets peakDbfs: that layer's own peak over the place, alone.
+ * With heard, one more run gives `heard`: { gainDb, windows: [{t, m, s}] }, the momentary loudness
+ * every 0.1 s of the mix as a default render plays it ("auto"'s gain, 0 when none applies, then the
+ * limiter), so a drop the limiter holds down reads as the file will.
  */
-export async function measureMixPeaks(clips, duration, signal, { perLayer = false, references = [] } = {}) {
+export async function measureMixPeaks(clips, duration, signal, { perLayer = false, references = [], heard: readHeard = false } = {}) {
   const heard = audibleClips(clips, duration);
   if (!heard.length) return null;
   const printed = await runProcess(ffmpegCommand(), ["-hide_banner", "-nostdin", "-loglevel", "error", ...audioInputArgs(heard),
@@ -1030,7 +1036,9 @@ export async function measureMixPeaks(clips, duration, signal, { perLayer = fals
     auto = { target: gain.target, targetLufs: gain.targetLufs, gainDb: gain.gainDb, held: gain.held, places: shifted.length,
       worst: worst ? { at: worst.at, overDb: worst.overDb } : null, ...(gain.why ? { why: gain.why } : {}) };
   }
-  return { integratedLufs, truePeakDbtp, limitedLufs, places, auto, windows };
+  const gainDb = auto?.gainDb ?? 0;
+  const rendered = readHeard ? { gainDb, windows: await soundCurve(heard, duration, signal, { gainDb }) } : null;
+  return { integratedLufs, truePeakDbtp, limitedLufs, places, auto, windows, ...(rendered ? { heard: rendered } : {}) };
 }
 
 /**
