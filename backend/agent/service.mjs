@@ -1748,7 +1748,7 @@ export function createAgentService(deps) {
             next = await blocks.apply(next, first.operation, fontsCache);
             if (first.operation.formatName && first.operation.formatMusic) next = await fitFormatMusic(next, first.operation, fontsCache);
             // A snap puts the cuts on the song's beats as it plays now: fitting the song after it would move them off.
-            if (first.operation.type === "board" && first.operation.snap === undefined) next = await fitBoardMusic(next, fontsCache, first.operation);
+            if (first.operation.type === "board" && first.operation.snap === undefined && first.operation.end === undefined) next = await fitBoardMusic(next, fontsCache, first.operation);
           }
           catch (error) { refuse(first, error instanceof AgentError ? error : operationFailed(first.index, raw[first.index], first.operation.type, error)); }
         }
@@ -2591,6 +2591,24 @@ export function createAgentService(deps) {
       // update_layer and update_layers moved a layer's presets with it (engine/presetMove.js).
       if (found.presetsMoved) {
         (fields.movedWithLayer ??= []).push(...found.presetsMoved.map(({ layerId, animationId, name, what }) => `${refName(animationId, codes)}${name ? ` (${name})` : ""}${what ? ` ${what}` : ""} with ${refName(layerId, codes)}`));
+        continue;
+      }
+      // update_scene with a new duration: whole-scene animations that now end with the scene (engine/sceneLength.js).
+      if (found.sceneLength) {
+        const { was, now: length, animations } = found.sceneLength;
+        const named = animations.map(({ layerId, animationId, name }) => `${refName(animationId, codes)}${name ? ` (${name})` : ""} on ${layerId === "background" ? "the background" : refName(layerId, codes)}`);
+        fields.sceneLength = {
+          ...fields.sceneLength, was, now: length,
+          endsWithScene: named.slice(0, 12), ...(named.length > 12 ? { more: named.length - 12 } : {}), note: `${plural(named.length, "animation")} ran the whole scene (0 to ${was} s) and now run 0 to ${length} s`,
+        };
+        continue;
+      }
+      // The edit changed the video's or the music's length under a board that tiled it: its last shot followed, or the one call that does it.
+      if (found.boardFollow) {
+        const board = found.boardFollow;
+        fields.sceneLength = { ...fields.sceneLength, board: board.shot
+          ? `shot ${board.shot} now ends at ${board.to} s (was ${board.from} s); the board is one revision newer`
+          : `the saved board ends at ${board.from} s and the song or video now ends at ${board.to} s: a change over 1 s is not followed. One call: edit {ops:[{op:"board", end:${board.to}}]}` };
         continue;
       }
       const key = { add_captions: "captions", detect_beats: "beats", fit_music: "music", add_sequence: "sequence", duck_audio: "duck", isolate_voice: "voice", cut_out: "cutout", track: "track", pin: "pin", stabilize: "stabilize", cut_speech: "speech", sync_clips: "sync", match_color: "color", place_broll: "broll", keep_line: "keepLine", place_sounds: "sounds" }[operation.type];

@@ -1003,6 +1003,12 @@ How to read it:
 - **split_layer {layer, at} / {layer, from, to}**: Verified. Cuts a media layer in two or skips a
   span, keeping animations. Evidence: `engine/splitLayer.test.js`, `backend/agent-volume.test.mjs`,
   `backend/agent-reach-geometry.test.mjs`. Not supported: clips with Speed animations (refused).
+- **Follow-length** (`update_scene duration`, `split_layer`, `board {end}`): Verified. A scene's
+  whole-scene animations (not Speed) and a tiling board's last shot (up to 1 s, also when the music
+  layer's Play moves in the same edit) follow a new duration, and each split piece gets Show/Hide
+  for its own span (a piece holding its last frame keeps its Hide). Evidence: `engine/operations.test.js`,
+  `engine/splitLayer.test.js`, `backend/agent-board.test.mjs`. Not supported: a board change over 1 s
+  (the stop gives the one `board {end}` call).
 
 ### Voice isolation
 

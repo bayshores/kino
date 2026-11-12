@@ -14,13 +14,15 @@
 // Animations are divided by time. Each piece keeps the ones that change what it shows: one that
 // ends by `at` is dropped from the copy, and one that starts at or after `at` from the first
 // piece, unless its held value still shows on that piece (a move that ended before the cut still
-// places the copy). A crossing animation is kept on both, at the same scene times. Hide and show
-// stay on both (they set what shows after them).
+// places the copy). A crossing animation is kept on both, at the same scene times. Hide and Show
+// are set for each piece's own span: the first piece loses those after `at` (a Hide that was due
+// later moves to `at`), the copy keeps only the last one before `at` (moved to `at`) and, unless
+// it holds its last frame, a Hide past its end moves to its end.
 import { duplicateSelection } from "./duplicate.js";
 import { animatesSpeed, evaluateLayer } from "./animation.js";
 import { animationPlaybackLength, effectiveMediaDuration, hasMediaPlay, mediaSoundTime } from "./playback.js";
 import { isReversed } from "./mediaTime.js";
-import { isVisibilityOperation } from "./visibilityOps.js";
+import { isVisibilityOperation, visibleByOperations } from "./visibilityOps.js";
 import { MIN_PLAY_SECONDS } from "./mediaPlay.js";
 
 const round = (value) => Math.round(value * 1e6) / 1e6 + 0;
@@ -52,6 +54,37 @@ function keptAnimations(layer, drop, times) {
     if (times.some((time, item) => reference[item] === null || valuesAt(trial, time) !== reference[item])) dropped.delete(index);
   }
   return dropped;
+}
+
+// Hide and Show operations of a piece, set for the piece's own span. Only plain top-level
+// operations are touched (not a Show that holds a card with `keeps`).
+const EPS = 1e-6;
+const plainVisibility = (animation) => isVisibilityOperation(animation) && typeof animation.start === "number" && typeof animation.keeps !== "string";
+
+// A piece that ends at `until`: operations after it can't change what it shows, so they go, and
+// a Hide that was due later while the piece is shown moves to `until` (the one a cut-off piece
+// shows no longer). The piece's own earlier operations stay.
+function visibleUntil(animations, until) {
+  const after = animations.filter((animation) => plainVisibility(animation) && animation.start > until + EPS);
+  if (!after.length) return animations;
+  const shown = visibleByOperations(animations, until);
+  const hide = shown ? [...after].sort((a, b) => a.start - b.start).find((animation) => animation.kind === "hide") : undefined;
+  return animations.flatMap((animation) => {
+    if (!after.includes(animation)) return [animation];
+    return animation === hide ? [{ ...animation, start: round(until) }] : [];
+  });
+}
+
+// A piece that starts at `from`: of the operations before it only the last one counts (it sets
+// what shows at `from`), and it moves to `from`; earlier ones go.
+function visibleFrom(animations, from) {
+  const before = animations.filter((animation) => plainVisibility(animation) && animation.start < from - EPS).sort((a, b) => a.start - b.start);
+  if (!before.length) return animations;
+  const last = before.at(-1);
+  return animations.flatMap((animation) => {
+    if (!before.includes(animation)) return [animation];
+    return animation === last ? [{ ...animation, start: round(from) }] : [];
+  });
 }
 
 /**
@@ -113,8 +146,14 @@ export function splitLayer(document, sceneId, layerId, { at, to, copy = {} }) {
   const dropSecond = keptAnimations({ ...layer, ...second, animations: animations.map(moved) }, earlyOnes, timeline(at, secondEnd));
 
   const layers = copied.document.scenes.find((item) => item.id === sceneId).layers.map((item) => {
-    if (item.id === layerId) return { ...item, ...first, animations: item.animations.filter((_, index) => !dropFirst.has(index)) };
-    if (item.id === copyId) return { ...item, ...second, animations: item.animations.map(moved).filter((_, index) => !dropSecond.has(index)) };
+    if (item.id === layerId) return { ...item, ...first, animations: visibleUntil(item.animations.filter((_, index) => !dropFirst.has(index)), at) };
+    if (item.id === copyId) {
+      const kept = visibleFrom(item.animations.map(moved).filter((_, index) => !dropSecond.has(index)), at);
+      // A piece that holds its last frame (mediaFreeze "last") shows past its end as the whole clip
+      // did, so its later Hide and Show still time that hold and stay.
+      const ends = Number.isFinite(secondEnd) && !reversed && second.mediaDuration > 0 && second.mediaFreeze !== "last";
+      return { ...item, ...second, animations: ends ? visibleUntil(kept, secondEnd) : kept };
+    }
     return item;
   });
   return {

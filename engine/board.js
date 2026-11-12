@@ -401,7 +401,7 @@ export function boardCoverage(board, span) {
   }
   const last = end(shots.at(-1));
   if (last < span.end - ONE_FRAME)
-    return { code: "gap", message: `the shots end at ${sec(last)} s, before the ${where} ends (${sec(span.end)} s): make the last shot ${sec(span.end - last)} s longer.`, at: [last, span.end] };
+    return { code: "gap", message: `the shots end at ${sec(last)} s, before the ${where} ends (${sec(span.end)} s): make the last shot ${sec(span.end - last)} s longer.`, at: [last, span.end], end: round(span.end, 3) };
   return null;
 }
 

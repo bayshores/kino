@@ -254,8 +254,8 @@ const OPERATIONS = {
     rules: `source {name, text}: saves material the person gave you (their message, a README, a script, a transcript), word for word: up to ${SOURCE_LIMITS.text} characters each, ${SOURCE_LIMITS.count} in all; the same name replaces it, text:null removes it. check's own_words then names on-screen text whose words are in no source.`,
   },
   board: {
-    fields: ["music", "shots", "calls", "open", "snap"],
-    rules: 'board {music, shots:[{cue, dur, pacing, media, in, crop, subject, follow, text, sound, move, why, speed?, lift?, drop?, alts?, id?}], calls?, open?}: the storyboard (undo and rev as any edit); each call replaces it. Shots in time order, no gaps: over the music layer, or the whole video when music is "none"; music may be an imported sound\'s src or id (kino adds its audio layer). While the board stop waits, a board edit saves and refreshes its ask. Every layer given, "none" when empty: media (an imported video or picture, or a video layer), in (file seconds), speed (the clip\'s playback speed, default 1: a shot uses dur × speed seconds of the file), lift (true or a mean luma 1 to 255: compose from board runs lift_dark on the shot), drop:true (the song\'s drop lands on this shot\'s cut: fit_music with no payoff takes its cue), crop [x, y, w, h] (% of the source, the video\'s shape) or "whole" (shown whole, such as a phone screen beside other things), subject {what, box, eyes?} (% of the source; eyes: the eye line\'s y), follow steady|track|sweep, text {text, family?, weight?, size?, y?, fill?} (y: center, % from the top; with family, weight, size or fill left out, the left-out fields take the words\' job, a payoff on the spine\'s timed payoff beat (no spine: a short last line) else a subtitle line, printed on the answer), sound {media, what} (a sound to add) and/or {keep:"all" | [from, to]} (the clip\'s own sound, file seconds: the layer you place for the shot keeps it, keep_line). move: the designed move {kind type|transition|camera|ui, name (a move, transition, recipe or preset; planned:true for a craft-plan move not built yet), ref "<reference key>@<seconds>"} (slow-push, push-in and zoom-in are read as push), or {none:"<reason>"}; without one the shot is plain (footage plus words). pacing beat_cut|phrase_flow|free; why: one line; calls: your own calls and your decisions on open items left to you (≤ 6); open: questions for the person (≤ 3). A shot sent without id keeps the id of the shot it continues (same clip and nearest in, or same text). look {mode:"board"} shows it; notes checkpoint {id:"board"} asks the person. board {snap:"beats"} moves the saved board\'s cuts after the song\'s turn onto its measured beats (the times look board lists); sent with shots, it saves them first.',
+    fields: ["music", "shots", "calls", "open", "snap", "end"],
+    rules: 'board {music, shots:[{cue, dur, pacing, media, in, crop, subject, follow, text, sound, move, why, speed?, lift?, drop?, alts?, id?}], calls?, open?}: the storyboard (undo and rev as any edit); each call replaces it. Shots in time order, no gaps: over the music layer, or the whole video when music is "none"; music may be an imported sound\'s src or id (kino adds its audio layer). While the board stop waits, a board edit saves and refreshes its ask. Every layer given, "none" when empty: media (an imported video or picture, or a video layer), in (file seconds), speed (the clip\'s playback speed, default 1: a shot uses dur × speed seconds of the file), lift (true or a mean luma 1 to 255: compose from board runs lift_dark on the shot), drop:true (the song\'s drop lands on this shot\'s cut: fit_music with no payoff takes its cue), crop [x, y, w, h] (% of the source, the video\'s shape) or "whole" (shown whole, such as a phone screen beside other things), subject {what, box, eyes?} (% of the source; eyes: the eye line\'s y), follow steady|track|sweep, text {text, family?, weight?, size?, y?, fill?} (y: center, % from the top; with family, weight, size or fill left out, the left-out fields take the words\' job, a payoff on the spine\'s timed payoff beat (no spine: a short last line) else a subtitle line, printed on the answer), sound {media, what} (a sound to add) and/or {keep:"all" | [from, to]} (the clip\'s own sound, file seconds: the layer you place for the shot keeps it, keep_line). move: the designed move {kind type|transition|camera|ui, name (a move, transition, recipe or preset; planned:true for a craft-plan move not built yet), ref "<reference key>@<seconds>"} (slow-push, push-in and zoom-in are read as push), or {none:"<reason>"}; without one the shot is plain (footage plus words). pacing beat_cut|phrase_flow|free; why: one line; calls: your own calls and your decisions on open items left to you (≤ 6); open: questions for the person (≤ 3). A shot sent without id keeps the id of the shot it continues (same clip and nearest in, or same text). look {mode:"board"} shows it; notes checkpoint {id:"board"} asks the person. board {snap:"beats"} moves the saved board\'s cuts after the song\'s turn onto its measured beats (the times look board lists); sent with shots, it saves them first. board {end: seconds} moves only the last shot\'s end (a gap at the end of the music or video).',
   },
 };
 const FIELD_ALIASES = [["scene", "sceneId"], ["layer", "layerId"], ["layers", "layerIds"]];
@@ -2547,6 +2547,7 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
   // saved unless the whole board is right.
   async function applyBoard(document, operation, work) {
     if (operation.snap !== undefined) return snapBoard(document, operation, work);
+    if (operation.end !== undefined) return endBoard(document, operation, work);
     const scene = mainScene(document);
     if (!scene) throw boardProblem("bad_shot", "the board needs a scene: add_scene first.");
     const problems = [];
@@ -2653,6 +2654,29 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     });
     return [...moved.slice(0, 4), ...(moved.length > 4 ? [`board: ${moved.length - 4} more shots moved off a file cut`] : []),
       ...stated.slice(0, 4), ...(stated.length > 4 ? [`board: ${stated.length - 4} more shots play across a cut of their file`] : [])];
+  }
+
+  // board {end: seconds}: the saved board's last shot ends there (longer or shorter); every other
+  // shot stays. The one call a board_gap at the end of the music or video gives. Sent with shots,
+  // it saves them first. The last shot's file is not measured here: compose from board reports a
+  // shot that runs past its file.
+  async function endBoard(document, operation, work) {
+    if (typeof operation.end !== "number" || !Number.isFinite(operation.end) || operation.end <= 0) throw boardProblem("bad_shot", "end is the second the last shot ends at, a number above 0.");
+    if (operation.shots !== undefined) {
+      const { end: _end, ...whole } = operation;
+      await applyBoard(document, whole, work);
+    }
+    const old = document.board;
+    if (!old?.shots?.length) throw boardProblem("bad_shot", 'There is no storyboard to end: save one first, edit {ops:[{op:"board", music, shots}]}.');
+    const last = old.shots.at(-1);
+    const dur = Math.round((operation.end - last.cue) * 1000) / 1000;
+    if (dur <= ONE_FRAME) throw boardProblem("bad_shot", `end ${sec(operation.end)} s is not after the last shot's start (${sec(last.cue)} s).`);
+    if (Math.abs(last.dur - dur) < 1e-6) { work.notes.push(`board r${old.rev}: no change (the last shot already ends at ${sec(operation.end)} s)`); return; }
+    const board = { ...old, shots: [...old.shots.slice(0, -1), { ...last, dur }] };
+    const gap = boardCoverage(board, boardSpan(document, board));
+    if (gap) throw boardProblem(gap.code, gap.message);
+    document.board = normalizeBoard({ board: { ...board, rev: old.rev + 1 } }).board;
+    work.notes.push(`board r${document.board.rev}: last shot (${old.shots.length}) now ends at ${sec(operation.end)} s (was ${sec(last.cue + last.dur)} s), nothing else changed`);
   }
 
   // board {snap:"beats"}: only when asked, the saved board's cuts after the song's turn move onto
@@ -3328,4 +3352,4 @@ export function blocksLibraryText(name) {
     `Tokens: duration ${Object.keys(DURATIONS).join("|")} (e.g. duration:"standard"); easing ${Object.keys(EASING_TOKENS).join("|")} (e.g. easing:"enter" or "enter:0.8"). Feels: ${Object.keys(FEELS).join(", ")}.`,
     `Ops: ${BLOCK_OPERATION_TYPES.join(", ")} (library {topic:"blocks", name:<op>} has each one's fields).`,
   ].join("\n");
-}
+} ¶END

@@ -47,6 +47,7 @@ import { RESIZE_ANCHORS } from "./resizeAnchor.js";
 import { refreshBehaviorLinks } from "./behaviorLinks.js";
 import { frameShot } from "./footage/layout.js";
 import { normalizeLetterbox, normalizeSceneFinish } from "./sceneFinishFields.js";
+import { BOARD_FOLLOW, boardSpanBefore, followBoardLength, followSceneLength } from "./sceneLength.js";
 
 // A Color animation (`fill` in from or to) only draws on a layer that has a Fill (paints.js).
 // Every operation that adds one or changes its fill values refuses it on a layer without a Fill:
@@ -64,6 +65,9 @@ export function applyOperations(source, operations, {fonts, mediaBySrc, mediaByI
   if (!Array.isArray(operations) || operations.length > 1000)
     throw new Error("Provide an array of at most 1000 editing operations.");
   const document = structuredClone(source);
+  // A board that tiles the video or its music now follows a small change to that length made by
+  // any of these operations (sceneLength.js); measured once before and once after them.
+  const boardBefore = boardSpanBefore(document);
   for (const operation of operations) {
     if (!operation || typeof operation !== "object")
       throw new Error("Each operation must be an object.");
@@ -156,6 +160,11 @@ export function applyOperations(source, operations, {fonts, mediaBySrc, mediaByI
         try { normalizeShutterAngle(scene); } catch (error) { refuse("properties.shutterAngle", error.message.replace(/^shutterAngle /, "")); }
       const problem = backgroundAnimationProblem(scene, previous) || sceneAnimationProblem(scene, previousLayers);
       if (problem) throw new Error(problem);
+      // A new length: whole-scene animations end at it (sceneLength.js); the board follows after the whole edit.
+      if (operation.properties && Object.hasOwn(operation.properties, "duration") && scene.duration !== previous.duration) {
+        const animations = followSceneLength(scene, previous.duration, { fps: document.fps });
+        if (animations.length && reports) reports.set(operation, { sceneLength: { was: previous.duration, now: scene.duration, animations } });
+      }
       continue;
     }
     if (operation.type === "create_component") {
@@ -489,6 +498,8 @@ export function applyOperations(source, operations, {fonts, mediaBySrc, mediaByI
     }
     throw new Error(`Unsupported editing operation: ${operation.type}`);
   }
+  const boardFollow = followBoardLength(document, boardBefore);
+  if (boardFollow && reports) reports.set(BOARD_FOLLOW, { boardFollow });
   assertAxesInRange(source, document, fonts);
   // A waiver on a layer lapses when the layer is deleted or its file changes (projectSettings.js).
   if (document.checkWaivers?.length) document.checkWaivers = keptWaivers(source, document);
