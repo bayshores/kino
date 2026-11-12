@@ -287,4 +287,21 @@ test("the agent render endpoint exports, reuses, queues, cancels, and recovers r
   assert.equal(JSON.parse(await readFile(film.path, "utf8")).op, 72);
   const bad = await (await server.api("/api/agent/render", { project: PROJECT_ID, action: "start", scene: ntscScene, fps: 29.5 })).json();
   assert.match(bad.text, /23\.976, 29\.97 or 59\.94/);
+
+  // A draft video of a scene with one cut lists the cut's brightness and hue jump in its wait answer.
+  await agent("edit", { project: PROJECT_ID, ops: [{ op: "add_scene", name: "Cut", width: 96, height: 64, duration: 1.4, background: "#101820" }] });
+  const sceneC = (await saved()).document.scenes.at(-1).id;
+  await agent("edit", { project: PROJECT_ID, ops: [
+    { op: "add_layer", scene: sceneC, layerType: "rectangle", name: "red", properties: { x: 0, y: 0, width: 96, height: 64, fill: "#d02020" } },
+    { op: "add_animation", layer: "red", preset: "hide", start: 0.7 },
+    { op: "add_layer", scene: sceneC, layerType: "rectangle", name: "blue", properties: { x: 0, y: 0, width: 96, height: 64, fill: "#2040e0" } },
+    { op: "add_animation", layer: "blue", preset: "show", start: 0.7 },
+    { op: "add_layer", scene: sceneC, layerType: "text", name: "word-a", properties: { x: 10, y: 20, width: 76, height: 24, text: "ONE", fontSize: 20, fill: "#ffffff" } },
+    { op: "add_animation", layer: "word-a", preset: "hide", start: 0.7 },
+    { op: "add_layer", scene: sceneC, layerType: "text", name: "word-b", properties: { x: 10, y: 20, width: 76, height: 24, text: "TWO", fontSize: 20, fill: "#ffffff" } },
+    { op: "add_animation", layer: "word-b", preset: "show", start: 0.7 },
+  ] });
+  const cutDraft = await renderAndWait({ project: PROJECT_ID, scene: sceneC, quality: "draft", format: "mp4" });
+  assert.match(cutDraft.text, /cuts \(draft R\d+[^)]*, every frame\)/);
+  assert.match(cutDraft.text, /per cut: 0\.7\d [+-]?\d+ \d+°/);
 });

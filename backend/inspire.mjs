@@ -34,6 +34,7 @@ import { keyframeStills, lookVector, rankLooks, sameFrames, shotMiddles } from "
 import { junkSound, rankSounds, sfxPrompt, soundVector } from "./sfx-rank.mjs";
 import { COPY_RUN, copiedRun } from "../engine/quality/rules/reference.js";
 import { beatSecondsOf, numbersWithMedian, shotStats } from "../engine/footage/refPace.js";
+import { cutFacts } from "../engine/cutFacts.js";
 import { call, callText } from "./agent/next-call.mjs";
 
 /** Spoken lines a measured reference keeps (the first ones in time). */
@@ -1446,7 +1447,7 @@ export function createInspire(deps) {
       if (probed.width > 0 && probed.height > 0) record.vertical = probed.height > probed.width;
       const seconds = Math.min(MEASURE_SECONDS, probed.duration || record.duration || 0);
       if (!(seconds > 0)) throw new Error("The download has no length.");
-      const { shots, flashes, fps } = await heavy.findShots(file, { duration: seconds, signal, minShotFrames: REFERENCE_MIN_SHOT_FRAMES });
+      const { shots, flashes, fps, levels } = await heavy.findShots(file, { duration: seconds, signal, minShotFrames: REFERENCE_MIN_SHOT_FRAMES, levels: true });
       const read = { seconds, fps: fps ?? undefined, flashes: (flashes ?? []).filter((flash) => flash.start < seconds).length };
       // The cuts are known: the screen draws them while the beat is found.
       if (running?.id === record.id) running.partial = measureNumbers({ cuts: shots.slice(1).map((shot) => shot.start), beats: [], ...read });
@@ -1463,6 +1464,9 @@ export function createInspire(deps) {
         try { heard = await heavy.heard(file, { seconds, bpm: beat?.bpm ?? null, signal }); }
         catch (error) { if (signal.aborted) throw error; }
       }
+      // How much each cut changes the picture (brightness and hue per cut), split at the sound's turn
+      // when it has one (engine/cutFacts.js). Older references have none until measured again.
+      if (levels?.length) numbers.picture = cutFacts({ cuts: numbers.cuts, levels, turn: heard?.change?.at ?? null, seconds });
       // The fingerprint and the strips: a failure here keeps the cuts and says what went wrong.
       let fingerprint = null, strips = [], fingerprintError = null;
       if (deps.fingerprint) {

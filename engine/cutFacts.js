@@ -67,18 +67,27 @@ const percentile = (values, share) => {
  *   sections    [{from, to, low, high}]: the 5th and 95th percentile of y on each side of the turn
  *               (one section without a turn)
  */
-export function cutFacts({ cuts = [], levels = [], turn = null, seconds, big = BIG_JUMP }) {
+export function cutFacts({ cuts = [], levels = [], turn = null, seconds, big = BIG_JUMP, slack = 0 }) {
   const frames = levels.filter((level) => Number.isFinite(level?.t) && Number.isFinite(level?.y)).sort((a, b) => a.t - b.t);
   const end = seconds ?? frames.at(-1)?.t ?? 0;
   const jumps = [];
-  for (const at of [...cuts].sort((a, b) => a - b)) {
+  const step = (at) => {
     let before = null, after = null;
     for (const frame of frames) {
       if (frame.t < at - 1e-6) before = frame;
       else { after = frame; break; }
     }
-    if (!before || !after) continue;
-    jumps.push({ at: round(at, 2), dy: round(after.y - before.y, 0), dhue: hueStep(before.hue, after.hue) });
+    return before && after ? { at: round(at, 2), dy: round(after.y - before.y, 0), dhue: hueStep(before.hue, after.hue) } : null;
+  };
+  // slack (seconds, one frame for a rendered file): a cut time computed from the edit can sit one
+  // frame off the frame where the picture changes, so the step is read at the cut and one slack
+  // either side, and the largest (brightness plus hue) is the one reported at the cut's time.
+  const size = (jump) => Math.abs(jump.dy) + (jump.dhue ?? 0) / 2;
+  for (const at of [...cuts].sort((a, b) => a - b)) {
+    const options = (slack > 0 ? [at, at - slack, at + slack] : [at]).map(step).filter(Boolean);
+    if (!options.length || !step(at)) continue;
+    const best = options.reduce((top, option) => (size(option) > size(top) ? option : top));
+    jumps.push({ ...best, at: round(at, 2) });
   }
   const bigCount = jumps.filter((jump) => Math.abs(jump.dy) >= big).length;
   const edges = turn > 0 && turn < end ? [0, turn, end] : [0, end];
@@ -96,11 +105,15 @@ export function cutFacts({ cuts = [], levels = [], turn = null, seconds, big = B
  * The cuts after `turn` moved onto `times` (edit seconds, ascending: the song's measured beats).
  * Each cut at or after the turn (less one frame) goes to the nearest time later than the cut
  * before it and earlier than the shot's end; a cut with no such time stays. Shots keep their
- * order, media and in-points; dur follows the moved cuts. Returns { shots, moved: [{id, from, to}] }.
+ * order, media and in-points; dur follows the moved cuts. `fits(shot, dur)` (optional) says whether
+ * a shot can last `dur`: a move that would give a shot a length it does not fit (it would run past
+ * its clip file) is not made, and the cut stays. Returns { shots, moved: [{id, from, to}],
+ * kept: [{id, at, to}] } (kept: the cuts that stayed for that reason, `to` the beat they would
+ * have moved to).
  */
-export function cutsOnBeats(shots, { turn, times, frame = 1 / 30 }) {
+export function cutsOnBeats(shots, { turn, times, frame = 1 / 30, fits = null }) {
   const out = shots.map((shot) => ({ ...shot }));
-  const moved = [];
+  const moved = [], kept = [];
   const end = (shot) => shot.cue + shot.dur;
   for (let index = 1; index < out.length; index += 1) {
     const cut = out[index].cue;
@@ -110,12 +123,14 @@ export function cutsOnBeats(shots, { turn, times, frame = 1 / 30 }) {
     if (!open.length) continue;
     const to = open.reduce((best, time) => (Math.abs(time - cut) < Math.abs(best - cut) ? time : best));
     if (Math.abs(to - cut) < 1e-4) continue;
-    out[index - 1].dur = round(to - out[index - 1].cue, 3);
-    out[index].dur = round(until - to, 3);
+    const before = round(to - out[index - 1].cue, 3), later = round(until - to, 3);
+    if (fits && (!fits(out[index - 1], before) || !fits(out[index], later))) { kept.push({ id: out[index].id, at: cut, to: round(to, 3) }); continue; }
+    out[index - 1].dur = before;
+    out[index].dur = later;
     out[index].cue = round(to, 3);
     moved.push({ id: out[index].id, from: cut, to: out[index].cue });
   }
-  return { shots: out, moved };
+  return { shots: out, moved, kept };
 }
 
 const s2 = (value) => (value == null ? "-" : value.toFixed(2));
@@ -144,6 +159,27 @@ export function paceLine(ours, refs = [], { kind = "turn" } = {}) {
   const per10 = range(used.map((ref) => pick(ref).per10), 1, " per 10 s");
   const whose = ours.before ? `your ${used.length} reference${used.length === 1 ? "" : "s"} after their turn` : `your ${used.length} reference${used.length === 1 ? "" : "s"}`;
   return `${head} · ${whose}: median ${medians}, ${per10}`;
+}
+
+/**
+ * The render answer's two cut lines, from a rendered file's cutFacts (`ours`) and the saved
+ * references' (`refs`: each { jumpMedian, big10 }, those measured). Facts only: the references are
+ * a low-to-high range and a count. Returns [] for a file with no cuts. `label` names the file
+ * ("draft R2"); at most `listed` cuts are listed and the rest counted.
+ */
+export function cutLines(ours, refs = [], { label = "", listed = 12 } = {}) {
+  if (!ours?.jumps?.length) return [];
+  const sign = (value) => `${value > 0 ? "+" : ""}${value}`;
+  const where = ours.sections.map((section) => `${+section.from.toFixed(1)}-${+section.to.toFixed(1)} s ${section.low ?? "-"}-${section.high ?? "-"}`).join(", ");
+  const head = `cuts (${label ? `${label}, ` : ""}every frame): brightness jump median ${ours.jumpMedian ?? "-"} of 255${ours.hueMedian == null ? "" : `, hue ${ours.hueMedian}°`}; 50+ jumps ${ours.big10 ?? "-"} per 10 s; range ${where}`;
+  const known = refs.filter((ref) => Number.isFinite(ref?.jumpMedian));
+  const beside = known.length
+    ? ` · your ${known.length} measured reference${known.length === 1 ? "" : "s"}: median ${range(known.map((ref) => ref.jumpMedian), 0)}, 50+ jumps ${range(known.map((ref) => ref.big10), 1, " per 10 s")}`
+    : "";
+  const shown = ours.jumps.slice(0, listed).map((jump) => `${s2(jump.at)} ${sign(jump.dy)} ${jump.dhue == null ? "-" : `${jump.dhue}°`}`);
+  const all = ours.cutCount ?? ours.jumps.length;
+  const more = all > listed ? `, ... (${all - listed} more)` : "";
+  return [`${head}${beside}`, `per cut: ${shown.join(", ")}${more}`];
 }
 
 /**

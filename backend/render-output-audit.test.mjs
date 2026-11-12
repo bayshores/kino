@@ -201,6 +201,17 @@ test("a final MP4 render of a testsrc2 video layer passes its decoded-output aud
   const steps = new Uint8Array([...gray(100, 10), ...gray(140, 10)]);
   assert.equal(motionFacts(steps, 20, 30, []).jumps.length, 1);
   assert.deepEqual(motionFacts(steps, 20, 30, [0.33]).jumps, []);
+  // Hue of each frame's mean color: red frames then blue frames read near 0 then 240 degrees; gray has none.
+  const solid = (r, g, b, count) => Uint8Array.from({ length: count * 32 * 18 * 3 }, (_, index) => [r, g, b][index % 3]);
+  const tinted = motionFacts(new Uint8Array([...solid(255, 0, 0, 2), ...solid(0, 0, 255, 2), ...gray(100, 1)]), 5, 30, []);
+  assert.deepEqual(tinted.hue, [0, 0, 240, 240, null]);
+
+  // A draft has no frame references and no verdict, only the motion facts, with the cut times it was given.
+  const draft = await exportScene(scene, { profile: "mp4.alt", fps: 15, width, height, renderQuality: "draft" },
+    { mediaRoot, outputPath: join(directory, "busy-draft.mp4") });
+  assert.equal(draft.outputAudit, undefined, "no audit verdict on a draft");
+  assert.equal(draft.motion.hue.length, draft.motion.luma.length);
+  assert.ok(draft.motion.luma.length > 0 && Array.isArray(draft.motion.cuts), "every frame's brightness and hue, and the cut times");
 
   // APNG is lossless, so the same render must read back exactly (its limit is 2 levels a pixel).
   const apng = await exportScene(scene, { format: "apng", fps: 15, width, height, renderQuality: "final" },

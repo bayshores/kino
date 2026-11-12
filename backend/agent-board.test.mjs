@@ -145,6 +145,13 @@ test("look board prints the pace on each side of the song's drop and its beat ti
   const both = await agent("edit", { project: "pace", ops: [boardOp([motion(0, 1.5), motion(1.5, 1.5), motion(3, 1.2), motion(4.2, 1.8)], { music: "song", snap: true })] });
   assert.equal(both.isError, undefined, both.text);
   assert.deepEqual((await record("pace")).document.board.shots.map((shot) => shot.cue), [0, 1.5, 3.05, 4.05], both.text);
+  // A last shot of the 4.42 s clip from 2.6 s uses 1.8 s of it; moving its start to 4.05 would make it 1.95 s
+  // and run past the file's end: that cut keeps its time and the answer says which.
+  const whole = { crop: [0, 0, 100, 100], subject: { what: "the dragon", box: [30, 30, 30, 30] } };
+  const past = await agent("edit", { project: "pace", ops: [boardOp([motion(0, 1.5), motion(1.5, 1.5), motion(3, 1.2), footage(4.2, 1.8, 2.6, 0, whole)], { music: "song", snap: "beats" })] });
+  assert.equal(past.isError, undefined, past.text);
+  assert.deepEqual((await record("pace")).document.board.shots.map((shot) => shot.cue), [0, 1.5, 3.05, 4.2], past.text);
+  assert.match(past.text, /1 cut stayed because a shot would run past the end of its clip file: 4\.2 s \(the beat at 4\.05 s\)/);
 });
 
 test("a bad move.ref says what the project accepts now: its saved keys, the fixed ref, or the call that saves one", () => {
