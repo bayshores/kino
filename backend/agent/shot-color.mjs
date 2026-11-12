@@ -120,6 +120,33 @@ async function frameData(mediaRoot, layer, time) {
   } catch { return null; } finally { await rm(folder, { recursive: true, force: true }); }
 }
 
+/**
+ * The mean color (#rrggbb) of `layer`'s picture under `box` ({x, y, width, height}, scene pixels)
+ * at scene time `time`, read from the same small frame (WIDTH px wide, one FFmpeg frame for a video).
+ * The picture is taken as drawn across the layer's own box (GUESS: a cover crop's trim is not mapped).
+ * null when the file cannot be read or the box misses the layer.
+ */
+export async function boxColor(mediaRoot, layer, time, box) {
+  const data = await frameData(mediaRoot, layer, time);
+  if (!data) return null;
+  const rows = Math.max(1, Math.round(data.length / 4 / WIDTH));
+  const width = Math.abs((layer.width ?? 0) * (layer.scaleX ?? 1)), height = Math.abs((layer.height ?? 0) * (layer.scaleY ?? 1));
+  if (!(width > 0 && height > 0)) return null;
+  const clamp = (value) => Math.min(1, Math.max(0, value));
+  const [left, right] = [clamp((box.x - layer.x) / width), clamp((box.x + box.width - layer.x) / width)];
+  const [top, bottom] = [clamp((box.y - layer.y) / height), clamp((box.y + box.height - layer.y) / height)];
+  if (right <= left || bottom <= top) return null;
+  const sum = [0, 0, 0];
+  let count = 0;
+  for (let row = Math.floor(top * rows); row < Math.min(rows, Math.ceil(bottom * rows)); row += 1)
+    for (let column = Math.floor(left * WIDTH); column < Math.min(WIDTH, Math.ceil(right * WIDTH)); column += 1) {
+      const at = (row * WIDTH + column) * 4;
+      if (data[at + 3] < 128) continue;
+      sum[0] += data[at]; sum[1] += data[at + 1]; sum[2] += data[at + 2]; count += 1;
+    }
+  return count ? `#${sum.map((value) => Math.round(value / count).toString(16).padStart(2, "0")).join("")}` : null;
+}
+
 /** The main colors of RGBA bytes ([{hex, share}], biggest first; fingerprint.mjs palette, k 5). */
 export function palettePixels(data) {
   const pixels = [];

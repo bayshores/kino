@@ -611,8 +611,8 @@ test("the board stop: board first, no gap, open items or \"your call\"; an appro
   assert.equal(again.data.id, "C2");
   assert.ok(again.data.ask.startsWith("The storyboard changed since you approved it (C1); asking again (C2): shot 4 text changed.\n"), again.data.ask);
   assert.equal(again.data.board.listed, 1, again.data.ask);
-  // The last short line, sent with a family only, takes the payoff weight (engine/typeRoles.js).
-  assert.ok(again.data.ask.includes('Shot 4, 4.42–8.8 s: no footage; "The dragon returns" in Inter 900.'), again.data.ask);
+  // The last short line, sent with a family only, takes the payoff weight Inter really has (engine/typeRoles.js jobFace: no 900 installed).
+  assert.ok(again.data.ask.includes('Shot 4, 4.42–8.8 s: no footage; "The dragon returns" in Inter 700.'), again.data.ask);
   assert.ok(!again.data.ask.includes("Shot 1,"), "the unchanged shots are not listed again");
   await gap(again.at);
   const second = await answer(id, { id: "C2", rev: again.data.rev, words: "yes, better", read_as: "approve" });

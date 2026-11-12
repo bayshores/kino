@@ -2556,7 +2556,7 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     // the spine's payoff beat (else a short last word) as a payoff, every other line as a subtitle.
     const sentShots = Array.isArray(sent) ? sent.slice(0, BOARD_LIMITS.shots) : [];
     const open = sentShots.some((shot) => isRecord(shot?.text) && TEXT_DEFAULTED.some((key) => shot.text[key] === undefined));
-    const type = open ? { labels: [], skipped: [], spine: null, advance: null, ...((await boardType?.(document).catch(() => null)) ?? {}) } : null;
+    const type = open ? { labels: [], skipped: [], spine: null, advance: null, follow: null, ...((await boardType?.(document, work).catch(() => null)) ?? {}) } : null;
     const roles = type ? shotRoles(sentShots.map((shot) => (isRecord(shot) ? shot : {})), {}, type.spine) : [];
     // Only a timed payoff beat places the payoff (shotRoles); an untimed one leaves the last shot to its words.
     const spinePayoff = Array.isArray(type?.spine) && type.spine.some((beat) => beat?.role === "payoff" && Number.isFinite(beat.from) && Number.isFinite(beat.to) && beat.to > beat.from);
@@ -2932,7 +2932,7 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     }
     // Fields left out take the job's treatment (subtitle or payoff, engine/typeRoles.js), printed on the answer.
     const job = type && TEXT_DEFAULTED.some((key) => value[key] === undefined)
-      ? jobTreatment(type.job, { scene, labels: type.labels, text: value.text.trim(), advance: type.advance,
+      ? jobTreatment(type.job, { scene, labels: type.labels, text: value.text.trim(), advance: type.advance, follow: type.follow?.(type.job, typeof value.family === "string" && value.weight === undefined ? value.family : null) ?? null,
         face: { family: typeof value.family === "string" ? value.family.trim() : undefined, weight: Number.isInteger(value.weight) ? value.weight : undefined } }) : null;
     const given = job?.properties;
     const center = given ? Math.round(((given.y + given.height / 2) / scene.height) * 100) : 20;
