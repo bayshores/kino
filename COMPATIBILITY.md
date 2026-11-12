@@ -599,8 +599,9 @@ How to read it:
 - **Small tool answers (round 4)**: Verified. `look {mode:"changed"}` scans the whole scene against the last look's
   revision and shows every changed span, labeled in seconds, with the spans the frame limit left out; `add_animation`
   and `update_animation` take plain numbers for `property:"volume"` / `from` / `to`; `crop_no_subject` names a mark
-  made on another file; `keep_line {level:+3}` moves one line's level (voiceLevel, a gain stage past the cap) and
-  prints it over the song; the `returns:` line prints how alike the first and last pictures are. Evidence:
+  made on another file and a cut_out copy reads its clip's mark; `keep_line {level:+3}` moves one line's level
+  (voiceLevel, a gain stage past the cap; voiceShift keeps it for later keep_line calls) and prints it over the song;
+  the `returns:` line prints how alike the first and last pictures are. Evidence:
   `backend/agent-look-zoom.test.mjs`, `backend/agent-common-mistakes.test.mjs`, `engine/qualityRules.test.js`,
   `engine/speech.test.js`, `engine/duplicate.test.js`. Gap: `level` is per clip, not per line on a clip with two lines.
 - **Motion paths**: Verified. `motionPath` on a Move, up to 64 points with `alignToPath`. Evidence:

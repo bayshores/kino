@@ -625,6 +625,18 @@ test("keep_line over measured music levels the line against the music around it,
   assert.deepEqual([louder.report.level.db, louder.report.mix.line - base.report.mix.line], [3, 3]);
   assert.match(louder.report.notes.join(" | "), /level \+3 dB on this line only: it plays at -?[\d.]+ LUFS, [+-][\d.]+ LU over the song \(-?[\d.]+ LUFS under it\); stored as voiceLevel/);
   assert.equal(run({ levels, beats, lift: true, level: -4 }).report.level.db, -4);
+  // The dB is stored (voiceShift): keep_line of the line again without level keeps it; level:0 clears it.
+  const twice = (first, second) => {
+    const reports = new Map();
+    const make = (extra) => ({ type: "keep_line", sceneId: "s", layerId: "clip", from: 4, to: 6, subtitle: false, levels, beats, ...extra });
+    const operation = make(second);
+    const scene = parseDocument(applyOperations(parseDocument(applyOperations(document, [make(first)])), [operation], { reports })).scenes[0];
+    return { report: reports.get(operation), clip: scene.layers.find((layer) => layer.id === "clip") };
+  };
+  const kept = twice({ lift: true, level: 3 }, { lift: true });
+  assert.deepEqual([kept.clip.voiceShift, kept.clip.voiceLevel, kept.report.level.kept], [3, louder.clip.voiceLevel, true]);
+  const cleared = twice({ lift: true, level: 3 }, { lift: true, level: 0 });
+  assert.deepEqual([cleared.clip.voiceShift, cleared.clip.voiceLevel, cleared.report.level], [undefined, base.clip.voiceLevel, undefined]);
   assert.throws(() => run({ levels, beats, level: "loud" }), /level is dB to add/);
   // A raise past the 12 dB lift cap stores the gain stage too.
   assert.ok(run({ levels: quietClip, lift: "gain", level: 6 }).clip.voiceLift > gained.clip.voiceLift);

@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { readImage, startTestServer } from "./media.test.support.mjs";
 import { traceText } from "./agent/motion-graph.mjs";
-import { everyNth, PAGE_PIXELS, PAGE_WIDTH, PAGES_MOST, probeTimes, spanPicks, spansOfFlags, timesEdge, timesLabel, timesPlan } from "./agent/look.mjs";
+import { everyNth, leftOutCall, PAGE_PIXELS, PAGE_WIDTH, PAGES_MOST, probeTimes, spanPicks, spansOfFlags, timesEdge, timesLabel, timesPlan } from "./agent/look.mjs";
 
 let server;
 after(async () => { await server?.stop(); });
@@ -281,6 +281,8 @@ test("spanPicks gives every span a frame, spreads the rest by length and reports
   assert.deepEqual(picks.map((pick) => pick.from), [4.3, 4.3, 4.3, 8, 9, 9], "the long span gets the spare frames");
   const cut = spanPicks(spans, 2);
   assert.deepEqual([cut.picks.map((pick) => pick.time), cut.left], [[4.9, 8.1], [{ from: 9, to: 9.4 }]]);
+  // The spans left out are drawn by chosen times (one per span), not a from-to stretch that stops 1.2 s in.
+  assert.deepEqual(leftOutCall([{ from: 2, to: 2.4 }, { from: 9, to: 9.4 }]), { call: 'look {mode:"frames", times:[2.2, 9.2]}', count: 2 });
   const probes = probeTimes(14);
   assert.equal(spansOfFlags(probes.times, probes.times.map((time) => time > 4 && time < 4.5), probes.step, probes.last).length, 1);
 });

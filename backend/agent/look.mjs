@@ -328,6 +328,15 @@ export function spanPicks(spans, limit) {
   return { picks, left: spans.slice(limit) };
 }
 
+// The call that draws the spans the frame limit left out: one frame at the middle of each (of the
+// first one's scene, at most TIMES_MOST), as look frames times. A from-to stretch would draw only
+// FRAMES_MOST frames in a row from the first span and miss the later ones.
+export function leftOutCall(left, sceneField = "") {
+  const same = left.filter((span) => span.scene === left[0]?.scene).slice(0, TIMES_MOST);
+  const times = same.map((span) => sec((span.from + span.to) / 2));
+  return { call: `look {mode:"frames"${sceneField}, times:[${times.join(", ")}]}`, count: same.length };
+}
+
 async function decode(buffer) {
   const image = await loadImage(buffer);
   const canvas = createCanvas(image.width, image.height);

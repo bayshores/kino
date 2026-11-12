@@ -134,7 +134,7 @@ import { createPicks, SITTING_PICKS } from "./picks.mjs";
 import { rendererIsProcessor } from "../render-devices.mjs";
 import { plannedFrameCount } from "../export-batches.mjs";
 import { planClips } from "./clips-sheet.mjs";
-import { evenTimes, everyFrame, everyNth, FRAME_RATE, FRAMES_MOST, PAGE_WIDTH, PAGES_MOST, TIMES_MOST, reviewColumns, sceneKey, SEAM_EDGE, SEAM_MERGE, SEAM_OFFSETS, SHEET_FRAMES, sheetTimes, SOURCE_EDGE, SOURCE_EDGE_RANGE, STRIP_TILES, tileSize, VERSUS_EDGE } from "./look.mjs";
+import { evenTimes, everyFrame, everyNth, FRAME_RATE, FRAMES_MOST, leftOutCall, PAGE_WIDTH, PAGES_MOST, TIMES_MOST, reviewColumns, sceneKey, SEAM_EDGE, SEAM_MERGE, SEAM_OFFSETS, SHEET_FRAMES, sheetTimes, SOURCE_EDGE, SOURCE_EDGE_RANGE, STRIP_TILES, tileSize, VERSUS_EDGE } from "./look.mjs";
 import { boardShotKind, craftRow, editLoudest, editPixelKind, gapWords, imageStats, KIND_WORDS, pairRows, imageSoftAccent, pickRows, referenceMoments, ROWS_PER_STILL, shapeLoudest, SOFT_EDGE, softAccentLines } from "./versus.mjs";
 import { CAMERA_RULES, motionGraphImage, motionTrace, traceText } from "./motion-graph.mjs";
 import { kinoTimeline } from "../../engine/quality/kinoTimeline.js";
@@ -4351,9 +4351,9 @@ export function createAgentService(deps) {
         text += `\n${plural(image.spans.length, "changed span")} (scanned the whole scene against rev ${previous.rev})`;
         if (image.left.length) {
           const first = image.left[0];
-          const sameScene = image.left.filter((item) => item.scene === first.scene);
           const sceneField = all && first.scene ? `, scene:"${refName(first.scene, codes)}"` : "";
-          text += `; ${plural(image.left.length, "span")} left out (the frame limit): look {mode:"frames"${sceneField}, from:${first.from}, to:${sameScene.at(-1).to}} shows ${sameScene.length === image.left.length ? "them" : "the first of them"}`;
+          const { call, count } = leftOutCall(image.left, sceneField);
+          text += `; ${plural(image.left.length, "span")} left out (the frame limit): ${call} shows ${count === image.left.length ? "them" : `${count} of them`}`;
         }
       }
     } else if (mode === "variants") {

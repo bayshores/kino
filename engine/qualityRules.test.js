@@ -2069,6 +2069,15 @@ test("crop_no_subject: where no face was found, the window must keep what kino s
   const staleMarked = tall({ ...TALL_CROP, subjectBoxes: { src: "/api/media/old.mp4", boxes: [{ at: 1, box: [40, 40, 8, 8], by: "agent", part: "mouth" }] } });
   const [stale] = (await cropRun("crop_no_subject", staleMarked, sees([25, 20, 30, 50]), keeperLooked)).findings;
   assert.match(stale.message, / Its mark is on another file \(old\.mp4\) and does not count here: mark_subject again on this file\.$/);
+  // A cut_out copy (cutoutOf) plays its clip's frames on the same pixels: the clip's mark, copied with the clip's file, counts for it (dm4 round 4: climb-cut).
+  const clipMark = { src: TALL_CROP.src, boxes: [{ at: 1, box: [40, 30, 15, 30], by: "agent", part: "climber" }] };
+  const cutCopy = { ...TALL_CROP, id: "keeper-cut", name: "keeper-cut", src: "/api/media/keeper-cut.webm", cutoutOf: "keeper", allowOverlap: true, subjectBoxes: clipMark };
+  const withCut = scene({ width: 1080, height: 1920, duration: 2, layers: [{ ...TALL_CROP, subjectBoxes: clipMark }, cutCopy] });
+  const cutRun = (layers) => check("crop_no_subject", layers, { scene: layers.scenes[0], mediaSizes: { ...keeperSizes, [cutCopy.src]: { width: 1920, height: 1080 } }, sourceLooks: keeperLooked });
+  assert.deepEqual((await cutRun(withCut)).findings.map((finding) => finding.itemId), []);
+  // A copy that is not a cut-out (a replaced file) still needs its own mark.
+  const notCut = scene({ width: 1080, height: 1920, duration: 2, layers: [{ ...TALL_CROP, subjectBoxes: clipMark }, (({ cutoutOf, ...rest }) => rest)(cutCopy)] });
+  assert.deepEqual((await cutRun(notCut)).findings.map((finding) => finding.itemId), ["keeper-cut"]);
   // A face found anywhere in the shot makes it face-led (as frame_shot aims): saliency is not judged.
   const faceLed = sees([25, 20, 30, 50]);
   faceLed[TALL_CROP.src].samples[4] = { t: 2, faces: [[0.45, 0.3, 0.1, 0.2]], people: [], subjects: [{ box: [0.45, 0.3, 0.1, 0.2], kind: "face" }] };
