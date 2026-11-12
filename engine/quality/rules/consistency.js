@@ -29,6 +29,7 @@ import { subjectOnScene } from "../../sourceView.js";
 import { boxNear } from "./footage.js";
 import { blurred, peopleSubjects } from "./people.js";
 import { safeRect } from "./layout.js";
+import { DEFAULT_FONTS, KINO_OWN, chosenFamilies, familyOf } from "./look.js";
 import { backgroundLuma, coveredAt, plateChanges, plates, techniquesUsed } from "../techniques.js";
 
 // The rules (and spine_drift's second-payoff line) that only ever warn. Inside a signature range
@@ -158,11 +159,17 @@ export function roleFontDrift(model, ctx) {
       const ranked = [...families.values()].sort((a, b) => b.items.length - a.items.length);
       const keep = bible?.family ?? (ranked.find((entry) => brand.includes(familyKey(entry.family))) ?? ranked[0]).family;
       const off = items.filter((item) => familyKey(item.fontFamily) !== familyKey(keep));
+      // A family of kino's own (a pair, a look, the bundled serif) that no reference and not the person chose is
+      // never what a line is moved to on its own: the fix stays a call for the agent (default_font says the same).
+      // As there, it matters once the project saved references; a brand font is the brand's choice.
+      const keepName = familyOf(keep);
+      const unchosen = ctx.savedRefCount > 0 && KINO_OWN.includes(keepName) && !DEFAULT_FONTS.includes(keepName)
+        && !brand.includes(familyKey(keep)) && !chosenFamilies(ctx, { strict: true }).has(keepName);
       findings.push({
         rule: "role_font_drift", severity, itemId: off[0].id, itemIds: off.map((item) => item.id), at: sec(firstShown(model, off[0])),
         measured: `${roleName} in ${[...families.values()].map((entry) => `${entry.family} ×${entry.items.length}`).join(", ")}`, required: `${bible ? `the style bible's ${bible.family}` : "one family"} for ${roleName} text`,
         message: `${roleName} text uses ${families.size} families: ${off.slice(0, 3).map((item) => ctx.name(item)).join(", ")}${off.length > 3 ? ` +${off.length - 3}` : ""} differ from ${keep}. One family per role keeps the video one voice.`,
-        fix: { kind: "font", itemIds: off.map((item) => item.id), family: keep, nearest: true, auto: true, why: `${roleName} text in ${keep}` },
+        fix: { kind: "font", itemIds: off.map((item) => item.id), family: keep, nearest: true, auto: !unchosen, why: `${roleName} text in ${keep}` },
       });
     }
     // Display type may step in size (a title and its second line), and labels and stats too; captions

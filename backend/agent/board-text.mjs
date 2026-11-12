@@ -217,12 +217,24 @@ function audioWords(music, audio) {
 }
 
 /**
+ * The one line a board ask says about the clips' own lines, or "" when there is nothing to say:
+ * `clips` is [{layer, text, from, heard}] (service sceneLines); said only when some clip says a
+ * line and none is heard (every layer at volume 0). Up to 2 lines are quoted.
+ */
+export function unheardLinesLine(clips) {
+  const lines = Array.isArray(clips) ? clips : [];
+  if (!lines.length || lines.some((entry) => entry.heard)) return "";
+  const shown = lines.slice(0, 2).map((entry) => `${entry.layer}.${Math.round(entry.from)} "${String(entry.text).replaceAll('"', "'")}"`).join(", ");
+  return `Lines: your clips say ${plural(lines.length, "line")}; none is heard (${shown}${lines.length > 2 ? ", ..." : ""}).`;
+}
+
+/**
  * The ask for the board stop: { text, listed, flagged, total } (counts of shots).
  * `id` is the stop's id (C1); `board` document.board; `frame` the video's {width, height};
  * `seconds` its length; `music` the music layer's name or null; `audio` the names of the other
  * audio layers (a voice-over); `message` the brief's message line or null; `soundFiles` whether
  * the person sent sound files; `bans` the guessed bans to ask about (brief.mjs guessedBans);
- * `offerSound` on the video's first storyboard ask; `shape`, `crops`, `ask` and `waived` lines that
+ * `offerSound` on the video's first storyboard ask; `shape`, `crops`, `ask`, `waived` and `heard` (unheardLinesLine) lines that
  * follow the headline (empty for none); `changed`
  * ({why: [reasons], ids: [shot ids], approved: the stop that approved the board}) after an
  * approval lapsed: this ask (`id`) is a new one. `fresh` is the fresh-eyes check ("ran",
@@ -230,7 +242,7 @@ function audioWords(music, audio) {
  * changed since a redo or approve with notes: then the shots that changed as asked come first,
  * then those changed without being asked, then those named but not changed.
  */
-export function boardAsk({ id, board, frame, seconds, music = null, audio = [], message = null, idea = null, pick = [], bans = [], soundSearch = false, soundFiles = false, offerSound = false, all = false, changed = null, fresh = null, redone = null, shape = "", crops = "", ask = "", waived = "" }) {
+export function boardAsk({ id, board, frame, seconds, music = null, audio = [], message = null, idea = null, pick = [], bans = [], soundSearch = false, soundFiles = false, offerSound = false, all = false, changed = null, fresh = null, redone = null, shape = "", crops = "", ask = "", waived = "", heard = "" }) {
   const shots = board.shots.map((shot, index) => ({ shot, n: index + 1, measures: shotMeasures(shot, frame) }));
   const lines = [];
   if (changed) {
@@ -244,7 +256,7 @@ export function boardAsk({ id, board, frame, seconds, music = null, audio = [], 
   // Right after the headline: the shape kino guessed against the footage's, the crops it measured
   // what the person's ask points to and which shot shows it (ask.js askLine), and the findings
   // called fine (stops.mjs builds the four lines).
-  lines.push(...[shape, crops, ask, waived].filter(Boolean));
+  lines.push(...[shape, crops, ask, waived, heard].filter(Boolean));
   if (!changed && message) lines.push(`Brief: ${message}`);
   if (idea) lines.push(`Idea: ${idea}`);
   // The treatments to pick from (treatments.mjs), until the person picked one.

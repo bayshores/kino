@@ -6,7 +6,8 @@
 //   line      the words to keep, found in the clip's transcript as add_captions {speech} reads it
 //   from, to  or a stretch in scene seconds (works with no transcript, for speech in another language)
 //   text      the subtitle's words instead of the transcript's (a fix, or a translation); shown over
-//             the whole line
+//             the whole line. kino does not refuse a text that differs from what it heard in the
+//             stretch: the receipt says what it heard next to what was typed (notes, heard)
 //   subtitle  false: no subtitle. look: add_captions look (default "subtitle"); name: its group
 //   duckId    the music layer (default: the audio layer named music or song, else the only other one);
 //             duckNone: no dip. dip: the music's volume under the line (default half its own, about 6 dB down)
@@ -149,6 +150,12 @@ export function applyKeepLine(document, operation, { fonts } = {}) {
 
   // The subtitle, timed to the words (or to the line when the text is given).
   const notes = [];
+  // What kino heard in the kept stretch, said next to the typed subtitle when they differ (one line, no refusal):
+  // a typed text over audio heard as other words is how a wrong line gets kept.
+  const heardText = said.map((item) => item.text).join(" ").trim();
+  const letters = (words) => String(words).toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+  const differs = operation.text !== undefined && heardText && letters(heardText) !== letters(operation.text);
+  if (differs) notes.push(`kino heard "${heardText.length > 80 ? `${heardText.slice(0, 80)}...` : heardText}" in that stretch; the subtitle shows your text "${operation.text.length > 80 ? `${operation.text.slice(0, 80)}...` : operation.text}"`);
   let subtitle = null;
   const name = operation.name ?? `line-at-${round(start, 1)}s`;
   if (operation.subtitle !== false) {
@@ -187,6 +194,7 @@ export function applyKeepLine(document, operation, { fonts } = {}) {
     scene: [start, end],
     file: [fileFrom, fileTo],
     volume,
+    ...(differs ? { heard: heardText } : {}),
     kept: ranges.length,
     subtitle: subtitle ? { name: subtitle.name, pages: subtitle.pages, look: subtitle.look ?? operation.look ?? "subtitle" } : (operation.subtitle === false ? "off" : "none"),
     duck: duck ? { layer: duck.layer, to: duck.to, summary: duck.summary } : "none",

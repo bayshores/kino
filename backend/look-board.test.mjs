@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 import { estimateImageTokens, estimateTextTokens, pngSize } from "./meter.mjs";
 import { skipWithoutMediaTools, startTestServer, withoutNext } from "./media.test.support.mjs";
 import { jsonBlocks, skillSection } from "./skill.test.support.mjs";
-import { ASK_SHOTS, ASK_TOKENS, boardAsk, FRESH_TOKENS, SENTENCE_MAX, SHOT_TOKENS } from "./agent/board-text.mjs";
+import { ASK_SHOTS, ASK_TOKENS, boardAsk, FRESH_TOKENS, SENTENCE_MAX, SHOT_TOKENS, unheardLinesLine } from "./agent/board-text.mjs";
 import { boardLook, PAGE_TOKENS, stillScene, styleFrameFacts } from "./agent/board-look.mjs";
 import { shotMeasures } from "../engine/boardMeasure.js";
 import { createLayer } from "../engine/model.js";
@@ -140,6 +140,16 @@ test("a voice-over: the header names the audio layer, and the shots' sound effec
   assert.equal(voiced.filter((line) => line.startsWith("Shot ")).some((line) => line.includes("no sound")), false);
   assert.equal(voiced.at(-2), SOUND_OFF);
   assert.ok(boardAsk({ id: "C1", board: footage(), frame: PORTRAIT, seconds: 4.4, audio: ["voice", "room tone", "crowd"] }).text.startsWith("The storyboard is ready (C1): 3 shots, 4.4 s, 1080×1920, no music, audio: voice, room tone and 1 more."));
+});
+
+// The ask says how many lines the clips say when none is heard, and nothing when one is or no clip speaks.
+test("unheardLinesLine: counts the clips' lines when none is heard, quotes two, and is silent when one is heard or there are none", () => {
+  const lines = [{ layer: "a", text: 'we "will"', from: 1.4, heard: false }, { layer: "b", text: "go", from: 3, heard: false }, { layer: "c", text: "now", from: 5, heard: false }];
+  assert.equal(unheardLinesLine(lines), `Lines: your clips say 3 lines; none is heard (a.1 "we 'will'", b.3 "go", ...).`);
+  assert.equal(unheardLinesLine(lines.slice(0, 1)), `Lines: your clips say 1 line; none is heard (a.1 "we 'will'").`);
+  assert.equal(unheardLinesLine([{ ...lines[0], heard: true }, lines[1]]), "");
+  assert.equal(unheardLinesLine([]), "");
+  assert.ok(boardAsk({ id: "C1", board: footage(), frame: PORTRAIT, seconds: 4.4, heard: unheardLinesLine(lines.slice(0, 1)) }).text.includes("none is heard"));
 });
 
 // 15 shots of 1 s on a 9:16 video; the shots with in 2 and 3 are flagged (4% from the crop edge).

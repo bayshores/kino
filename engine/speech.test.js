@@ -324,6 +324,17 @@ test("keep_line keeps the named words audible, silences the rest, subtitles the 
   const taggedOp = { type: "keep_line", sceneId: "s", layerId: "clip", line: "the Oaks app.", transcript: tagged, subtitle: false };
   applyOperations(document, [taggedOp], { reports: reportsTagged, fonts: defaultFonts });
   assert.equal(reportsTagged.get(taggedOp).file[1], 7.3);
+  // A typed subtitle over a stretch kino heard as other words is kept (no refusal); the receipt says what it heard next to it.
+  const typedOver = { type: "keep_line", sceneId: "s", layerId: "clip", from: 2.3, to: 3.2, text: "Where do you say?", transcript };
+  const reportsTyped = new Map();
+  applyOperations(document, [typedOver], { reports: reportsTyped, fonts: defaultFonts });
+  assert.equal(reportsTyped.get(typedOver).heard, "we will, we will");
+  assert.deepEqual(reportsTyped.get(typedOver).notes, ['kino heard "we will, we will" in that stretch; the subtitle shows your text "Where do you say?"']);
+  // The same words with other case and punctuation say nothing extra.
+  const sameWords = { ...typedOver, text: "We will we will." };
+  const reportsSame = new Map();
+  applyOperations(document, [sameWords], { reports: reportsSame, fonts: defaultFonts });
+  assert.equal(reportsSame.get(sameWords).notes, undefined);
 });
 
 test("keep_line on a voice cut into pieces silences every piece but the part that plays the line, and a quiet bed dips by half", () => {
