@@ -46,7 +46,7 @@ frame strips · Proposing ideas · Sound effects
 - Compare first: one search (same words again = one) and under 3 results read (a study or
   look): `step:` and a save lead to a second search with new results. A save needs
   `take:"<structure, pacing, type, transitions or sound: what>"`, plus `1:02 to 1:20` for a
-  reference 3x the video; status, the study, look show it back.
+  reference 3x the video; a longer take is cut at a whole word (its stretch kept) and the answer says so.
 
 ## Borrowing a rhythm from YouTube
 

@@ -49,6 +49,10 @@ Two scene fields (`update_scene properties`), drawn above every layer in preview
 {"op":"color_filter","layer":"card","filter":"film","strength":0.7}
 ```
 
+## Blocks under a punch-in
+
+A punch-in on small footage (`soft_upscale` over 1.3x) can show the source's codec blocks. The finding states the block step on the source grid (measured with grain off, which hides blocks). When it names a deblock, call `{"op":"deblock_upscaled","layer":"clip"}` (`ratio?`, `scene?`, `remove?`): it adds `clip.upscale-deblock` where the step is 1.5x the steps inside, and prints the step before and after. Otherwise choose a smaller scale or a sharper file.
+
 ## Changing an effect
 
 An effect's settings are its `to` (end values) and `from` (start values), not fields beside `start` and `duration`. `update_animation` with `to` changes the settings it names and keeps the others:

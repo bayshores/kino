@@ -38,7 +38,7 @@ revision with 0 errors, and your own `look`. "It looks right" is not a check.
 - Unclear ("hmm", "maybe?"): ask once what they meant. Silence or an unrelated message is
   never an answer.
 - Record it word for word with the ask's `rev`: `notes {action:"answer", id:"C1", rev:4,
-  words:"<their reply>", read_as:"approve"}`. Then one line, `Read as: approve`: a receipt,
+  words:"<their reply>", read_as:"approve"}`. `id` may be a stop's name (`id:"board"`) for the stop that waits; `not_found` lists the stops asked. Then one line, `Read as: approve`: a receipt,
   not a second question.
 - After a redo, fix only what they named, `check`, and ask that stop again (a new id).
 - An answer in kino shows in your inbox (`answered`): do not record it again. `reopened`: your

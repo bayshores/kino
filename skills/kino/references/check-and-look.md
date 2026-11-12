@@ -15,12 +15,12 @@ Contents: Check · Looking · Review before final · Building in order
   or keeps its finding), re-checks, up to 3 rounds: call it once. A warning's fix skips layers
   your last edit moved, a waiver names or a spine beat uses.
 - After an edit, `check {}` redraws only the frames the edit touches, and a check of an
-  unchanged scene answers from the last one, also while `reference_drift` runs.
+  unchanged scene answers from the last one.
 - First `check` ends with `Rules:`; a same-rev repeat is 1 line (`{rules:true}` all).
 - The first 8 lines of `check`, `look` versus and review, and `status` lead with what decides your
   next call (errors, advice, drift, `whole scene:`, inbox); the rest is detail.
 - Footage: `speech_cut` (a voice cut mid-word: sound reference), `soft_upscale` (drawn over 1.3x
-  its file; one file drawn at one size on several layers lists them in `refs`, `waive_check`
+  its file; block step: color reference; one file drawn at one size on several layers lists them in `refs`, `waive_check`
   targets that list, and a waiver on one layer covers only it), `crop_no_subject` (cropped, no subject marked), `head_cut_off` (Mac), `jump_cut`
   (one file framed alike back to back), `frozen_footage` (picture stops 0.3 s+: start earlier,
   mediaSpeed 0.85+, or cut away), `out_of_sync` (a line over another moment of a synced file).
@@ -32,14 +32,13 @@ Contents: Check · Looking · Review before final · Building in order
   limiter at render loudness `"off"` (time, dB over, layers at their volume, xN to clear it),
   then what the default `"auto"` gain does to the same peaks; `look {mode:"motion",
   ref:"sound"}` lists them (worst 6). No render needed. `check {fix:"auto"}` applies those xN
-  (sound reference); a layer whose volume moves at a place is named under `not applied`, with
-  its xN to apply by hand. Places are timed by 0.1 s windows, even when FFmpeg prints no time.
+  (sound reference).
+- `check` and `look` review print a `bare background @T s` fact line (time, frames, color, brightness on both sides, closing call) where the scene background shows between two full-frame shots. A fact, never a block; a card of words made on the background for that stretch is not a gap.
 - The counts line of `status` and receipts reads `err, warn` then the open finding names, and
   `N waived` then the waived ones, by rule then ref; check's `waived:` line lists the same.
 - Full-frame footage you add over a text that shows at the same time is moved under the text; the
-  receipt notes name it, the seconds and the `move_layers` call that puts it back. Masks are left
-  alone (masked-type's fill stays on its word); a layer a `move_layers` or `reorder_layer` in the
-  same edit names stays. A blend mode other than normal, or an alpha channel, is not moved.
+  receipt notes name it, the seconds and the `move_layers` call that puts it back. Masks, a layer a `move_layers` or `reorder_layer` in the
+  same edit names, a blend mode other than normal and an alpha channel are left alone.
 - `default_font` fix: `library {topic:"fonts", search:"<first type label's words>"}`.
 - `check {rules:["missing_glyphs"], fix:"auto"}` applies the glyph-range fix (a
   `textStyleRanges` range in a font that has the characters); when no font has them, the
@@ -74,13 +73,13 @@ Contents: Check · Looking · Review before final · Building in order
   `sheet {from, to}`: one stretch.
 - look sheet, look review and check print `returns: <thing> at <times> (what changes)`: each made
   layer, word, image, move or shot shown at 2+ places, and what the first second and last frame
-  share. A fact. A group of layers, or layers named by number (tread-1 to tread-4), counts as
-  one device with its count: `tread (4 layers) at 1 2 3 ×3`.
+  share. A fact. A group, or layers named by number (tread-1 to tread-4), counts as
+  one device: `tread (4 layers) at 1 2 3 ×3`.
 - `check` prints `made:` after `returns:` (`status` and look too, with a deck or labeled references): the share of
   half-second moments with a cut-out, a drawn graphic or shape, a particle overlay, or non-caption type at 8% of frame height up. Beside it: `deck: N of M cards unused (names)` (`deck_unused`) and
-  `drawn graphic: yours X of N moments, your references' made labels a of b`. Facts only.
+  `drawn graphic: yours X of N moments, your references' made labels a of b`.
 - `frame {t, width?}` (up to 1280 px; `zoom` for detail), `zoom {layer, t?}`, `strip {anim}`
-  (`every:true`: each frame), `compare {rev}`, `changed`, `variants`.
+  `compare {rev}`, `changed`, `variants`.
 - `motion {from?, to?}` (graph and trace, no render), `frames {from, to?}` (each 30 fps frame):
   motion reference.
 - `source {layer, t?}`: a video layer's whole source frame (default: mid-screen-time), a 10%

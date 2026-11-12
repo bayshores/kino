@@ -4,7 +4,7 @@ A rough first pass may be anything. Past 30 layers, `step:` and each receipt's `
 `lock direction`, and a final render is refused (`direction_needed`) until the brief's style
 spec holds a story spine and a style bible that the person approved. Once a treatment is
 picked (or the spec names an idea), it also needs the `idea` and a signature. One `notes brief`
-call does it; its draft is in that `next`.
+call does it; its draft is in that `next`. The refusal lists the parts still needed with a count (idea, signature, spine, fonts, approval or waiver).
 
 ```json
 {"tool":"notes","action":"brief","fields":{"style":{"spine":[{"role":"hook","from":0,"to":3,"uses":["verdict"],"purpose":"the judge's verdict comes first"},{"role":"problem","from":3,"to":9,"uses":["walk"],"purpose":"eyes covered, the app must guide him"},{"role":"payoff","from":9,"to":13,"uses":["arrival"],"purpose":"he arrives"},{"role":"end","from":13,"to":15,"purpose":"name and link"}],"fonts":{"caption":{"family":"JetBrains Mono","size":48},"display":{"family":"JetBrains Mono","size":140}},"accent":{"color":"#ff4f9a","share":0.1},"moves":[{"tag":"dissolve","where":"between walk shots"},{"tag":"slow-push","where":"on each phone close-up"}],"logo":{"asset":"logo","max":2},"rejected":["Seven open-weight models. One RTX 4090."],"by":"guessed","waived":"no one is watching this run"}}}

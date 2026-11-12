@@ -85,7 +85,7 @@ references; 3+ differ; no default), `source` (file or screen
 used), `p` (0 to 1, how typical).
 kino shows the 3 least typical, new whos and types first: `A. idea · who: tension → turn · ends on ending · type: type`.
 The pick (their words; "just start": yours, with `why`) sets `style.idea`, `style.type`, the first
-signature and the spine's end; the lock's fonts name the faces. Building first is `order_needed`; waive_check "treatments" skips it.
+signature and the spine's end; the lock's fonts name the faces. Building first is `order_needed`; waive_check "treatments" skips it. One answer lists every problem with the treatments (limits, shared idea, whos, types); `p` may be text; the pick goes inside `treatments`.
 The dropped most typical treatment is listed as D when it names the origin word, or is the only
 one with a word from their message; then `fields:{treatments:{pick:"D", why:"<why>"}}` takes it. An edit of
 a subject in footage (the project's clips or an edit ask, no app or product named) is asked

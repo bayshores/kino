@@ -9,15 +9,13 @@ an absolute folder (the `kino` command resolves a relative one or `~` for you).
 
 - For explicit rough review, `render {preview:"fast", from:10, to:15, wait:true}` uses
   draft quality, at most 640px on the long side and 15fps, no motion blur or dither.
-  A lower requested `fps` or `options.draftWidth` wins. Saved scenes and export defaults stay
-  unchanged. Omit the range for a complete fast draft. Fast review is not motion-quality approval.
+  A lower requested `fps` or `options.draftWidth` wins. Omit the range for a complete fast draft. Fast review is not motion-quality approval.
 - `from` and `to` select one draft video's scene-clock interval. Give both, within the scene,
   with normal playback and no `options.duration`. The interval snaps outward to whole frames;
   replies include the actual `range`. Pictures and sound preserve their original timing;
   caption sidecars start at zero. Final renders and non-video formats reject ranges.
 - Excerpts skip rendering the rest of the movie. Repeating an unchanged excerpt reuses its
   checked export. A changed scene invalidates that file cache, including edits outside the range.
-  Dashboard playback's cached two-second picture segments are not joined into a final movie.
   Export the complete draft or final after approving excerpts, to check joins and audio.
 
 - `render {action:"start", quality:"final", out, wait:true}` once `check` shows 0 errors (a real edit: 0 defect warnings) and
@@ -34,19 +32,16 @@ an absolute folder (the `kino` command resolves a relative one or `~` for you).
   sets another rate up to 30 (the footage's 24 or 25). `width` and `height` (a box the picture
   fits) or `size:"720p"` draw it at that size, up to the scene's, and it stays a draft (30fps or
   less, no blur or dither, `-draft-` file name); `size` wins over `width`. They work in `options`
-  or beside quality: `kino render quality=draft width=1920 height=1080`. The queued and
-  done receipts name the size (`R1 queued: draft mp4 1920x1080`).
+  or beside quality: `kino render quality=draft width=1920 height=1080`. The receipts name the size.
   `quality:"final"` uses full dimensions and `fps` (default 30; 23.976, 29.97 and 59.94 for
   editing apps and broadcast, or `options:{fps:"30000/1001"}`), `motionBlur:0.5` (two shutter
-  samples) and `dither:true`. Override with `motionBlur:0`, `dither:false` for the original
-  appearance. Unwaived errors (in a real edit, a brief and over 30 layers or 10+ in 15 s+, non-taste warnings too) block final, and so do the video's open stops (`stops_open`:
+  samples) and `dither:true`. `motionBlur:0`, `dither:false` turn them off. Unwaived errors (in a real edit, a brief and over 30 layers or 10+ in 15 s+, non-taste warnings too) block final, and so do the video's open stops (`stops_open`:
   ask them in order, or the person allows them in settings; drafts still render). Saved
   reduced-motion choices stay in effect.
 - Motion blur comes from how layers move while the shutter is open. By default each frame
   draws as many samples as its fastest move needs for the copies to sit at most 8 px apart
   (2 to 16), so a fast move smears evenly; `motionSamples:2..16` fixes the count (2 shows a
-  fast move as two copies). 8 samples take about 8 times the render time of a moving frame. Footage (blend and flow clips
-  too) keeps the picture of the frame's own time, as `look` shows it. The dashboard, its cached
+  fast move as two copies). 8 samples take about 8 times the render time of a moving frame. Footage keeps the picture of the frame's own time, as `look` shows it. The dashboard, its cached
   playback and `look` show a preview of the blur; a final png shows the real one:
 
 ```json
@@ -73,8 +68,7 @@ an absolute folder (the `kino` command resolves a relative one or `~` for you).
   "videotoolbox" (Mac), "nvenc", "qsv", "amf" or "vaapi". A named encoder that does not work on
   this computer is an error that lists the others that do. One that works here but not at this
   file's size encodes it with libx264, and `wait` says why, for example `encoded with libx264
-  (NVENC cannot encode frames this small: 128x72)` for a small draft (NVENC needs at least
-  145x49). `videoQuality` "small" halves the bitrate and "high" doubles it ("standard" is
+  (NVENC cannot encode frames this small: 128x72)`. `videoQuality` "small" halves the bitrate and "high" doubles it ("standard" is
   24 Mbps at 720p and up, 12 Mbps below):
 
 ```json
@@ -83,23 +77,27 @@ an absolute folder (the `kino` command resolves a relative one or `~` for you).
 
 - The graphics card, frames at once and memory to leave free are the person's dashboard
   settings; you cannot change them. `wait` says what drew each file and what encoded it, such as `drawn on Apple M3 Pro (Metal) (graphics card), 1 frame at once; encoded
-  with h264_videotoolbox, standard quality` (frames at once: the most workers that drew at the
-  same time; one started in place of a crashed worker does not add). A `graphics-card-not-used`
+  with h264_videotoolbox, standard quality` (frames at once: the most workers drawing at the
+  same time). A `graphics-card-not-used`
   warning means the processor drew although this computer has a card: tell the person
   (docs/running.md says how).
 - File checks cover dimensions, frames, duration, codec, audio-stream offset and sound peak
   where supported. A master limiter keeps exported sound at or under -1 dBTP true peak,
   measured after AAC or Opus encoding. Before it, every mp4, webm or mov (drafts too) brings the
-  whole mix (after ducking) to a loudness target: options:{loudness} auto (default: a song-led
-  mix keeps the song's own LUFS when over -14, else -14), web, podcast (-16), broadcast (-23),
+  whole mix (after ducking) to a loudness target: options:{loudness} auto (default: the median
+  LUFS of the saved references measured with it, each named in the receipt; with none, a song-led
+  mix keeps the song's own LUFS when over -14, else -14), a number from -30 to -6 LUFS
+  (`loudness:-10`; the receipt says 'target -10 asked'), web (-14), podcast (-16), broadcast (-23),
   off; wait says why. Always -14: options:{loudness:"web"}. `audioLoudness` warns 2 LU off target.
+  A saved reference without measured loudness: the auto receipt names the call that listens again
+  and stores it, `library {topic:"inspire", name:"measure yt:..."}`.
   `wait` shows `sound: -14 LUFS (target -14 web), range 4.2 LU, true peak -1.1 dBTP`. Without a
   target, a mix that would have clipped gets a warning naming the moment and the sounds playing
   then: lower those volumes and render again. To find every clipping place in one call, read
   `check`'s `mix:` line instead (its xN clears a place with `loudness:"off"`; sound reference).
 - Drafts and finals (mp4, webm, mov) list each cut's brightness and hue jump and each section's
   brightness range, read from the rendered file, beside your measured references' (older ones:
-  `library {topic:"inspire", name:"measure <id>"}`); facts only.
+  `library {topic:"inspire", name:"measure <id>"}`).
 - Final video audits compare each decoded frame with its renderer frame and measure audio;
   unsupported checks are explicit. GIF can merge frames; PNG ZIPs have no timing metadata.
   Details: `library {topic:"rules",name:"render"}`.

@@ -1,8 +1,8 @@
 # Media
 
 Images, video, audio and GIFs: importing and swapping a file, playing it faster, slower or
-backwards, and B-roll on the spoken word. Syncing two clips is in the recording reference;
-sound levels, ducking and voice separation in the sound references.
+backwards, and B-roll on the spoken word. Syncing two clips: recording reference;
+sound levels, ducking and voice separation: sound references.
 
 Contents: Importing and replacing files · Cutting and skipping inside a clip · Clip speed ·
 B-roll on the spoken word
@@ -12,7 +12,7 @@ B-roll on the spoken word
 - `project {action:"import", file:"/absolute/path.png"}` (CLI: `kino project import /abs/clip.mp4`,
   or `path=`/`file=`) returns a `src` for an image, video or
   audio layer. A media layer draws only that `/api/media/…` address or a `data:` image; a file
-  name, a path or a web address is refused, and so is an image, video or audio add_layer with no
+  name, path or web address is refused, and so is an image, video or audio add_layer with no
   `src` (or an update_layer that clears it): import first, then add the layer. Video and audio
   also give the measured duration; the add_layer example sets it as `mediaSourceDuration`, so
   Play stops where the file ends.
@@ -26,8 +26,7 @@ B-roll on the spoken word
   with `log:"apple-log"` in its add_layer example, which shows it as Rec.709. `log:null` shows the
   file as recorded. Set log yourself on a log clip the tags missed. replace_media sets log from the
   new file's import.
-- A video's import answer also lists its shots in file seconds (`shots: 3: 1) 0–1.25 s …`),
-  found with FFmpeg's scdet filter; a flash of a few frames is not a cut. If kino's FFmpeg is
+- A video's import answer also lists its shots in file seconds (`shots: 3: 1) 0–1.25 s …`); a flash of a few frames is not a cut. If kino's FFmpeg is
   older than 5.1 or lacks the scdet or signalstats filter, it refuses the video and saves nothing.
 - Importing a video also measures held frames, saved as `record.holds`: `repeated` (share of
   repeated frames), `frames` (the usual hold, 3 on 3s), `fps` and `stills` (the file's own held
@@ -59,12 +58,11 @@ B-roll on the spoken word
 
 - `split_layer {layer, at}` cuts a video, audio or GIF layer at scene time `at`: the new piece
   "<name> 2" (the next free number) plays on from there in sync, right above it. Each piece
-  keeps the animations that change what it shows; one crossing the cut stays on both.
+  keeps the animations that change what it shows (one crossing the cut stays on both) and gets Show and Hide for its own span, so it does not reappear outside it; a piece that holds its last frame keeps the Hide that ends the hold.
 - `split_layer {layer, from, to}` also skips the file between (dark frames, a stumble): the
   clip ends `to - from` s sooner. Its animations that start after `to` move that much earlier
   (a fade-out still ends with the clip); other layers stay where they are.
-- Later ops of the same edit can name the new piece, like a copy from `duplicate_layers`
-  ("<name> copy", or "<name> 2" with count).
+- Later ops of the same edit can name the new piece or a `duplicate_layers` copy (`<name> copy`).
 - A receipt line `plays across a cut of its file` gives the cut's file second, the scene second
   it lands on and the trim (`mediaDuration`, or `mediaOffset`, `mediaStart` and `mediaDuration`)
   that ends the span before it: send that trim to drop the leaked frames. If both sides of the
