@@ -222,7 +222,9 @@ test("a glow on a dark picture without a threshold measures the picture: the rec
     assert.equal(replies[project].isError, undefined, replies[project].text);
   }
   const notes = (project) => (replies[project].data.notes ?? []).filter((note) => note.includes("threshold auto measured"));
-  assert.equal(notes("glow-dark-fixed").length, 0, "a number is not measured");
+  assert.equal(notes("glow-dark-fixed").length, 0, "a number is kept");
+  // The number above the picture's 99th percentile (0.35) is said with the measurement.
+  assert.ok((replies["glow-dark-fixed"].data.notes ?? []).some((note) => /threshold 0\.7 is at or above the layer's 99th luma percentile \(0\.35\)/.test(note)), JSON.stringify(replies["glow-dark-fixed"].data.notes));
   assert.match(notes("glow-dark-auto")[0] ?? "", /threshold auto measured 0\.\d\d/);
   const fixed = await frame("glow-dark-fixed", 0.5), auto = await frame("glow-dark-auto", 0.5);
   t.diagnostic(`${notes("glow-dark-auto")[0]} | beside: ${change(fixed, auto, 194, 75)}, on: ${change(fixed, auto, 215, 75)}`);

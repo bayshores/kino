@@ -735,7 +735,7 @@ How to read it:
   step, black bars draw no line, `background:"transparent"` is accepted. Evidence: `engine/effects/light.test.js`, `backend/effects-export.test.mjs`. Gap: the live preview uses 0.05.
 - **Glow threshold auto**: Test-verified. A new `glow` has threshold "auto": a video or image render ramps from its own
   90th to 99th luma percentile, so a mean-35 picture glows (0.7 changed 0 pixels) and a bright one clips 7% of pixels
-  (0.7: 96%); the edit receipt says the measured value. Evidence: `engine/effects/light.test.js`, `backend/agent-light.test.mjs`. Gap: text, shapes and the live preview use 0.7.
+  (0.7: 96%); the edit receipt says the measured value, or that a number sits above the 99th percentile. Evidence: `engine/effects/light.test.js`, `backend/agent-light.test.mjs`. Gap: text, shapes and the live preview use 0.7.
 - **Shadow halftone**: Test-verified. `dot-grid {keepPicture:true}` dots only the shadows (or highlights) and keeps the
   picture; "halftone" finds it; one whole-pixel tile repeats, so a flat shadow gets even dots. Evidence: `engine/effects/defaultsMix.test.js`, `backend/agent-inspire.test.mjs`.
 - **Move resent replaces**: Test-verified. The same move on the same layers at the same time sent again replaces the first

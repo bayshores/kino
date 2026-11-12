@@ -8,7 +8,7 @@ import { createLayer, createScene } from "../engine/model.js";
 import { EFFECTS, effectDefaults } from "../engine/effects/catalog.js";
 import { cubeText } from "../engine/effects/colorMath.js";
 import { EFFECT_PRESET_DEFINITIONS } from "../engine/effects/presetCatalog.js";
-import { exportScene, layerBrightness, layerEdges, lumaLevels, normalizesLevels, readsBrightness } from "./export.mjs";
+import { exportScene, glowReadsLayer, layerBrightness, layerEdges, lumaLevels, normalizesLevels, readsBrightness } from "./export.mjs";
 
 test("normalize levels: the 2nd and 98th luma percentile of opaque pixels, for grades that ask", () => {
   // Every 4th pixel is sampled; half of those are transparent and skipped, leaving the 50 lumas
@@ -29,6 +29,11 @@ test("normalize levels: the 2nd and 98th luma percentile of opaque pixels, for g
   assert.equal(readsBrightness({ kind: "effect", effect: "glow", to: { threshold: "auto" } }), true);
   assert.equal(readsBrightness({ kind: "effect", effect: "glow", to: { threshold: 0.7 } }), false, "saved glows keep their number");
   assert.equal(readsBrightness({ kind: "effect", effect: "glow", to: { threshold: "auto", mode: "behind" } }), false);
+  // A glow inside an animation group is measured too; a group that is off is not.
+  const grouped = (enabled) => ({ animations: [{ id: "g", kind: "composed", start: 0, duration: 1, ...(enabled ? {} : { enabled: false }),
+    animations: [{ id: "a", kind: "effect", effect: "glow", start: 0, duration: 1, to: { threshold: "auto" } }] }] });
+  assert.equal(glowReadsLayer(grouped(true)), true);
+  assert.equal(glowReadsLayer(grouped(false)), false);
 });
 
 test("edge-lines auto: the layer's own edge percentile and its black bars are measured; a numbered threshold is not", () => {

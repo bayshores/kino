@@ -108,6 +108,7 @@ import { ideaLines, signatureRanges } from "../../engine/quality/rules/signature
 import { hasMusic, isMusicLayer } from "../../engine/quality/rules/sound.js";
 import { measureLayerBrightness, readsBrightness, renderSceneFrames, sceneSoundClips, soundCurve } from "../export.mjs";
 import { autoGlowRamp, GLOW_PERCENTILES } from "../../engine/effects/glow.js";
+import { animationTreeEntries } from "../../engine/animationTree.js";
 import { decodeMono } from "../audio-analysis.mjs";
 import { songShape } from "../song-shape.mjs";
 import { barGrid } from "../../engine/fitMusic.js";
@@ -2027,21 +2028,30 @@ export function createAgentService(deps) {
     return parseDocument(applyOperations(document, [operation], context));
   }
 
-  // A glow this edit added or changed with threshold "auto" on a video or image: the threshold the
-  // render will measure from the layer's own brightness (export.mjs measureLayerBrightness), said
-  // once in the receipt. At most 4 layers are measured per edit; a picture that cannot be read says nothing.
+  // A glow this edit added or changed on a video or image, said once in the receipt with the
+  // layer's own brightness (export.mjs measureLayerBrightness): threshold "auto" says the threshold
+  // the render measures; a number at or above the layer's 99th luma percentile says so, since
+  // under 1% of the picture then glows. Members of an animation group count. At most 4 layers are
+  // measured per edit; a picture that cannot be read says nothing.
   async function glowThresholdNotes(document, touched, nameOf) {
     const ids = new Set(touched);
     const notes = [];
+    const [start, top] = GLOW_PERCENTILES.map((share) => Math.round(share * 100));
     for (const scene of document.scenes ?? []) for (const layer of scene.layers ?? []) {
       if (notes.length >= 4 || (layer.type !== "video" && layer.type !== "image")) continue;
-      const glows = (layer.animations ?? []).filter((animation) => ids.has(animation.id) && readsBrightness(animation));
+      const glows = animationTreeEntries(layer.animations, { enabledOnly: true, groups: false })
+        .filter(({ animation, parents }) => (ids.has(animation.id) || parents.some((id) => ids.has(id))) &&
+          animation.effect === "glow" && animation.to?.mode !== "behind" && (readsBrightness(animation) || Number.isFinite(animation.to?.threshold)))
+        .map(({ animation }) => animation);
       if (!glows.length) continue;
       const measured = await measureLayerBrightness(scene, layer, { mediaRoot: deps.mediaRoot }).catch(() => null);
-      const ramp = autoGlowRamp(measured, Number.isFinite(glows[0].to?.softness) ? glows[0].to.softness : undefined);
-      if (!ramp) continue;
-      const percent = Math.round(GLOW_PERCENTILES[0] * 100);
-      notes.push(`glow ${glows.map((animation) => nameOf(animation.id)).join(", ")} on ${nameOf(layer.id)}: threshold auto measured ${ramp[0].toFixed(2)} (the layer's ${percent}th luma percentile), full glow from ${(ramp[0] + ramp[1]).toFixed(2)}; a number sets it by hand.`);
+      if (!autoGlowRamp(measured)) continue;
+      const names = (list) => list.map((animation) => nameOf(animation.id)).join(", ");
+      const auto = glows.filter(readsBrightness);
+      const ramp = auto.length && autoGlowRamp(measured, Number.isFinite(auto[0].to?.softness) ? auto[0].to.softness : undefined);
+      if (ramp) notes.push(`glow ${names(auto)} on ${nameOf(layer.id)}: threshold auto measured ${ramp[0].toFixed(2)} (the layer's ${start}th luma percentile), full glow from ${(ramp[0] + ramp[1]).toFixed(2)}; a number sets it by hand.`);
+      const above = glows.filter((animation) => !readsBrightness(animation) && animation.to.threshold >= measured[1]);
+      if (above.length) notes.push(`glow ${names(above)} on ${nameOf(layer.id)}: threshold ${above[0].to.threshold} is at or above the layer's ${top}th luma percentile (${measured[1].toFixed(2)}), so under 1% of it glows; threshold "auto" starts at its ${start}th (${autoGlowRamp(measured)[0].toFixed(2)}).`);
     }
     return notes;
   }

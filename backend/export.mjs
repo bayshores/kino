@@ -1062,7 +1062,7 @@ async function prepareMedia(
       }
       images.set(layer.id, toDataUrl(media));
       if (format === "lottie") imageSources.set(layer.id, media);
-      if ((layer.animations ?? []).some(readsBrightness)) brightImages.set(layer.id, media.buffer);
+      if (glowReadsLayer(layer)) brightImages.set(layer.id, media.buffer);
     }
     if (layer.type === "video") {
       if (format === "lottie") {
@@ -1221,6 +1221,9 @@ const readsEdges = (animation) => animation?.kind === "effect" && animation.enab
 export const readsBrightness = (animation) => animation?.kind === "effect" && animation.enabled !== false &&
   animation.effect === "glow" && animation.to?.mode !== "behind" && (animation.to?.threshold === "auto" || animation.from?.threshold === "auto");
 
+/** Whether `layer` has an auto glow, also inside an animation group (group_animations). */
+export const glowReadsLayer = (layer) => enabledAnimations(layer?.animations).some(readsBrightness);
+
 /** [start, top] for an auto glow: the GLOW_PERCENTILES of the pictures' luma (0..1), or null. */
 export const layerBrightness = (pictures) => lumaPercentiles(pictures, GLOW_PERCENTILES);
 
@@ -1336,7 +1339,9 @@ async function measureSceneLevels(scene, videoSources, { directory, signal, warn
   let folders = 0;
   for (const layer of scene.layers) {
     const source = videoSources.get(layer.id);
-    const glow = (layer.animations ?? []).some(readsBrightness);
+    // Members of an animation group (group_animations) count too: they draw like the others.
+    const animations = enabledAnimations(layer.animations);
+    const glow = glowReadsLayer(layer);
     // A still image is measured only for an auto glow, so its grades keep drawing without normalize.
     if (!source && glow && brightImages?.has(layer.id)) {
       const picture = await stillPicture(brightImages.get(layer.id)).catch(() => null);
@@ -1344,10 +1349,11 @@ async function measureSceneLevels(scene, videoSources, { directory, signal, warn
       if (bright) levels.set(layer.id, withBrightness([null, null], bright));
       continue;
     }
-    if (!source || !(layer.animations ?? []).some((animation) => normalizesLevels(animation) || readsBrightness(animation))) continue;
+    const grade = animations.some(normalizesLevels);
+    if (!source || !(grade || glow)) continue;
     const duration = Math.max(0.001, Number(scene.duration) || 1);
     const times = Array.from({ length: LEVEL_SAMPLES }, (_, index) => duration * (index + 0.5) / LEVEL_SAMPLES);
-    const edgeEffect = (layer.animations ?? []).find(readsEdges);
+    const edgeEffect = animations.find(readsEdges);
     const adapt = Number.isFinite(edgeEffect?.to?.adapt) ? edgeEffect.to.adapt : 0;
     const key = `${source.videoPath}|${JSON.stringify(videoSourceTimes(layer, times, false, source.extraction.clocks).map((entry) => entry?.time ?? null))}${edgeEffect ? `|edges ${adapt}` : ""}${glow ? "|glow" : ""}`;
     if (!measuredLevels.has(key)) {
@@ -1372,7 +1378,9 @@ async function measureSceneLevels(scene, videoSources, { directory, signal, warn
       if (pictures.length) measuredLevels.set(key, bright ? withBrightness(measured, bright) : measured);
       else warnings?.push({ code: "grade-levels-unmeasured", layerId: layer.id,
         // Names the file and the two ways out (friction-fields: the old note named neither).
-        message: `Could not read pictures of “${layer.name ?? layer.id}” (file ${basename(String(source.videoPath ?? layer.src ?? "unknown"))}) to measure its levels; its grade is drawn without normalize. Import the clip again (project import, a 1080p mp4 copy reads best), or set normalize:false on the grade so no levels are needed.` });
+        message: grade
+          ? `Could not read pictures of “${layer.name ?? layer.id}” (file ${basename(String(source.videoPath ?? layer.src ?? "unknown"))}) to measure its levels; its grade is drawn without normalize. Import the clip again (project import, a 1080p mp4 copy reads best), or set normalize:false on the grade so no levels are needed.`
+          : `Could not read pictures of “${layer.name ?? layer.id}” (file ${basename(String(source.videoPath ?? layer.src ?? "unknown"))}) to measure its brightness; its glow threshold "auto" is drawn at 0.7. Import the clip again (project import, a 1080p mp4 copy reads best), or give the glow a threshold number.` });
       if (measuredLevels.size > 64) measuredLevels.delete(measuredLevels.keys().next().value);
     }
     const measured = measuredLevels.get(key);
