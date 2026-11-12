@@ -94,7 +94,13 @@ an absolute folder (the `kino` command resolves a relative one or `~` for you).
   off; wait says why. Always -14: options:{loudness:"web"}. `audioLoudness` warns 2 LU off target.
   `wait` shows `sound: -14 LUFS (target -14 web), range 4.2 LU, true peak -1.1 dBTP`. Without a
   target, a mix that would have clipped gets a warning naming the moment and the sounds playing
-  then: lower those volumes and render again.
+  then: lower those volumes and render again. To find every clipping place in one call, read
+  `check`'s `mix:` line instead of rendering again: multiply the volumes playing at a place by
+  its xN to clear it (with `loudness:"off"`).
+- Drafts and finals (mp4, webm, mov) list each cut's brightness and hue jump and each section's
+  brightness range, read from the rendered file, beside your measured references'; references
+  measured before these facts are counted (`library {topic:"inspire", name:"measure <id>"}`
+  reads one again); facts only.
 - Final video audits compare each decoded frame with its renderer frame and measure audio;
   unsupported checks are explicit. GIF can merge frames; PNG ZIPs have no timing metadata.
   Details: `library {topic:"rules",name:"render"}`.

@@ -1,8 +1,8 @@
 # Media
 
-Images, video, audio and GIFs: bringing a file in, swapping it, and playing it faster, slower or
-backwards, syncing two clips of the same moment, and B-roll on the spoken word. Sound levels,
-ducking and voice separation are in the sound reference.
+Images, video, audio and GIFs: importing and swapping a file, playing it faster, slower or
+backwards, syncing two clips, and B-roll on the spoken word. Sound levels, ducking and voice
+separation are in the sound reference.
 
 Contents: Importing and replacing files · Cutting and skipping inside a clip · Clip speed ·
 Syncing two clips · B-roll on the spoken word
@@ -13,32 +13,36 @@ Syncing two clips · B-roll on the spoken word
   or `path=`/`file=`) returns a `src` for an image, video or
   audio layer. A media layer draws only that `/api/media/…` address or a `data:` image; a file
   name, a path or a web address is refused, and so is an image, video or audio add_layer with no
-  `src` (or an update_layer that clears it): import first, then add the layer. For video and audio it also gives the measured duration in seconds; its
-  add_layer example sets that as `mediaSourceDuration`, so Play stops where the file ends.
+  `src` (or an update_layer that clears it): import first, then add the layer. Video and audio
+  also give the measured duration; the add_layer example sets it as `mediaSourceDuration`, so
+  Play stops where the file ends.
 - Video can be .mp4, .webm, .mov or .m4v. A .mov or .m4v (what iPhones record) is kept as an
   .mp4 with the same picture, copied and not encoded again: H.264 and HEVC import this way, and
   the new `src` ends in `.mp4`. Another picture codec (ProRes, for example) is refused with an
-  ffmpeg line that converts it.
+  ffmpeg line that converts it, unless the .mov has transparency (ProRes 4444 or any alpha
+  pixel format): that imports as a transparent webm under its own name, and the answer adds
+  `converted to transparent webm: W x H, N frames`.
 - Log footage (flat, gray): a video tagged BT.2020 with no transfer curve, as Apple Log is, imports
   with `log:"apple-log"` in its add_layer example, which shows it as Rec.709. `log:null` shows the
   file as recorded. Set log yourself on a log clip the tags missed. replace_media sets log from the
   new file's import.
 - A video's import answer also lists its shots in file seconds (`shots: 3: 1) 0–1.25 s …`),
-  found with FFmpeg's scdet filter; a flash of a few frames is not a cut. If the FFmpeg kino
-  uses is older than 5.1 or lacks the scdet or signalstats filter, kino refuses the video, says
-  so and saves nothing.
+  found with FFmpeg's scdet filter; a flash of a few frames is not a cut. If kino's FFmpeg is
+  older than 5.1 or lacks the scdet or signalstats filter, it refuses the video and saves nothing.
 - `library {topic:"media", search?, page?}` lists imported files, 30 a page.
 - Play: `mediaStart` (scene seconds it starts), `mediaOffset` (file seconds it starts from),
   `mediaDuration`. edit and inspect read trimStart or inPoint as mediaOffset, startTime as mediaStart.
 - `replace_media {layer, mediaId}` (the imported file's name with its extension) swaps the file
   and keeps the layer's box, transform, effects and animations. Audio replaces only audio.
-- Before you choose a crop or framing for a clip, `look {mode:"source", layer}` shows its whole
-  frame with the crop; never guess where the subject is. The framing reference has the steps.
+- Before you choose a crop for a clip, `look {mode:"source", layer}` shows its whole frame with
+  the crop; never guess where the subject is. The framing reference has the steps.
 - After import, `look {mode:"source"}` (no layer) shows every clip and picture of the project,
-  3 to 6 frames each; `layer:"<file name>"` one clip in 12 frames; `times:[…]` those file
-  seconds. No FFmpeg contact sheets or frame grabs of your own.
-- A video or sound over 100 MB imports as kino's own smaller copy (the answer says so): never
-  re-encode it yourself.
+  3 to 6 frames each; `layer:"<file name>"` one clip in 12 frames (a found clip's shot code
+  such as F4.13, a media id or a src works too: see and hear a clip no layer plays before the
+  board, no add_layer; adds its sound line: heard lines, language, sounds, level; a read, so
+  it works while a stop waits); `times:[…]` those file seconds. No FFmpeg contact sheets or
+  frame grabs of your own.
+- A video or sound over 100 MB imports as kino's smaller copy (the answer says so): never re-encode it.
 
 ## Cutting and skipping inside a clip
 

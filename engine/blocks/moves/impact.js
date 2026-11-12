@@ -323,7 +323,8 @@ const LEAST_SOFTNESS = 0.004;
  * to the luma as a guess for each channel): {threshold1, threshold2, softness, contrast}, or null
  * without a measurement. Contrast 1, so the splits are the picture's own lumas. The blend fits
  * inside the narrower empty range (and half the distance between the splits), so no flat area of
- * the picture is blended across two tones; a picture with no empty range there gets a near-hard split.
+ * the picture is blended across two tones; a picture with no empty range at either split (footage)
+ * blends across the whole distance between the splits.
  */
 export function recolorSplit(tones, stops = 0) {
   const at = tones?.at, gaps = tones?.gaps ?? [0, 0];
@@ -332,7 +333,11 @@ export function recolorSplit(tones, stops = 0) {
   const lift = (value) => clamp(toSrgb(Math.min(1, gain * toLinear(clamp(value, 0, 1)))), 0, 1);
   // Each split and its empty range, through the lift.
   const [one, two] = [0, 1].map((index) => ({ at: lift(at[index]), gap: lift(at[index] + gaps[index] / 2) - lift(at[index] - gaps[index] / 2) })).sort((a, b) => a.at - b.at);
-  const softness = Math.max(LEAST_SOFTNESS, Math.min(one.gap, two.gap, (two.at - one.at) / 2));
+  // Continuous tone at both splits (footage: no empty range wider than 2 levels of 255) has no flat
+  // area to protect, so the tones blend across the whole distance between the splits, as the guessed
+  // split does; a near-hard split there turned a soft glow into hard bands (hit-accent review).
+  const continuous = Math.max(...gaps) <= 0.009;
+  const softness = continuous ? two.at - one.at : Math.max(LEAST_SOFTNESS, Math.min(one.gap, two.gap, (two.at - one.at) / 2));
   return { threshold1: round(one.at, 3), threshold2: round(two.at, 3), softness: round(softness, 3), contrast: 1 };
 }
 // The burst's count falls fast: 96% gone by the window's middle (a cubic-bezier, worked out by hand).

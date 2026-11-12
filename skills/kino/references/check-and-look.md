@@ -17,14 +17,24 @@ Contents: Check · Polish · Looking · Review before final · Building in order
 - The first 8 lines of `check`, `look` versus and review, and `status` lead with what decides your
   next call (errors, advice, drift, `whole scene:`, inbox); the rest is detail.
 - Footage: `speech_cut` (a voice cut mid-word: sound reference), `soft_upscale` (drawn over 1.3x
-  its file), `crop_no_subject` (cropped, no subject marked), `head_cut_off` (Mac), `jump_cut`
+  its file; one file drawn at one size on several layers lists them in `refs`, `waive_check`
+  targets that list, and a waiver on one layer covers only it), `crop_no_subject` (cropped, no subject marked), `head_cut_off` (Mac), `jump_cut`
   (one file framed alike back to back), `frozen_footage` (picture stops 0.3 s+: start earlier,
   mediaSpeed 0.85+, or cut away), `out_of_sync` (a line over another moment of a synced file).
 - `covered_layer`: a solid shape, mp4 or jpg above hides a layer (png, webm, mov may be clear).
 - Motion rules (camera, brightness, frozen pictures): motion reference.
 - Contrast: under 0.2 s warns, longer is an error; the fix tries a scrim, a halo
   shadow, a darker place, a large-text size, then a plate.
+- With sound in the scene, `check` adds a `mix:` line: every place the mix passes the master
+  limiter at render loudness `"off"` (time, dB over, layers at their volume, xN to clear it),
+  then what the default `"auto"` gain does to the same peaks; `look {mode:"motion",
+  ref:"sound"}` lists them (worst 6). No render needed.
 - `default_font` fix: `library {topic:"fonts", search:"<first type label's words>"}`.
+- `check {rules:["missing_glyphs"], fix:"auto"}` applies the glyph-range fix (a
+  `textStyleRanges` range in a font that has the characters); when no font has them, the
+  receipt names a font file to import (Chinese: NotoSansSC-Regular.ttf).
+- `opacity` 0 under a fade-in warns, names the `delete_animation` call, and its next is
+  `update_layer visible:false`.
 - Errors, and in a real edit warnings except taste ones (they ride on the final's receipt), block final. On purpose:
   `{"op":"waive_check","code":"overlap","target":"*","reason":"meant"}`; a list or glob
   waives each match. `quote` (the person's words) and named layers, never `*`:
@@ -45,7 +55,7 @@ Contents: Check · Polish · Looking · Review before final · Building in order
 What a viewer calls sloppy though gates pass: fix it. Each has an automatic fix
 (`check {fix:"auto"}`) but render_artifact.
 
-- Type: `font_fallback` (gate, a face kino has not loaded), `text_collision` and `text_ghost`
+- Type: `font_fallback` (gate, face not loaded), `text_collision` and `text_ghost`
   (gates: texts touch or mix), `text_wrap` (a lone word or punctuation on a line),
   `type_min` (gate: body 3%, headline 4% of the short side; a URL is body), `off_brand_font`,
   `role_font_drift` (one family per role, one caption size per voice; never a font nobody chose).
@@ -93,9 +103,9 @@ What a viewer calls sloppy though gates pass: fix it. Each has an automatic fix
 1. `edit`, then read the receipt: `newFindings` (at most 5, codes and times) are what it
    brought in; fix them next.
 2. `look {mode:"review"}` (a scene; `from`/`to` for a stretch) picks the moments that matter
-   (cuts, effects, moves, text landing, quiet stretches), riskiest full size. Each tile: the
-   frame, its time, what happens, findings in yellow. Cuts add seam rows (motion reference).
-3. Study every frame for type, wrapping, overlaps, framing, empty space and artifacts. Fix them all in one `edit`.
+   (cuts, effects, moves, text landing, quiet stretches), riskiest full size. Each tile: frame,
+   time, what happens, findings in yellow. Cuts add seam rows (motion reference).
+3. Study every frame for type, wrapping, overlaps, framing, empty space, artifacts; fix all in one `edit`.
 4. `look {mode:"review"}` again shows only the moments whose picture changed.
 5. A final render does not wait for look review; its receipt names the moments not yet reviewed
    as they are now. Review before it anyway.
@@ -105,9 +115,9 @@ What a viewer calls sloppy though gates pass: fix it. Each has an automatic fix
 
 ## Building in order
 
-Get a rough whole scene first (layout, background and the main subject, often one
-`compose`), then build in at most 3 sections, a designer's order: 1
-supporting parts, 2 motion and timing, 3 polish (color, type, sound). Each section is one
-`edit`, then `look {mode:"sheet", from, to}` at the time it covers before the next one;
-those looks are your pass. With the fixes in one more `edit` that is
+Get a rough whole scene first (layout, background, main subject; often one `compose`), then
+build in at most 3 sections, a designer's order: 1 supporting parts, 2 motion and timing, 3
+polish (color, type, sound). Each section is one `edit`, then `look {mode:"sheet", from, to}`
+over its time before the next; those looks are your pass. With the fixes in one more `edit`
+that is
 at most 5 edits to build it; the storyboard, a redo the person asks for at a stop and a retry come on top.

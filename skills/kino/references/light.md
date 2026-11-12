@@ -1,16 +1,15 @@
 # Light
 
-Glow and bloom, light rays (god rays) and lens flares. Each is an effect you put on a layer.
-The accent-hit and light-sweep moves use glow to light one word.
+Glow and bloom, light rays (god rays) and lens flares: effects you put on a layer. The accent-hit and light-sweep moves use glow to light one word.
 
 Contents: Stacked shadows and strokes, Light (glow, rays, flares, rim light, edge lines), Color as meaning, Cost and reduced motion.
 
-Related effects that are not light: `vignette` and `grain` (finish), `duotone` and `tritone` (grade), `focus-band` (depth of field). Rim light: `glow` on a cut-out, or `light-rays`. Fields: `library {topic:"effects", name:"<effect>"}`.
+Related, not light: `vignette` and `grain` (finish), `duotone` and `tritone` (grade), `focus-band` (depth of field). Rim light: `glow` on a cut-out, or `light-rays`. Fields: `library {topic:"effects", name:"<effect>"}`.
 
 ## Stacked shadows and strokes
 
 - A layer's `shadows` list draws more drop shadows after `shadow`, later ones on top: up to
-  32 `{color, x?, y?, blur?, opacity?}`. Neon glow: one color at no offset, blur 4, 16, 40.
+  32 `{color, x?, y?, blur?, opacity?}`. Neon glow: one color, no offset, blur 4, 16, 40.
   Long shadow: hard copies stepping one way (2, 4, 6 ... px). Static; not in Lottie.
 - `strokes` on text, shapes and paths: up to 16 `{color, width, align?, opacity?, dash?, join?,
   cap?, taper?, style?, glow?}` after `stroke`, later on top. Sticker: wide outside outlines
@@ -21,7 +20,10 @@ Related effects that are not light: `vignette` and `grain` (finish), `duotone` a
 
 - `glow` adds the layer's bright parts back on top, blurred. `threshold` picks how bright a part
   must be (0 with `softness` 0 glows all of it: neon on a title); `passes` 2–6 add wider blurs
-  (deep glow); `color` with `colorMix` tints it (a red tint at the bright edges is halation).
+  (deep glow); `threshold` defaults to `"auto"`: on a video or image the render ramps from the
+  layer's own 90th to 99th luma percentile, so a dark clip glows from its own highlights (the
+  receipt gives it); a number sets it by hand, and the receipt says when it is at or
+  above the layer's 99th percentile (under 1% glows); `color` with `colorMix` tints it (a red tint at the bright edges is halation).
   `mode:"behind"`: halo under the layer, fill keeps its color; `"spill"`: lines in bright areas stay. A glowing word on a face: `place {layers, on:"mouth"|"eyes"|"between-eyes"|"face"|"above-head", of:<video>}` after `mark_subject {layer, t, box, part:"face"}` (t: scene seconds, default your last look at it; an estimate: look, then `offset:[x, y]`) or `{part:"mouth"}` (exact).
 - `rim-light` lights the edge of a layer's own shape (cut-out subject, text, shape) in one
   call: `color` "auto" (the layer's edge hue), `width` 8 (4 lobes), `angle` "auto" or degrees (0 above),
@@ -43,16 +45,16 @@ Related effects that are not light: `vignette` and `grain` (finish), `duotone` a
   `glint`, `anamorphic` (a long streak along `angle`), `rings` (ghosts on the line through
   the middle of the scene) or `streak` (one soft line across the picture, no ghosts: set `y`
   to an eye or mouth line). `ghosts` 0 turns reflections off; `softness`, `thickness`, `length`
-  shape the streaks. Put it on a small layer with `x` 0.5, `y` 0.5 and it follows that
-  layer; it fades out as the light leaves the scene.
-- Light is drawn with its layer, so layers above cover it. To light several layers as one
-  picture, group them and put the effect on the group.
+  shape the streaks. On a small layer at `x` 0.5, `y` 0.5 it follows that layer; it fades as
+  the light leaves the scene.
+- Light is drawn with its layer, so layers above cover it. To light several layers as one,
+  group them and put the effect on the group.
 - Animate any number with `from`: `from:{"strength":4}` to `parameters:{"strength":0}` on a
   cue is a flash; `from:{"x":-0.1}` to `x` 1.2 sweeps a flare across.
-- A flash needs a cue that motivates it: light rising in the shot, a song seam or a top accent,
-  never every beat. Over footage, `move impact-accent` with `kind:"flash"` lifts the shot's own
+- A flash needs a motivating cue (light rising in the shot, a song seam, a top accent), never
+  every beat. Over footage, `move impact-accent` with `kind:"flash"` lifts the shot's own
   exposure (a dark grade flashes in its own color, not white), sized by the cue's weight.
-- Several parts on one hit (light, blur, recolor, particles, shake): impact-accent kind:"hit", sized by the cue's weight.
+  Several parts on one hit (light, blur, recolor, particles, shake): `kind:"hit"`, sized the same.
 - `library {topic:"rules", name:"light"}` has every field and ten tested recipes: bloom,
   deep-glow, neon, halation, beat-flash, god-rays, light-behind-title, anamorphic-flare,
   sun-flare, flare-sweep.
@@ -95,17 +97,14 @@ accent. Reduced motion: no glow, no sweep, just the color on and off.
 
 ## Cost, reduced motion and Lottie
 
-- Light effects are SVG filters and shapes, drawn the same way in the dashboard and in exports.
-  Rays cost the most (about 3× a glow at 1080p), then flares, then glow. See
-  `library {topic:"rules", name:"light"}` for measured times.
-- While rays show in a playing scene on a stage larger than 1280×720 device pixels, the
-  dashboard draws the live picture at 1280×720 and enlarges it; the stage label says
-  `drawn at 1280×720`, and its tooltip `drawn at 1280×720 while playing (light rays)`. With the
-  stage zoomed to fill the window on a 2× Mac screen, one rays layer then plays at 30 fps
-  (about 6 at full size); two rays layers that fill the frame about 25, three about 17. The
-  paused picture and exports keep full resolution.
-- People who turn on reduced motion see short Light animations (under 1 s, like a flash on a
-  beat) drawn calmly in the dashboard preview. Exports are not changed.
-- Lottie export draws Light effects as embedded image frames, like other effects, with a
-  warning naming the layer. There the light is laid over the picture instead of added to it,
-  so it is a little weaker on bright areas.
+- Light effects are SVG filters and shapes, drawn the same in the dashboard and exports. Rays
+  cost the most (about 3× a glow at 1080p), then flares, then glow; measured times:
+  `library {topic:"rules", name:"light"}`.
+- While rays play on a stage over 1280×720 device pixels, the dashboard draws 1280×720 and
+  enlarges it (label `drawn at 1280×720`; the tooltip adds `while playing (light rays)`). On a 2× Mac screen with the stage zoomed to fill the window, one rays layer plays at
+  30 fps (about 6 at full size); two full-frame ones about 25, three about 17. The paused
+  picture and exports keep full resolution.
+- With reduced motion on, short Light animations (under 1 s, like a flash on a beat) are drawn
+  calmly in the dashboard preview. Exports are not changed.
+- Lottie draws Light as embedded image frames (a warning names the layer), laid over the
+  picture, not added: a little weaker on bright areas.

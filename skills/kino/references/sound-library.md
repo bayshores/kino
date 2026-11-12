@@ -36,6 +36,8 @@ first import, into kino's data folder and is checked against the catalog (SHA-25
   stays with the file.
 - A track with a drop: put the video's key moment on it (`fit_music`), or start the track so
   the drop lands there. Without one, build energy with cuts and type instead.
+- `fit_music` alone after a board, under a late payoff, gives the same payoff-shot offer as
+  `board {music}`: shot cues plus the `fit_music` payoff edit.
 
 ## Placing sound
 
@@ -46,3 +48,17 @@ first import, into kino's data folder and is checked against the catalog (SHA-25
   every text entrance, never a sub hit on a dim or a fade. Two or three in 15 s is plenty.
 - Effects under music: place_sounds sets the level from the song ({at:8.4, what:"door"} or
   {at:8.4, sound:"sfx:<id>"}); by hand, volume 0.4-0.7. Name each one in the board's `sound`.
+- place_sounds sets each effect's volume against the bed at the effect's own loudest heard
+  window (a riser's end, an impact's ring), not at the action; a bed silent there is read 0.2 s
+  either side of the action.
+- At volume 2 and still short of its aim, the receipt's `sounds.louder` gives the next louder
+  library sound of the same kind and one edit call that swaps it (it keeps your `under`).
+
+## A clip's own sounds
+
+- A clip sound that is not a line (a laugh, a door, steps): `keep_line {layer:"<clip>",
+  sound:"laughter"}` keeps its own level; the music dips only if it would mask it.
+- The clip readout lists the surest sound under 0.5 as `maybe laughter (0.43) 1.0-2.0 s`;
+  `keep_line {layer, sound:"laughter"}` keeps it, with a note.
+- A layer can keep a line and a sound: the line is leveled (`voiceLevel`), the sound plays at
+  its own level (`Sound up` / `Sound down`).

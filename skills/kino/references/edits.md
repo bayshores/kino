@@ -20,7 +20,9 @@ Contents: Ops and names · Refusals and fixes · Examples · Animations · Fonts
   `textResize:"width-height"`.
 - Colors are hex (`#00000000` transparent); color words, `rgba()`, `hsl()` and CSS gradients
   convert. Corners: `radius` or `cornerRadii` (four). A property no layer has is refused with
-  the closest names.
+  the closest names; a field an op does not have is ignored, and the receipt's notes give the
+  closest field and the op's field line (`duplicate_layers` `times:[4,8]` makes one copy: Did
+  you mean `at`?).
 - `rev` (optional): the revision you read; a changed project takes the edit when it still fits
   (`rebased:true`), else refuses it.
 - `set_font` over shapes sets only the text layers. Leave out fields at their defaults (text:
@@ -42,7 +44,7 @@ Contents: Ops and names · Refusals and fixes · Examples · Animations · Fonts
 - Refused: a percent `x` or `y` (`place` centers), a field the animation lacks
   (`repeat`: a `behavior` loop), `from`/`to` with a preset change, a field given
   two values (`size`, `width`) and a `src` file path (import it first).
-- A refused edit saved nothing: notMade names layers not made yet. Its next: is edit {retry:"E1", fix:{...}} with known fixes filled in; send it as given.
+- notMade names layers a refused edit did not make. Its `next:` is `edit {retry:"E1", fix:{...}}` with known fixes filled in; send it as given.
 
 ## Examples
 
@@ -109,19 +111,19 @@ A second scene (from then on every op names its `scene`):
 - Variable fonts: text `axes:{wght, wdth, slnt, opsz}` (merged per axis, `{wdth:null}` drops
   one), animated by `animation:{kind:"custom", from:{axes:{wght:100}}, to:{axes:{wght:900}}}`.
 - `outline_text {layer}`: letters become path layers in a group; the text is hidden.
-- `library {topic:"fonts"}` lists faces measured from your saved type labels first (whole frame; a type label may be at any second). To measure just the letters: `like:"yt:X"` or `like:"/abs/frame.png"`, `t`, `region:[x,y,w,h]`, `text:"THE WORDS"`; each face comes with a set_font call, and `text` makes width reliable.
+- `library {topic:"fonts"}` lists faces measured from your saved type labels first (whole frame; a label may be at any second). To measure just the letters: `like:"yt:X"` or `like:"/abs/frame.png"`, `t`, `region:[x,y,w,h]`, `text:"THE WORDS"`; each face comes with a set_font call, and `text` makes width reliable. `like` without `region` finds the lettering box (taste reference).
 
 ## Rebuilding
 
-For a long edit, keep from the start the ops in files and a script that sends them in order and
-stops at the first refused edit (`kino edit` exits 1; `set -e`), and a `PROGRESS.md` with your
-names, decisions and what is left, so a restart costs little.
+For a long edit, keep the ops in files, a script that sends them in order and stops at the
+first refused edit (`kino edit` exits 1; `set -e`), and a `PROGRESS.md` of names, decisions and
+what is left, so a restart costs little.
 
 - From nothing: a new project id, then the script. Imported `src` addresses work in every
   project; a taken project id is refused.
 - In place: build each pass inside one group (`group_layers`); deleting the group deletes its
-  layers. Without groups, list every name first: for each scene, `status {scene, full:true}`
-  and on while it offers `status {full:true, page:N}` (`inspect` shows at most 10). Delete only
-  those; layers indented under a group go with it; one name not found refuses the whole edit.
+  layers. Without groups, list every name first: per scene `status {scene, full:true}`, then
+  `status {full:true, page:N}` while offered (`inspect` shows at most 10). Delete only those;
+  layers under a group go with it; one name not found refuses the whole edit.
 - A name that is taken gets an ID ending in `-2` (receipt `renamed`).
 - Do not delete and add scenes to rebuild: deleting a scene waits for the person's approval.

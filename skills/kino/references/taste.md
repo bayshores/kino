@@ -73,7 +73,11 @@ What the checks measure, and how to keep a video small.
   app screen, a calendar grid cell by cell or rows of fake UI.
 - Leave out fields that match the defaults (weight 400, line height 1.2, left aligned). Set
   the typeface your references chose: library {topic:"fonts", search:"condensed
-  bold sans"} lists catalog fonts of that kind. compose {footage} with saved references makes
+  bold sans"} lists catalog fonts of that kind. library {topic:"fonts", like:"<picture>"} with
+  no region measures the largest lettering box kino finds (a contact sheet works; white type
+  over a busy picture too) and names it plus up to 3 other boxes to pass as region:[x,y,w,h];
+  a face named in text the person turned down, or used by another project, stays listed with
+  that fact in brackets. compose {footage} with saved references makes
   a brand of colors only; without any, it uses one of kino's own pairs (check warns once you
   save references, unless a style line at a saved reference's moment names the font).
 - A card used several times is a component: build it once, insert copies (the building blocks

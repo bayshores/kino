@@ -2,7 +2,7 @@
 
 Contents: Build it · Look at it · Fresh-eyes check · Ask · After the approval · Examples · Storyboard: a board from footage
 
-Read before building a video from footage (the `board` stop), or to plan any video shot by shot.
+Read before building from footage (the `board` stop), or to plan any video shot by shot.
 
 ## Build it
 
@@ -10,6 +10,12 @@ Read before building a video from footage (the `board` stop), or to plan any vid
   (`look source` needs it). When you build the shots, delete it (or make it shot 1): its sound plays once.
 - One `board` op holds the whole storyboard; each call replaces it. Shots in time order, no gap,
   no overlap: the music layer's span, or the whole video when `music` is `"none"`.
+  `music:"<imported sound's src or id>"` adds the song's audio layer itself (0 s to the shots'
+  end), so the board carries the song's cues before anything is built (`fit_music` after a board:
+  sound-library reference).
+- A shot needing more clip than the file has is refused with fixes and numbers:
+  speed S (the retry's fix: the clip plays slower, filling the shot), in I when the file is
+  long enough, or dur D with the next shot starting earlier and running longer.
 - Every shot gives every field, `"none"` when empty: `media` and `in` (file seconds), `crop`,
   `subject`, `follow`, `text`, `sound`, `pacing`, `move`, `why`. Their exact shapes:
   `library {topic:"op", name:"board"}`.
@@ -27,49 +33,51 @@ Read before building a video from footage (the `board` stop), or to plan any vid
   approval covers them. `open` (at most 3): questions only the person can answer.
 - `move`: `{kind, name, ref}`, `ref` the reference moment copied (`"<key>@<seconds>"`; `look
   versus` pairs it). Else `{none:"cut"}`: a plain cut, right for most shots.
-- Send the whole board again to change it, each shot with the `id` `look board` prints.
+- Send the whole board again to change it, each shot with its `look board` `id`.
   Refusals (`op_failed`, `boardError`) name the shot and every bad field.
 
 ## Look at it
 
-`look {mode:"board", page}` shows 4 shots a page: the source frame with crop and subject boxes,
+`look {mode:"board", page}` shows 4 shots a page: source frame with crop and subject boxes,
 the app's covered areas shaded on 9:16, the cropped still with the real text, kino's numbers,
 the move and your reason; its text, each shot's number, id and `look:` flags. Fix every flag
 before asking: the subject whole and 5%+ from the crop edge, eyes 20–45% from the
 top, nothing under the app's captions.
 
-look {mode:"board"} page 1 prints the shots' pace before and after the song's drop beside your
-saved references', and the song's beat times after it; facts only. To put the cuts after the
+look {mode:"board"} page 1 prints the pace on each side of the song's turn beside your
+references', and the song's beat times after it; facts only. To put the cuts after the
 drop on those beats: edit {ops:[{op:"board", snap:"beats"}]}. Cut times only, song stays; a move
-over 6 frames lapses an approval.
+over 6 frames lapses an approval. It keeps (and names) a cut whose move would run a shot past
+its clip file's end.
 
 ## Fresh-eyes check
 
-Before you ask, when your app can start a second agent, give it only the brief's
-lines, the project id and this: "Read the storyboard with look {project, mode:"board", page}
-(every page; change nothing). List where you would have to guess, and the top 3 problems you
-can see." Fix the small ones yourself and add each to `calls` (edit `board`): they show as
-"my calls". Only questions for the person go out, in one message. At most 2 check rounds.
-Then ask with `fresh:"ran"`, or `fresh:"skipped"` when your app cannot start one. (After superpowers' builder-check prompt, obra/superpowers, MIT.)
+Before you ask, if your app can start a second agent, give it only the brief's lines, the
+project id and this: "Read the storyboard with look {project, mode:"board", page} (every page;
+change nothing). List where you would have to guess, and the top 3 problems you can see." Fix
+the small ones yourself and add each to `calls` (edit `board`; they show as "my calls"). Only
+questions for the person go out, in one message. At most 2 rounds. Then ask with
+`fresh:"ran"`, or `fresh:"skipped"` when your app cannot start one. (After superpowers' builder-check prompt, obra/superpowers, MIT.)
 
 ## Ask
 
 - No `check` first. Open items: ask them in one message, log each reply word for word
-  (`notes {action:"brief", log}`), fold the answers into the board, empty `open`. If they say "your call", send their words: `notes {action:"checkpoint",
-  id:"board", words:"<their reply>"}`. It answers `your_call`: decide each item, write
-  your decisions in `calls` and empty `open` (edit `board`), then ask again with the fresh-eyes answer:
-  `notes {action:"checkpoint", id:"board", fresh:"ran"}` (or `"skipped"`).
+  (`notes {action:"brief", log}`), fold the answers into the board, empty `open`. If they say
+  "your call", send their words: `notes {action:"checkpoint", id:"board", words:"<their reply>"}`.
+  It answers `your_call`: decide each item, write your decisions in `calls` and empty `open`
+  (edit `board`), then ask again with `notes {action:"checkpoint", id:"board", fresh:"ran"}`
+  (or `"skipped"`).
 - `notes {action:"checkpoint", id:"board"}`: kino writes the ask (your calls, plain then flagged
   shots first, at most 8 shots). Send it as written, with the `look board` pages
-  when your app can send files, and end your turn. "All shots": the same call with `all:true`.
+  if your app sends files, and end your turn. "All shots": the same call with `all:true`.
   After a redo or approve with notes, kino lists what changed, what they named
   but did not change, and a new shot order or music: send it as written.
 - Shot notes from the board screen ("use option B: <why>" is `alts[0]`, C `alts[1]`; "make it
   1.8 s"; "remove this shot"): edit `board` to match.
-- With a picked `style.type` and footage, the answer carries a style frame (the type over the
-  first shot): send it with the ask.
+- With a picked `style.type` and footage, the answer has a style frame (the type over the first
+  shot): send it with the ask.
 - Refused: `board_first`, `board_gap` (music or video not covered), `open_items`,
-  `move_needed` (no designed move on the hook, reveal or payoff; it names moves that fit).
+  `move_needed` (none on the hook, reveal or payoff; it names moves that fit).
 - Record their reply with `notes answer`. Placing a second shot, the first build and drafts
   wait for the board (`board_needed`).
 
@@ -98,7 +106,7 @@ A shot as one video layer (W × H the video, `[x, y, w, h]` the crop): `height` 
 {"tool":"edit","ops":[{"op":"board","music":"none","shots":[{"cue":0,"dur":6,"pacing":"free","media":"none","in":"none","crop":"none","subject":"none","follow":"none","sound":"none","move":{"kind":"ui","name":"roll"},"why":"one card"}]}],"expect":"op_failed"}
 ```
 
-The last is refused, every bad field named: no `text`, no `ref`.
+The last is refused, naming every bad field: no `text`, no `ref`.
 
 ## Storyboard: a board from footage
 

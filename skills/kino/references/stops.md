@@ -24,6 +24,10 @@ revision with 0 errors, and your own `look`. "It looks right" is not a check.
   `look {mode:"sheet"}` (storyboard: `look {mode:"board"}`) when your app can send files.
 - End your turn: `Waiting for you: the rough cut (C1)`. Until they answer, writes answer
   `{waiting:"C1"}`; reads, `look`, `check` and `notes` work.
+- While the board stop waits, send a revised board as an edit of `board` ops only (a refused
+  one's `edit {retry, fix}` works too): it saves, and the receipt's `stop.ask` (with
+  `stop.image`, the new style frame, when there is one) is the refreshed ask. Send it as written
+  and end your turn; the person answers once, at `stop.rev`.
 - A stop closes by itself only when the work it showed changed (`lapsed`: check, ask again),
   the video lost that stop, or their settings allow it.
 

@@ -21,6 +21,8 @@ Contents: Color grading · Frame finish and letterbox · Filters · Changing an 
   with `keepColor`), `keepAmount` 0.6, `bloom` 0.3, `blackLift` 0.04. It stretches the shot's own
   luma range first (`normalize`, default on), so faces stay lit instead of one flat tone.
   `duotone` and `tritone` take the same `normalize`, `keep`, `keepColor`, `keepRange`, `keepAmount`.
+  `tritone` maps each 8-bit luma level exactly (a 256-entry table), so close thresholds (0.02
+  apart) render as set.
   Two-section grade: `{op:"add_animation",layer:"after",effect:"color-look",start:11.3,duration:3.7,parameters:{look:"section-grade",hue:330}}`; the shots before keep their hue.
 - color-wheels gains share one scale: `gain` multiplies white; `gainRed`/`gainGreen`/`gainBlue`
   add to it for one channel (-4 to 4; gain 0.7 with gainBlue 0.8 is blue white at 1.5).

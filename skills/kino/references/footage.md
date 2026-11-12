@@ -67,7 +67,9 @@ captions):` and `0:41 "..." (F1.12-F1.13)` rows. Auto captions are a guess (time
   instead of ranking last. `next:` imports that line by its time range:
   `{"tool":"project","action":"import","file":"F1","options":{"from":4.9,"to":7.3}}`.
 - No captions? `said:"<words>"` listens to the scanned part here (English only, about 6-13 s a
-  minute): `library {"topic":"footage","scan":"F1","said":"protect them"}`.
+  minute): `library {"topic":"footage","scan":"F1","said":"protect them"}`. The scan's
+  `Lines (<lang>, heard on this computer)` are heard in the clip's own language, each with its
+  gloss, when ggml-small.bin is already in `~/.kino/models` (the scan never fetches it).
 - Import also listens: a clip of 1.5 s or more adds `says "..." 0.3-2.1 s` (clip seconds), or
   with no caption line `heard "..."` (whisper: other languages as said, with an English gloss,
   when ggml-small.bin is installed). `look` source lists `heard:` per clip (`(muted here)` at volume 0).

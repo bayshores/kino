@@ -43,7 +43,8 @@ answer or settings let one pass.
 - `by:"you"` needs `quote`: their exact words from their message (typos kept). Else
   `by:"guessed"`, no quote. A quote not in an ask, a stop answer or a note they typed is refused
   (`quote_not_said`); a `log` reply never counts (put each message they type in `ask`).
-  `text` (your reading): 80 characters, idea 120.
+  `text` (your reading): 120 characters, idea 120; the `message` and `look_sound` lines take up
+  to 120 too, and the refusal says how many to cut.
 - `about` `{text, by:"you", quote}` (`guessed` only under `ask:"none"`): who or what it is about,
   in their words; the first reference search uses it, never the ask. `origin:` is kino's own
   search of it: say it in the playback; name its word in the idea.

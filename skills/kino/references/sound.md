@@ -7,16 +7,16 @@ Contents: Sound effects · Volume, fades and ducking · Music as structure · A 
 
 ## Sound effects: finding and placing them
 
-- Sources: the person's own files first. Else kino's built-in CC0 effects:
+- Sources: the person's files first, else kino's CC0 effects:
   `library {topic:"sounds", search:"whoosh"}`, then `project {action:"import", file:"sfx:<id>"}`
   (web sounds, music: sound-library guide). No ding or beep on nothing.
 - Search the on-screen action ("swish", "click"), never a mood ("epic whoosh").
 - Length fits the action: a tap or click 0.05-0.5 s, a slam 0.3-1 s, a whoosh under 1 s.
-- Place each one on an action the picture shows (a tap, a message arriving, a cut to a
-  new place), never on every text entrance: two or three in 15 s, silence between. `mediaStart` is the scene time it plays at (on the action's frame, or
+- Place each one on an action the picture shows (a tap, a message arriving, a cut),
+  never on every text entrance: two or three in 15 s, silence between. `mediaStart` is the scene time it plays at (on the action's frame, or
   1-2 frames before a cut); give it `mediaSourceDuration` from the import.
 - library {topic:"sounds"} (no search) lists the cut's visible actions, a sound each; edit {ops:[{op:"place_sounds", at:["a2","a5"]}]} lands each on its frame, 3 LU under the song (under). By hand: `volume` 0.4-0.7.
-- Name every effect in the board's `sound` and its source at the sound stop.
+- Name each effect in the board's `sound`, its source at the sound stop.
 
 ```json
 {"op":"add_layer","layerType":"audio","name":"buzz","properties":{"src":"/api/media/<id>.mp3","mediaStart":3.2,"mediaSourceDuration":0.8,"volume":0.6}}
@@ -35,8 +35,8 @@ Contents: Sound effects · Volume, fades and ducking · Music as structure · A 
   6 LU over the music (`deeper`), down to 0.1 (`quiet` names lines still under); dips keep apart
   at a section cue (`sections`).
 - Fade out after the last dip: an animation starting inside a dip takes over from it.
-- Muffled until the drop: animate `lowpass` (cutoff Hz, 20-20000; none is off) from 400 to
-  20000 over the bar before it, `kind:"in"`, `ease-in`.
+- Muffled until the drop: animate `lowpass` (Hz, 20-20000; none is off) 400 to 20000 over the
+  bar before it, `kind:"in"`, `ease-in`.
 
 ```json
 {"op":"add_layer","layerType":"audio","name":"music","properties":{"src":"/api/media/<music>.m4a"}}
@@ -77,19 +77,19 @@ Contents: Sound effects · Volume, fades and ducking · Music as structure · A 
   `wait`): the music hits back on the downbeat within wait (default half a bar), else on the next
   beat; the receipt states the gap and the wait that reaches the downbeat. `dip` (0 to 1) sets a
   fixed dip instead (not both).
-- A clip sound that is not a line (a laugh, a door, steps): {op:"keep_line", layer:"<clip>",
-  sound:"laughter"}; it keeps its own level, the music dips only if it would mask it.
+- A clip sound that is not a line (a laugh, a door): {op:"keep_line", layer:"<clip>",
+  sound:"laughter"} (sound-library reference).
 - With ggml-small.bin in ~/.kino/models/ (kino fetches it once, 488 MB), look source reads other
-  languages: `heard in Japanese (ja, p 0.86): "..." (en: "...") 1.9-2.9 s`.
-- Keep it as said: keep_line {layer, line:"<as printed>"}; show English: keep_line {layer, from, to, text:"<gloss>"}. The gloss can be wrong: check it.
+  languages: `heard in Japanese (ja, p 0.86): "..." [gloss (machine, unverified): "..."] 1.9-2.9 s`.
+  A gloss is whisper's English and can reverse the meaning.
+- Keep it as said: keep_line {layer, line:"<as printed>"} (subtitles show the words as said unless `text` is sent); show English: keep_line {layer, from, to, text:"<gloss>"}.
 
 ## Sound: separating voice from background
 
 - `isolate_voice` splits a layer's sound locally (nothing is uploaded). `keep:"voice"`
   (default), `"background"`, or `"both"`: the voice plus an audio layer `<layer>-background`
-  you can turn down. A video keeps its picture. `amount` 0–1 leaves some background in.
-- It does not duck music: send `duck_audio` in the same edit
-  (`duck[n].summary` when it ducks several layers).
+  you can turn down. A video keeps its picture. `amount` 0–1 keeps some background.
+- It does not duck music: send `duck_audio` in the same edit (`duck[n].summary` when it ducks several layers).
 
 ```json
 {"op":"add_layer","layerType":"video","name":"interview","properties":{"src":"/api/media/<interview>.mp4"}}
@@ -113,7 +113,7 @@ Cut the slips out of a voiceover, then caption the rest (local whisper.cpp). `li
    video morphs over each join in the render (preview and look: a dissolve; `morph:0.5`,
    `morph:false`). Undo: `restore:[indices]` or `restore:"all"`.
 3. `add_captions {speech:"<layer>", fix:{"heard":"meant"}}` captions the words the voice plays
-   now, without um/uh, and corrects misheard names. Caption after cutting.
+   now (no um/uh), correcting misheard names. Caption after cutting.
 4. `check` transcribes every heard layer once. `speech_cut` gates a clip that starts or ends
    inside a word or mid-sentence; the fix moves the edge to the sentence end or start (a
    deliberate cut: `waive_check`). Warnings: `speech_fragment`, `mute_word`,
@@ -123,8 +123,7 @@ Cut the slips out of a voiceover, then caption the rest (local whisper.cpp). `li
    (`voiceCleanup:false` skips it). `inspect {targets:["cuts"]}` lists cuts and the words near them.
    A waiver on a layer lapses when its file changes. With no speech model, check says so.
 
-A missing whisper-cli or model: the refusal says how to install it (macOS:
-`brew install whisper-cpp`).
+A missing whisper-cli or model: the refusal says how (macOS: `brew install whisper-cpp`).
 
 ```json
 {"tool":"edit","ops":[{"op":"add_layer","layerType":"audio","name":"vo","properties":{"src":"/api/media/<voiceover>.wav"}}]}

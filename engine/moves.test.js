@@ -1395,6 +1395,8 @@ test("impact-accent runs only at a cue that motivates its kind; a shake peaks on
   // The recolor splits its tones where the shot's own luma splits in thirds, its blend inside the empty range there,
   // as the light leaves them lifted at its middle frame; without a measurement it keeps the first guess.
   assert.deepEqual(recolorSplit({ at: [0.1, 0.2], gaps: [0.02, 0.03] }), { threshold1: 0.1, threshold2: 0.2, softness: 0.02, contrast: 1 });
+  // Footage (no empty range at either split) blends across the whole distance between the splits.
+  assert.equal(recolorSplit({ at: [0.2, 0.5], gaps: [0.004, 0.008] }).softness, 0.3);
   assert.equal(recolorSplit(undefined), null);
   assert.ok(drop.recolor.threshold1 > 0.1 && drop.recolor.threshold2 > drop.recolor.threshold1 + 0.04 && drop.recolor.contrast === 1, `lifted thirds (${drop.recolor.threshold1}, ${drop.recolor.threshold2})`);
   assert.match(dropHit.notes.join(" "), /tones split at luma [\d.]+ and [\d.]+, nearest the thirds of clip's picture lifted [\d.]+ stops by the light/);

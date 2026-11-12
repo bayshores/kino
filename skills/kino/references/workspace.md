@@ -23,6 +23,8 @@ Copying between projects, many variants from a CSV, imports, and workspace actio
 
 - Media: `project {action:"import", file:"/absolute/path.png"}` returns a `src` for an image,
   video or audio layer.
+- `project {action:"duplicate", id, name:"New name"}` names the copy; without `name`, or with a
+  blank one, it is `<old> [copy]`.
 - Project files: `project import /absolute/file.motion` (or `.json`) migrates into a new file.
 - Workspace actions: `project {action:"manage", id, options:{resource, action, ...}}`.
   Resources: projects, templates, folders, trash, comments, shares, easings, effects, media,
