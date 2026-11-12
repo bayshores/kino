@@ -9,6 +9,7 @@ import { EFFECTS, effectDefaults } from "../engine/effects/catalog.js";
 import { cubeText } from "../engine/effects/colorMath.js";
 import { EFFECT_PRESET_DEFINITIONS } from "../engine/effects/presetCatalog.js";
 import { exportScene, layerEdges, lumaLevels, normalizesLevels } from "./export.mjs";
+import { lumaSplit } from "./agent/shot-color.mjs";
 
 test("normalize levels: the 2nd and 98th luma percentile of opaque pixels, for grades that ask", () => {
   // Every 4th pixel is sampled; half of those are transparent and skipped, leaving the 50 lumas
@@ -24,6 +25,11 @@ test("normalize levels: the 2nd and 98th luma percentile of opaque pixels, for g
   assert.equal(normalizesLevels({ kind: "effect", effect: "tritone", to: { normalize: false } }), false);
   assert.equal(normalizesLevels({ kind: "effect", effect: "color-look", to: { look: "section-grade" } }), true);
   assert.equal(normalizesLevels({ kind: "effect", effect: "color-look", to: { look: "ember" } }), false);
+  // A hit's recolor split (shot-color.mjs): a flat background on 60% of the picture is not cut in two;
+  // the splits sit in the empty ranges around it (20 | 120 | 240: 30% below, then 70%).
+  const flat = new Uint8ClampedArray(100 * 4);
+  for (let pixel = 0; pixel < 100; pixel += 1) { const value = pixel < 30 ? 20 : pixel < 70 ? 120 : 240; flat.set([value, value, value, 255], pixel * 4); }
+  assert.deepEqual(lumaSplit(flat), { at: [0.275, 0.706], gaps: [0.392, 0.471] });
 });
 
 test("edge-lines auto: the layer's own edge percentile and its black bars are measured; a numbered threshold is not", () => {

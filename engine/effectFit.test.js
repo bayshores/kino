@@ -58,6 +58,11 @@ test("effect_fit: untriggered, and a gate at the final render", async () => {
   const raw = { id: "hit", name: "impact-accent", settings: { kind: "hit" }, tags: ["flash", "shake"], start: 5 - 1 / 30, end: 5.6 };
   const loose5 = await runQuality(kinoTimeline(edit(lift(5, 2, ["hit.impact-flash-up", "hit.impact-flash-down"]), [], { moves: [raw] }), "s", { fonts: defaultFonts }), { codes: ["effect_fit"], pixels: false, context: { triggerCues: [accent("hit", 2)] } });
   assert.deepEqual(loose5.findings.map((finding) => [finding.reason, finding.fix]), [["untriggered", { kind: "remove", move: { name: "impact-accent", id: "hit" }, auto: true }]]);
+  // A hit that names a beat number as its cue is on it; a hand shake on the same beat (no move names it) is not.
+  const beat = { name: "beat-8", kind: "beat", time: 5 };
+  const onBeat = { ...raw, trigger: { cue: "beat-8", at: 5, motive: "beat", weight: 0.3, kind: "hit" } };
+  assert.deepEqual(await reasons(edit(lift(5, 1, ["hit.impact-flash-up", "hit.impact-flash-down"]), [], { moves: [onBeat] }), [accent("hit", 2), beat]), []);
+  assert.deepEqual(await reasons(edit([shake(5)]), [accent("hit", 2), beat]), ["untriggered"]);
   // A title sliding in 0.1 to 0.3 s after the start (first_entrance's delay) is on that cut; at 1 s it is on nothing.
   const title = (start) => ({ type: "text", id: "title", name: "title", text: "Hi", x: 200, y: 200, width: 800, height: 200, fontSize: 120,
     animations: [{ id: "title.in", name: "Slide in", kind: "in", start, duration: 0.5, easing: "ease-out", from: { x: 120, opacity: 0 }, to: { x: 200, opacity: 1 } }] });

@@ -75,8 +75,9 @@ export function brandFontsOf(document, briefFonts = []) {
 
 // The marker cues (set_cues): pacing_jump lets the pace change at them.
 const markerCues = (document) => (document.cues ?? []).filter((cue) => cue.kind === "marker");
-// The cues effect_fit reads an effect's reason from: markers (song seams, footage moments), weighted accents and onsets (fills).
-const triggerCues = (document) => (document.cues ?? []).filter((cue) => cue.kind === "marker" || cue.kind === "accent" || cue.kind === "onset");
+// The cues effect_fit reads an effect's reason from: markers (song seams, footage moments), weighted accents and onsets (fills),
+// and beat numbers (only for a move that names one as its cue).
+const triggerCues = (document) => (document.cues ?? []).filter((cue) => cue.kind === "marker" || cue.kind === "accent" || cue.kind === "onset" || cue.kind === "beat");
 // The storyboard's shots on the scene they plan (the main scene): plain_beats judges each shot,
 // and offers a plain one the moves that fit what it holds (media, text, subject, sound, why).
 const boardShots = (document, scene) => (document.board?.shots?.length && mainScene(document)?.id === scene.id

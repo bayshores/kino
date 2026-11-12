@@ -19,7 +19,8 @@
 //                noise), or one that holds steady past 4 frames instead of decaying.
 // It runs only in a music edit: a project with weighted accents (detect_beats) or song seams
 // (fit_music). Warns while editing, blocks the final render; a waiver names the cue (translate.mjs).
-// ctx.triggerCues: the document's marker, accent and onset cues.
+// ctx.triggerCues: the document's marker, accent, onset and beat cues. A beat number is a reason
+// only for a move that names it as its cue (an impact-accent hit at "cue:beat-8"), never found by time.
 import { cueMotives } from "../../blocks/moves/impact.js";
 import { mediaFrameState } from "../../playback.js";
 import { sec } from "../analysis.js";
@@ -173,7 +174,8 @@ export function effectFit(model, ctx) {
   const finding = (reason, at, measured, required, message, hint, extra = {}) => findings.push({
     rule: "effect_fit", severity: "warn", final: true, reason, at: sec(at), measured, required, message, fix: fix(hint), ...extra });
   // The cues that motivate a loud effect, with their strongest reason, once per run.
-  const motivated = cues.map((cue) => ({ cue, best: motivesOf(cue, cues)[0] })).filter((entry) => entry.best);
+  // A beat number is no reason by itself: it counts only for a move that names it (loudEffects).
+  const motivated = cues.filter((cue) => cue.kind !== "beat").map((cue) => ({ cue, best: motivesOf(cue, cues)[0] })).filter((entry) => entry.best);
   const nearest = (at) => motivated.reduce((near, entry) => (!near || Math.abs(entry.cue.time - at) < Math.abs(near.time - at) ? entry.cue : near), null);
   const effects = loudEffects(model, cues, motivated);
 
@@ -241,7 +243,7 @@ export function effectFit(model, ctx) {
   // a text animation or sound effect needs something under it too: a cue, a shot change or a word.
   const changes = plateChanges(model).map((change) => change.at);
   const words = heardEdges(ctx).filter((edge) => edge.words?.length).flatMap((edge) => heardWords({ words: edge.words, range: edge.range }).map((word) => word.start));
-  const placed = (at) => cues.some((cue) => cue.kind !== "onset" && onCue(at, cue.time) && (cue.kind !== "marker" || !SONG.test(cue.name ?? "") || fitted(cue)))
+  const placed = (at) => cues.some((cue) => cue.kind !== "onset" && cue.kind !== "beat" && onCue(at, cue.time) && (cue.kind !== "marker" || !SONG.test(cue.name ?? "") || fitted(cue)))
     || changes.some((time) => Math.abs(time - at) <= EARLY + step) || words.some((time) => Math.abs(time - at) <= 0.1);
   // Text may start 0.1 to 0.3 s after a cut or the scene's start (first_entrance asks for that delay).
   // Compose has no cut under the end card: the last shot only softens there.
@@ -253,7 +255,7 @@ export function effectFit(model, ctx) {
   const loose = [...texts.map((entry) => ({ at: entry.at, what: `text ${entry.tag}`, itemId: entry.itemId, text: true })), ...sounds.map((entry) => ({ at: entry.at, what: `sound ${entry.layer.name ?? entry.layer.id}` }))]
     .filter((entry) => !placed(entry.at) && !(entry.text && (afterCut(entry.at) || afterNamed(entry.at))));
   // The nearest place it could start instead, named, so the fix is one retime (not a cue hunt).
-  const spots = [...cues.filter((cue) => cue.kind !== "onset" && (cue.kind !== "marker" || !SONG.test(cue.name ?? "") || fitted(cue))).map((cue) => ({ time: cue.time, words: `"cue:${cue.name}"` })),
+  const spots = [...cues.filter((cue) => cue.kind !== "onset" && cue.kind !== "beat" && (cue.kind !== "marker" || !SONG.test(cue.name ?? "") || fitted(cue))).map((cue) => ({ time: cue.time, words: `"cue:${cue.name}"` })),
     ...changes.map((time) => ({ time, words: "the cut" })), ...words.map((time) => ({ time, words: "the word" }))];
   const spot = loose.length ? spots.sort((a, b) => Math.abs(a.time - loose[0].at) - Math.abs(b.time - loose[0].at))[0] : null;
   const item = loose[0]?.itemId && itemById(model, loose[0].itemId);
