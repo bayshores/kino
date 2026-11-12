@@ -18,6 +18,7 @@ import { askLine } from "./quality/rules/ask.js";
 import { judderBlurId } from "./quality/techniques.js";
 import { aliveDuring } from "./quality/motionPixels.js";
 import { onscreenKinds } from "./quality/rules/referenceKinds.js";
+import { referenceChoices } from "./quality/referenceChoices.js";
 import { gradeFrame, gradeTable, matchShot, referenceLevels } from "./quality/exposureMatch.js";
 
 // ---------------------------------------------------------------- builders
@@ -159,6 +160,48 @@ test("reading_time: the fix starts the exit later when the exit eases in", async
   assert.equal(finding.fix.kind, "tween");
 });
 
+// Saved references whose fingerprints measured how far their text goes (backend/measure/fingerprint.mjs textLimits).
+const limitRefs = (...limits) => limits.map((entry, index) => ({ id: `r${index + 1}`, fingerprint: { text: { limits: entry } } }));
+
+test("reading_time: two references that show text as briefly make it advice; past them it stays an error and says by how much", async () => {
+  const brief = scene({ duration: 3, layers: [text("tag", "ASK ME", { fontSize: 72, animations: [show(1), hide(1.4)] })] });
+  const [plain] = await fires("reading_time", brief);
+  const [advice] = (await check("reading_time", brief, { choiceRefs: limitRefs({ hold: 0.33 }, { hold: 0.4 }) })).findings;
+  assert.equal(advice.severity, "info");
+  assert.deepEqual(advice.reference, ["r1", "r2"]);
+  assert.match(advice.message, /Your references make the same choice \(their shortest text stays r1 0\.33 s; r2 0\.4 s\)/);
+  // One reference is not a choice; references that hold text 0.8 s leave the error, with the gap.
+  assert.equal((await check("reading_time", brief, { choiceRefs: limitRefs({ hold: 0.33 }) })).findings[0].message, plain.message);
+  const [past] = (await check("reading_time", brief, { choiceRefs: limitRefs({ hold: 0.8 }, { hold: 0.9 }) })).findings;
+  assert.equal(past.severity, "error");
+  assert.match(past.message, /Your references go to 0\.8 s .*; this is 0\.4 s shorter\./);
+});
+
+test("type_min: references with labels as small make it advice, and its fix is no longer applied", async () => {
+  const label = scene({ layers: [text("specs", "AI processing", { fontSize: 24, y: 486 })] });
+  const [advice] = (await check("type_min", label, { choiceRefs: limitRefs({ height: 0.021 }, { height: 0.02 }) })).findings;
+  assert.equal(advice.severity, "info");
+  assert.equal(advice.fix.auto, false);
+  const [past] = (await check("type_min", label, { choiceRefs: limitRefs({ height: 0.03 }, { height: 0.028 }) })).findings;
+  assert.equal(past.severity, "error");
+  assert.match(past.message, /this is 6 px smaller\./);
+});
+
+test("safe_zone and luma_jump: references that go as close to the edge or flash as often make it advice", () => {
+  const model = { width: 1920, height: 1080, duration: 20 };
+  const edge = [{ rule: "safe_zone", severity: "error", measured: [880, 1006, 160, 34], message: "caption is outside the safe zone." }];
+  const [near] = referenceChoices("safe_zone", edge, model, { choiceRefs: limitRefs({ edge: 0.03 }, { edge: 0.035 }) });
+  assert.equal(near.severity, "info");
+  assert.equal(referenceChoices("safe_zone", edge, model, { choiceRefs: limitRefs({ edge: 0.06 }, { edge: 0.05 }) })[0].severity, "error");
+  // Six jumps in 20 s; the references flash 6 and 9 times in 20 s. Without their rhythms nothing changes.
+  const jumps = [1, 3, 5, 8, 12, 15].map((at) => ({ rule: "luma_jump", severity: "error", at, message: "jump." }));
+  const flashed = referenceChoices("luma_jump", jumps, model, { closeRefs: [{ id: "a", seconds: 20, flashes: 6 }, { id: "b", seconds: 20, flashes: 9 }] });
+  assert.ok(flashed.every((finding) => finding.severity === "info"));
+  assert.match(flashed[0].message, /a 6 flashes in 20 s; b 9 flashes in 20 s/);
+  assert.equal(referenceChoices("luma_jump", jumps, model, { closeRefs: [{ id: "a", seconds: 20, flashes: 2 }, { id: "b", seconds: 20, flashes: 3 }] })[0].severity, "error");
+  assert.equal(referenceChoices("luma_jump", jumps, model, {}), jumps);
+});
+
 test("type_min: body text must be drawn at 3% of the frame height (32 px at 1080p)", async () => {
   // Bad: the body line is 20 px. Good: 40 px, and a 34 px caption (3.1% of the height). The headline is 96 px in all.
   const page = (bodySize) => scene({ layers: [
@@ -267,6 +310,18 @@ test("linear_motion and duration_band: only a big layer's slow move is a push; a
   await fires("linear_motion", tall([rect("card", { x: 100, y: 300, width: 400, height: 300, animations: [move(0, 3, "linear", { x: 100 }, { x: 160 })] })]));
   // The same small card as the background is a drift of the picture.
   await silent("linear_motion", tall([rect("card", { role: "background", x: 100, y: 300, width: 400, height: 300, animations: [move(0, 3, "linear", { x: 100 }, { x: 160 })] })]));
+});
+
+test("linear_motion: a slow push that runs until its layer leaves may be linear, text and short ones too", async () => {
+  // A trailer's type pushes 1 to 1.09 over 2.6 s while it fades out; a card pushes 1% for 0.84 s up to a cut.
+  const type = (fadeEnd) => scene({ duration: 5, layers: [text("line1", "A FILM FROM", { fontSize: 50, x: 700, y: 452,
+    animations: [move(1.5, 2.6, "linear", { scaleX: 1, scaleY: 1 }, { scaleX: 1.09, scaleY: 1.09 }), move(2.8, fadeEnd - 2.8, "linear", { opacity: 1 }, { opacity: 0 })] })] });
+  await silent("linear_motion", type(4.05));
+  const card = scene({ duration: 3, layers: [rect("body", { x: 144, y: 154, width: 1628, height: 770,
+    animations: [move(0, 0.84, "linear", { scaleX: 1, scaleY: 1 }, { scaleX: 1.01, scaleY: 1.01 }), hide(0.84)] })] });
+  await silent("linear_motion", card);
+  // Bad: the type stays on screen after its push stops.
+  await fires("linear_motion", type(4.9));
 });
 
 test("linear_motion: a slow ambient drift of background lines or light may be linear; a card or a fast move may not", async () => {

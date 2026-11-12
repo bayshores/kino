@@ -102,6 +102,33 @@ export function isHoldDrift(model, item, tween) {
 const HOLD_KEYS = new Set(["x", "y", "scaleX", "scaleY", "letterSpacing"]);
 export const isHoldMotion = (model, item, motion) => motion.tweens.every((tween) => isHoldDrift(model, item, tween));
 
+/**
+ * A push that runs out with its layer: a slow move (no corner faster than a hold drift, text too)
+ * that is not an entrance or exit and still runs when the layer leaves: by the frame after it ends
+ * the layer is gone (a cut, a hide, a fade to nothing) or the scene ends. Linear easing looks
+ * mechanical where a move starts or stops on screen; this one never stops on screen, so it may be
+ * linear at any length. Evidence: a product film's 1% push cut off after 0.84 s and a trailer's 9%
+ * type push over 2.6 s that ends as the type fades out were both flagged
+ * (.scratch/recreate/GAPS.md, Friction 2; film-trailer and product-film result.md).
+ */
+export function isRunOutPush(model, item, tween) {
+  if (tween.kind === "in" || tween.kind === "out" || !movesPlace(tween) || tween.keys.includes("rotation")) return false;
+  const last = frameAt(model, tween.end);
+  const after = Math.min(model.times.length - 1, last + 1);
+  const gone = last >= model.times.length - 1 || tween.end >= model.duration - 1 / model.fps || (item.samples.opacity[after] ?? 0) < 0.05;
+  if (!gone) return false;
+  const first = frameAt(model, tween.start);
+  let fastest = 0;
+  for (let index = first + 1; index <= last; index += 1) {
+    const [a, b] = [boxAt(item, index - 1), boxAt(item, index)];
+    fastest = Math.max(fastest, Math.abs(b.x0 - a.x0), Math.abs(b.y0 - a.y0), Math.abs(b.x1 - a.x1), Math.abs(b.y1 - a.y1));
+  }
+  // A linear move keeps one speed, so its fastest step is its average: held to the slow push's
+  // average (4% of the diagonal a second), not the hold drift's eased-peak allowance of twice that.
+  // Both benchmark pushes sit far under it (about 1% a second).
+  return fastest * model.fps <= SLOW_PUSH.speed * Math.hypot(model.width, model.height);
+}
+
 // Motions the timing rules judge: not loops, masks, counters or instant changes, and not the
 // voice's captions (speechTimed: a phrase shows when it is said, every phrase alike on purpose).
 function judgedMotions(model) {
@@ -119,7 +146,7 @@ export function linearMotion(model, ctx) {
     const item = itemById(model, tween.itemId);
     if (!item || neverShown(item) || !tween.linear || tween.duration <= 0 || tween.discrete || tween.counter || !movesPlace(tween)) continue;
     // A scene's drawn drift camera (engine/camera.js) is a steady slow move on purpose, even over a short hold.
-    if (item.sceneCamera || isPerpetual(model, item) || isSlowPush(model, item, tween) || isAmbientDrift(model, item, tween)) continue;
+    if (item.sceneCamera || isPerpetual(model, item) || isSlowPush(model, item, tween) || isAmbientDrift(model, item, tween) || isRunOutPush(model, item, tween)) continue;
     const easing = "smooth";
     findings.push({
       rule: "linear_motion", severity: tween.duration * model.fps <= 2 ? "info" : "error", itemId: item.id, tweenId: tween.id,

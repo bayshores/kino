@@ -745,6 +745,9 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
       // The saved references' own brightness, text and voice facts the edit is held to (reference_range):
       // a pixel rule, so a final render sees it (reference_drift above runs in the background).
       ...(pixels && refs.length ? { rangeRefs: refs } : {}),
+      // The same fingerprints for the taste rules that give way to the references' own choices
+      // (engine/quality/referenceChoices.js: reading_time, type_min, safe_zone); pure data, every check.
+      ...(refs.length ? { choiceRefs: refs } : {}),
       // What the agent labeled on screen in each reference (library inspire seen): reference_kinds.
       ...(seenRefs.length ? { seenRefs } : {}),
       // The saved references' lent cuts: an edit must not copy their shot lengths (reference_closeness).

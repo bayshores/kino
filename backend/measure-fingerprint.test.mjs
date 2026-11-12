@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   CELL_COLS, CELL_ROWS, classifyReveals, fingerprint, fitGlobalMotion, gradualTransitions, packPrint, pairMotion, palette, persistentElements,
-  printDistance, revealOf, sameLine, trackText, unpackPrint,
+  printDistance, revealOf, sameLine, textLimits, trackText, unpackPrint,
 } from "./measure/fingerprint.mjs";
 import { onscreenMoments, onscreenNote, suggestStyleLines, suggestionText, typeNote } from "./measure/suggest.mjs";
 import { MAX_STRIPS, stripArgs, stripMoments } from "./measure/strips.mjs";
@@ -88,6 +88,17 @@ test("how a line appears: growing by words or letters, sliding, growing, or all 
   // A counter changing in place is not words appearing one at a time.
   const counter = classifyReveals(trackText(samples(["76.1", "75.4", "74.9", "73.2"].map((s) => [line(s, box())]))));
   assert.equal(counter.counts.words, 0);
+});
+
+test("textLimits: the shortest hold, smallest line and closest edge of a video's text; a line read once does not count", () => {
+  // A label seen 0.25 s (3 samples 1/12 s apart, held 0.33 s), a big title 1 s, a stray one-sample read.
+  const step = 1 / 12;
+  const label = [line("ask me", [0.1, 0.03, 0.2, 0.025])];
+  const title = [line("go beyond", [0.3, 0.4, 0.4, 0.08])];
+  const lists = [...Array(3).fill(label), [], [line("xq", [0.9, 0.95, 0.05, 0.01])], [], ...Array(12).fill(title)];
+  const limits = textLimits(trackText(samples(lists, step)), step);
+  assert.deepEqual(limits, { hold: 0.25, height: 0.025, edge: 0.03, lines: 2 });
+  assert.equal(textLimits([], step), null);
 });
 
 const stats = (luma, sharp, hist = null, cells = null) => ({ luma, sharp, hist: hist ?? Float32Array.from({ length: 64 }, (_, index) => (index === 0 ? 1 : 0)), cells, pixels: [] });

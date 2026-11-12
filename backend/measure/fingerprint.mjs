@@ -345,6 +345,26 @@ export function revealOf(track) {
 }
 
 /**
+ * How far the video's text goes, for the taste rules that give way to a reference's own choice
+ * (engine/quality/referenceChoices.js): `hold`, the shortest time a line stays on screen (seconds),
+ * `height`, the smallest line height (share of the frame's shorter side), and `edge`, the closest a line
+ * sits to a frame edge (share of the frame side). Lines seen on 2 samples or more (a line read once
+ * may be a misreading); each the 10th percentile over those lines, so one stray reading does not
+ * set it. `spacing`: the seconds between text samples. null with no such line.
+ */
+export function textLimits(tracks, spacing, { tall = 1 } = {}) {
+  const seen = tracks.filter((track) => track.sightings.length >= 2);
+  if (!seen.length) return null;
+  const low = (values) => [...values].sort((a, b) => a - b)[Math.floor(0.1 * values.length)];
+  const holds = seen.map((track) => track.sightings.at(-1).t - track.sightings[0].t + spacing);
+  // Height as a share of the frame's shorter side (type_min's own measure), so a vertical
+  // reference compares with a landscape edit: `tall` is the frame height over its shorter side.
+  const heights = seen.map((track) => median(track.sightings.map((sighting) => sighting.box[3])) * tall);
+  const edges = seen.map((track) => Math.min(...track.sightings.map(({ box: [x, y, w, h] }) => Math.max(0, Math.min(x, y, 1 - x - w, 1 - y - h)))));
+  return { hold: round(low(holds), 2), height: round(low(heights), 3), edge: round(low(edges), 3), lines: seen.length };
+}
+
+/**
  * How text appears over the whole video: counts of each reveal style, with up to 3 example times,
  * the dominant style, and the lowercase share. A run of 3 or more short lines (1 to 3 words) that
  * replace each other in one place counts as "words" too: captions shown a few words at a time.
@@ -696,7 +716,12 @@ export function fingerprint(records, { width, height, seconds, cuts = [], dense 
         area: round(median(coverage.filter((value) => value > 0)) ?? 0, 3), perSecond: round(samples.length / Math.max(1e-6, seconds), 1),
       };
       // Reveal styles need text read several times a second.
-      if (dense) Object.assign(text, classifyReveals(trackText(samples)));
+      if (dense) {
+        const tracks = trackText(samples);
+        Object.assign(text, classifyReveals(tracks));
+        const limits = textLimits(tracks, 1 / Math.max(1e-6, text.perSecond), { tall: width > 0 && height > 0 ? height / Math.min(width, height) : 1 });
+        if (limits) text.limits = limits;
+      }
     }
   }
 
