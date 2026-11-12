@@ -62,7 +62,7 @@ import { knownAgent, touchedLayers } from "./live.mjs";
 import { AGENT_OPERATION_TYPES, createdIds, plainLayer, referencedIds, translateAll } from "./translate.mjs";
 import { exampleFor, moreExamplesFor, signatureFor } from "./op-examples.mjs";
 import { moveRetry } from "./move-retry.mjs";
-import { opFromWord, PRESET_LAYER, PRESET_SAMPLE_TO, PRESET_VALUE_KEYS } from "./common-mistakes.mjs";
+import { layerFieldAliases, layerFieldPair, opFromWord, PRESET_LAYER, PRESET_SAMPLE_TO, PRESET_VALUE_KEYS } from "./common-mistakes.mjs";
 import { animationSpan, isRandomId, layerAnimations, refName, sec } from "./describe.mjs";
 import { fontsLibraryText, missingCharactersHelp } from "./font-help.mjs";
 import { heldSoundFor, missingSoundText } from "./sound-find.mjs";
@@ -109,6 +109,7 @@ import { footageCueTime } from "../../engine/footageCues.js";
 import { FOOTAGE_VERSION } from "../footage/analyze.mjs";
 import { PLAIN_TAGS, TECHNIQUE_TAGS, techniquesText } from "../../engine/techniques.js";
 import { namesFamily, styleContext } from "../../engine/styleSpec.js";
+import { jobTreatment, payoffEntrance, textJob } from "../../engine/typeRoles.js";
 import { TYPE_VERSION } from "../../engine/quality/typeSignature.js";
 import { blocksFinal, FINAL_GATES, tasteNotes } from "../../engine/quality/index.js";
 import { ideaLines, signatureRanges } from "../../engine/quality/rules/signature.js";
@@ -2984,10 +2985,97 @@ export function createAgentService(deps) {
     return stills.get(key);
   }
 
+  // Type by job (engine/typeRoles.js): an add_layer text that names no face and no fill gets the
+  // treatment of its job, from the project's measured type labels (kept per label set) or the scene's
+  // colors; a payoff word with no entrance gets a letter entrance by the cue it lands on. Fills the
+  // ops in place and returns the receipt lines.
+  const labelTypeCache = new Map();
+  async function typeByJob(ops, document, projectId) {
+    const list = (Array.isArray(ops) ? ops : [ops]).filter((op) => op && typeof op === "object" && (op.op ?? op.type) === "add_layer"
+      && (op.layerType === "text" || (op.op === "add_layer" && op.type === "text")));
+    // What the op says, at the top level or in properties, and every layer field it names under its
+    // own name or another (color → fill, font → fontFamily, size 90 → fontSize, font-size → fontSize):
+    // edit lifts and renames those later, so a field named any way is the agent's and is never filled.
+    const OWN = new Set(["op", "type", "layerType", "sceneId", "scene", "properties", "animations", "name"]);
+    const viewOf = (op) => ({ ...Object.fromEntries(Object.entries(op).filter(([key]) => !OWN.has(key))), ...(op.properties ?? {}) });
+    const namedFields = (view) => {
+      const fields = new Set();
+      for (const [raw, value] of Object.entries(view)) {
+        const key = /[-_]/.test(raw) ? raw.toLowerCase().replace(/[-_]+([a-z0-9])/g, (_, letter) => letter.toUpperCase()) : raw;
+        fields.add(key);
+        const pair = layerFieldPair(key, "text");
+        for (const field of pair && typeof value === "number" ? pair.number : layerFieldAliases(key, "text")) fields.add(field);
+      }
+      return fields;
+    };
+    const wordsOf = (view) => [view.text, view.content, view.value, view.label, view.string].find((value) => typeof value === "string");
+    const open = list.filter((op) => { const view = viewOf(op); const named = namedFields(view); return !named.has("fontFamily") && !named.has("fill") && textJob(wordsOf(view), view.role); });
+    if (!open.length) return [];
+    const labels = await deps.inspire?.typeLabels?.(projectId).catch(() => []) ?? [];
+    // Without saved type labels only a text that names its role (its job) is filled; other text keeps the plain defaults.
+    const bare = labels.length ? open : open.filter((op) => viewOf(op).role);
+    if (!bare.length) return [];
+    const key = JSON.stringify(labels.map((label) => [label.id, label.at]));
+    let measuredNow = [];
+    if (labels.length && !labelTypeCache.has(key)) {
+      const { labelTypes } = await import("../font-like.mjs");
+      const { referenceStripFrame } = await import("../measure/strips.mjs");
+      const referenceFrame = async (id, t) => {
+        const kept = await deps.inspire?.stripsFor?.(id);
+        if (!kept) throw new Error(`${id} has no frame strips`);
+        return referenceStripFrame(kept.folder, kept.strips, Number.isFinite(t) ? t : kept.strips[0]?.at ?? 0);
+      };
+      const found = await labelTypes(labels, { fonts: await loadFonts(), catalog: fontCatalog, referenceFrame }).catch(() => Object.assign([], { retry: true }));
+      // A label whose frames are not kept yet is read again on the next edit.
+      if (found.retry) measuredNow = found;
+      else labelTypeCache.set(key, found);
+    }
+    const measured = labels.length ? labelTypeCache.get(key) ?? measuredNow : [];
+    const lines = [];
+    // A show's time as seconds: a number, or "cue:<name>" read from the project's cues; else null.
+    const secondsOf = (value) => {
+      if (Number.isFinite(Number(value)) && value !== null && value !== "") return Number(value);
+      const cue = typeof value === "string" && /^cue:/.test(value) ? (document.cues ?? []).find((one) => one.name === value.slice(4)) : null;
+      return Number.isFinite(cue?.time) ? cue.time : null;
+    };
+    for (const op of bare) {
+      const view = viewOf(op);
+      const named = namedFields(view);
+      const job = textJob(wordsOf(view), view.role);
+      const scene = document.scenes.find((one) => one.id === op.sceneId || one.name === (op.scene ?? op.sceneId)) ?? document.scenes[0];
+      const { properties: chosen, from } = jobTreatment(job, { scene, labels: measured, text: wordsOf(view) });
+      // Only fields the op left out are filled: every value the agent gave stays.
+      const filled = Object.fromEntries(Object.entries(chosen).filter(([field]) => !named.has(field)));
+      op.properties = { ...filled, ...(op.properties ?? {}) };
+      const name = op.name ?? view.name ?? view.id ?? "text";
+      let entrance = "";
+      if (job === "payoff") {
+        const timed = Array.isArray(op.animations) ? op.animations : [];
+        const isShow = (entry) => ["show", "hide", "preset-show", "preset-hide"].includes(String(entry?.kind ?? entry?.preset?.id ?? entry?.preset ?? ""));
+        const entranceNamed = timed.some((entry) => !isShow(entry) && (entry?.preset?.mode ?? entry?.mode ?? "in") !== "out");
+        // When it shows: its show animation, else its mediaStart (or startTime, playStart), else the scene's start.
+        const showStarts = timed.filter((entry) => /show/.test(String(entry?.kind ?? entry?.preset?.id ?? entry?.preset ?? ""))).map((entry) => secondsOf(entry.start ?? entry.at));
+        const windowStart = [view.mediaStart, view.startTime, view.playStart].find((value) => value !== undefined);
+        const starts = [...showStarts, ...(windowStart !== undefined ? [secondsOf(windowStart)] : [])];
+        // A show at a time kino cannot read here ("after:x") gets no entrance rather than one at the wrong time.
+        if (!entranceNamed && !starts.includes(null)) {
+          const { animation, why } = payoffEntrance(starts.length ? Math.min(...starts) : 0, document.cues ?? []);
+          op.animations = [...timed, animation];
+          entrance = `; entrance: ${why}`;
+        }
+      }
+      const shown = { ...filled, ...view };
+      const face = shown.fontFamily ? `${shown.fontFamily} ${shown.fontWeight ?? 400}` : `weight ${shown.fontWeight ?? 400}`;
+      lines.push(`type: ${name} as ${job} from ${from}: ${face}, ${shown.fontSize ?? filled.fontSize} px, fill ${filled.fill ?? shown.fill}${filled.strokeWidth ? `, edge ${filled.strokeWidth} px` : ""}${entrance} (fields of the layer; update_layer changes any)`);
+    }
+    return lines;
+  }
+
   async function edit(input) {
     let record = await projectFor(input);
     const projectId = record.document.id;
     const ops = await withBorrowedRhythm(editOperations(input, projectId), record.document, { dryRun: input.dry_run === true });
+    const typeLines = await typeByJob(ops, record.document, projectId);
     // Deleting a scene needs your approval (D3). bulk_create with deleteMissing:true deletes the
     // variants its CSV leaves out, so that edit asks once it knows which scenes go (below).
     const opList = Array.isArray(ops) ? ops : [ops];
@@ -3023,7 +3111,7 @@ export function createAgentService(deps) {
         catch (error) { throw new AgentError("bad_input", error.message, { safeToRetry: true }); }
         const problems = translation.problems.map(translationProblem);
         // `work` is shared by set_font, the block ops, detect_beats, isolate_voice and cut_out: fonts, media, notes, reports, the names and the cut_outs' deadline.
-        work = { resolver, notes: [], reports: editBag.reports };
+        work = { resolver, notes: [...typeLines], reports: editBag.reports };
         after = await applyAll(before, translation.operations, ops, work, problems, translation.blocked);
         if (problems.length) throw refusal(projectId, ops, problems, translation.blocked, await waiverFixCall(before, problems, codes));
         // compose {footage}: check fixes the new edit before it is saved, in this same revision.
