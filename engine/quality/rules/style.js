@@ -11,6 +11,7 @@
 // Every fix hint names concrete techniques from the vocabulary, never "add motion".
 import { CUT_TIMING_TAGS, PLAIN_TAGS, TECHNIQUES, isTechnique, techniqueOf } from "../../techniques.js";
 import { deckUse } from "../../deck.js";
+import { paceCounts, referencePace } from "../referenceCompare.js";
 import { sectionCues } from "../../mixLevels.js";
 import { KEY_ROLES, boardPicks, pickOp, pickWords } from "../../movePicks.js";
 import { heardEdges, heardWords } from "./speech.js";
@@ -377,13 +378,20 @@ export function techniqueRepeat(model, ctx) {
     }
   }
   // Loud accents used past their budget.
-  const budget = Math.max(MOTIF, Math.round(model.duration / 15));
+  const house = Math.max(MOTIF, Math.round(model.duration / 15));
+  // With 2 or more measured references, a flash is budgeted as often as they flash (they only
+  // loosen it; the other accents are not measured in them and keep the house budget).
+  const pace = referencePace(ctx.closeRefs)?.flash ?? null;
+  const theirs = pace ? paceCounts(pace, model.duration) : null;
   for (const tag of ACCENTS) {
     const list = counted(tag, used[tag] ?? []);
+    const refs = tag === "flash" && theirs ? theirs : null;
+    const budget = Math.max(house, refs?.high ?? 0);
     // A style spec that wants the accent does not lift the budget: loud accents wear out however
     // they were chosen (effect_fit asks each one for its reason).
     if (list.length <= budget) continue;
-    finding(tag, `${tag} ${list.length} times`, `at most ${budget} in ${sec(model.duration)}s`, `${tag} happens ${list.length} times in ${ctx.sceneName}; an accent that comes back often stops landing.`, `Keep ${tag} for the ${budget} biggest hits; elsewhere cut plainly on the voice or the beat.`, list[budget].at);
+    const said = refs ? ` your references (${pace.ids.join(", ")}) show ${refs.low} to ${refs.high} in a video this long.` : "";
+    finding(tag, `${tag} ${list.length} times`, `at most ${budget} in ${sec(model.duration)}s${refs ? " (your references)" : ""}`, `${tag} happens ${list.length} times in ${ctx.sceneName};${said || " an accent that comes back often stops landing."}`, `Keep ${tag} for the ${budget} biggest hits; elsewhere cut plainly on the voice or the beat.`, list[budget].at);
   }
   // One literal move over and over: a picture or card sliding the same way, the same distance
   // (its way in and its way out count as one move), on any layer.

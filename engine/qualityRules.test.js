@@ -1065,6 +1065,33 @@ test("transitions_dense: at most two large transitions in 6 beats", async () => 
   await fires("transitions_dense", scene({ duration: 6, rhythm: { bpm: 120, offset: 0 }, layers: [slide("s1", 0.5), slide("s2", 1.5), slide("s3", 2.5)] }));
 });
 
+test("pacing rules take their bound from 2 or more measured references, and say their numbers", async () => {
+  // Three panels in 3 s (6 beats at 120 bpm): over the house bound of 2.
+  const panel = (id, start) => rect(id, { x: 360, y: 240, width: 1200, height: 600, animations: [move(start, 0.6, "ease-out", { x: 1920 }, {}, "in")] });
+  const dense = scene({ duration: 6, rhythm: { bpm: 120, offset: 0 }, layers: [panel("panel-a", 0.5), panel("panel-b", 1.5), panel("panel-c", 2.5)] });
+  // A reference: 30 cuts in 30 s (1 a second), cut times given; 1 reference is not enough.
+  const ref = (id, cuts, flashes = 0) => ({ id, seconds: 30, cuts, allCuts: cuts, fps: 24, flashes });
+  const evenCuts = Array.from({ length: 30 }, (_, index) => index + 0.5);
+  const fast = [ref("yt:AAAA", evenCuts), ref("yt:BBBB", evenCuts.filter((_, index) => index % 2))];
+  await fires("transitions_dense", dense, { closeRefs: [fast[0]] });
+  await fires("transitions_dense", dense, { closeRefs: [] });
+  // 2 references cutting 0.5 to 1 a second show 2 to 3 cuts in 3 s: three transitions are theirs.
+  await silent("transitions_dense", dense, { closeRefs: fast });
+  // Four in 3 s is past even their high; the finding says their numbers.
+  const four = scene({ duration: 6, rhythm: { bpm: 120, offset: 0 }, layers: [panel("panel-a", 0.5), panel("panel-b", 1), panel("panel-c", 1.5), panel("panel-d", 2.5)] });
+  const [over] = await fires("transitions_dense", four, { closeRefs: fast });
+  assert.match(over.message, /your references \(yt:AAAA, yt:BBBB\) cut 2 to 3 times in 3s/);
+  // Shot lengths: six even shots fire alone, and are quiet when the references are as even.
+  const sixEven = plainEdit(shotsOf([2, 2, 2, 2, 2, 2]));
+  const [even] = await fires("even_shot_lengths", sixEven, { closeRefs: [ref("yt:AAAA", evenCuts)] });
+  assert.doesNotMatch(even.message, /your references/);
+  const steady = [ref("yt:EEEE", [2, 4, 6, 8, 10]), ref("yt:FFFF", [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])].map((one) => ({ ...one, seconds: 12 }));
+  await silent("even_shot_lengths", sixEven, { closeRefs: steady });
+  // References with uneven cutting keep the house bound and are named.
+  const uneven = [ref("yt:CCCC", [1, 1.5, 6, 7, 12]), ref("yt:DDDD", [0.5, 3, 3.5, 9, 14])].map((one) => ({ ...one, seconds: 16 }));
+  assert.match((await fires("even_shot_lengths", sixEven, { closeRefs: uneven }))[0].message, /your references \(yt:CCCC, yt:DDDD\) show/);
+});
+
 test("static_scene: something changes within the text's hold plus 2 s", async () => {
   // Two words need a 2.4 s hold, so 4.4 s without change is the most. The title settles at 0.7 s.
   // Bad: then nothing happens until the end at 10 s. Good: a second line comes in at 4 s.

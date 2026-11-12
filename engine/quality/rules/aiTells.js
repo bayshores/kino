@@ -7,6 +7,7 @@
 import { maxOpacity, neverShown, scaleOf, sec } from "../analysis.js";
 import { area, chainOf, insideShare, isText, runs, tweensOf, visibleBoxAt } from "../model.js";
 import { shotBounds } from "./style.js";
+import { referencePace } from "../referenceCompare.js";
 
 // fade_only_entrances: judged from this many entering layers, warns above this share that only
 // fade, or come in through a blur (blur, blur+fade, blur-rise: every model reaches for it;
@@ -141,11 +142,16 @@ export function evenShotLengths(model, ctx) {
   if (lengths.length < EVEN_MIN_SHOTS) return [];
   const mean = lengths.reduce((sum, value) => sum + value, 0) / lengths.length;
   const spread = mean ? Math.sqrt(lengths.reduce((sum, value) => sum + (value - mean) ** 2, 0) / lengths.length) / mean : 0;
-  if (spread >= EVEN_CV) return [];
+  // With 2 or more measured references that keep their shot lengths, an edit as even as the most
+  // even of them is as they cut (never over EVEN_CV: the references only loosen the bound).
+  const pace = referencePace(ctx.closeRefs)?.spread ?? null;
+  const floor = pace ? Math.min(EVEN_CV, Math.floor(pace.low * 100) / 100) : EVEN_CV;
+  if (spread >= floor) return [];
+  const theirs = pace ? `${Math.round(pace.low * 100) / 100} to ${Math.round(pace.high * 100) / 100}` : "";
   return [{
     rule: "even_shot_lengths", severity: "warn", at: 0,
-    measured: `spread ${Math.round(spread * 100) / 100} over ${lengths.length} shots (${sec(Math.min(...lengths))}s to ${sec(Math.max(...lengths))}s)`, required: `spread ${EVEN_CV} or more (pro work about 0.9)`,
-    message: `The ${lengths.length} shots of ${ctx.sceneName} are close in length (stdev / mean ${Math.round(spread * 100) / 100}); pro edits mix quick cuts with one long hold.`,
+    measured: `spread ${Math.round(spread * 100) / 100} over ${lengths.length} shots (${sec(Math.min(...lengths))}s to ${sec(Math.max(...lengths))}s)`, required: pace ? `spread ${floor} or more (your references ${pace.ids.join(", ")}: ${theirs})` : `spread ${EVEN_CV} or more (pro work about 0.9)`,
+    message: `The ${lengths.length} shots of ${ctx.sceneName} are close in length (stdev / mean ${Math.round(spread * 100) / 100})${pace ? `; your references (${pace.ids.join(", ")}) show ${theirs}` : "; pro edits mix quick cuts with one long hold"}.`,
     fix: { kind: "hint", text: "Let one shot hold 2 to 3 times the median (a 9 to 20 s hold a minute), and cut a few others short on an action." },
   }];
 }

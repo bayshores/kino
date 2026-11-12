@@ -620,6 +620,9 @@ test("a measured reference keeps what was heard in it (loudest change, voice) an
   assert.deepEqual(saved.heard, { change: { at: 12, kind: "drop" }, voice: [[0, 2]], by: "whisper" });
   assert.deepEqual(asked, [[30, 6]]);
   assert.deepEqual(saved.seen, [], "the on-screen labels (seen) travel with each saved fingerprint; none yet");
+  // savedRhythms hands the pacing rules every cut and the flash count, not only the lent cuts.
+  const [rhythm] = await listen.savedRhythms("p1");
+  assert.deepEqual([rhythm.seconds, rhythm.allCuts, rhythm.flashes], [30, [10], 0]);
   // The fingerprint text says what reference_range compares: dark share and what was heard.
   const lines = fingerprintLines({ id: "yt:x", fingerprint: { look: { brightness: 0.2, darkShare: 0.1, palette: [] } }, heard: saved.heard }).join("\n");
   assert.match(lines, /look: brightness 0\.2 · dark 10%/);

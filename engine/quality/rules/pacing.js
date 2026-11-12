@@ -2,6 +2,7 @@
 // Warnings: scene_lengths, no_rhythm, transitions_dense, static_scene, off_beat (near misses of a beat only).
 import { atFullOpacity, coversFrame, cuts, drawnSize, firstEntrances, goodEntranceDelay, inRest, isPerpetual, motions, primaryItems, readableAt, readingTexts, recommendedHold, sec, sections, shownShare } from "../analysis.js";
 import { area, boxAt, chainOf, fillColorsAt, frameAt, hexRgba, insideShare, intersection, isDecor, itemById, luminance, paintColors, startsWithCut, visibleBoxAt } from "../model.js";
+import { paceCounts, referencePace } from "../referenceCompare.js";
 import { typeLimits } from "./text.js";
 import { isHoldMotion } from "./motion.js";
 
@@ -232,15 +233,21 @@ export function transitionsDense(model, ctx) {
     }
     if (!starts.length || motion.start - starts.at(-1).time > 1 / model.fps + 1e-6) starts.push({ time: motion.start, itemId: motion.itemId });
   }
+  // With 2 or more measured references, the bound is how many cuts they make in a window this long
+  // (never under 2: the references only loosen it).
+  const pace = referencePace(ctx.closeRefs);
+  const theirs = pace ? paceCounts(pace.cut, windowLength) : null;
+  const bound = Math.max(2, theirs?.high ?? 0);
   for (let first = 0; first < starts.length; first += 1) {
     const from = starts[first].time;
     const inside = starts.filter(({ time }) => time >= from - 1e-6 && time < from + windowLength - 1e-6);
-    if (inside.length <= 2) continue;
+    if (inside.length <= bound) continue;
     const named = inside.slice(0, 3).map(({ time, itemId }) => `${ctx.name(itemById(model, itemId))} ${sec(time)} s`).join(", ");
+    const refs = pace ? `your references (${pace.cut.ids.join(", ")}) cut ${theirs.low} to ${theirs.high} times in ${sec(windowLength)}s` : "";
     return [{
       rule: "transitions_dense", severity: "warn", at: sec(from), until: sec(from + windowLength),
-      measured: `${inside.length} in 6 beats`, required: "at most 2 in 6 beats",
-      message: `${inside.length} large transitions start within 6 beats (${sec(windowLength)}s from ${sec(from)}s: ${named})${model.rhythm ? "" : " at an assumed 120 bpm"}; it feels busy.`,
+      measured: `${inside.length} in 6 beats`, required: pace ? `at most ${bound} in 6 beats (${theirs.low} to ${theirs.high} in your references)` : "at most 2 in 6 beats",
+      message: `${inside.length} large transitions start within 6 beats (${sec(windowLength)}s from ${sec(from)}s: ${named})${model.rhythm ? "" : " at an assumed 120 bpm"}; ${pace ? refs : "it feels busy"}.`,
       fix: { kind: "hint", text: "Replace some with simple cuts, or spread them out." },
     }];
   }

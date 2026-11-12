@@ -56,7 +56,8 @@ What the checks measure, and how to keep a video small.
   (over 60% of 5+ layers coming on only fade or through a blur, blur+fade or blur-rise: cut in on a motion or the beat),
   `drift_on_every_shot` (every footage shot, 3+, drifts 0.5% to 5%: lock most off),
   `even_shot_lengths` (6+ shots spread under 0.6 stdev / mean, pro about 0.9: one long hold, a
-  few quick cuts), `split_card_layout` (big type on one half, a framed card on the other over a
+  few quick cuts; as even as your 2+ saved references is fine, and `transitions_dense` and
+  `technique_repeat`'s flash budget follow their cut and flash rate too), `split_card_layout` (big type on one half, a framed card on the other over a
   flat frame for 4 s: fill the frame with the footage, the number on it) and `page_chrome`
   (small tracked caps labels or a row of thin bars over 8 s: say it with the voice or real UI).
 - Never stack a small label (a kicker or eyebrow, often caps or the accent) right above a
