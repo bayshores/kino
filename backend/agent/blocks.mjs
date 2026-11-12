@@ -21,6 +21,7 @@ import { MAX_ASK_SHOWS, MAX_SUBJECT_BOXES, SAME_MOMENT, subjectBox, subjectOnSce
 import { FACE_PARTS, facePartPoint, pickFace } from "../../engine/footage/faceParts.js";
 import { AROUND_SIDES, cutoutOnScene } from "../../engine/subjectRoom.js";
 import { duplicateLayers } from "../../engine/layerClipboard.js";
+import { moveCutsToEvents, snapText } from "../../engine/songEvents.js";
 import { moveBeatCues } from "../../engine/beatCues.js";
 import { shiftScene } from "../../engine/speech.js";
 import { nextScenePosition } from "../../engine/sceneLayout.js";
@@ -223,8 +224,8 @@ const OPERATIONS = {
     rules: "use_template {template, id?, name?, values?: {field: value}, duration?}: a new scene copied from a template scene, with its fields set and, with duration, retimed.",
   },
   retime: {
-    fields: ["sceneId", "duration"],
-    rules: "retime {scene, duration}: changes a scene's length. A template keeps its intro and outro timing and stretches the middle; a composed scene is composed again; any other scene keeps its first and last 15%.",
+    fields: ["sceneId", "duration", "snap", "from", "to", "reach"],
+    rules: "retime {scene, duration}: changes a scene's length. A template keeps its intro and outro timing and stretches the middle; a composed scene is composed again; any other scene keeps its first and last 15%. retime {scene, snap:\"song\", from, to, reach?}: each picture cut from from to to (seconds) moves to the nearest strong song onset within reach (default half the median shot there), else the nearest beat; every layer keeps its file time, and a cut that would cut a kept line or run a clip past its file stays and is named (topic mix).",
   },
   shift: {
     fields: ["sceneId", "at", "by"],
@@ -764,6 +765,13 @@ const TRANSLATE = {
   },
   retime(operation, resolver, document) {
     operation.sceneId = operation.sceneId !== undefined ? sceneRef(resolver, operation.sceneId) : onlyScene(document, "retime");
+    if (operation.snap !== undefined) {
+      if (operation.snap !== "song") throw problem('snap is "song": retime {snap:"song", from, to} moves the picture cuts there onto the song\'s strong onsets.');
+      for (const key of ["from", "to"]) if (typeof operation[key] !== "number" || !Number.isFinite(operation[key])) throw problem(`retime {snap:"song"} needs ${key}: scene seconds of the span whose cuts move.`);
+      if (!(operation.to > operation.from)) throw problem("to is after from.");
+      if (operation.reach !== undefined && !(typeof operation.reach === "number" && operation.reach > 0 && operation.reach <= 2)) throw problem("reach is seconds, over 0 and at most 2.");
+      return;
+    }
     if (operation.duration === undefined) throw problem("retime needs duration, the new length in seconds.");
     checkDuration(operation);
   },
@@ -1084,7 +1092,7 @@ function copyText(value, depth = 0) {
 // or null), type (style.type or the picked treatment's type direction, or null)}, or null.
 // subjectSamples(layer): the faces (and where the eye goes) saved for a video layer's file, as
 // samples [{t, faces, subjects?}], the same ones check reads; [] when none were saved. frame_shot uses them.
-export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationContext, deckDeals = null, footageFacts = null, footageDeck = null, runOps = null, pictureAlpha = null, clipEvents = null, styleType = null, savedRefs = null, subjectSamples = null, shotColor = null, matchExposure = null, liftShots = null, deblockShots = null, boardPace = null, boardType = null }) {
+export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationContext, deckDeals = null, footageFacts = null, footageDeck = null, runOps = null, pictureAlpha = null, clipEvents = null, styleType = null, savedRefs = null, subjectSamples = null, shotColor = null, matchExposure = null, liftShots = null, deblockShots = null, boardPace = null, boardType = null, songGrid = null }) {
   async function fontsOf(document, work) { return work.fonts ??= await fontsFor(document); }
   const layout = createLayoutOps({ fontsOf, problem, sceneOf, faceTarget, subjectTarget, splitCopy });
   async function mediaOf(document, work) {
@@ -2220,6 +2228,14 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
 
   async function applyRetime(document, operation, work) {
     const scene = sceneOf(document, operation.sceneId);
+    if (operation.snap === "song") {
+      const song = await songGrid?.(document, scene);
+      if (!song?.grid) { work.notes.push(`snap to song: no change (no song with saved beats in ${sceneLabel(scene)}; detect_beats or fit_music measures one)`); return; }
+      const result = moveCutsToEvents(scene, { from: operation.from, to: operation.to, reach: operation.reach ?? null, grid: song.grid });
+      work.notes.push(snapText(result));
+      followBoardCuts(document, scene, result.moved);
+      return;
+    }
     if (!scene.template && scene.composition) {
       await applyCompose(document, { type: "compose", sceneId: scene.id, duration: operation.duration }, work);
       return;
@@ -3263,6 +3279,28 @@ function composedBeats(scene) {
  * seconds move with the end, and the middle stretches. Short animations (1 s or less) keep
  * their length, and an exit stays tied to its end.
  */
+// After retime {snap:"song"} moved cuts of the board's main scene: the saved board's shots on those
+// cuts move the same way (the shot after starts later from the matching file second, the shot
+// before ends there), so the board and the built scene keep agreeing.
+function followBoardCuts(document, scene, moved) {
+  const board = document.board;
+  if (!moved.length || !board?.shots?.length || mainScene(document)?.id !== scene.id) return;
+  const near = (a, b) => Math.abs(a - b) <= 0.002;
+  const shots = board.shots.map((shot) => ({ ...shot }));
+  let changed = false;
+  for (const { from, to } of moved) {
+    const by = to - from;
+    for (const shot of shots) {
+      if (near(shot.cue, from)) {
+        shot.cue = round(to); shot.dur = round(shot.dur - by);
+        if (typeof shot.in === "number") shot.in = round(shot.in + by * (shot.speed > 0 ? shot.speed : 1));
+        changed = true;
+      } else if (near(shot.cue + shot.dur, from)) { shot.dur = round(shot.dur + by); changed = true; }
+    }
+  }
+  if (changed) document.board = { ...board, shots, rev: board.rev + 1 };
+}
+
 function retimeScene(document, scene, duration, work, { newScene = false } = {}) {
   const length = scene.duration;
   const starts = new Map(scene.layers.map((layer) => [layer, layer.mediaStart]));

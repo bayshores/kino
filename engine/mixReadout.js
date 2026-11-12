@@ -156,6 +156,43 @@ export function quietShare(layer, duration) {
   return heard > 0 ? { heard: r1(heard * STEP), quiet: r1(quiet * STEP), share: quiet / heard } : null;
 }
 
+/**
+ * Over the whole runtime (`duration`), how long `layer` (the song) is out (volume 0.02 or less, or
+ * not playing) and how long it is heard under half its own volume: { runtime, out, quiet, outShare,
+ * quietShare, others } in s and 0 to 1; others: the names of the other sound layers (volume over
+ * 0.02, in their Play range) heard while the song is out or under half, loudest time first.
+ */
+export function songPresence(layer, scene, nameOf = (entry) => entry.name ?? entry.id) {
+  const duration = scene.duration;
+  const range = mediaPlaybackRange(layer, duration);
+  const half = (layer.volume ?? 1) / 2;
+  const sounds = (scene.layers ?? []).filter((entry) => entry !== layer && (entry.type === "audio" || entry.type === "video") && entry.src && entry.enabled !== false)
+    .map((entry) => ({ entry, range: mediaPlaybackRange(entry, duration) })).filter((entry) => entry.range);
+  const time = new Map();
+  let out = 0, quiet = 0;
+  const count = Math.round(duration / STEP);
+  for (let index = 0; index < count; index += 1) {
+    const at = index * STEP;
+    const volume = range && at >= range.start && at < range.end ? volumeAt(layer, at) : 0;
+    const isOut = volume <= SILENT;
+    if (!isOut && !(volume < half)) continue;
+    if (isOut) out += 1; else quiet += 1;
+    for (const { entry, range: plays } of sounds) {
+      if (at < plays.start || at >= plays.end || !(volumeAt(entry, at) > SILENT)) continue;
+      time.set(nameOf(entry), (time.get(nameOf(entry)) ?? 0) + 1);
+    }
+  }
+  const others = [...time].sort((a, b) => b[1] - a[1]).map(([name]) => name);
+  return { runtime: r1(duration), out: r1(out * STEP), quiet: r1(quiet * STEP), outShare: count ? out / count : 0, quietShare: count ? quiet / count : 0, others };
+}
+
+/** "song: out 7.6 s (54%), heard under half its own volume 1.2 s (9%) of the 14 s runtime; own sound then: board-S3, board-S7". */
+export function presenceText(name, presence) {
+  const pct = (share) => `${Math.round(share * 100)}%`;
+  const others = presence.others.length ? `; own sound then: ${presence.others.slice(0, 6).join(", ")}${presence.others.length > 6 ? ` +${presence.others.length - 6}` : ""}` : "";
+  return `${name}: out ${presence.out} s (${pct(presence.outShare)}), heard under half its own volume ${presence.quiet} s (${pct(presence.quietShare)}) of the ${presence.runtime} s runtime${others}`;
+}
+
 const level = (value) => (value === null ? "silent" : `${value} LUFS`);
 
 /** One line per read cue: "drop at 7.5 s: the mix -12.1 LUFS in the 1 s before, -9.0 in the 1 s after (+3.1 LU); ...". */

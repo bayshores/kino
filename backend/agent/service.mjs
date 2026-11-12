@@ -145,7 +145,8 @@ import { sceneShots, shotTiles } from "../../engine/sceneShots.js";
 import { edgeSpans } from "../../engine/spanCuts.js";
 import { boxesAt, cropOnSource, insideShare } from "../../engine/sourceView.js";
 import { mediaFrameState, mediaPlaybackRange, mediaSceneTime, mediaSoundTime } from "../../engine/playback.js";
-import { CUES_READ, cueRise, cueRiseText, endingText, keptLinesOf, quietShare, quietText, songEnding } from "../../engine/mixReadout.js";
+import { CUES_READ, cueRise, cueRiseText, endingText, keptLinesOf, presenceText, quietShare, quietText, songEnding, songPresence } from "../../engine/mixReadout.js";
+import { endOnHitOps, hitsAround, hitsText } from "../../engine/songEvents.js";
 import { songSections } from "../../engine/footage/pace.js";
 import { shapeOf } from "../../engine/footage/layout.js";
 import { cropLine } from "../../engine/quality/rules/footage.js";
@@ -649,6 +650,8 @@ export function createAgentService(deps) {
     savedRefs: (document) => (deps.inspire?.savedKeys ? deps.inspire.savedKeys(document.id).catch(() => null) : null),
     // board {snap:"beats"}: the turn and the measured beat times after it (board-pace.mjs).
     boardPace: (document, options) => boardPaceFor(document, options),
+    // retime {snap:"song"}: the scene song's saved onsets (with weights), beats and bar lines in scene seconds.
+    songGrid: (document, scene) => songGridFor(document, scene),
     // board text with no family, weight, size or fill: the measured type labels, the spine (its payoff beat) and face widths.
     boardType: async (document, work = null) => {
       const { measured, skipped } = await measuredTypeLabels(document.id);
@@ -9040,28 +9043,48 @@ export function createAgentService(deps) {
   // song cue in the scene (the drop first) with the loudest kept line before it, how the song ends
   // (its saved beat grid for onsets and bar lines) and how long the picture runs after the sound.
   // { lines, quiet } (quiet: the share-under-half-volume clause for the mix line, or "").
-  async function mixReadoutFor(document, scene, mix) {
-    const none = { lines: [], quiet: "" };
-    if (!mix?.windows?.length) return none;
+  // The scene's song and its saved events in scene seconds: { song, layer, range, grid, events,
+  // fileSeconds } (grid: onsets as times, beats, bars; events: the same with each onset's weight
+  // {at, weight}), or null with no song layer. grid and events are null with no saved beat grid.
+  async function songGridFor(document, scene) {
     const song = await sceneSong(document, scene);
     const layer = song?.layer ?? (await savedSoundKinds(scene, document)).find((entry) => entry.music)?.layer ?? null;
     const range = layer ? mediaPlaybackRange(layer, scene.duration) : null;
-    if (!range) return none;
-    const name = String(layer.name ?? layer.id).slice(0, 24);
+    if (!range) return null;
     const toScene = (time) => Math.round((range.start + time - range.offset) * 1000) / 1000;
-    let grid = null, fileSeconds = null;
+    let grid = null, events = null, fileSeconds = null;
     try {
       const beats = JSON.parse(await readFile(`${mediaFileOf(layer)}.beats`, "utf8"));
       fileSeconds = Number.isFinite(beats.duration) ? beats.duration : null;
-      if (!range.remapped) grid = { onsets: (beats.onsets ?? []).map((onset) => toScene(onset.time)).filter(Number.isFinite), beats: (beats.beats ?? []).map(toScene) };
+      if (!range.remapped) {
+        const weighted = (beats.onsets ?? []).map((onset) => ({ at: toScene(onset.time), weight: Number.isFinite(onset.weight) ? onset.weight : 0 })).filter((onset) => Number.isFinite(onset.at));
+        grid = { onsets: weighted.map((onset) => onset.at), beats: (beats.beats ?? []).map(toScene) };
+        events = { onsets: weighted, beats: grid.beats };
+      }
     } catch { /* no saved beat grid: the ending says so */ }
     // The song shape's measured bar lines (song-shape.mjs bars.lines), phrases every 4 bars from its
     // first drop (fitMusic.js reads phrases the same way).
     const barLines = song && !range.remapped && Array.isArray(song.shape?.bars?.lines) && song.shape.bars.lines.length >= 2 ? song.shape.bars.lines : null;
     if (barLines) {
       const dropBar = (song.shape.sections ?? []).find((part) => part.kind === "drop" && Number.isInteger(part.bar))?.bar ?? 0;
-      grid = { onsets: grid?.onsets ?? [], beats: grid?.beats ?? [], bars: barLines.map((time, index) => ({ at: toScene(time), kind: (index - dropBar) % 4 === 0 ? "phrase" : "bar" })) };
+      const bars = barLines.map((time, index) => ({ at: toScene(time), kind: (index - dropBar) % 4 === 0 ? "phrase" : "bar" }));
+      grid = { onsets: grid?.onsets ?? [], beats: grid?.beats ?? [], bars };
+      events = { onsets: events?.onsets ?? [], beats: events?.beats ?? [], bars };
     }
+    return { song, layer, range, grid: events ? events : null, ending: grid, fileSeconds };
+  }
+
+  // The scene second the song's file runs out (Infinity when its length is unknown).
+  const songPlaysTo = (layer, fileSeconds) => (Number.isFinite(fileSeconds) ? (layer.mediaStart ?? 0) + (fileSeconds - (layer.mediaOffset ?? 0)) / (layer.mediaSpeed > 0 ? layer.mediaSpeed : 1) : Infinity);
+
+  async function mixReadoutFor(document, scene, mix) {
+    const none = { lines: [], quiet: "" };
+    if (!mix?.windows?.length) return none;
+    const found = await songGridFor(document, scene);
+    if (!found) return none;
+    const { song, layer, range, fileSeconds } = found;
+    const grid = found.ending;
+    const name = String(layer.name ?? layer.id).slice(0, 24);
     const lines = [];
     const sections = song && !range.remapped ? songSections(song.shape, { offset: range.offset - range.start, to: scene.duration })?.sections ?? [] : [];
     const cues = sections.filter((part) => part.from > 0.05 && part.from < scene.duration - 0.05 && part.kind !== "open").map((part) => ({ at: part.from, kind: part.kind }));
@@ -9074,7 +9097,14 @@ export function createAgentService(deps) {
     const which = heard ? `the mix as a default render plays it: loudness "auto" ${gain}, then the limiter` : "the mix at loudness \"off\", before the limiter";
     for (const cue of read) lines.push(`cue: ${cueRiseText(cueRise(heard?.windows ?? mix.windows, cue, kept))} (momentary 0.4 s readings, energy mean; ${which})`);
     const ending = songEnding({ layer, duration: scene.duration, windows: mix.windows, grid, fileSeconds });
-    if (ending) lines.push(endingText(name, ending));
+    if (ending) {
+      // The strong onsets around the end, phrase and bar lines first, and the one edit that ends on the first.
+      const hits = found.grid ? hitsAround(found.grid, scene.duration, { playsTo: songPlaysTo(layer, fileSeconds) }) : [];
+      const call = hits.length ? endOnHitOps({ scene, song: layer, hit: hits[0], volume: layer.volume ?? 1 }) : null;
+      const how = !call ? "" : call.rings ? `; ${name} rings from the hit at ${hits[0].at} s to the end` : `; end on ${hits[0].at} (rings to ${call.end} s, fit_music's ring): edit {ops:${JSON.stringify(call.ops)}}`;
+      lines.push(`${endingText(name, ending)}${hits.length ? `; ${hitsText(hits)}${how}` : ""}`);
+    }
+    lines.push(presenceText(name, songPresence(layer, scene, (entry) => String(entry.name ?? entry.id).slice(0, 24))));
     const line = kept.find((entry) => entry.name !== name) ?? null;
     const call = `edit {dry_run:true, ops:[{op:"keep_line", layer:${JSON.stringify(line?.name ?? "<the line's layer>")}, from:${line ? Math.round(line.start * 100) / 100 : "<s>"}, to:${line && Number.isFinite(line.end) ? Math.round(line.end * 100) / 100 : "<s>"}, lift:true}]}`;
     const quiet = quietText(name, quietShare(layer, scene.duration), call);

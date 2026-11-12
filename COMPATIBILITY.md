@@ -1373,6 +1373,14 @@ How to read it:
   40%. end_on_fade leaves a hard stop within 0.1 s after an onset. Evidence: `engine/mixReadout.test.js`,
   `engine/qualityPolish.test.js`, `backend/audio-levels.test.mjs`. Gap: no saved reference keeps a drop rise;
   on a replayed real project the readout read the line before the drop 3.3 LU under its rendered file.
+- **Cuts and the ending on song events**: Verified on a generated click track and a replayed real project.
+  `retime {snap:"song", from, to, reach?}` moves each picture cut in the span to the nearest strong
+  onset (else beat) within reach (default half the median shot), each layer keeping its file time; a
+  cut that would cut a kept line or overrun a file stays, named. The ending line names the strong
+  onsets within 2 s of the end and the one edit that rings the song out on the first; a presence
+  line gives the song's out and under-half time over the runtime with the layers heard then.
+  Evidence: `engine/songEvents.test.js`. Gap: the strong weight 0.5 is a guess; no saved reference
+  carries a presence share; audio layers starting on a cut do not move.
 - **Limiter places fixed in one call**: Verified on generated audio. `check {fix:"auto"}` measures each
   layer at a shared place alone and turns down only the one that makes the peak, by its measured share
   of the peak (all of them by xN when none can clear it alone; a short clip whole, a long one over the
