@@ -16,6 +16,10 @@ export function seconds(value) {
   return Number.isFinite(number) ? String(Number(number.toFixed(1))) : "?";
 }
 
+// A shot's sound in words: the sound it adds, "clip sound" or "clip sound 2.1-3.4 s" when it keeps
+// its clip's own (sound {keep}, engine/boardSound.js), or both.
+const soundText = (sound) => [sound.what ?? "", sound.keep === "all" ? "clip sound" : Array.isArray(sound.keep) ? `clip sound ${seconds(sound.keep[0])}-${seconds(sound.keep[1])} s` : ""].filter(Boolean).join(" + ");
+
 // A share of the source frame (crop, boxes), to one decimal: 24, 7.8.
 const share = (value) => String(Number(Number(value).toFixed(1)));
 
@@ -151,7 +155,7 @@ export function shotLines(shot, data) {
   lines.push({ name: "follow", text: shot.follow || NONE });
   lines.push({ name: "pacing", text: String(shot.pacing || NONE).replaceAll("_", " ") });
   lines.push({ name: "text", text: textWords(shot.text, data?.header) });
-  lines.push({ name: "sound", text: shot.sound && shot.sound !== NONE ? shot.sound.what : NONE });
+  lines.push({ name: "sound", text: shot.sound && shot.sound !== NONE ? soundText(shot.sound) : NONE });
   lines.push({ name: "why", text: shot.why || NONE });
   if (shot.alts?.length) lines.push({ name: "options", text: `${shot.alts.length}: ${shot.alts.map((alt) => alt.why).join(" · ")}` });
   const change = changeWords(shot, data);
@@ -186,7 +190,7 @@ export function shotSentence(shot, data) {
     parts.push(said.join(", "));
   } else if (hasFootage(shot)) parts.push("no subject marked");
   parts.push(shot.text && shot.text !== NONE ? `text "${shot.text.text}" in ${shot.text.family} ${shot.text.weight ?? 700}` : "no text");
-  parts.push(shot.sound && shot.sound !== NONE ? `sound ${shot.sound.what}` : "no sound effect");
+  parts.push(shot.sound && shot.sound !== NONE ? `sound ${soundText(shot.sound)}` : "no sound effect");
   if (shot.follow && shot.follow !== NONE) parts.push(`follow ${shot.follow}`);
   parts.push(`why: ${shot.why || "none"}`);
   let sentence = `Shot ${shot.n} of ${total}, ${seconds(shot.start)} to ${seconds(shot.end)} seconds: ${parts.join("; ")}.`;
@@ -317,7 +321,7 @@ function moveWords(move) {
 export function shotTags(shot, data) {
   const tags = [];
   if (shot.text && shot.text !== NONE) tags.push({ kind: "text", text: `"${shot.text.text}"` });
-  if (shot.sound && shot.sound !== NONE) tags.push({ kind: "sound", text: shot.sound.what });
+  if (shot.sound && shot.sound !== NONE) tags.push({ kind: "sound", text: soundText(shot.sound) });
   const move = moveWords(shot.move);
   if (move) tags.push({ kind: "move", text: move });
   if (shot.follow && shot.follow !== NONE && shot.follow !== "steady") tags.push({ kind: "follow", text: shot.follow });

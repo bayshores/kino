@@ -3,6 +3,8 @@ import test from "node:test";
 import { createDocument, createLayer, createScene, parseDocument } from "./model.js";
 import { boardPicks, pickWords, picksFor, SHOT_PICKS, CUT } from "./movePicks.js";
 import { boardCoverage, boardSpan, isPlainShot, keepShotIds, mainScene, MOVE_REF, moveProblems, movesNeeded, moveWords, normalizeBoard, ONE_FRAME, reframeBoard, SHOT_LAYERS } from "./board.js";
+import { boardKeepOps, keptDuck, keptSceneSpan, keptSeconds, silentBoardLine } from "./boardSound.js";
+import { applyKeepLine } from "./keepLine.js";
 
 // A shot of motion design: every layer "none" but its text.
 const motion = (cue, dur, extra = {}) => ({ id: `S${Math.round(cue * 1000)}`, cue, dur, pacing: "free", media: "none", in: "none", crop: "none", subject: "none",
@@ -43,6 +45,40 @@ test("normalizeBoard names the field that is wrong", () => {
   assert.throws(shaped([]), /document\.board\.shots must be a list of 1 to 60 shots/);
   assert.throws(shaped([motion(0, 1)], { rev: 0 }), /document\.board\.rev must be a whole number from 1/);
   assert.throws(shaped([motion(0, 1)], { open: ["a", "b", "c", "d"] }), /document\.board\.open must be a list of at most 3/);
+});
+
+test("a shot keeps its clip's own sound (sound {keep}); building it keeps the stretch on the layer placed for it, one dip under every kept stretch", () => {
+  const clip = "/api/media/clip.mp4";
+  const shot = (id, cue, dur, inPoint, sound) => motion(cue, dur, { id, media: clip, in: inPoint, crop: [0, 0, 100, 100], follow: "steady", sound });
+  const board = { rev: 1, music: "song", shots: [shot("S1", 0, 2, 10, "none"), shot("S2", 2, 2, 20.5, { keep: [21.004, 22] }), shot("S3", 4, 2, 30, { keep: "all", media: "/api/media/hit.wav", what: "a hit" })] };
+  const layer = (id, start, offset, volume = 0) => createLayer("video", { id, src: clip, mediaStart: start, mediaOffset: offset, mediaDuration: 2, volume });
+  const song = createLayer("audio", { id: "song", name: "song", src: "/api/media/song.wav" });
+  const before = parseDocument(createDocument({ id: "b", name: "Board", board, scenes: [createScene({ id: "s1", duration: 6, layers: [song] })] }));
+  assert.deepEqual(before.board.shots.map((entry) => entry.sound), ["none", { keep: [21.004, 22] }, { media: "/api/media/hit.wav", what: "a hit", keep: "all" }]);
+  assert.throws(() => normalizeBoard({ board: { ...board, shots: [shot("S1", 0, 6, 0, { keep: [3, 2] })] } }), /shots\[0\]\.sound\.keep must be "all" or \[from, to\] in file seconds/);
+  // File seconds to scene seconds: S2 plays file 20.5-22.5 from 2 s, so file 21.004-22 is 2.504-3.5 s.
+  assert.deepEqual(before.board.shots.map(keptSceneSpan), [null, [2.504, 3.5], [4, 6]]);
+  assert.equal(keptSeconds(before.board), 3, "0.996 + 2 s, to 2 decimals");
+  // The run 8 board: footage over music, every shot "none". The line is a fact, not a finding.
+  const silent = { ...before.board, shots: before.board.shots.map((entry) => ({ ...entry, sound: "none" })) };
+  assert.match(silentBoardLine(silent), /^clip sound: the plan keeps 0 s of the clips' own sound in 6 s \(every shot is the music alone\)/);
+  assert.equal(silentBoardLine(before.board), null);
+  assert.equal(silentBoardLine({ ...silent, music: "none" }), null, "no music: the clips are what is heard");
+  // The edit placed the three shots' layers, each at volume 0 as run 8's scripts wrote them.
+  const after = structuredClone(before);
+  after.scenes[0].layers.push(layer("v1", 0, 10), layer("v2", 2, 20.5), layer("v3", 4, 30));
+  const ops = boardKeepOps(before, after);
+  assert.deepEqual(ops.map((entry) => [entry.n, entry.operation.layerId, entry.operation.from, entry.operation.to, entry.operation.subtitle]), [[2, "v2", 2.504, 3.5, false], [3, "v3", 4, 6, false]]);
+  for (const { operation } of ops) applyKeepLine(after, operation);
+  const v2 = after.scenes[0].layers.find((entry) => entry.id === "v2");
+  assert.equal(v2.volume, 1, "the kept layer is heard at its own volume");
+  assert.deepEqual(v2.animations.map((animation) => animation.name), ["Line mute", "Line up", "Line down"]);
+  assert.equal(after.scenes[0].layers.find((entry) => entry.id === "v1").volume, 0, "a shot with sound none stays as built");
+  assert.deepEqual(boardKeepOps(before, after), [], "a layer already keeping a line is left alone");
+  const duck = keptDuck(after, "s1", ops.map(({ operation }) => ({ layerId: operation.layerId, from: operation.from, to: operation.to })), "song", 0.7);
+  assert.deepEqual(duck.under, ["v2", "v3"]);
+  assert.deepEqual(duck.speech.v2.words.map((word) => [word.start, word.end]), [[21.004, 22]]);
+  assert.equal(keptDuck(after, "s1", [{ layerId: "v2", from: 2.5, to: 3.5 }], "song", 0.7), null, "one kept layer: keep_line's own dip covers it");
 });
 
 test("a shot's move: {kind, name, ref, planned?} or {none}; every bad field named at once; a board without moves still loads, its shots plain", () => {

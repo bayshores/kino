@@ -3,6 +3,8 @@
 //
 //   document.board = { rev, music, calls, open, shots: [{ id, cue, dur, pacing, media, in, crop,
 //     subject, follow, text, sound, move?, why, alts }] }
+//   sound: "none", {media, what} (a sound to add), {keep: "all" | [from, to]} (the clip's own sound,
+//     file seconds; engine/boardSound.js) or both
 //
 // Every layer of a shot is given, "none" when it is empty, so a missing text or sound shows up
 // before anything is built. Times are seconds on the main scene (cue, dur) or in the file (in);
@@ -88,10 +90,17 @@ function normalizeText(value, path) {
   return { ...result, weight: value.weight, size: round(value.size, 1), y: round(value.y, 1), fill: value.fill };
 }
 
+// sound: "none", {media, what} (a sound to add), {keep} (the clip's own sound: "all" or [from, to]
+// in file seconds, engine/boardSound.js) or both. A board saved before keep existed has none.
 function normalizeSound(value, path) {
   if (value === NONE) return NONE;
-  if (!isRecord(value)) fail(path, 'must be "none" or {media, what}');
-  return { media: text(value.media, `${path}.media`, 2048), what: text(value.what, `${path}.what`, BOARD_LIMITS.what) };
+  if (!isRecord(value) || Object.keys(value).some((key) => !["media", "what", "keep"].includes(key))) fail(path, 'must be "none", {media, what} or {keep}');
+  const keep = value.keep;
+  if (keep !== undefined && keep !== "all" && !(Array.isArray(keep) && keep.length === 2 && keep.every(isNumber) && keep[0] >= 0 && keep[1] > keep[0]))
+    fail(`${path}.keep`, 'must be "all" or [from, to] in file seconds');
+  const added = keep === undefined || value.media !== undefined || value.what !== undefined
+    ? { media: text(value.media, `${path}.media`, 2048), what: text(value.what, `${path}.what`, BOARD_LIMITS.what) } : {};
+  return { ...added, ...(keep === undefined ? {} : { keep: keep === "all" ? keep : [round(keep[0], 3), round(keep[1], 3)] }) };
 }
 
 /**

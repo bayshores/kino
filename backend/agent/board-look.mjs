@@ -243,7 +243,7 @@ function rowLines(shot, measures, { record, missing }) {
   }
   const text = shot.text;
   lines.push({ text: isNone(text) ? "text: none" : `text: "${clip(text.text, QUOTE)}" ${text.family} ${text.weight}, ${text.size} px`, most: 2 });
-  lines.push({ text: isNone(shot.sound) ? "sound: none" : `sound: ${shot.sound.what}` });
+  lines.push({ text: soundWords(shot.sound, 80).replace(/^sound /, "sound: ") });
   if (isNone(shot.media)) lines.push({ text: "media: none" });
   else {
     const name = record?.name ?? String(shot.media).replace(/^\/api\/media\//, "");
@@ -301,9 +301,17 @@ function shotLine({ shot, n, measures, missing, most }) {
   const parts = [picture.join(", ")];
   if (!isPlainShot(shot) && most.move > 0) parts.push(`move ${shot.move.name}`);
   if (most.quote > 0) parts.push(isNone(shot.text) ? "text none" : `text "${clip(shot.text.text, most.quote)}"`);
-  if (most.sound > 0) parts.push(isNone(shot.sound) ? "sound none" : `sound ${clip(shot.sound.what, most.sound)}`);
+  if (most.sound > 0) parts.push(soundWords(shot.sound, most.sound));
   const said = [parts.filter(Boolean).join("; "), flags.length ? `look: ${flags.map((flag) => flag.words).join(", ")}` : ""].filter(Boolean).join(" · ");
   return `${n} (${shot.id}) ${span(shot.cue, shot.cue + shot.dur)}: ${said}`;
+}
+
+// A shot's sound in few words: "sound none", "sound <what>", "sound keeps clip 2.1-3.4 s" (file
+// seconds, engine/boardSound.js) or both.
+function soundWords(sound, most) {
+  if (isNone(sound)) return "sound none";
+  const keep = sound.keep === "all" ? "keeps clip" : Array.isArray(sound.keep) ? `keeps clip ${sound.keep[0]}-${sound.keep[1]} s` : "";
+  return `sound ${[sound.what ? clip(sound.what, most) : "", keep].filter(Boolean).join(" + ")}`;
 }
 
 // The file as a layer: a video at `fileTime` (sound off), or a picture. Layer ids are unique in

@@ -11,7 +11,7 @@
 // 1.25 s and 3.333 s. Sound: a sine tone made by FFmpeg, never played. Font downloads are off, so
 // nothing here goes online. A recorded answer needs a real wait (gap(), three in the file).
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
@@ -184,6 +184,37 @@ test("the shots cover the music when there is a music layer, else the whole vide
   assert.equal(voice.isError, undefined, voice.text);
   assert.deepEqual(voice.data.notes, ['board r1: 2 shots, 0–6 s, no music · look {mode:"board"} shows it']);
   assert.equal((await record("board-voice")).document.board.music, "none");
+});
+
+test("a board shot keeps its clip's own sound: the answer says what each clip holds and what a silent plan keeps; placing the layers keeps the stretch", { skip, timeout: 60_000 }, async () => {
+  const id = "board-keep";
+  await project(id, { width: 1920, height: 1080, duration: 4.417, layers: [audioLayer("song")] });
+  // A saved loudness curve beside the clip (what kino keeps after measuring it once): -20 LUFS throughout.
+  await writeFile(path.join(server.dataDirectory, "media", `${clip.src.replace("/api/media/", "")}.lufs`), JSON.stringify({ version: 1, step: 0.1, duration: 4.4, momentary: Array(44).fill(-20) }));
+  const wide = (cue, dur, inPoint, sound) => ({ ...footage(cue, dur, inPoint, 0, { sound }), crop: [0, 0, 100, 100], subject: { what: "the dragon", box: [30, 30, 20, 30] } });
+  const silent = await editBoard(id, [wide(0, 1.25, 0, "none"), wide(1.25, 2.083, 1.25, "none"), wide(3.333, 1.084, 3.333, "none")], { music: "song" });
+  assert.equal(silent.isError, undefined, silent.text);
+  assert.ok(silent.data.notes.includes("clip sound by shot (file seconds): 1 -20 LUFS; 2 -20 LUFS; 3 -20 LUFS"), silent.text);
+  assert.ok(silent.data.notes.some((note) => note.startsWith("clip sound: the plan keeps 0 s of the clips' own sound in 4.42 s (every shot is the music alone)")), silent.text);
+  assertRefused(await editBoard(id, [wide(0, 1.25, 0, { keep: [9, 10] }), wide(1.25, 3.167, 1.25, "none")], { music: "song" }), "bad_shot",
+    "shot 1 sound.keep [9, 10] is outside what the shot plays: file 0–1.25 s.");
+  const kept = await editBoard(id, [wide(0, 1.25, 0, "none"), wide(1.25, 2.083, 1.25, { keep: [1.5, 2.5] }), wide(3.333, 1.084, 3.333, { keep: "all" })], { music: "song" });
+  assert.ok(kept.data.notes.includes("clip sound by shot (file seconds): 1 -20 LUFS; 2 -20 LUFS, keeps 1.5-2.5 s; 3 -20 LUFS, keeps all"), kept.text);
+  assert.ok(!kept.data.notes.some((note) => note.startsWith("clip sound: the plan keeps")));
+  // The build, as run 8's scripts wrote it: one video layer a shot, every one at volume 0.
+  const layer = (name, start, offset, duration) => ({ op: "add_layer", layerType: "video", name, properties: { src: clip.src, mediaStart: start, mediaOffset: offset, mediaDuration: duration, volume: 0, width: 1920, height: 1080 } });
+  const built = await agent("edit", { project: id, ops: [layer("shot-1", 0, 0, 1.25), layer("shot-2", 1.25, 1.25, 2.083), layer("shot-3", 3.333, 3.333, 1.084)] });
+  assert.equal(built.isError, undefined, built.text);
+  assert.ok(built.data.notes.includes("board: 2 shots keep the clip's own sound (2.08 s, keep_line, subtitle off)"), built.text);
+  const layers = (await record(id)).document.scenes[0].layers;
+  const named = (name) => layers.find((entry) => entry.name === name);
+  assert.equal(named("shot-1").volume, 0);
+  assert.equal(named("shot-2").volume, 1);
+  assert.deepEqual(named("shot-2").animations.filter((animation) => animation.name.startsWith("Line")).map((animation) => [animation.name, animation.start]), [["Line mute", 0], ["Line up", 1.42], ["Line down", 2.5]]);
+  assert.equal(named("shot-3").volume, 1);
+  // One dip under both kept stretches (each keep_line's own dip would replace the one before).
+  assert.equal(built.data.duck.summary, "song ducked to 0.7 at 1.35-4.417 s (shot-2, shot-3)");
+  assert.deepEqual(built.data.keepLine.map((entry) => entry.scene), [[1.5, 2.5], [3.333, 4.417]]);
 });
 
 test("kino checks the shots against the video, the files and the fonts: overlap, order, crop shape, the file's end, fonts and media", { skip, timeout: 60_000 }, async () => {

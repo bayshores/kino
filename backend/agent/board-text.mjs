@@ -57,7 +57,9 @@ function writeSentence({ shot, n, measures }, { what, quote, sound }, withMove =
     if (measures.eyes != null) picture += measures.eyes < 0 || measures.eyes > 100 ? ", eyes outside it" : `, eyes ${measures.eyes}% from top${under(EYES_UNDER_CAPTIONS)}`;
   }
   const text = shot.text === "none" || !shot.text ? "no text" : `"${clip(shot.text.text, quote)}" in ${shot.text.family} ${shot.text.weight ?? 700}${under(TEXT_UNDER_CAPTIONS)}`;
-  const heard = shot.sound === "none" || !shot.sound ? "" : `; sound: ${clip(shot.sound.what ?? "a sound", sound)}`;
+  // sound {keep} (engine/boardSound.js): the clip's own sound is heard there.
+  const own = shot.sound?.keep === "all" ? "the clip's own sound" : Array.isArray(shot.sound?.keep) ? `the clip's own sound ${shot.sound.keep[0]}-${shot.sound.keep[1]} s` : "";
+  const heard = shot.sound === "none" || !shot.sound ? "" : `; sound: ${[shot.sound.what ? clip(shot.sound.what, sound) : "", own].filter(Boolean).join(" + ") || "a sound"}`;
   const move = !withMove || isPlainShot(shot) ? "" : `; move ${shot.move.name}`;
   return `Shot ${n}, ${span(shot)}: ${picture}; ${text}${heard}${move}.`;
 }

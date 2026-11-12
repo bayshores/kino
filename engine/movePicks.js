@@ -54,7 +54,7 @@ export function mediaKind(src, name = null) {
 }
 
 // The words a shot holds: its on-screen text, its subject, its why and its sound.
-const wordsOf = (shot) => [isRecord(shot?.text) ? shot.text.text : "", isRecord(shot?.subject) ? shot.subject.what : "", shot?.why ?? "", isRecord(shot?.sound) ? shot.sound.what : ""].join(" · ");
+const wordsOf = (shot) => [isRecord(shot?.text) ? shot.text.text : "", isRecord(shot?.subject) ? shot.subject.what : "", shot?.why ?? "", isRecord(shot?.sound) ? shot.sound.what ?? "" : ""].join(" · ");
 // A shot that names the product: its words say so, or a short line on no media.
 const lineOf = (shot) => (isRecord(shot?.text) ? shot.text.text.trim() : "");
 const namesIt = (shot) => NAME_WORDS.test(wordsOf(shot)) || (!has(shot?.media) && lineOf(shot) !== "" && lineOf(shot).split(/\s+/).length <= 3);
