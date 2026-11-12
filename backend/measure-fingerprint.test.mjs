@@ -8,7 +8,7 @@ import {
   CELL_COLS, CELL_ROWS, classifyReveals, fingerprint, fitGlobalMotion, gradualTransitions, packPrint, pairMotion, palette, persistentElements,
   printDistance, revealOf, sameLine, trackText, unpackPrint,
 } from "./measure/fingerprint.mjs";
-import { suggestStyleLines, suggestionText, typeNote } from "./measure/suggest.mjs";
+import { onscreenMoments, onscreenNote, suggestStyleLines, suggestionText, typeNote } from "./measure/suggest.mjs";
 import { MAX_STRIPS, stripArgs, stripMoments } from "./measure/strips.mjs";
 import { compareFingerprints } from "../engine/quality/referenceCompare.js";
 import { drifted, pairTimes } from "../engine/quality/rules/reference.js";
@@ -149,6 +149,17 @@ const fp = (over = {}) => ({
   look: { brightness: 0.08, palette: [{ hex: "#050505", share: 0.8 }] },
   persistent: [],
   ...over,
+});
+
+test("a reference asks for on-screen labels at the kept strip nearest each sixth's middle; none without strips", () => {
+  const strips = [0.5, 1.7, 2, 5.5, 9.1, 12.3, 16, 19.9, 21].map((at) => ({ at }));
+  const ref = { id: "yt:G9wj1YA0DYI", numbers: { seconds: 21.6 }, stripList: strips };
+  // Middles of the sixths of 21.6 s: 1.8, 5.4, 9, 12.6, 16.2, 19.8.
+  assert.deepEqual(onscreenMoments(ref), [1.7, 5.5, 9.1, 12.3, 16, 19.9]);
+  assert.equal(onscreenNote(ref), 'on screen to label (numbers cannot see design): at 1.7, 5.5, 9.1, 12.3, 16, 19.9 s look {mode:"reference", ref:"yt:G9wj1YA0DYI", t}, then for each: library {topic:"inspire", name:"seen yt:G9wj1YA0DYI @1.7 <kinds>: <what you see, in your words>"}. kinds: type, overlay, composite, color, made, frame, spoken, plain.');
+  assert.deepEqual(onscreenMoments({ ...ref, stripList: [{ at: 3 }] }), [3], "one strip answers every sixth once");
+  assert.equal(onscreenNote({ ...ref, stripList: [] }), null);
+  assert.equal(onscreenNote({ id: "yt:a", stripList: strips }), null, "no measured length");
 });
 
 test("suggested style lines say the number and the time, carry technique tags, and are guesses", () => {

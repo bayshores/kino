@@ -1028,6 +1028,11 @@ export function createAgentService(deps) {
     const saved = references ? await savedIds(document.id) : [];
     const studied = references !== undefined ? ((await agentState.read(document.id)).studied ?? []) : undefined;
     const facts = { ...(await videoFactsFor(document)), references, referenceWaived, treatmentsWaived, saved, studied };
+    // The first moment still to label for each saved reference (inspire seenStatus): the order step labels what was studied.
+    if (references !== undefined && saved.length && deps.inspire?.seenStatus) {
+      const status = await deps.inspire.seenStatus(document.id).catch(() => ({}));
+      facts.seenOpen = Object.fromEntries(Object.entries(status).filter(([, entry]) => entry.open != null).map(([id, entry]) => [id, entry.open]));
+    }
     // The brief's playback compares the frame with the shape of the footage placed (shapeLine).
     const footageSizes = await footageSizesOf(document);
     if (footageSizes.length) facts.footageSizes = footageSizes;
@@ -6226,7 +6231,8 @@ export function createAgentService(deps) {
       try { return { text: movesLibraryText(input.name) }; }
       catch (error) { throw new AgentError("not_found", error.message, { didYouMean: error.suggestions ?? [] }); }
     }
-    if (topic === "inspire") return inspire(input, names[0] ?? "", search);
+    // A `seen` label has commas (its kinds and its words): the name is not split into a list.
+    if (topic === "inspire") return inspire(input, typeof input.name === "string" && /^\s*seen\s/i.test(input.name) ? input.name.trim() : names[0] ?? "", search);
     if (topic === "soundtrack") return soundtrack(input, names[0] ?? "", search);
     if (topic === "techniques") {
       // The technique vocabulary (engine/techniques.js): every tag by group, or one in full.
@@ -6279,8 +6285,28 @@ export function createAgentService(deps) {
           data: { ideas: ideas.id, status: ideas.status, on } };
       } catch (error) { throw new AgentError("bad_input", error.message); }
     }
-    const [word, rest] = /^(save|unsave|cancel|measure|forget|copy|sounds|use|no)\b\s*(.*)$/i.exec(name)?.slice(1) ?? [null, name];
+    const [word, rest] = /^(save|unsave|cancel|measure|forget|copy|sounds|use|no|seen)\b\s*(.*)$/i.exec(name)?.slice(1) ?? [null, name];
     const verb = word?.toLowerCase() ?? null;
+    // seen yt:X @1.8 overlay, made: green outline traced on the figure: what the agent sees on screen
+    // at one of the reference's 6 moments (suggest.mjs onscreenMoments), saved with the project.
+    if (verb === "seen") {
+      const parts = /^(\S+)\s+@(\d+(?:\.\d+)?)\s+([a-z][a-z ,+]*?)\s*:\s*(.+)$/is.exec(rest.trim());
+      const id = parts ? refId(parts[1]) : null;
+      const refuse = (why) => new AgentError("bad_input", `seen needs a saved reference, a time from its on-screen list and kinds: library {topic:"inspire", name:"seen yt:X @1.8 overlay, made: green outline traced on the figure"}.${why ? ` (${why})` : ""}`);
+      if (!id) throw refuse();
+      if (!deps.inspire.setSeen) throw new AgentError("failed", "This kino has no on-screen labels.");
+      let done;
+      try { done = await deps.inspire.setSeen(projectId, id, { at: Number(parts[2]), kinds: parts[3].toLowerCase().split(/[\s,+]+/).filter(Boolean), words: parts[4] }); }
+      catch (error) { throw refuse(error.message); }
+      const counts = {};
+      for (const entry of done.seen) for (const kind of entry.kinds) counts[kind] = (counts[kind] ?? 0) + 1;
+      const tally = Object.entries(counts).map(([kind, n]) => `${kind} ${n}`).join(", ");
+      const left = done.moments.filter((at) => !done.seen.some((entry) => entry.at === at));
+      // The next moment of this reference, else wherever the order goes next (the label step of the other one, the treatments).
+      const nextCall = left.length ? nextOf("library", { topic: "inspire", name: `seen ${id} @${left[0]} <kinds>: <what you see>` }) : await buildNext(projectId);
+      return { project: projectId, text: `seen ${id}: ${done.seen.length} of ${done.moments.length} moments labeled (${tally}).`, nextCall,
+        data: { ref: id, labeled: done.seen.length, of: done.moments.length, seen: done.seen } };
+    }
     // sounds <n>: a sounds search ranked by how each sound matches its words and the person's taste.
     if (verb === "sounds") {
       const n = /^\d+$/.test(rest.trim()) ? Number(rest.trim()) : null;

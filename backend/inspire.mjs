@@ -26,7 +26,7 @@ import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { beatFit, beatFitLine } from "./measure/beat-fit.mjs";
-import { suggestStyleLines, suggestionText, typeNote } from "./measure/suggest.mjs";
+import { ONSCREEN_KINDS, onscreenMoments, onscreenNote, suggestStyleLines, suggestionText, typeNote } from "./measure/suggest.mjs";
 import { backgroundStep, lowerIfBackground } from "./render-activity.mjs";
 import { BOT_CHECK, BOT_CHECK_PAUSE_MS, botCheckError, createSlots, createYouTubeGate } from "./process-slots.mjs";
 import { SEARCH_KINDS } from "./agent/actions.mjs";
@@ -913,7 +913,7 @@ export function downloadArgs(videoId, folder, { ffmpeg } = {}) {
 
 // ---- the cache and the queue ---------------------------------------------------------------
 
-const emptyProject = () => ({ searches: [], saved: [], rejected: [], nextSearch: 1, ideas: null, nextIdeas: 1 });
+const emptyProject = () => ({ searches: [], saved: [], rejected: [], nextSearch: 1, ideas: null, nextIdeas: 1, seen: {} });
 
 /** Ideas an agent may propose from one reference, and the limits of their words. */
 export const MAX_IDEAS = 6;
@@ -1660,6 +1660,52 @@ export function createInspire(deps) {
     });
   }
 
+  /** The 6 on-screen moments of a reference (suggest.mjs onscreenMoments); [] when it has no strips. */
+  async function momentsOf(id) {
+    const record = await load(id);
+    return onscreenMoments({ stripList: record?.strips, numbers: record?.numbers });
+  }
+
+  /**
+   * What the agent saw on screen at one of a saved reference's moments (library inspire `seen`):
+   * { at, kinds, words }, saved with the project. `at` may be off by 0.5 s and is kept as the
+   * moment's own time; a label at the same moment replaces the earlier one. Throws a plain
+   * Error (the service words it as bad_input) for an unsaved reference, a time off the list,
+   * unknown kinds or words that are empty or over 120 characters. Resolves { moments, seen }.
+   */
+  async function setSeen(projectId, id, { at, kinds, words }) {
+    const state = { ...emptyProject(), ...(await projectState.read(projectId)) };
+    if (!state.saved.includes(id)) throw new Error(`${id} is not saved in this project`);
+    const moments = await momentsOf(id);
+    const moment = moments.find((candidate) => Math.abs(candidate - at) <= 0.5);
+    if (moment === undefined) throw new Error(moments.length ? `${at} s is not one of its moments (${moments.join(", ")})` : `${id} has no frame strips to label`);
+    const kept = [...new Set(kinds)];
+    if (!kept.length || kept.some((kind) => !ONSCREEN_KINDS.includes(kind))) throw new Error(`kinds are ${ONSCREEN_KINDS.join(", ")}`);
+    const text = String(words ?? "").replace(/\s+/g, " ").trim();
+    if (!text || text.length > 120) throw new Error("the words you see are 1 to 120 characters");
+    const seen = await updateProject(projectId, (current) => {
+      const others = (current.seen?.[id] ?? []).filter((entry) => entry.at !== moment);
+      current.seen = { ...(current.seen ?? {}), [id]: [...others, { at: moment, kinds: kept, words: text }].sort((a, b) => a.at - b.at) };
+      return current.seen[id];
+    });
+    return { moments, seen };
+  }
+
+  /**
+   * Where each saved reference stands: { [id]: { moments, labeled, open } } with its 6 moments,
+   * how many carry a label and the first without one (null when all do or it has none).
+   */
+  async function seenStatus(projectId) {
+    const state = { ...emptyProject(), ...(await projectState.read(projectId)) };
+    const found = {};
+    for (const id of state.saved) {
+      const moments = await momentsOf(id);
+      const have = new Set((state.seen?.[id] ?? []).map((entry) => entry.at));
+      found[id] = { moments, labeled: moments.filter((at) => have.has(at)).length, open: moments.find((at) => !have.has(at)) ?? null };
+    }
+    return found;
+  }
+
   /**
    * An agent proposes ideas from a measured reference (cleanIdeas): they replace any ideas the
    * project had and wait for the person, who turns each on or off and allows them or says not
@@ -1805,7 +1851,7 @@ export function createInspire(deps) {
 
   /**
    * The fingerprints of a project's saved references that have one, with their feature prints:
-   * [{id, title, fingerprint, prints, heard?, heardPending?}] (for the reference_drift and
+   * [{id, title, fingerprint, prints, seen, heard?, heardPending?}] (for the reference_drift and
    * reference_range checks). heardLater: measure a missing `heard` in the background.
    */
   async function savedFingerprints(projectId, { heardLater = false } = {}) {
@@ -1817,7 +1863,7 @@ export function createInspire(deps) {
       if (heardLater && !record.heard) measureHeardLater(record);
       let prints = [];
       try { prints = JSON.parse(await readFile(fileOf(id, "prints.json"), "utf8")); } catch { /* none kept */ }
-      found.push({ id, title: record.title, measuredAt: record.measuredAt, fingerprint: await withStillContrast(record, id), prints, ...(record.heard ? { heard: record.heard } : heardPending.has(id) ? { heardPending: true } : {}) });
+      found.push({ id, title: record.title, measuredAt: record.measuredAt, fingerprint: await withStillContrast(record, id), prints, seen: state.seen?.[id] ?? [], ...(record.heard ? { heard: record.heard } : heardPending.has(id) ? { heardPending: true } : {}) });
     }
     return found;
   }
@@ -1848,7 +1894,7 @@ export function createInspire(deps) {
     catch { return []; }
   }
 
-  return { start, search, origin, searchView, soundTasteEntry, add, forget, importSound, soundFile, reference, remeasure, cancel, setSaved, savedCount, savedIds, savedKeys, setLooking, setIdeas, toggleIdea, answerIdeas, projectView, thumbFile, stripsFor, savedStills, savedFingerprints, savedRhythms, cachedIds, summary: (id) => summary(refs.get(id)) };
+  return { start, search, origin, searchView, soundTasteEntry, add, forget, importSound, soundFile, reference, remeasure, cancel, setSaved, setSeen, seenStatus, savedCount, savedIds, savedKeys, setLooking, setIdeas, toggleIdea, answerIdeas, projectView, thumbFile, stripsFor, savedStills, savedFingerprints, savedRhythms, cachedIds, summary: (id) => summary(refs.get(id)) };
 }
 
 /**
@@ -2173,6 +2219,8 @@ export function fingerprintLines(ref) {
   if (suggested) lines.push(suggested);
   const type = typeNote(fp, ref.id);
   if (type) lines.push(type);
+  const onscreen = onscreenNote(ref);
+  if (onscreen) lines.push(onscreen);
   return lines;
 }
 

@@ -4,7 +4,7 @@ Read when the brief is an edit of something that exists (a series, a sport, a tr
 the person sent no clips, or too few. kino finds videos, scans them for their best shots and
 imports only the shots you pick. The person's own clips always lead; found clips fill the gaps.
 
-Contents: Three calls · Visual words, not names · Reading a scan · What is said · Note a video · Sources · Limits
+Contents: Three calls · Visual words, not names · Reading a scan · What is said · Note a video · Label a reference · Sources · Limits
 
 ## Three calls
 
@@ -88,6 +88,18 @@ their times to the nearest half second and their words as probably right.
 
 verdict is `pick`, `maybe` or `no`; a `no` moves on to the next video. Scanned, noted and
 imported videos are never dropped from the list (24 kept).
+
+## Label a reference
+
+Numbers cannot see design: a reference's type family, overlays, composites, color work and made
+graphics are only seen. After `look {mode:"reference"}`, its fingerprint ends with `on screen to
+label`: 6 moments. Look at each, then say what you see in your own words, such as
+`library {topic:"inspire", name:"seen yt:X @1.8 overlay, made: green outline traced on the figure"}`.
+Kinds: type, overlay, composite, color, made, frame, spoken, plain (one or more, commas fine).
+The time is one of the 6 (0.5 s off is fine); a label at the same time replaces the old one.
+The order opens `label yt:X on screen (seen)` for each of the first 2 saved, studied references
+until all its moments are labeled. A reference with no frame strips has none to label. Then ask
+what your edit shows that these do not: the labels are what you build toward, not a template.
 
 ## Sources
 

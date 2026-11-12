@@ -7,12 +7,12 @@ description: Makes and edits motion videos with kino, a local motion design engi
 
 ## The short path
 
-Every answer ends with `next:`, the likely next call written out. When unsure,
-send it as is; put your own words where it has `<angle brackets>`. A new video, idea first:
+Every answer ends with `next:`, the next call, written out. When unsure,
+send it as is; put your words where it has `<angle brackets>`. A new video, idea first:
 
 1. `project {action:"create", id:"orbit", name:"Orbit promo", width:1920, height:1080, duration:15}`
 2. `notes` brief: `ask` (their message whole; `"none"` if no person), `about`, then a line per thing.
-3. Save 2 references (`library {topic:"inspire"}`), study one (`look {mode:"reference"}`).
+3. Save 2 references (`library {topic:"inspire"}`), study, label (`look {mode:"reference"}`).
 4. 5 treatments (3+ whos), their pick, its signature and spine; building first is refused (`order_needed`).
 5. `edit` with one `compose` (or `format`: `library {topic:"formats"}`), then `check {fix:"auto"}`, `look {mode:"review"}`, `render`.
 
@@ -46,7 +46,7 @@ fields as `key=value`: `kino look frame t=3`.
 2. New video: brief from the chat ([controls](references/controls.md)); from 8 s, board first.
    Save their material (`edit` op `source`); write the story.
    **A video is one scene**: `render` makes one file per scene.
-3. Save 2+ edits like yours (`library {topic:"inspire", search}`), study their
+3. Save 2+ edits like yours (`library {topic:"inspire", search}`), study, label their
    strips; then `notes {action:"set_plan", steps:[…]}`, 3–6 steps.
 4. First a rough whole scene in **one** `edit` (`compose`).
    Then up to 3 sections, each an `edit` + `look {from, to}`.

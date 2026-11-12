@@ -875,13 +875,13 @@ test("the reference step: before the plan, until 2 references are saved; not whe
 });
 
 // A measured reference with one frame strip, kept where kino keeps them (no download), saved.
-async function savedReference(project, name, key = null) {
+async function savedReference(project, name, key = null, seconds = null) {
   const folder = path.join(server.dataDirectory, "inspire");
   await mkdir(path.join(folder, "strips", name), { recursive: true });
   const strip = createCanvas(240, 135);
   strip.getContext("2d").fillRect(0, 0, 240, 135);
   await writeFile(path.join(folder, "strips", name, "1.jpg"), strip.toBuffer("image/jpeg"));
-  await writeFile(path.join(folder, `${name}.json`), JSON.stringify({ id: `yt:${name}`, title: name, state: "measured", version: 2, seconds: 9, strips: [{ at: 1, file: "1.jpg", kinds: ["cut"] }] }));
+  await writeFile(path.join(folder, `${name}.json`), JSON.stringify({ id: `yt:${name}`, title: name, state: "measured", version: 2, seconds: 9, ...(seconds ? { numbers: { seconds } } : {}), strips: [{ at: 1, file: "1.jpg", kinds: ["cut"] }] }));
   const saved = await agent("library", { project, topic: "inspire", name: `save yt:${name}${key ? ` as ${key}` : ""}` });
   assert.equal(saved.isError, undefined, saved.text);
   if (key) assert.equal(saved.data.key, key, "save ... as <key> names it for a board move.ref");
@@ -1315,6 +1315,34 @@ test("a waived order builds at once, and references saved after the first build 
   const render = await agent("render", { project: id, action: "start", quality: "final", format: "gif" });
   assert.equal(render.data.error, "reference_needed", render.text);
   assert.match(render.data.reason, /^References saved after building do not count/);
+});
+
+test("the order labels what each studied reference shows on screen (seen) before the treatments; a time off its list is refused", async () => {
+  const id = "order-seen";
+  await agent("project", { action: "create", id, name: id, width: 1920, height: 1080, duration: 12 });
+  await brief(id, { fields: { ...FULL, ask: ASK_TEXT }, no_playback: "just start" });
+  // The pure step: a studied reference with an open moment asks for its label; none open, none asked.
+  const refs = { seconds: 24, references: 2, saved: ["yt:a", "yt:b"], studied: ["yt:a", "yt:b"] };
+  const state = { brief: { ...emptyBrief(), rev: 1, fields: withAsk({ ...FULL, about: ABOUT }) } };
+  assert.deepEqual(orderSteps(state, { ...refs, treatmentsWaived: true, seenOpen: { "yt:b": 5.4 } }).map((part) => [part.step, part.call.input.name]), [["label yt:b on screen (seen)", "seen yt:b @5.4 <kinds>: <what you see>"]]);
+  assert.deepEqual(orderSteps(state, { ...refs, treatmentsWaived: true, seenOpen: {} }), []);
+  await savedReference(id, "kinoSeen001", null, 9);
+  await savedReference(id, "kinoSeen002", null, 9);
+  const compose = { project: id, ops: [{ op: "compose", duration: 12, beats: [{ recipe: "headline-reveal", text: "Skate now" }] }] };
+  for (const name of ["kinoSeen001", "kinoSeen002"]) assert.equal((await agent("look", { project: id, mode: "reference", ref: `yt:${name}` })).isError, undefined);
+  const first = await agent("edit", compose);
+  assert.match(first.data.reason, /^Nothing was built: .* Next: label yt:kinoSeen001 \+1 on screen \(seen\)\./);
+  assert.deepEqual(nextCallOf(first), { tool: "library", input: { topic: "inspire", name: "seen yt:kinoSeen001 @1 <kinds>: <what you see>" } });
+  // The strip is at 1 s: every sixth of the 9 s points to it, so there is one moment. 5 s is off the list.
+  const off = await agent("library", { project: id, topic: "inspire", name: "seen yt:kinoSeen001 @5 overlay: smoke over the face" });
+  assert.equal(off.data.error, "bad_input");
+  assert.match(off.data.reason, /^seen needs a saved reference, a time from its on-screen list and kinds: library \{topic:"inspire", name:"seen yt:X @1\.8 overlay, made: green outline traced on the figure"\}\. \(5 s is not one of its moments \(1\)\)/);
+  assert.match((await agent("library", { project: id, topic: "inspire", name: "seen yt:kinoSeen001 @1 glitter: smoke" })).data.reason, /kinds are type, overlay/);
+  const saved = await agent("library", { project: id, topic: "inspire", name: "seen yt:kinoSeen001 @1.2 overlay, made: green outline traced on the figure" });
+  assert.match(saved.text, /^seen yt:kinoSeen001: 1 of 1 moments labeled \(overlay 1, made 1\)\.\nnext: library \{"topic":"inspire","name":"seen yt:kinoSeen002 @1 /);
+  assert.match((await agent("edit", compose)).data.reason, /Next: label yt:kinoSeen002 on screen/);
+  await agent("library", { project: id, topic: "inspire", name: "seen yt:kinoSeen002 @1 type: thin sans titles" });
+  assert.match((await agent("edit", compose)).data.reason, /Next: write 5 treatments/);
 });
 
 test("a brief save names every problem of the call at once: lines and log replies", () => {

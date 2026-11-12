@@ -818,6 +818,12 @@ function openParts(state, video) {
       const refs = unstudied.slice(0, needed);
       if (!saved.length) open.push({ step: "study a reference (look)", call: { tool: "look", input: { mode: "reference", ref: "<a saved reference>" } } });
       else if (refs.length) open.push({ step: `study ${refs[0]}${refs.length > 1 ? ` +${refs.length - 1}` : ""} (look)`, refs, call: { tool: "look", input: { mode: "reference", ref: refs[0] } } });
+      // Then label what each studied one shows on screen (numbers cannot see design): `seen`, 6 moments each.
+      const unlabeled = saved.slice(0, REFERENCES_WANTED).filter((id) => video.studied.includes(id) && video.seenOpen?.[id] != null);
+      if (unlabeled.length) {
+        const at = video.seenOpen[unlabeled[0]];
+        open.push({ step: `label ${unlabeled[0]}${unlabeled.length > 1 ? ` +${unlabeled.length - 1}` : ""} on screen (seen)`, call: { tool: "library", input: { topic: "inspire", name: `seen ${unlabeled[0]} @${at} <kinds>: <what you see>` } } });
+      }
     }
   }
   if (video.treatmentsWaived) return open;

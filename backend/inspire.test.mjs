@@ -591,6 +591,7 @@ test("a measured reference keeps what was heard in it (loudest change, voice) an
   const [saved] = await listen.savedFingerprints("p1");
   assert.deepEqual(saved.heard, { change: { at: 12, kind: "drop" }, voice: [[0, 2]], by: "whisper" });
   assert.deepEqual(asked, [[30, 6]]);
+  assert.deepEqual(saved.seen, [], "the on-screen labels (seen) travel with each saved fingerprint; none yet");
   // The fingerprint text says what reference_range compares: dark share and what was heard.
   const lines = fingerprintLines({ id: "yt:x", fingerprint: { look: { brightness: 0.2, darkShare: 0.1, palette: [] } }, heard: saved.heard }).join("\n");
   assert.match(lines, /look: brightness 0\.2 · dark 10%/);
