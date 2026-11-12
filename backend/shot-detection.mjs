@@ -41,7 +41,9 @@ export const SPIKE = 2;
 // way (SPIKE), is at least UNLIKE_JUMP (of 255), and the frames either side are not ALIKE, neither
 // of them black: scdet scores a cut between two dim drawn shots low (2.2 for a dim stairway into a
 // darker face, jump 7.3 against at most 0.9 around it, correlation 0.36), while a new drawing in a
-// held shot keeps its layout (correlation 0.75 and more).
+// held shot keeps its layout (correlation 0.75 and more). Only in drawn footage (the file holds
+// each drawing 2 frames or more, shotsFromRun): in a live film trailer a fast move or a flaring
+// fire in the dark jumps the same way inside one shot (5 of 7 such jumps in one trailer).
 export const UNLIKE_JUMP = 5;
 // A frame at most this bright (mean gray, 0–255) is black. A picture after two black frames starts
 // a new shot (a fade through black), unless the black opens the file; after one black frame, only
@@ -119,12 +121,12 @@ export function firstErrorLine(error) {
  * where frame i starts, in the file's usual frames; `flat(i)` and `alike(i, j)` are FLAT and ALIKE.
  *   1. scdet's score is SCDET_THRESHOLD or more.
  *   2. Its score is LOW_SCORE or more and its jump is at least SPIKE times the change on either side.
- *      Under LOW_SCORE, the same when the jump is UNLIKE_JUMP or more into a picture not alike the
- *      one before, neither frame black (a cut between dim drawn shots).
+ *      With `drawn` (the file holds its drawings), under LOW_SCORE too when the jump is UNLIKE_JUMP
+ *      or more into a picture not alike the one before, neither frame black (dim drawn shots).
  *   3. It ends a dip to black (DARK) that does not open the file: two frames of black or more, or
  *      one between two different pictures (the nearest frames that are not flat are not alike).
  */
-export function cutsFromScores(scores, frames, mad, brightness, { at = (frame) => frame, flat = () => false, alike = () => true } = {}) {
+export function cutsFromScores(scores, frames, mad, brightness, { at = (frame) => frame, flat = () => false, alike = () => true, drawn = false } = {}) {
   const cuts = [];
   const dark = (frame) => brightness[frame] <= DARK;
   // The nearest frame from `frame` on (step 1) or back (step −1) that is not flat, or -1.
@@ -144,7 +146,7 @@ export function cutsFromScores(scores, frames, mad, brightness, { at = (frame) =
     const jump = mad(frame - 1, frame);
     const around = Math.max(frame > 1 ? mad(frame - 2, frame - 1) : 0, frame + 1 < frames ? mad(frame, frame + 1) : 0, 0.5);
     const spike = jump >= SPIKE * around;
-    const unlike = () => jump >= UNLIKE_JUMP && !dark(frame - 1) && !dark(frame) && !alike(frame - 1, frame);
+    const unlike = () => drawn && jump >= UNLIKE_JUMP && !dark(frame - 1) && !dark(frame) && !alike(frame - 1, frame);
     if (score >= SCDET_THRESHOLD || (spike && (score >= LOW_SCORE || unlike()))) cuts.push(frame);
     else if (!dark(frame) && blackFrom > 0 && (at(frame) - at(blackFrom) >= 2 - EPSILON || differ(blackFrom - 1, frame))) cuts.push(frame);
   }
@@ -551,11 +553,19 @@ export function shotsFromRun(run, { duration, length, minShotFrames = MIN_SHOT_F
   const flat = (frame) => stats.spread[frame] <= FLAT;
   const alike = (first, second) => correlation(run.thumbnails, stats, first, second) >= ALIKE;
   const flashLike = (frame, before, after) => flat(frame) || alike(frame, before) || alike(frame, after);
-  // A frame FFmpeg printed no time for cannot start a shot.
-  const cuts = cutsFromScores(run.scores, frames, mad, stats.brightness, { at, flat, alike }).filter((frame) => Number.isFinite(run.times[frame]));
-  const flashSpans = [];
-  const onFlash = (cut, back) => flashSpans.push({ start: round3(run.times[cut]), end: round3(run.times[back]) });
-  const { starts, flashes } = shotsFromCuts(cuts, frames, mad, { at, flashLike, minShotFrames, onFlash });
+  const find = (drawn) => {
+    // A frame FFmpeg printed no time for cannot start a shot.
+    const cuts = cutsFromScores(run.scores, frames, mad, stats.brightness, { at, flat, alike, drawn }).filter((frame) => Number.isFinite(run.times[frame]));
+    const flashSpans = [];
+    const onFlash = (cut, back) => flashSpans.push({ start: round3(run.times[cut]), end: round3(run.times[back]) });
+    const { starts, flashes } = shotsFromCuts(cuts, frames, mad, { at, flashLike, minShotFrames, onFlash });
+    return { starts, flashes, flashSpans, holds: holdPattern(frames, mad, run.times, length, starts) };
+  };
+  // Drawn footage (each drawing held 2 frames or more in the shots found without it) is looked at
+  // once more for cuts between dim drawn shots (UNLIKE_JUMP).
+  let found = find(false);
+  if (found.holds.frames >= 2) found = find(true);
+  const { starts, flashes, flashSpans } = found;
   const span = run.times[frames - 1] - run.times[0];
   const times = starts.map((frame) => (frame === 0 ? 0 : run.times[frame]));
   const shots = times.map((start, index) => ({
@@ -565,7 +575,7 @@ export function shotsFromRun(run, { duration, length, minShotFrames = MIN_SHOT_F
   return {
     shots,
     // How the file holds its pictures (drawn footage on 2s or 3s, held poses): holdPattern.
-    holds: { ...holdPattern(frames, mad, run.times, length, starts),...(span > 0 ? { fps: round3(clock[frames - 1] / span) } : {}) },
+    holds: { ...found.holds, ...(span > 0 ? { fps: round3(clock[frames - 1] / span) } : {}) },
     found: { version: SHOTS_VERSION, frames, cuts: shots.length - 1, flashes, ms: Math.round(performance.now() - started) },
     flashes: flashSpans.filter((flash) => Number.isFinite(flash.start) && Number.isFinite(flash.end)),
     fps: span > 0 ? round3(clock[frames - 1] / span) : null,

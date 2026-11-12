@@ -12,7 +12,7 @@ import { after, before, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { createAgentClient, importedText } from "./agent/client.mjs";
 import { probeMedia } from "./media-probe.mjs";
-import { FLASH_FRAMES, MAX_VIDEO_SECONDS, MIN_SHOT_FRAMES, createShotFinder, cutsFromScores, findShots, holdPattern, holdsLine, shotFilters, shotsFromCuts, shotsLine } from "./shot-detection.mjs";
+import { FLASH_FRAMES, MAX_VIDEO_SECONDS, MIN_SHOT_FRAMES, createShotFinder, cutsFromScores, findShots, holdPattern, holdsLine, shotFilters, shotsFromCuts, shotsFromRun, shotsLine } from "./shot-detection.mjs";
 import { ffmpeg, run, skipWithoutMediaTools, startTestServer } from "./media.test.support.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -219,15 +219,17 @@ describe("cutsFromScores", () => {
     assert.deepEqual(cutsOf({ scores, jumps }), [10, 20, 40]);
   });
 
-  test("under a score of 3, a jump of 5 or more that stands out into a picture not alike the one before is a cut", () => {
+  test("in drawn footage, under a score of 3, a jump of 5 or more that stands out into a picture not alike the one before is a cut", () => {
     // A dim stairway cut to a darker face: score 2.2, jump 7.3 among 0.2s, correlation 0.36.
     const scores = flat(30, 0.1), jumps = flat(30, 0.2);
     Object.assign(scores, { 20: 2.2 });
     Object.assign(jumps, { 20: 7.3 });
     const at = jumps.map((_, frame) => jumps.slice(1, frame + 1).reduce((total, jump) => total + jump, 0));
     const mad = (first, second) => Math.abs(at[second] - at[first]);
-    const cuts = (alike, brightness = flat(30, 15)) => cutsFromScores(scores, 30, mad, brightness, { alike });
-    assert.deepEqual(cuts((first, second) => first >= 20 === second >= 20), [20]);
+    const cuts = (alike, brightness = flat(30, 15), drawn = true) => cutsFromScores(scores, 30, mad, brightness, { alike, drawn });
+    const other = (first, second) => first >= 20 === second >= 20;
+    assert.deepEqual(cuts(other), [20]);
+    assert.deepEqual(cuts(other, flat(30, 15), false), [], "live footage: a fast move in the dark jumps the same way");
     assert.deepEqual(cuts(() => true), [], "a new drawing that keeps its layout is not a cut");
     assert.deepEqual(cuts(() => false, [...flat(20, 15), ...flat(10, 2)]), [], "a jump into black is left to the dip rule");
   });
@@ -271,6 +273,33 @@ describe("holdPattern", () => {
     const steady = Array.from({ length: 40 }, (_, frame) => (frame ? 0.6 + (frame % 5) * 0.2 : 0));
     assert.deepEqual(pattern(steady), { repeated: 0, frames: 1, stills: [] });
     assert.deepEqual(pattern(Object.assign([...steady], { 20: 9 })), { repeated: 0, frames: 1, stills: [] });
+  });
+});
+
+describe("shotsFromRun", () => {
+  // 40 frames of 32×18 gray at 24 fps: dim upright stripes, then (frame 20 on) dim flat ones, which
+  // scdet scores 2.2; a small bright block moves every `step` frames (on 2s, or live on every frame).
+  function runOf(step) {
+    const thumbnails = Buffer.alloc(40 * 576);
+    for (let frame = 0; frame < 40; frame += 1) {
+      const block = Math.floor(frame / step) % 8;
+      for (let y = 0; y < 18; y += 1) {
+        for (let x = 0; x < 32; x += 1) {
+          const stripe = frame < 20 ? (x % 8 < 4 ? 26 : 6) : (y % 6 < 3 ? 22 : 4);
+          thumbnails[frame * 576 + y * 32 + x] = stripe + (Math.floor(x / 4) === block && y < 4 ? 20 : 0);
+        }
+      }
+    }
+    return { times: Array.from({ length: 40 }, (_, frame) => frame / 24), scores: Array.from({ length: 40 }, (_, frame) => (frame === 20 ? 2.2 : 0.1)), thumbnails };
+  }
+
+  test("a dim cut that scdet scores low is a cut in drawn footage, not in live footage", () => {
+    const found = (step) => {
+      const { shots, holds } = shotsFromRun(runOf(step), { duration: 40 / 24, length: 40 / 24 });
+      return { cuts: shots.slice(1).map((shot) => shot.start), frames: holds.frames };
+    };
+    assert.deepEqual(found(2), { cuts: [0.833], frames: 2 });
+    assert.deepEqual(found(1), { cuts: [], frames: 1 });
   });
 });
 
