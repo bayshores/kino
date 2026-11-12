@@ -14,7 +14,7 @@ import { callStarted } from "../render-activity.mjs";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { uptime } from "node:os";
-import { EASINGS, lowpassSampler, PRESETS } from "../../engine/animation.js";
+import { EASINGS, lowpassSampler, PRESETS, speedAnimations } from "../../engine/animation.js";
 import { addNeeds, answerNeed, emptyNeeds, finishNeed, needsCall, needsLine, needState, NEEDS_WAIVER, openNeeds, parseNeedItems } from "./needs.mjs";
 import { LIBRARY_TOPICS, NOTES_ACTIONS } from "./actions.mjs";
 import { createFootageActions, FootageError, FOOTAGE_RESULT_KEEP_MS, FOOTAGE_TOPIC_LINE, FOOTAGE_WAIT_MS, isFoundClip, parseRef as parseFootageRef, personClipCount, personClipsLine, scanIdOf } from "../footage-finder/actions.mjs";
@@ -106,7 +106,7 @@ import { changedStretches, findingsAt, frameSignature, nearDuplicate, newFinding
 import { missingDocumentFonts } from "../../engine/fontRecovery.js";
 import { sceneShots, shotTiles } from "../../engine/sceneShots.js";
 import { boxesAt, cropOnSource, insideShare } from "../../engine/sourceView.js";
-import { mediaFrameState, mediaPlaybackRange, mediaSoundTime } from "../../engine/playback.js";
+import { mediaFrameState, mediaPlaybackRange, mediaSceneTime, mediaSoundTime } from "../../engine/playback.js";
 import { shapeOf } from "../../engine/footage/layout.js";
 import { cropLine } from "../../engine/quality/rules/footage.js";
 import { namedShape } from "../../engine/quality/rules/shape.js";
@@ -696,7 +696,7 @@ export function createAgentService(deps) {
     // A song's saved shape (.song file, never a new measure): reference_range reads its loudest change.
     const songOf = async (layer) => (await songShapes.saved?.(mediaFileOf(layer))) ?? null;
     // The lines the clips say (saved transcripts only), heard or muted: reference_range names them.
-    const clipLinesOf = async (doc, scene) => (await sceneLines(scene, doc, codes)).map(({ layer, layerId, text, from, to, slowed }) => ({ layer, layerId, text, from, to, ...(slowed ? { slowed } : {}) }));
+    const clipLinesOf = async (doc, scene) => (await sceneLines(scene, doc, codes)).map(({ layer, layerId, text, from, to, slowed, how, speedAnimations: speeds }) => ({ layer, layerId, text, from, to, ...(slowed ? { slowed, how, speedAnimations: speeds } : {}) }));
     const asks = askedItems(saved);
     // listen:false (the dashboard's own check) never starts a reference's voice measure either.
     const checked = await quality.check(document, { fonts, codes, sceneId, pixels, listen, outputFps, styleSpec, deck, briefFonts, length, asks, transcriptOf, loudnessOf, levelsOf: levelsOfLayer, songOf, clipLines: clipLinesOf, peopleOf, soundSearch: songSearchOn(), origin: saved?.origin ?? null, playsOn: saved?.brief?.fields?.plays_on ?? null, sourceLooks: saved?.sourceLooks ?? {} });
@@ -4683,7 +4683,7 @@ export function createAgentService(deps) {
         const whole = !slowed && line.start >= plays[0] - 1e-6 && line.end <= plays[1] + 1e-6;
         const at = (file) => Math.round((range.start + file - range.offset) * 10) / 10;
         // Why keep_line cannot take the line as the layer plays it (it needs speed 1, forwards, every frame).
-        const how = !slowed ? "" : constantSpeed(layer) !== 1 ? `speed ${constantSpeed(layer)}` : isReversed(layer) ? "backwards" : "speed animated or own frame rate";
+        const how = slowed ? remapReason(layer) : "";
         const entry = { layer: refName(layer.id, codes), src: layer.src, text: line.text, whole, overlap, plays, line, from: at(line.start), to: at(line.end),
           speed: slowed ? constantSpeed(layer) : 1, how, mediaStart: layer.mediaStart ?? 0, sceneStart: range.start, offset: range.offset };
         const key = `${layer.src} ${line.start}`;
@@ -4719,8 +4719,11 @@ export function createAgentService(deps) {
     const text = `lines: your clips say ${named.length} line${named.length === 1 ? "" : "s"} and none is heard: ${shown.join(" · ")}${named.length > 3 ? ` +${named.length - 3} more` : ""}.${keep} The song alone is a choice too.`;
     return { text, key };
   }
+  // Why keep_line cannot take a layer as it plays (it needs speed 1, forwards, every frame).
+  const remapReason = (layer) => constantSpeed(layer) !== 1 ? `speed ${constantSpeed(layer)}` : isReversed(layer) ? "backwards" : "speed animated or own frame rate";
   // The lines the scene's clips say within the stretch each plays, from saved transcripts only:
-  // [{layer, src, text, from, to (scene s), heard (the layer is not at volume 0), slowed}].
+  // [{layer, src, text, from, to (scene s), heard (the layer is not at volume 0), slowed,
+  // how, speedAnimations (when slowed)}].
   async function sceneLines(scene, document, codes) {
     const found = [];
     for (const layer of scene.layers) {
@@ -4730,10 +4733,22 @@ export function createAgentService(deps) {
       if (!range) continue;
       // The same predicate as the speech checks (quality.mjs heardSpeech): a layer at volume 0 is not heard.
       const heard = Number(layer.volume ?? 1) > 0 || (layer.animations ?? []).some((animation) => animation?.to && "volume" in animation.to);
+      const slowed = isRemapped(layer);
+      // The file seconds the layer plays: a layer at another speed reads them off its sound clock.
+      const ends = slowed ? [range.offset, mediaSoundTime(layer, range.end)] : [range.offset, range.offset + range.duration];
+      const plays = [Math.min(...ends), Math.max(...ends)];
       for (const line of lines) {
-        if (line.start < range.offset - 1e-6 || line.end > range.offset + range.duration + 1e-6) continue;
-        const at = (file) => Math.round((range.start + file - range.offset) * 10) / 10;
-        found.push({ layer: refName(layer.id, codes), layerId: layer.id, src: layer.src, text: line.text, from: at(line.start), to: at(line.end), heard, slowed: isRemapped(layer) });
+        if (line.start < plays[0] - 1e-6 || line.end > plays[1] + 1e-6) continue;
+        // Scene seconds of a file second, to 0.01 (a slowed layer maps it back through its clock).
+        const at = (file, step) => {
+          const time = slowed ? mediaSceneTime(layer, file) : range.start + file - range.offset;
+          return Number.isFinite(time) ? Math[step](time * 100) / 100 : null;
+        };
+        const times = [at(line.start, "floor"), at(line.end, "ceil")];
+        if (times.some((time) => time == null)) continue;
+        const [from, to] = times.sort((a, b) => a - b);
+        found.push({ layer: refName(layer.id, codes), layerId: layer.id, src: layer.src, text: line.text, from, to, heard, slowed,
+          ...(slowed ? { how: remapReason(layer), speedAnimations: speedAnimations(layer).map((animation) => refName(animation.id, codes)) } : {}) });
       }
     }
     return found.sort((a, b) => a.from - b.from);

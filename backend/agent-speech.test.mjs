@@ -223,6 +223,26 @@ test("short lines the layer does not play never hide the one it plays; a line ju
   assert.deepEqual(pasted.data.keepLine?.file, [3, 4.7], pasted.text);
 });
 
+test("a full check warns when a text shows the line of a muted video clip, with the keep_line call ready", { skip: skipWithoutMediaTools }, async () => {
+  const other = path.join(folder, "muted-clip.wav");
+  await writeWav(other, toneWords(TONES, DURATION + 0.2));
+  const media = await upload(server, other, "muted-clip.wav");
+  const words = ["The", "whole", "long", "line", "is", "here."].map((text, at) => ({ text, start: 3 + at * 0.3, end: 3.2 + at * 0.3, p: 0.9 }));
+  await writeFile(path.join(server.dataDirectory, "media", `${media.src.split("/").pop()}.words-small.en-0123abcd`), JSON.stringify({ version: TRANSCRIPT_VERSION, words }));
+  const client = createAgentClient({ url: server.baseUrl, ownerToken: server.ownerToken }, { name: "cli" });
+  assert.equal((await client.call("project", { action: "create", id: "muted-line", width: 320, height: 180, duration: 4 })).isError, undefined);
+  const layers = [
+    { op: "add_layer", layerType: "video", name: "clip", properties: { src: media.src, mediaStart: 0, mediaOffset: 2.8, mediaDuration: 2.4, volume: 0 } },
+    { op: "add_layer", layerType: "text", name: "title", properties: { text: "The whole long line is here", x: 10, y: 60, width: 300, height: 60, fontSize: 24, fill: "#FFFFFF" } },
+  ];
+  const added = await client.call("edit", { project: "muted-line", ops: layers });
+  assert.equal(added.isError, undefined, added.text);
+  const checked = await client.call("check", { project: "muted-line", pixels: true });
+  const found = JSON.stringify(checked.data);
+  assert.match(found, /shows the line clip says, but clip is muted there/, checked.text);
+  assert.ok(found.includes('edit {\\"ops\\":[{\\"op\\":\\"keep_line\\",\\"layer\\":\\"clip\\",\\"line\\":\\"The whole long line is here.\\",\\"subtitle\\":false}'), found);
+});
+
 test("the dashboard's own check (listen:false) never transcribes; an agent's full check does", { skip: skipWithoutMediaTools }, async () => {
   const key = (await (await server.api("/api/dashboard/review-key", { method: "POST", headers: { "sec-fetch-site": "same-origin", origin: server.baseUrl } })).json()).key;
   const media = await upload(server, wav, "dashboard-voice.wav");

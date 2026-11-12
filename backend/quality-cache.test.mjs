@@ -133,6 +133,15 @@ test("speech_cut reads transcripts through transcriptOf, and a transcript made l
   const full = (transcriptOf) => checker.check(document, { fonts: defaultFonts, pixels: true, transcriptOf });
   assert.deepEqual((await full(() => null)).stale, []);
   assert.deepEqual((await full(async () => ({ music: true }))).stale, [waiver]);
+
+  // The lines a muted clip says are in the key: a transcript saved after a full check shows its finding on the next one.
+  const muted = project("muted", "We leave at dawn");
+  muted.scenes[0].layers.push(createLayer("video", { id: "clip", name: "clip", src: "/api/media/clip.mp4", x: 0, y: 0, width: 640, height: 360, mediaDuration: 2, volume: 0 }));
+  let lines = [];
+  const warned = async () => (await checker.check(muted, { fonts: defaultFonts, pixels: true, clipLines: async () => lines })).findings.filter((entry) => entry.rule === "speech_captions");
+  assert.deepEqual(await warned(), []);
+  lines = [{ layer: "clip", layerId: "clip", text: "We leave at dawn today.", from: 0.2, to: 1.5 }];
+  assert.equal((await warned()).length, 1);
 });
 
 test("reference_drift measures in the background: the check answers with a note, the next check reads it", async () => {
