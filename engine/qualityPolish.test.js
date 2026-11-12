@@ -1082,7 +1082,7 @@ test("frozen_footage: a clip whose picture stops on screen is a gate", async () 
   // Drawn footage on 3s whose file holds one pose 0.9-1.4 s: slowed to 0.175 over 1.9 s from 1 s,
   // the stop shows the file's own held drawing: a measured fact (native) with the pose's length.
   // Run past the pose, the edit froze moving drawings: today's finding.
-  const held = (stills) => ([document, context]) => [document, { ...context, mediaHolds: { "/api/media/walk.mp4": { repeated: 0.7, frames: 3, fps: 30, stills } } }];
+  const held = (stills, frames = 3) => ([document, context]) => [document, { ...context, mediaHolds: { "/api/media/walk.mp4": { repeated: 0.7, frames, fps: 30, stills } } }];
   const slowed = footage([take({ mediaOffset: 1, mediaSpeed: 0.175, mediaDuration: 1.9, animations: shown(0, 1.9) })]);
   const [pose] = await fires("frozen_footage", ...held([{ start: 0.9, end: 1.4 }])(slowed));
   assert.deepEqual([pose.severity, pose.native, pose.until], ["error", { start: 0.9, end: 1.4 }, 1.9]);
@@ -1090,6 +1090,9 @@ test("frozen_footage: a clip whose picture stops on screen is a gate", async () 
   const [edit] = await fires("frozen_footage", ...held([{ start: 0.9, end: 1.1 }])(slowed));
   assert.equal(edit.native, undefined);
   assert.match(edit.message, /the clip stops: no new frames from its file/);
+  // Live footage (usual hold 1 frame) with the same still stretch in its file: still a stop, no native.
+  const [live] = await fires("frozen_footage", ...held([{ start: 0.9, end: 1.4 }], 1)(slowed));
+  assert.deepEqual([live.native, live.until], [undefined, undefined]);
 });
 
 test("jump_cut: one take cut to a little later in itself, framed alike, with no transition", async () => {

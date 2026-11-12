@@ -793,9 +793,11 @@ const POSE_SLACK = 1 / 60;
 
 /**
  * The file's still pose (holds.stills, file seconds) that holds every file time from `from` to
- * `to`: the stop shows a drawing the file itself holds there. null when none does.
+ * `to`: the stop shows a drawing the file itself holds there. null when none does, and for live
+ * footage (a usual hold of 1 frame): a still stretch of a live clip stays a stop, as before.
  */
 export function nativeStill(holds, from, to) {
+  if (!(holds?.frames >= 2)) return null;
   const [low, high] = from <= to ? [from, to] : [to, from];
   return (holds?.stills ?? []).find((still) => still.start <= low + POSE_SLACK && high < still.end + POSE_SLACK) ?? null;
 }
