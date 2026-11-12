@@ -187,7 +187,7 @@ export function openStops(state, video = {}, given = DEFAULT_STOP_RULES) {
 // lapsed)", or just "color" when it was never asked.
 // An allowed round open again was let through by "stop asking", which the person undid.
 const ROUND_WORDS = { waiting: "waiting", lapsed: "lapsed", reopened: "reopened", allowed: "asking again" };
-const openWords = ({ kind, round }) => {
+export const openWords = ({ kind, round }) => {
   if (!round) return kind;
   const words = round.status === "answered" && round.answer?.read_as === "redo" ? "redo" : ROUND_WORDS[round.status] ?? (kind === "board" ? "changed since approved" : round.status);
   return `${kind} (${round.id} ${words})`;

@@ -78,7 +78,7 @@ import { createPeopleCache } from "../footage/people.mjs";
 import { createSoundsCache } from "../footage/sounds.mjs";
 import { applySwap, cardCall, dealDue, deckData, deckInputs, deckRequest, deckStatusLine, deckText, loadMoves, mediaKeys, newDeal, RECENT_PROJECTS, swapProblem } from "./deck.mjs";
 import { madeNamesIn } from "../../engine/deck.js";
-import { answerStep, checkpointStep, dashboardAnswerStep, finalRefusal, openStops, reopenStep, reviseWaitingBoard, settleWaiting, statusLines, statusMove, StopError, stopRules, stopsSummary, topRules, waitingData, waitingStop, waivedLine, workPrint } from "./stops.mjs";
+import { answerStep, checkpointStep, dashboardAnswerStep, finalRefusal, openStops, reopenStep, openWords, reviseWaitingBoard, settleWaiting, statusLines, statusMove, StopError, stopRules, stopsSummary, topRules, waitingData, waitingStop, waivedLine, workPrint } from "./stops.mjs";
 import { finishLog, logCall, stepNameOf, stepRows, stepsLine, stepsTable } from "./step-log.mjs";
 import { controlsLine } from "./controls.mjs";
 import { addRejected } from "./style.mjs";
@@ -3694,6 +3694,7 @@ export function createAgentService(deps) {
     // Past the build (built and checked once, no stop waiting, the storyboard stop not open): every
     // gate left before the final render. A gate that fails to work out leaves the line out.
     const prebuild = waitingStop(state) || openStops(state, await directionFacts(document), stopRulesNow()).some((stop) => stop.kind === "board");
+    const finalNote = hasLayers(document) ? await finalNeedsNote(record, findings) : "";
     const toFinal = hasLayers(document) && state.checked && !prebuild ? await finalGates(record).then(toFinalLine, () => "") : "";
     const takes = await takesLine(projectId);
     // What waits for the person: approvals, and a hold on agent writes.
@@ -3706,7 +3707,7 @@ export function createAgentService(deps) {
     // after the direction block, before the plan and the layer rows.
     const outline = projectOutline(record, {
       codes, focus: focus.id, page: input.page ?? 1, seen: state.seen ?? {}, full: input.full === true, notices: extra,
-      plan: state.plan, checks: checkSummary(findings, { unchecked, real: await isRealEdit(document) }), pointing, direction: [...statusLines(state, await directionFacts(document), stopRulesNow()), ...(controlsLine(state.brief?.controls) ? [controlsLine(state.brief.controls)] : []), ...(takes ? [takes] : []), ...(toFinal ? [toFinal] : []), ...(deckLine ? [deckLine] : []), ...(madeText ? [madeText] : []), ...(always ? [always] : []), ...(needs ? [needs] : []), ...(lineNote ? [lineNote.text] : [])],
+      plan: state.plan, checks: `${checkSummary(findings, { unchecked, real: await isRealEdit(document) })}${finalNote ? ` · ${finalNote}` : ""}`, pointing, direction: [...statusLines(state, await directionFacts(document), stopRulesNow()), ...(controlsLine(state.brief?.controls) ? [controlsLine(state.brief.controls)] : []), ...(takes ? [takes] : []), ...(toFinal ? [toFinal] : []), ...(deckLine ? [deckLine] : []), ...(madeText ? [madeText] : []), ...(always ? [always] : []), ...(needs ? [needs] : []), ...(lineNote ? [lineNote.text] : [])],
     });
     const stop = waitingStop(state);
     noteLive({ sceneId: focus.id });
@@ -3812,7 +3813,8 @@ export function createAgentService(deps) {
     if (!scene) await recordDeckUse(projectId, result.techniques);
     const report = checkReport(result.findings, { info: Boolean(rules) });
     const stops = stopsNote(result.findings, await isRealEdit(record.document));
-    const counts = `${report.errors} err · ${report.warnings} warn${stops ? ` · ${stops}` : ""}${report.info ? ` · ${report.info} info` : ""}${report.waived ? ` · ${report.waived} waived` : ""}`;
+    const finalNote = scene || !hasLayers(record.document) ? "" : await finalNeedsNote(record, result.findings);
+    const counts = `${report.errors} err · ${report.warnings} warn${stops ? ` · ${stops}` : ""}${report.info ? ` · ${report.info} info` : ""}${report.waived ? ` · ${report.waived} waived` : ""}${finalNote ? ` · ${finalNote}` : ""}`;
     const lines = [`rev ${record.revision} · ${counts}${scene ? ` · ${refName(scene.id, codes)} only` : ""}${options.pixels ? "" : " · pixels off"} · ${result.ms} ms`];
     // A rule waived over and over in one project is likely kino's mistake, not taste. Right after
     // the counts, so an agent that reads only the first lines still sees it.
@@ -9919,7 +9921,7 @@ export function createAgentService(deps) {
   // calls and stills, which skip them. Check errors only pixels find (contrast) show up at the
   // render's own check. `first` stops at the first gate (buildNext); `scenes` and `options` are
   // the render's (a cut-short render skips the whole-video gates).
-  async function finalGates(record, { scenes = null, options = {}, first = false } = {}) {
+  async function finalGates(record, { scenes = null, options = {}, first = false, given = null } = {}) {
     const document = record.document;
     const state = await agentState.read(document.id);
     const codes = await syncCodes(document.id, document);
@@ -9930,18 +9932,18 @@ export function createAgentService(deps) {
     const waivers = document.checkWaivers ?? [];
     const waived = (code, scene) => waivers.some((waiver) => waiver.code === code && (waiver.target === "*" || waiver.target === scene.id));
     const gates = [];
-    const add = (code, words, call) => { gates.push({ code, words, call }); return first; };
+    const add = (code, words, call, named = "") => { gates.push({ code, words, call, ...(named ? { named } : {}) }); return first; };
     const waiting = waitingStop(state);
-    if (waiting && add("stops_open", `${waiting.id} waits: end your turn`, nextOf("notes", { action: "answer", id: waiting.id, rev: waiting.rev, words: "<their reply, word for word>", read_as: "approve" }))) return gates;
+    if (waiting && add("stops_open", `${waiting.id} waits: end your turn`, nextOf("notes", { action: "answer", id: waiting.id, rev: waiting.rev, words: "<their reply, word for word>", read_as: "approve" }), `the person's answer to ${waiting.id} (end your turn)`)) return gates;
     const lock = lockNeeded(state, videoFacts(document));
-    if (lock && add("direction_needed", "notes brief (lock the direction)", lock.call)) return gates;
+    if (lock && add("direction_needed", "notes brief (lock the direction)", lock.call, `style bible: ${lock.left.join(", ")}`)) return gates;
     if (whole.length && !whole.some((scene) => waived(NEEDS_WAIVER, scene))) {
       const open = openNeeds(state.needs);
-      if (open.length) { if (add("needs_open", `notes needs (${open.map((need) => need.id).join(" ")})`, needNextCall(open[0]))) return gates; }
+      if (open.length) { if (add("needs_open", `notes needs (${open.map((need) => need.id).join(" ")})`, needNextCall(open[0]), `needs answered (${open.map((need) => need.id).join(" ")})`)) return gates; }
       else if (!state.needs?.checked && hasBrief(state.brief)) {
         for (const scene of whole) {
           if (scene.duration < VIEWER_UNDER || !(await hasFootageOrSpeech(scene, document))) continue;
-          if (add("needs_unchecked", "notes needs (check the material)", needsAskCall(state))) return gates;
+          if (add("needs_unchecked", "notes needs (check the material)", needsAskCall(state), "the material checked")) return gates;
           break;
         }
       }
@@ -9949,7 +9951,7 @@ export function createAgentService(deps) {
     // The stops this project's settings still ask (rough, color, sound): each leads to its pass's
     // edits, which the viewer, critic, review and versus would have to see again.
     const stops = openStops(state, await videoFactsFor(document), stopRulesNow()).filter((stop) => stop.kind !== waiting?.kind);
-    if (stops.length && add("stops_open", `notes checkpoint ${stops.map((stop) => stop.kind).join(", ")}`, nextOf("notes", { action: "checkpoint", id: stops[0].kind }))) return gates;
+    if (stops.length && add("stops_open", `notes checkpoint ${stops.map((stop) => stop.kind).join(", ")}`, nextOf("notes", { action: "checkpoint", id: stops[0].kind }), `stop ${stops.map(openWords).join(", ")}`)) return gates;
     // The critic round is offered once (a real edit with none yet); the render never waits on it,
     // nor on the viewer, the critic's open lines or look review: they fold into its receipt (FOLDED_GATES).
     for (const scene of whole) {
@@ -9959,7 +9961,7 @@ export function createAgentService(deps) {
         break;
       }
     }
-    const { findings } = await findingsFor(document, { fonts, codes });
+    const { findings } = given ? { findings: given } : await findingsFor(document, { fonts, codes });
     const real = await isRealEdit(document);
     const blocking = findings.filter((finding) => blocksFinal(finding, real));
     if (blocking.length) {
@@ -9973,13 +9975,69 @@ export function createAgentService(deps) {
     if (whole.length && !whole.every((scene) => waived(REFERENCE_WAIVER, scene))) {
       const versus = nextOf("look", { mode: "versus" });
       if (!(await judge.hasSaved(document.id))) {
-        if (deps.inspire && whole.some((scene) => scene.duration >= REFERENCE_SKIP_UNDER) && add("reference_needed", `library inspire (save ${REFERENCES_WANTED}; the final render runs look versus)`, nextOf("library", { topic: "inspire", search: await findSearchFor(document.id) }))) return gates;
+        if (deps.inspire && whole.some((scene) => scene.duration >= REFERENCE_SKIP_UNDER) && add("reference_needed", `library inspire (save ${REFERENCES_WANTED}; the final render runs look versus)`, nextOf("library", { topic: "inspire", search: await findSearchFor(document.id) }), `${REFERENCES_WANTED} saved reference edits`)) return gates;
       } else if (state.firstBuild && !(await savedIds(document.id)).some((id) => state.firstBuild.saved.includes(id) || state.firstBuild.studied.includes(id))) {
-        if (add("reference_needed", 'waive_check reference (references saved after the build)', nextOf("edit", { ops: [{ op: "waive_check", code: REFERENCE_WAIVER, target: "*", reason: "<built before the references; the person knows>" }] }))) return gates;
+        if (add("reference_needed", 'waive_check reference (references saved after the build)', nextOf("edit", { ops: [{ op: "waive_check", code: REFERENCE_WAIVER, target: "*", reason: "<built before the references; the person knows>" }] }), "references saved before the build (or a waiver)")) return gates;
       // Not seen beside them yet is no step: the final render runs look versus itself.
-      } else if (judgeLost(state, record.revision) && add("reference_needed", "look versus (the person's judge picked the references)", versus)) return gates;
+      } else if (judgeLost(state, record.revision) && add("reference_needed", "look versus (the person's judge picked the references)", versus, "the edit seen beside the references")) return gates;
     }
     return gates;
+  }
+
+  // What a final render needs beyond the warnings the counts already name: every open gate but
+  // the check (its warnings are counted) and the critic round (offered once; the render never waits
+  // on it), each by name with the tool and action that clears it. The full calls are in the
+  // refusal and in the "to final:" line's next. Nothing when nothing is missing.
+  const NOT_NEEDS = ["check_failed", "critique_needed"];
+  const shortCall = (call) => {
+    const input = call?.input ?? {};
+    return [call?.tool, input.action ?? input.mode ?? input.topic ?? input.ops?.[0]?.op, input.action === "checkpoint" ? input.id : null].filter(Boolean).join(" ");
+  };
+
+  // The style bible's fonts against the faces on screen: the role_font_drift findings that hold
+  // layers to the bible's face. A director who changed faces after the bible was written (set_font)
+  // gets which layers differ, the one call that writes what is on screen into the bible, and the
+  // one call that sets the layers back; which one is the agent's choice. null when none differ.
+  function bibleFontGap(findings, document, codes, state) {
+    const style = state?.brief?.style;
+    if (!style?.fonts || !Object.keys(style.fonts).length) return null;
+    const byCode = new Map(document.scenes.flatMap((scene) => scene.layers ?? []).map((layer) => [refName(layer.id, codes), layer]));
+    const fonts = {};
+    const parts = [];
+    const ops = [];
+    const names = [];
+    for (const finding of findings) {
+      if (finding.rule !== "role_font_drift" || finding.waived || !String(finding.required).startsWith("the style bible's")) continue;
+      const sets = [finding.fix].flat().filter((op) => op?.op === "set_font");
+      if (!sets.length) continue;
+      const role = String(finding.measured).split(" in ")[0].replace(/ \(voice.*$/, "");
+      const key = role === "speech" ? (style.fonts.quote ? "quote" : "caption") : role;
+      const ids = [...new Set(sets.flatMap((op) => op.layerIds ?? []))];
+      const counts = new Map();
+      for (const id of ids) { const family = byCode.get(id)?.fontFamily; if (family) counts.set(family, (counts.get(family) ?? 0) + 1); }
+      const screen = [...counts].sort((a, b) => b[1] - a[1])[0]?.[0];
+      if (!screen || fonts[key]) continue;
+      fonts[key] = { family: screen };
+      ops.push(...sets);
+      names.push(...ids);
+      parts.push(`${key} ${ids.slice(0, 3).join(" ")}${ids.length > 3 ? ` +${ids.length - 3}` : ""} in ${screen} (bible ${sets[0].family})`);
+    }
+    if (!parts.length) return null;
+    const by = style.by === "you" ? { by: "you", quote: "<their words approving it>" } : { by: "guessed" };
+    return { words: parts.join("; "), layers: names, update: nextOf("notes", { action: "brief", fields: { style: { fonts, ...by } } }), back: nextOf("edit", { ops }) };
+  }
+
+  // The counts line's extra: "a final render also needs: stop board (C2 waiting) (notes checkpoint board), ...", or "".
+  async function finalNeedsNote(record, findings) {
+    try {
+      const document = record.document;
+      const gates = (await finalGates(record, { given: findings })).filter((gate) => !NOT_NEEDS.includes(gate.code));
+      const gap = bibleFontGap(findings, document, await syncCodes(document.id, document), await agentState.read(document.id));
+      const items = [...gates.map((gate) => `${gate.named ?? gate.words}${gate.call ? ` (${shortCall(gate.call)})` : ""}`),
+        ...(gap ? [`style fonts differ on screen: ${gap.words} (update the bible: notes brief; or set the layers back: edit set_font)`] : [])];
+      if (!items.length) return "";
+      return `a final render also needs: ${items.slice(0, 4).join(", ")}${items.length > 4 ? `, +${items.length - 4}` : ""}`;
+    } catch { return ""; }
   }
 
   // The gates as one line: "to final: 1) notes intents 2) look viewer, ... 3) render final".
@@ -10006,7 +10064,14 @@ export function createAgentService(deps) {
     const family = (code) => code.replace(/_(needed|open|unchecked|failed)$/, "");
     if (!gates.some((gate) => family(gate.code) === family(error.code)))
       gates.unshift({ code: error.code, words: error.code === "check_failed" ? 'check fix:"auto", then fix the findings named here' : `clear ${error.code}` });
-    error.message = `${error.message} ${toFinalLine(gates, "A final render still needs:", true)}.${await waivedNote(record.document)}`;
+    let fonts = "";
+    try {
+      const document = record.document;
+      const { findings } = await findingsFor(document, { fonts: await fontsFor(document), codes: await syncCodes(document.id, document) });
+      const gap = bibleFontGap(findings, document, await syncCodes(document.id, document), await agentState.read(document.id));
+      if (gap) fonts = ` The style bible's fonts differ from the screen (${gap.words}); update the bible to the screen: ${callText(gap.update)} or set the layers back: ${callText(gap.back)}.`;
+    } catch { /* the gates above stand without it */ }
+    error.message = `${error.message} ${toFinalLine(gates, "A final render still needs:", true)}.${fonts}${await waivedNote(record.document)}`;
     return error;
   }
 
