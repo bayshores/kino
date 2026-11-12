@@ -1274,6 +1274,8 @@ test("default_font: the fix fills the fonts search with the first type label's w
   assert.deepEqual(own.fix.call, { tool: "library", input: { topic: "fonts", search: "huge condensed caps white" } });
   const [common] = await fires("default_font", scene({ layers: [text("title", "Hello", { fontFamily: "Inter" })] }), { seenRefs: labeled });
   assert.match(common.fix.text, /^library \{topic:"fonts", search:"huge condensed caps white"\} lists fonts like your references' type; then take the typeface/);
+  // The like call measures the lettering at the first moment labeled type.
+  assert.match(own.fix.text, / library \{topic:"fonts", like:"yt:AAAA", t:8, region:\[x,y,w,h\]\} ranks faces by the lettering there\.$/);
   // No type label: today's placeholder, no call.
   const [bare] = await fires("default_font", scene({ layers: [text("title", "Hello", { fontFamily: "Space Mono" })] }), { savedRefCount: 2 });
   assert.match(bare.fix.text, /search:"<the type your reference strip shows/);

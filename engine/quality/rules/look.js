@@ -140,12 +140,18 @@ export function defaultFont(model, ctx) {
     const list = `${items.length} text layer${items.length === 1 ? "" : "s"} (${items.slice(0, 3).map((item) => ctx.name(item)).join(", ")}) use${items.length === 1 ? "s" : ""} ${items[0].fontFamily}`;
     const own = KINO_OWN.includes(family) && withRefs;
     const name = items[0].fontFamily;
+    // With a saved reference, the fonts like call measures its lettering (GAPS item 1): at the moment
+    // labeled type when there is one.
+    const typed = (ctx.seenRefs ?? []).flatMap((ref) => (ref.seen ?? []).filter((moment) => moment.kinds?.includes("type")).map((moment) => ({ id: ref.id, at: moment.at })))
+      .sort((a, b) => a.at - b.at)[0];
+    const like = typed ? ` library {topic:"fonts", like:"${typed.id}", t:${typed.at}, region:[x,y,w,h]} ranks faces by the lettering there.`
+      : withRefs ? ' library {topic:"fonts", like:"<saved reference id>", t:<seconds>, region:[x,y,w,h]} ranks faces by the lettering at that moment.' : "";
     return {
       rule: "default_font", severity: "warn", itemId: items[0].id, itemIds: items.map((item) => item.id), measured: name, required: "a chosen font",
       message: own ? `${list} from kino's own fonts; no reference or your words chose it.` : `${list}, a common default font that no reference, style spec or brand chose.`,
       fix: { kind: "hint", text: own
-        ? `library {topic:"fonts", search:${search ?? '"<the type your reference strip shows, e.g. condensed bold sans>"'}}, then set_font {layerIds, family, weight}; to keep ${name}: notes {action:"brief", fields:{style:{lines:[{text:"${name} titles", ref:"<saved reference id>", at:<seconds>}]}}} (a line at a moment of a saved reference that shows it).`
-        : `${search ? `library {topic:"fonts", search:${search}} lists fonts like your references' type; then t` : "T"}ake the typeface from your references (notes brief: style fonts), or set ${name} there if a reference or the brand chose it.`,
+        ? `library {topic:"fonts", search:${search ?? '"<the type your reference strip shows, e.g. condensed bold sans>"'}}, then set_font {layerIds, family, weight}; to keep ${name}: notes {action:"brief", fields:{style:{lines:[{text:"${name} titles", ref:"<saved reference id>", at:<seconds>}]}}} (a line at a moment of a saved reference that shows it).${like}`
+        : `${search ? `library {topic:"fonts", search:${search}} lists fonts like your references' type; then t` : "T"}ake the typeface from your references (notes brief: style fonts), or set ${name} there if a reference or the brand chose it.${like}`,
         ...(search ? { call: { tool: "library", input: { topic: "fonts", search: typeWords } } } : {}) },
     };
   });
