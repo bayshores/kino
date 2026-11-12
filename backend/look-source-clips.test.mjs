@@ -91,7 +91,7 @@ test("look source times: those file seconds of a clip, by file name or video lay
   const all = await call("look", { project: "clips", mode: "source" });
   assert.match(all.text, /^1 01-wide\.mp4 160×90 2 s · wide$/m, "the overview names the layer that shows a clip");
   assert.match(all.text, /^heard \(shortest first\): \S+ "Hello there\." 0\.2-1\.1 s$/m);
-  assert.match((await call("look", { project: "clips", mode: "source", layer: "wide", t: 1 })).text, /^heard: "Hello there\." 0\.2-1\.1 s \(file s\)$/m);
+  assert.match((await call("look", { project: "clips", mode: "source", layer: "wide", t: 1 })).text, /^sound: (?:-?\d+\.\d LUFS · )?heard "Hello there\." 0\.2-1\.1 s \(file s\)$/m);
 });
 
 test("a video over the upload limit imports as kino's own copy with a note; one under it has none", { skip: skipWithoutMediaTools, timeout: 120_000 }, async () => {

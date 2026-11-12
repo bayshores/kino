@@ -1017,7 +1017,11 @@ How to read it:
   (status or an edit's notes) with the keep_line plus isolate_voice call, also a line the trim cuts off
   (with the file seconds to move it to). Evidence: `engine/speech.test.js`
   (clipLines), `backend/footage-finder.test.mjs` (takeText), `backend/agent-speech.test.mjs`. Gaps: the model
-  is English only, so other languages come out as sound-alike words; import time with whisper not measured.
+  is English only; import time with whisper not measured.
+- **Clip sound readout**: Verified on three local clips and a stand-in transcript. Each clip gives its
+  integrated LUFS, its lines, and `voice heard ..., words not read` where whisper tagged a voice, wrote one
+  word over and over, or tagged another language (no sound-alike lines). Evidence: `engine/speech.test.js`
+  (readClipSound), `backend/footage-finder.test.mjs` (takeText). Gap: no multilingual model path yet.
 
 ## Audio and captions
 

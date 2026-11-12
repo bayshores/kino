@@ -784,25 +784,86 @@ const endsLine = (text) => /[.?!…]["')]*$/.test(text);
  * LINE_SURE. A line ends at a pause of LONG_PAUSE or at a full stop, "?" or "!".
  */
 export function clipLines(transcript, { most = 3 } = {}) {
+  return readClipSound(transcript).lines.sort((a, b) => (a.end - a.start) - (b.end - b.start) || a.start - b.start).slice(0, most);
+}
+
+// whisper's own sound tags that name a voice ("[speaking in foreign language]", "(giggles)",
+// "*sobbing*"), and the ones that say the voice is in a language an English model cannot read.
+// Measured on run 8's 13 clips with small.en (.scratch/run8/wave/clip-sound/RESULT.md): every tag
+// whisper wrote on a voice used one of these words; "Music]" and "(upbeat music)" are not a voice.
+const VOICE_TAG = /speak|sing|talk|language|chant|laugh|giggl|chuckl|sob|cry|scream|shout|yell|gasp|scoff|sigh|groan|grunt|moan|hum|mumbl|murmur|whisper|breath|pant/i;
+const OTHER_LANGUAGE_TAG = /foreign|language|(speak|sing|talk)\w*\s+in\s+\p{L}/iu;
+const VOICE_JOIN = 0.7; // seconds: voice spans closer than this read as one (a guess: one breath)
+
+/**
+ * What a clip's own sound holds, from its transcript: {lines, voice, otherLanguage}.
+ * lines: [{text, start, end}] a viewer could read (as clipLines). voice: [{start, end}] (file
+ * seconds, joined) where whisper heard a voice it could not read as words: inside its own voice
+ * tags, a line of one word said over and over ("Hey, hey, hey": a laugh, measured on run 8's clip
+ * F4.7, read "Hey" x6, "Heh" x8 and "heh" x9 on three runs), and every line of a clip whisper
+ * tagged as another language (an English model writes sound-alike words for it: "I see." in
+ * F4.13). otherLanguage: whisper tagged one. No language is named: an English model cannot tell.
+ */
+export function readClipSound(transcript) {
+  const words = transcript?.words ?? [];
+  // Words inside a tag: from an opening bracket to its closing one; a closing bracket without its
+  // opening (a transcript made before wordsFromWhisper kept it) reaches back to the pause before.
+  const inTag = new Array(words.length).fill(false);
+  const tags = [];
+  for (let i = 0, open = -1; i < words.length; i += 1) {
+    const text = String(words[i].text ?? "");
+    if (words[i].unclear) { open = -1; continue; }
+    if (open < 0 && /^[[(*]/.test(text)) open = i;
+    // "*sobbing" opens a tag and does not close it; "*sobbing*", "sobbing*" and "Japanese)" close one.
+    const closes = /[\])][.,!?]*$/.test(text) || (/\*[.,!?]*$/.test(text) && !(open === i && /^\*[^*]*$/.test(text)));
+    if (!closes) continue;
+    // A tag glued to a word ("see.(laughs)") is its own: the word stays a word (withoutGluedTag).
+    if (open < 0 && /[[(]/.test(text)) {
+      tags.push({ text, start: words[i].start, end: words[i].end });
+      continue;
+    }
+    let from = open;
+    if (from < 0) {
+      from = i;
+      while (from > 0 && !words[from - 1].unclear && !/[\])*][.,!?]*$/.test(words[from - 1].text) && words[from].start - words[from - 1].end < LONG_PAUSE) from -= 1;
+    }
+    for (let k = from; k <= i; k += 1) inTag[k] = true;
+    tags.push({ text: words.slice(from, i + 1).map((word) => word.text).join(" "), start: words[from].start, end: words[i].end });
+    open = -1;
+  }
+  const otherLanguage = tags.some((tag) => OTHER_LANGUAGE_TAG.test(tag.text));
+  const voice = tags.filter((tag) => VOICE_TAG.test(tag.text)).map(({ start, end }) => ({ start, end }));
   const lines = [];
   let line = [];
   const close = () => {
-    const words = line;
+    const said = line;
     line = [];
-    if (words.length < 2) return;
-    if (words.reduce((sum, word) => sum + (word.p ?? 1), 0) / words.length < LINE_SURE) return;
-    const text = words.map((word) => word.text).join(" ");
-    lines.push({ text: text.length > LINE_TEXT_MOST ? `${text.slice(0, LINE_TEXT_MOST - 1).trimEnd()}…` : text, start: round(words[0].start), end: round(Math.max(words[0].start, words.at(-1).end)) });
+    if (said.length < 2) return;
+    if (said.reduce((sum, word) => sum + (word.p ?? 1), 0) / said.length < LINE_SURE) return;
+    const span = { start: round(said[0].start), end: round(Math.max(said[0].start, said.at(-1).end)) };
+    // One word over and over is a sound (a laugh, a chant), not a line; so is any line of a clip
+    // whisper itself tagged as another language.
+    if (otherLanguage || new Set(said.map((word) => plainWord(word.text))).size === 1) { voice.push(span); return; }
+    const text = said.map((word) => word.text).join(" ");
+    lines.push({ text: text.length > LINE_TEXT_MOST ? `${text.slice(0, LINE_TEXT_MOST - 1).trimEnd()}…` : text, ...span });
   };
-  for (const word of transcript?.words ?? []) {
+  for (const [i, word] of words.entries()) {
     const text = withoutGluedTag(word.text);
-    if (word.unclear || !text || isTagWord(text) || FILLERS.has(plainWord(text))) { close(); continue; }
+    if (inTag[i] || word.unclear || !text || isTagWord(text) || FILLERS.has(plainWord(text))) { close(); continue; }
     if (line.length && word.start - line.at(-1).end >= LONG_PAUSE) close();
     line.push({ ...word, text });
     if (endsLine(text)) close();
   }
   close();
-  return lines.sort((a, b) => (a.end - a.start) - (b.end - b.start) || a.start - b.start).slice(0, most);
+  const joined = [];
+  // Voice a kept line already covers (a "(laughs)" glued to its last word) is said with the line.
+  const free = voice.filter((span) => !lines.some((each) => span.start < each.end && span.end > each.start));
+  for (const span of free.sort((a, b) => a.start - b.start)) {
+    const last = joined.at(-1);
+    if (last && span.start - last.end < VOICE_JOIN) last.end = round(Math.max(last.end, span.end));
+    else joined.push({ start: round(span.start), end: round(span.end) });
+  }
+  return { lines, voice: joined, otherLanguage };
 }
 
 /** `heard "Heh heh heh." 0.4-2.0 s, "I'm just gonna see." 7.1-9.2 s` for clipLines' answer, or "". */
@@ -810,6 +871,21 @@ export function clipLinesText(lines = [], most = 2) {
   if (!lines.length) return "";
   const shown = lines.slice(0, most).map((line) => `"${line.text.replaceAll('"', "'")}" ${line.start.toFixed(1)}-${line.end.toFixed(1)} s`);
   return `heard ${shown.join(", ")}${lines.length > most ? ", …" : ""}`;
+}
+
+/**
+ * One clip's sound for the import answer and look source: its loudness, the lines it says, and
+ * voice whisper heard but could not read. `-23.4 LUFS · voice heard 2.8-9.2 s, words not read`,
+ * `-15.8 LUFS · heard "What are you doing here?" 0.5-1.4 s`, `-18.2 LUFS · no voice heard`.
+ * sound: {lufs (integrated, null when silent), lines, voice} (readClipSound plus a level).
+ */
+export function clipSoundText({ lufs = null, lines = [], voice = [] } = {}, most = 2) {
+  const level = Number.isFinite(lufs) ? `${lufs.toFixed(1)} LUFS` : "";
+  const parts = [];
+  if (lines.length) parts.push(clipLinesText(lines, most));
+  if (voice.length) parts.push(`voice heard ${voice.slice(0, most).map((span) => `${span.start.toFixed(1)}-${span.end.toFixed(1)}`).join(", ")}${voice.length > most ? ", …" : ""} s, words not read`);
+  if (!parts.length) parts.push(level ? "no voice heard" : "");
+  return [level, ...parts].filter(Boolean).join(" · ");
 }
 
 export function captionWordsFromSpeech(words, fix = {}) {

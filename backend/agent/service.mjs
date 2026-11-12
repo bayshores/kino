@@ -138,7 +138,7 @@ import { spokenLine } from "../../engine/blocks/moves/footage.js";
 import { VIDEO_FORMAT_NAMES, videoFormatsText } from "../../engine/blocks/videoFormats.js";
 import { existsSync } from "node:fs";
 import { avOffsetFinding } from "./av-offset.mjs";
-import { describeLevels } from "../audio-levels.mjs";
+import { describeLevels, measureFileLevels } from "../audio-levels.mjs";
 import { mediaIdFromSource } from "../../engine/replaceMedia.js";
 import { createBeatAnalysisCache, isSoundEffect, soundIsMusic, steadyBeat } from "../audio-analysis.mjs";
 import { createSongShapeCache } from "../song-shape.mjs";
@@ -153,7 +153,7 @@ import { createTranscriptCache, TRANSCRIPT_VERSION } from "../speech/transcribe.
 import { projectNames, speechNamesFor } from "../speech/name-hint.mjs";
 import { createSyncEnvelopeCache } from "../clip-sync.mjs";
 import { currentLag, matchEnvelopes, SYNC_FALLBACK, syncLayers } from "../../engine/clipSync.js";
-import { checkSpeechLayer, clipLines, clipLinesText, cutSpeechIndices, fileWords, speechPieces, speechText, speechWords } from "../../engine/speech.js";
+import { checkSpeechLayer, clipLines, clipLinesText, clipSoundText, readClipSound, cutSpeechIndices, fileWords, speechPieces, speechText, speechWords } from "../../engine/speech.js";
 import { access } from "node:fs/promises";
 import { REACH_HELP, REACH_OPERATIONS, applyReachOperation } from "./reach-operations.mjs";
 import { WORKSPACE_HELP, createReachWorkspace } from "./reach-workspace.mjs";
@@ -4974,6 +4974,21 @@ export function createAgentService(deps) {
     } catch { return []; }
   }
 
+  // A video file's {lufs, voice} for look source, from its saved transcript (null for a song, a
+  // missing file or no sound).
+  async function clipSoundOf(src, document) {
+    const id = mediaIdFromSource(src);
+    if (!id || !deps.mediaRoot) return null;
+    const file = path.join(deps.mediaRoot, id);
+    try {
+      if (!existsSync(file) || await isMusicFile(file)) return null;
+      const lufs = await clipLufs(file);
+      if (lufs === null) return null;
+      const saved = await transcripts.saved?.(file, document, { src }, { any: true });
+      return { lufs, voice: saved ? readClipSound(saved).voice : [] };
+    } catch { return null; }
+  }
+
   // Lines the video's footage says that no layer plays: from saved transcripts only (import, compose,
   // a full check or look source {layer} make them). Null when a footage layer plays speech, when
   // none says a line, or when these lines were already named (state.linesNamed). Otherwise
@@ -5297,7 +5312,10 @@ export function createAgentService(deps) {
     ];
     // What this file says (read once if needed; a song says none), and that the layer does not play it.
     const said = await savedLinesOf(layer.src, document, 3, true);
-    if (said.length) lines.push(`${clipLinesText(said, 3).replace(/^heard /, "heard: ")} (file s)${Number(layer.volume ?? 1) === 0 ? " (muted here)" : ""}`);
+    // Its level and the voice whisper heard but could not read (engine/speech.js readClipSound).
+    const sound = await clipSoundOf(layer.src, document);
+    const soundText = sound ? clipSoundText({ ...sound, lines: said }, 3) : said.length ? clipLinesText(said, 3) : "";
+    if (soundText) lines.push(`sound: ${soundText} (file s)${Number(layer.volume ?? 1) === 0 ? " (muted here)" : ""}`);
     if (!agentBoxes.length) lines.push(`mark the subject: edit mark_subject {layer:"${name}", t:${t}, box:[x, y, w, h]} (% of the source; x, y top-left)`);
     const extra = {
       ...(said.length ? { heard: said } : {}),
@@ -7259,24 +7277,35 @@ export function createAgentService(deps) {
   // that has sound (over -55 LUFS) and that the video's captions say nothing about: whisper reads
   // it once and keeps the transcript beside the file, so compose, checks and keep_line reuse it.
   // Returns {byId: {mediaId: lines}, missing} or null when there is nothing to say (take.mjs takeText).
+  // Each entry is {lines, voice, lufs} (engine/speech.js readClipSound plus the clip's integrated
+  // loudness): run 8 read 12 of 13 clips as "no speech heard" while every one had sound at -15.9
+  // to -43.1 LUFS (.scratch/run8/trace/audio.md L67), so every clip with sound gets its level.
   async function hearClips(media, captions, document) {
     const byId = {};
     let missing = null;
     for (const item of media) {
       const seconds = Number(item.duration) || 0;
-      if (!(seconds >= SAYS_MIN_SECONDS) || item.hasAudio === false || !deps.mediaRoot) continue;
-      if (captions?.lines && saysOf(captions.lines, Number(item.footage?.cutAt ?? item.footage?.start) || 0, seconds).length) continue;
+      if (item.hasAudio === false || !deps.mediaRoot) continue;
       const file = path.join(deps.mediaRoot, item.id);
       if (!existsSync(file)) continue;
+      const lufs = await clipLufs(file);
+      if (lufs !== null) byId[item.id] = { lines: [], voice: [], lufs };
+      if (!(seconds >= SAYS_MIN_SECONDS)) continue;
+      if (captions?.lines && saysOf(captions.lines, Number(item.footage?.cutAt ?? item.footage?.start) || 0, seconds).length) continue;
       try {
         if (!((await footageCache.sound(file)).loud > -55)) continue;
-        const lines = clipLines(await transcripts.get(file, document, { src: item.src }));
-        if (lines.length) byId[item.id] = lines;
+        const { lines, voice } = readClipSound(await transcripts.get(file, document, { src: item.src }));
+        if (lines.length || voice.length || lufs !== null) byId[item.id] = { lines: lines.sort((a, b) => (a.end - a.start) - (b.end - b.start) || a.start - b.start).slice(0, 3), voice, lufs };
       } catch (error) {
         if (/install/i.test(String(error?.message))) missing = "no speech model";
       }
     }
     return Object.keys(byId).length || missing ? { byId, missing } : null;
+  }
+
+  // A clip's integrated loudness (FFmpeg ebur128), or null when it is silent or cannot be read.
+  async function clipLufs(file) {
+    try { return (await (deps.clipLevels ?? measureFileLevels)(file)).integratedLufs; } catch { return null; }
   }
 
   // project {action:"import", file:"F1", options:{shots}} (or F1.37, clip:<id>, from/to): shots of a

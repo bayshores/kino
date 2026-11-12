@@ -22,6 +22,9 @@ test("wordsFromWhisper joins word pieces and punctuation, skips special tokens a
     { text: " app", offsets: { from: 500, to: 700 }, p: 0.9 },
   ] }] });
   assert.deepEqual(words.map((word) => [word.text, word.at, word.dtw, word.p]), [["Zuris,", 0.25, true, 0.4], ["app", 0.5, false, 0.9]]);
+  // whisper's own tag keeps its opening bracket (small.en on run 8's clip F4.13: " [", "S", "inging", " in", " Japanese", "]").
+  const tag = wordsFromWhisper({ transcription: [{ tokens: [" Yes.", " [", "S", "inging", " in", " Japanese", "]"].map((text, i) => ({ text, offsets: { from: i * 100, to: i * 100 + 100 }, p: 0.9 })) }] });
+  assert.deepEqual(tag.map((word) => word.text), ["Yes.", "[Singing", "in", "Japanese]"]);
 });
 
 test("withoutSlips and mergePasses take a fine pass's repeat or filler only when the words agree", () => {

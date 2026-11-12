@@ -5,7 +5,7 @@ import { createDocument, createLayer, createScene, parseDocument } from "./model
 import { applyOperations } from "./operations.js";
 import { volumeAt } from "./animation.js";
 import { defaultFonts } from "./fonts.js";
-import { captionWordsFromSpeech, clipLines, clipLinesText, cutSpeechIndices, fileWords, shiftScene, speechFlags, speechPieces, speechText, speechWords } from "./speech.js";
+import { captionWordsFromSpeech, clipLines, clipLinesText, clipSoundText, readClipSound, cutSpeechIndices, fileWords, shiftScene, speechFlags, speechPieces, speechText, speechWords } from "./speech.js";
 
 // "So we will, we will um try. [mumble] Like, the Oaks app." in file seconds; cut = the quiet point before each word.
 const word = (text, start, end, extra = {}) => ({ text, start, end, p: 0.95, cut: Math.max(0, start - 0.04), ...extra });
@@ -391,8 +391,26 @@ test("clipLines keeps the lines a clip says, shortest first, and drops sound tag
     word("I'm", 7.1, 7.4), word("just", 7.4, 7.7), word("gonna", 7.7, 8.3), word("see.(laughs)", 8.3, 9.2), word("Hm", 12, 12.4),
   ] };
   const lines = clipLines(transcript);
-  assert.deepEqual(lines.map((line) => [line.text, line.start, line.end]), [["Heh heh heh.", 2, 3.2], ["I'm just gonna see.", 7.1, 9.2]]);
-  assert.equal(clipLinesText(lines), 'heard "Heh heh heh." 2.0-3.2 s, "I\'m just gonna see." 7.1-9.2 s');
+  // "Heh heh heh." is one word over and over: a voice, not a line (run 8's laugh, read three ways).
+  assert.deepEqual(lines.map((line) => [line.text, line.start, line.end]), [["I'm just gonna see.", 7.1, 9.2]]);
+  assert.equal(clipLinesText(lines), 'heard "I\'m just gonna see." 7.1-9.2 s');
+  // "Sigh*" is a voice tag, "(Door creaks)" is not; the sigh and the laugh 0.5 s apart join.
+  assert.deepEqual(readClipSound(transcript).voice, [{ start: 1.2, end: 3.2 }]);
   assert.equal(clipLinesText([]), "");
   assert.equal(clipLines({ words: [] }).length, 0);
+});
+
+test("readClipSound reads a clip whisper tagged as another language as voice, never as sound-alike lines", () => {
+  const word = (text, start, end, p = 0.95) => ({ text, start, end, p });
+  // A saved transcript of run 8's F4.13 (small.en): the tag lost its opening bracket.
+  const other = { words: [word("Singing", 2.77, 2.82), word("in", 2.82, 2.87), word("Japanese)", 2.87, 3.02), word("Yes.", 7.77, 7.91), word("I", 8.84, 9.13), word("see.", 9.13, 9.24)] };
+  const read = readClipSound(other);
+  assert.deepEqual([read.lines, read.otherLanguage, read.voice], [[], true, [{ start: 2.77, end: 3.02 }, { start: 8.84, end: 9.24 }]]);
+  assert.equal(clipSoundText({ lufs: -23.4, ...read }), "-23.4 LUFS · voice heard 2.8-3.0, 8.8-9.2 s, words not read");
+  // A tag with its opening bracket ("[Singing in" ... "Japanese]") and an English line beside music.
+  assert.deepEqual(readClipSound({ words: [word("[Music", 0, 1), word("plays]", 1, 2)] }), { lines: [], voice: [], otherLanguage: false });
+  const english = readClipSound({ words: [word("[Music]", 0, 1), word("What", 1.5, 1.7), word("are", 1.7, 1.8), word("you", 1.8, 1.9), word("doing?", 1.9, 2.3)] });
+  assert.equal(clipSoundText({ lufs: -16.1, ...english }), '-16.1 LUFS · heard "What are you doing?" 1.5-2.3 s');
+  assert.equal(clipSoundText({ lufs: -18.2, lines: [], voice: [] }), "-18.2 LUFS · no voice heard");
+  assert.equal(clipSoundText({ lufs: null }), "");
 });

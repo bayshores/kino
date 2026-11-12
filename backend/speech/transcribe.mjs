@@ -301,6 +301,10 @@ function runNow(command, args, { timeoutMs }) {
  */
 export function wordsFromWhisper(json) {
   const words = [];
+  // An opening bracket token (" [", " (", " *") starts whisper's sound tag ("[Singing in Japanese]"):
+  // it belongs to the next word. Glued to the word before, the tag lost its start and its words read
+  // as a line ("Singing in", run 8's clip F4.13).
+  let open = "";
   for (const segment of json?.transcription ?? []) {
     for (const token of segment.tokens ?? []) {
       const text = String(token.text ?? "");
@@ -310,7 +314,11 @@ export function wordsFromWhisper(json) {
       const p = typeof token.p === "number" ? token.p : 1;
       const startsWord = /^\s/.test(text) || !words.length;
       const letters = /[\p{L}\p{N}]/u.test(text);
-      if (startsWord && letters) words.push({ text: text.trim(), at: dtw ?? own, dtw: dtw !== null, own, end: (token.offsets?.to ?? 0) / 1000, p: [p] });
+      if (startsWord && !letters && /^[[(*]+$/.test(text.trim())) { open += text.trim(); continue; }
+      if (open && letters) {
+        words.push({ text: `${open}${text.trim()}`, at: dtw ?? own, dtw: dtw !== null, own, end: (token.offsets?.to ?? 0) / 1000, p: [p] });
+        open = "";
+      } else if (startsWord && letters) words.push({ text: text.trim(), at: dtw ?? own, dtw: dtw !== null, own, end: (token.offsets?.to ?? 0) / 1000, p: [p] });
       else if (words.length) {
         const last = words.at(-1);
         last.text += text.trim();
