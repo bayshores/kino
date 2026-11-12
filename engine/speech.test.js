@@ -469,7 +469,7 @@ test("keep_line over measured music levels the line against the music around it,
   // lift:true keeps the song untouched and says what the line reaches and how far short it falls.
   const lifted = run({ lift: true });
   assert.deepEqual([volumeAt(lifted.music, 5), lifted.clip.voiceLevel, lifted.report.duck], [1, -13, "none"]);
-  assert.match(lifted.report.notes[0], /^song untouched: the line is lifted x3\.55 to -13 LUFS, \+0 LU over the song \(6 LU short of \+6\), 0 dB under the song's loudest moment$/);
+  assert.match(lifted.report.notes[0], /^song untouched: the line is lifted x3\.55 to -13 LUFS, \+0 LU over the song \(6 LU short of \+6\), 0 dB under the song's loudest moment; lift:"gain" reaches \+6 LU: a \+17 dB gain stage/);
   // A given dip beside lift:true is kept as given, with a note (no refusal).
   const liftAndDip = run({ lift: true, dip: 0.5 });
   assert.equal(volumeAt(liftAndDip.music, 5), 0.5);
@@ -594,7 +594,21 @@ test("keep_line over measured music levels the line against the music around it,
   assert.match(plainLift.report.notes.join(" | "), /song untouched \(lift:true\); the line or the music is not measured/);
   // A line already over the song's loudest moment says "over", never a negative "under".
   const loud = run({ levels: { clip: flat(-8, 12), music: flat(-10, 30) }, lift: true });
-  assert.match(loud.report.notes[0], /, 4\.1 dB over the song's loudest moment$/);
+  assert.match(loud.report.notes[0], /, 4\.1 dB over the song's loudest moment;/);
+  // lift:"gain" (dm3-a: a -40.5 line could not pass volume 4): a gain stage on this line only takes a
+  // -33.5 line 26.5 dB up, +6 LU over the untouched song, past the 12 dB cap; the noise under it (its
+  // -60 gaps) rises as far.
+  const quietClip = { clip: { step: 0.1, momentary: Array.from({ length: 120 }, (_, index) => (index % 10 === 9 ? -60 : -33)) }, music: flat(-13, 30) };
+  const short = run({ levels: quietClip, lift: true });
+  assert.match(short.report.notes[0], /\(14\.5 LU short of \+6\).*; lift:"gain" reaches \+6 LU: a \+26\.5 dB gain stage on this line only \(x21\.13\): the line -33\.5 -> -7 LUFS, the noise under it -60 -> -33\.5 LUFS, the master limiter after it$/);
+  const gained = run({ levels: quietClip, lift: "gain" });
+  assert.deepEqual([volumeAt(gained.music, 5), gained.report.duck, gained.report.way, gained.clip.voiceLevel, gained.clip.voiceLift], [1, "none", "gain", -7, 26.6]);
+  assert.deepEqual(gained.report.gain, { db: 26.5, line: [-33.5, -7], noise: [-60, -33.5] });
+  assert.match(gained.report.notes[0], /^song untouched: a \+26\.5 dB gain stage on this line only .* \+6 LU over the song, \d+(\.\d)? dB over the song's loudest moment; the master limiter after it$/);
+  // The check hears it where the export puts it (leveled past 12 dB on the kept stretch).
+  assert.equal(Math.round(voiceLines(quietClip.clip, gained.clip, mediaPlaybackRange(gained.clip, 12), words)[0].lufs), -7);
+  // Kept again with lift:true, the gain stage goes.
+  assert.equal(parseDocument(applyOperations(parseDocument({ ...document, scenes: [{ ...document.scenes[0], layers: [gained.clip, gained.music] }] }), [{ type: "keep_line", sceneId: "s", layerId: "clip", from: 4, to: 6, subtitle: false, levels: quietClip, beats, lift: true }])).scenes[0].layers[0].voiceLift, undefined);
 });
 
 test("two music-out lines 0.6 s apart share a low bed, not silence, and the song lands its drop after the last word", () => {

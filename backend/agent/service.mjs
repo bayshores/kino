@@ -123,7 +123,9 @@ import { decodeMono } from "../audio-analysis.mjs";
 import { songShape } from "../song-shape.mjs";
 import { barGrid } from "../../engine/fitMusic.js";
 import { makeTempFolder, removeTempFolder } from "../temp-folders.mjs";
-import { sectionsInVideo, soundMapImage, soundMapText, volumeDips } from "./sound-map.mjs";
+import { heardLines as soundLines, sectionsInVideo, soundMapImage, soundMapText, volumeDips } from "./sound-map.mjs";
+// look sound measures each line on its own layer alone for at most this many layers (one FFmpeg run each).
+const SOUND_LINE_LAYERS = 6;
 import { createTries, triesView } from "./tries.mjs";
 import { boardRefKeys, createJudge, judgeLine, judgeLost, pairCount, pinnedPairs, refForKey, resultText, roundView, tally, VERSUS_ROWS } from "./judge.mjs";
 import { createPicks, SITTING_PICKS } from "./picks.mjs";
@@ -5691,7 +5693,9 @@ export function createAgentService(deps) {
     // A copy of the scene where only `keep` layers are heard.
     const only = (keep) => ({ ...scene, layers: scene.layers.map((layer) => ((layer.type === "audio" || layer.type === "video") && !keep(layer)
       ? { ...layer, volume: 0, animations: (layer.animations ?? []).filter((animation) => !(animation?.to && "volume" in animation.to)) } : layer)) });
-    const lines = await spokenSpans(scene, document);
+    // Every kept line (by its layer and stretch, read words or not) and the heard words of the rest;
+    // a muted clip's words are no line (sound-map.mjs heardLines).
+    const lines = soundLines(scene, await spokenWordsByLayer(scene, document, musicIds));
     const directory = await makeTempFolder("kino-sound-");
     let map;
     try {
@@ -5699,6 +5703,9 @@ export function createAgentService(deps) {
       const mix = await curveOf(scene);
       const musicCurve = music.length ? await curveOf(only((layer) => musicIds.has(layer.id))) : null;
       const rest = music.length && lines.length ? await curveOf(only((layer) => !musicIds.has(layer.id))) : null;
+      // Each line's own layer alone (the first SOUND_LINE_LAYERS layers), so a line is not read off another voice.
+      const voices = {};
+      if (music.length) for (const id of [...new Set(lines.map((line) => line.layerId))].slice(0, SOUND_LINE_LAYERS)) voices[id] = await curveOf(only((layer) => layer.id === id));
       const sections = [];
       for (const layer of music) {
         const kind = kinds.find((entry) => entry.layer === layer && entry.music);
@@ -5720,7 +5727,7 @@ export function createAgentService(deps) {
         const range = mediaPlaybackRange(layer, duration);
         return range ? [range.start, range.end] : [];
       }).filter((at) => at > 0.2 && at < duration - 0.2);
-      map = { duration, mix, music: musicCurve, rest, beats: beats.filter((beat) => Number.isFinite(beat.from) && Number.isFinite(beat.to)), lines, sections, dips, cuts, edges: [...new Set(edges.map((at) => Math.round(at * 10) / 10))] };
+      map = { duration, mix, music: musicCurve, rest, voices, beats: beats.filter((beat) => Number.isFinite(beat.from) && Number.isFinite(beat.to)), lines, sections, dips, cuts, edges: [...new Set(edges.map((at) => Math.round(at * 10) / 10))] };
     } catch (error) {
       throw new AgentError("failed", `The sound could not be measured: ${String(error.message).split("\n")[0].slice(0, 200)}`);
     } finally {
@@ -8325,6 +8332,22 @@ export function createAgentService(deps) {
   // the inspire screen draws them (dashboard agentSlice).
   // The video's spoken lines ([[from, to]] seconds) from saved transcripts only (no new
   // transcribing): sung vocals over them count against a song's fit.
+  // Each speaking layer's saved transcript words in scene seconds ({layerId: [{start, end}]}), music
+  // layers (`skip`) and files aside: look sound's lines (sound-map.mjs heardLines).
+  async function spokenWordsByLayer(scene, document, skip = new Set()) {
+    const byLayer = {};
+    for (const layer of scene.layers ?? []) {
+      if (!["audio", "video"].includes(layer.type) || !layer.src || layer.enabled === false || skip.has(layer.id)) continue;
+      let file;
+      try { file = mediaFileOf(layer); } catch { continue; }
+      if (await isMusicFile(file)) continue;
+      const transcript = await transcripts.saved?.(file, document, layer);
+      if (!transcript) continue;
+      try { byLayer[layer.id] = speechWords(scene, [layer], transcript).filter((word) => !word.unclear).map((word) => ({ start: word.start, end: word.end })); } catch { /* not speech kino can place */ }
+    }
+    return byLayer;
+  }
+
   async function spokenSpans(scene, document) {
     const words = [];
     for (const layer of scene.layers ?? []) {

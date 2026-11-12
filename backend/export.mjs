@@ -66,7 +66,7 @@ import { trackVolumeAt, volumeTrackInput, writeVolumeTrack } from "./volume-trac
 import { cleansVoice, voiceChainFilters } from "./voice-chain.mjs";
 import { lowpassFilters, lowpassPlan, writeLowpassPlan } from "./lowpass-track.mjs";
 import { createLoudnessCurves, readMomentary, savedWordsOf } from "./loudness-curve.mjs";
-import { leveledVoice, loudnessOver, voiceLeveling, withOwnLevel } from "../engine/mixLevels.js";
+import { leveledVoice, liftCap, loudnessOver, voiceLeveling, withOwnLevel } from "../engine/mixLevels.js";
 import { keptRanges } from "../engine/keepLine.js";
 import { maskStyle, maskSwitchedOff } from "../engine/maskVisibility.js";
 import { captureLayerSvg, escapeXml, EXPORT_FRAME_URL, heldSceneTime, layerClocks, normalizeMediaHref, renderSceneSvg } from "../engine/render.js";
@@ -737,11 +737,11 @@ function clipLeveling(leveling, shift = 0) {
  * The leveling of a clip of `path` playing `offset` to `offset + length` file seconds, or null:
  * { levelDb, levelLines? } (engine/mixLevels.js voiceLeveling: lines far apart get a gain each).
  */
-export async function voiceLevelDb(path, offset, length, { curves = exportCurves, signal, target, spans: given, own = [] } = {}) {
+export async function voiceLevelDb(path, offset, length, { curves = exportCurves, signal, target, spans: given, own = [], maxDb } = {}) {
   const spans = given ?? await heardWordSpans(path, offset, length);
   if (!spans.length) return null;
   const curve = await curves.get(path, signal).catch(() => null);
-  return clipLeveling(withOwnLevel(voiceLeveling(curve, spans, target), own), offset);
+  return clipLeveling(withOwnLevel(voiceLeveling(curve, spans, target, maxDb), own), offset);
 }
 
 // A line keep_line kept over music (layer.voiceLevel, engine/keepLine.js): leveled to that LUFS,
@@ -755,7 +755,8 @@ function keptLineLevel(layer, clip, length) {
   const ranges = keptRanges(layer);
   const own = inFile(ranges.filter((range) => range.sound));
   const spans = Number.isFinite(layer.voiceLevel) ? inFile(ranges.filter((range) => !range.sound)) : [];
-  return { ...(spans.length ? { target: layer.voiceLevel, spans } : {}), ...(own.length ? { own } : {}) };
+  // keep_line lift:"gain" (layer.voiceLift): a gain stage past the 12 dB cap, on the kept stretches only.
+  return { ...(spans.length ? { target: layer.voiceLevel, spans, maxDb: liftCap(layer) } : {}), ...(own.length ? { own } : {}) };
 }
 
 // The cleaned voice's leveling gains, one FFmpeg measurement per clip and chain while kino runs.
@@ -768,19 +769,19 @@ export const CLEANED_LEVELS_KEPT = 512;
  * the final level of any voice, and the chain adds no make-up gain of its own. Returns
  * { chain, leveling }: the chain's compressor threshold sits over the line's own loudness.
  */
-export async function cleanedVoiceLevel(path, offset, length, { curves = exportCurves, signal, target, spans: given, own = [] } = {}) {
+export async function cleanedVoiceLevel(path, offset, length, { curves = exportCurves, signal, target, spans: given, own = [], maxDb } = {}) {
   const spans = given ?? await heardWordSpans(path, offset, length);
   if (!spans.length) return null;
   const curve = await curves.get(path, signal).catch(() => null);
   const chain = voiceChainFilters(loudnessOver(curve, spans));
   const file = await stat(path).catch(() => null);
-  const key = JSON.stringify([path, file?.size, file?.mtimeMs, offset, length, chain, target ?? null, given ?? null, own.length ? own : null]);
+  const key = JSON.stringify([path, file?.size, file?.mtimeMs, offset, length, chain, target ?? null, given ?? null, own.length ? own : null, maxDb ?? null]);
   if (!cleanedLevels.has(key)) {
     const printed = await runProcess(ffmpegCommand(), ["-hide_banner", "-nostdin", "-loglevel", "error", "-ss", String(offset), "-t", String(length), "-i", path,
       "-map", "0:a:0", "-vn", "-af", `${chain},ebur128=metadata=1,ametadata=mode=print:file=-`, "-f", "null", "-"], signal);
     const cleaned = readMomentary(printed);
     const onClip = (list) => list.map((span) => ({ start: span.start - offset, end: span.end - offset }));
-    cleanedLevels.set(key, clipLeveling(withOwnLevel(voiceLeveling(cleaned, onClip(spans), target), onClip(own))));
+    cleanedLevels.set(key, clipLeveling(withOwnLevel(voiceLeveling(cleaned, onClip(spans), target, maxDb), onClip(own))));
     // Each trim of a clip is a new key: keep the newest CLEANED_LEVELS_KEPT.
     if (cleanedLevels.size > CLEANED_LEVELS_KEPT) cleanedLevels.delete(cleanedLevels.keys().next().value);
   }

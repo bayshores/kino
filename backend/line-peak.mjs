@@ -33,6 +33,9 @@ export async function capLinePeak(scene, { layerIds, start, end, mediaRoot, dire
   // line only raises it (measured: line down 6.8 dB, "auto" up to +8.2 dB). The receipt prints it.
   const ceiling = LIMITER_CEILING_DB;
   if (!(first.peak > ceiling)) return result;
+  // A gain stage (keep_line lift:"gain", layer voiceLift) is asked to stay, the master limiter after
+  // it: the line is not lowered, and the receipt says how far the limiter works there.
+  if (scene.layers.some((layer) => ids.has(layer.id) && Number.isFinite(layer.voiceLift))) return { ...result, limiterDb: round1(first.peak - ceiling) };
   const layers = scene.layers.filter((layer) => ids.has(layer.id) && Number.isFinite(layer.voiceLevel));
   if (!layers.length) return result;
   const rest = peakOver(await measurePeakWindows(first.clips.filter((clip) => !ids.has(clip.layerId)), Math.min(scene.duration, end + 0.1), signal), start, end) ?? -Infinity;
@@ -67,5 +70,6 @@ export function linePeakText(peak) {
   const auto = peak.autoDb ? ` after the render's "auto" ${signed(peak.autoDb)} dB` : "";
   const lowered = peak.lowered ? `; the lift sent it to ${peak.lowered.beforeDbfs} dBFS, so the line came down ${peak.lowered.db} dB (voiceLevel ${peak.lowered.from} -> ${peak.lowered.to})` : "";
   const rest = peak.rest !== undefined ? `; the rest of the mix alone peaks ${peak.rest} dBFS there` : "";
-  return `peak at the line ${peak.peakDbfs} dBFS${auto ? ` (${signed(round1(peak.peakDbfs + peak.autoDb))}${auto})` : ""}, measured; limiter ceiling ${peak.ceilingDbfs} dBFS${lowered}${rest}`;
+  const limited = peak.limiterDb ? `; the gain stage stays, so the limiter takes about ${peak.limiterDb} dB there` : "";
+  return `peak at the line ${peak.peakDbfs} dBFS${auto ? ` (${signed(round1(peak.peakDbfs + peak.autoDb))}${auto})` : ""}, measured; limiter ceiling ${peak.ceilingDbfs} dBFS${lowered}${rest}${limited}`;
 }

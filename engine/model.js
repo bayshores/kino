@@ -1448,6 +1448,14 @@ function normalizeLayer(raw, path, animationIds, counters) {
       fail(`${path}.voiceLevel`, `needs a video or audio layer; a ${layer.type} layer has no sound`);
     layer.voiceLevel = requireNumber(layer.voiceLevel, `${path}.voiceLevel`, -60, 0);
   }
+  // The most (dB) the export may lift the kept lines to voiceLevel (keep_line lift:"gain", a gain
+  // stage past the 12 dB leveling cap; mixLevels.js liftCap): optional, null removes it.
+  if (layer.voiceLift === null) delete layer.voiceLift;
+  if (layer.voiceLift !== undefined) {
+    if (layer.type !== "video" && layer.type !== "audio")
+      fail(`${path}.voiceLift`, `needs a video or audio layer; a ${layer.type} layer has no sound`);
+    layer.voiceLift = requireNumber(layer.voiceLift, `${path}.voiceLift`, 0, 60);
+  }
   // Low-pass cutoff in Hz (lowpass.js): optional, 0 is off, null removes it.
   if (layer.lowpass === null) delete layer.lowpass;
   if (layer.lowpass !== undefined) {

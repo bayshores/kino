@@ -1119,6 +1119,13 @@ How to read it:
   duck_audio's default joins churning dips 3 s apart or less into one (`joined`). Replayed on a copy of a real
   project: lift inside another line's dip and a dip joined past the beat now print the song as heard and the real release time.
   Evidence: `engine/speech.test.js`, `engine/audioDucking.test.js`. Gap: the headroom is a loudness stand-in, not a measured peak.
+- **Quiet line past the lift cap** (`keep_line {lift:"gain"}`, layer `voiceLift`, receipt `gain`): Engine-tested on
+  generated curves, not rendered. A gain stage on the kept stretch only takes a line the 12 dB cap leaves short to
+  +6 LU over the untouched song (test: -33.5 to -7 LUFS, +26.5 dB, noise -60 to -33.5); the export, check's
+  voiceLines and keep_line's bed read the same cap; the peak cap prints the limiter's dB instead of lowering it.
+  look sound lists each kept line once by layer, measured alone, words or not, without muted clips. Evidence:
+  `engine/speech.test.js`, `engine/audioDucking.test.js`, `backend/agent-volume.test.mjs`. Gap: no render; the
+  +36 dB most is a guess; a short dip of its own kind for a line at the drop is not built.
 - **Holes round kept lines** (`keep_line` bed, drop, shared dip): Engine-tested on measured curves and rendered once
   on generated audio. Lines sharing one music-out dip get a measured low bed, 6 LU under the quietest line
   (render: -36.8 LUFS momentary in a 0.6 s gap, printed -37, song -13.2), not silence; a music-out line hits back on

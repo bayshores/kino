@@ -6,7 +6,7 @@ import { applyOperations } from "./operations.js";
 import { volumeAt } from "./animation.js";
 import { duckStretches } from "./audioDucking.js";
 import { voiceUnderBed, volumeChurn } from "./quality/rules/sound.js";
-import { leveledVoice, levelAt, lineWays, voiceLeveling, withOwnLevel } from "./mixLevels.js";
+import { leveledVoice, levelAt, lineWays, noiseUnder, voiceLeveling, withOwnLevel } from "./mixLevels.js";
 import { louderSound, soundPlacement, visibleActions } from "./soundActions.js";
 
 const sound = (id, values = {}) => createLayer("audio", { id, name: id, src: `/api/media/${id}.wav`, ...values });
@@ -265,7 +265,15 @@ test("each line gets its own dip at its own measured depth, the song comes back 
   const churn = volumeChurn(null, { scene: { ...document.scenes[0], layers: [apart.music] } });
   assert.match(churn[0].fix.text, /keep_line \{lift:true\} keeps the song untouched.*duck_audio \{replace:true, fadeUp:/);
   // Over a quiet bed the lift alone reaches the aim, so no dip is needed.
-  assert.deepEqual(lineWays({ line: -24, under: -30, ceiling: -30 }), { lift: { reach: -16, db: 8, over: 14, headroom: 5.8, factor: 2.51, short: 0 }, dip: null, out: { reach: -16 } });
+  assert.deepEqual(lineWays({ line: -24, under: -30, ceiling: -30 }), { lift: { reach: -16, db: 8, over: 14, headroom: 5.8, factor: 2.51, short: 0 }, dip: null, gain: null, out: { reach: -16 } });
+  // A quiet line under a song at its loudest (the drop, dm3-a board-S5's shape): the lift gets nothing
+  // under the ceiling; the gain stage takes it +6 LU over by +28 dB (past the 12 dB cap and the ceiling).
+  const atDrop = lineWays({ line: -30, under: -8, ceiling: -8 });
+  assert.deepEqual([atDrop.lift.db, atDrop.lift.short, atDrop.gain], [0, 28, { reach: -2, db: 28, over: 6, headroom: -7 }]);
+  // At most GAIN_STAGE_MAX_DB (36): a -50 line reaches -14, 2 LU short.
+  assert.deepEqual(lineWays({ line: -50, under: -8, ceiling: -8 }).gain.db, 36);
+  // The noise under a line: the quietest tenth of its readings (here 2 of 20 at -60), as heard.
+  assert.equal(noiseUnder({ step: 0.1, momentary: [...new Array(18).fill(-30), -60, -60] }, [{ start: 0, end: 2 }]), -60);
   // A given `to` keeps its span through the drop, as asked.
   assert.deepEqual(duck(document, { under: ["v3"], levels, to: 0.3 }).report.times, [[7.25, 10]]);
 });
