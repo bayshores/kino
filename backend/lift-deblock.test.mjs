@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { createDocument, createLayer, createScene, parseDocument } from "../engine/model.js";
 import { expandComponents } from "../engine/linkedComponents.js";
 import { blockStep } from "../engine/quality/liftDark.js";
-import { liftDark } from "./agent/lift-dark.mjs";
+import { alone, liftDark } from "./agent/lift-dark.mjs";
 import { renderSceneFrames } from "./export.mjs";
 import { loadBundledFonts } from "./fonts.mjs";
 import { ffmpeg, run, skipWithoutMediaTools } from "./media.test.support.mjs";
@@ -45,9 +45,12 @@ test("lift_dark measures the block step on the source's grid, deblocks before th
   await mkdir(mediaRoot);
   await run(ffmpeg, ["-hide_banner", "-loglevel", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", `${W}x${H}`, "-r", "10", "-i", "pipe:0",
     "-c:v", "libx264", "-qp", "40", "-pix_fmt", "yuv420p", join(mediaRoot, "wall.mp4")], { input: wall() });
-  // The clip drawn at twice its size: one source pixel is 2 scene pixels.
-  const document = parseDocument(createDocument({ scenes: [createScene({ id: "main", width: W * SCALE, height: H * SCALE, duration: 1, background: "#000000", layers: [
-    createLayer("video", { id: "wall", name: "wall", src: "/api/media/wall.mp4", x: 0, y: 0, width: W * SCALE, height: H * SCALE, mediaStart: 0, mediaDuration: 1, mediaSourceDuration: 1 }),
+  // A 9:16 frame: the 4:3 clip's box fills it, so the clip is drawn whole and centered at twice
+  // its size (one source pixel is 2 scene pixels) with bars above and below, under a caption.
+  const [frameWidth, frameHeight, top] = [W * SCALE, 456, (456 - H * SCALE) / 2];
+  const document = parseDocument(createDocument({ scenes: [createScene({ id: "main", width: frameWidth, height: frameHeight, duration: 1, background: "#000000", layers: [
+    createLayer("video", { id: "wall", name: "wall", src: "/api/media/wall.mp4", x: 0, y: 0, width: frameWidth, height: frameHeight, mediaStart: 0, mediaDuration: 1, mediaSourceDuration: 1 }),
+    createLayer("text", { id: "caption", name: "caption", text: "STAIRS AT NIGHT", x: 8, y: top + 60, width: frameWidth - 16, height: 60, fontSize: 28, fill: "#FFFFFF" }),
   ] })] }));
   const render = (scene, times, { width }) => renderSceneFrames(scene, times, { mediaRoot, fonts, width });
   const sent = [];
@@ -56,14 +59,15 @@ test("lift_dark measures the block step on the source's grid, deblocks before th
   const lifted = await liftDark(document, { ...options, grain: false });
   const [entry] = lifted.lifted;
   assert.equal(entry.blocks.side, 16);
+  assert.ok(Math.round(entry.before.p2 * 255) > 0, "the bars above and below the clip are not measured as its black");
   assert.ok(entry.blocks.ratio >= 1.5, `the clip's block grid stands out: ${JSON.stringify(entry.blocks)}`);
   assert.deepEqual(sent.map((op) => op.effect), ["deblock", "curves"], "the deblock goes before the curve");
   assert.equal(entry.deblock.radius, 8, "a quarter of a 16 px block, at 2 scene pixels a source pixel");
-  // The same lift without the deblock (the old lift), drawn at full size.
+  // The same lift without the deblock (the old lift), the clip drawn alone at full size.
   const old = structuredClone(lifted.document);
   old.scenes[0].layers[0].animations = old.scenes[0].layers[0].animations.filter((animation) => animation.effect !== "deblock");
-  const grid = { x0: 0, y0: 0, pitchX: SCALE, pitchY: SCALE, side: 16 };
-  const oldStep = blockStep(await render(expandComponents(parseDocument(old), "main", { fonts }), entry.times, { width: W * SCALE }), grid);
+  const grid = { x0: 0, y0: top, pitchX: SCALE, pitchY: SCALE, box: { x0: 0, y0: top, x1: frameWidth, y1: top + H * SCALE }, side: 16 };
+  const oldStep = blockStep(await render(alone(expandComponents(parseDocument(old), "main", { fonts }), "wall"), entry.times, { width: frameWidth }), grid);
   t.diagnostic(`block step before ${entry.blocks.step.toFixed(2)} (ratio ${entry.blocks.ratio.toFixed(2)}), old lift ${oldStep.step.toFixed(2)} (ratio ${oldStep.ratio.toFixed(2)}), new lift ${entry.blocksAfter.step.toFixed(2)} (ratio ${entry.blocksAfter.ratio.toFixed(2)}); ${lifted.lines[0]}`);
   assert.ok(oldStep.step > entry.blocks.step, "the plain lift makes the block steps larger");
   assert.ok(entry.blocksAfter.step < oldStep.step * 0.6, `the deblocked lift keeps under 60% of them: ${entry.blocksAfter.step} vs ${oldStep.step}`);

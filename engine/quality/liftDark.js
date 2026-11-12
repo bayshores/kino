@@ -195,18 +195,22 @@ const BLOCKY_STEP = 0.1;
  * 709 luma, 0 to 255 levels). `grid` places the source on the frame: {x0, y0} the source's top
  * left in frame pixels, {pitchX, pitchY} frame pixels per source pixel, `box` the part of the frame
  * to measure ({x0, y0, x1, y1}, frame pixels) and `side` the block side in source pixels.
+ * `grid` may also be a list, one per frame (a picture that moves or zooms), each with its own side.
  * Returns {side, edge, inside, step, ratio} (step = edge - inside) or null when nothing was measured.
  */
-export function blockStep(frames, { x0 = 0, y0 = 0, pitchX = 1, pitchY = 1, box = null, side = 8 } = {}) {
+export function blockStep(frames, grid = {}) {
   let edge = 0, edgeCount = 0, inside = 0, insideCount = 0;
+  const side = (Array.isArray(grid) ? grid[0]?.side : grid.side) ?? 8;
   // Frame pixels from the boundary at `at` (on the axis starting at `origin`) to the nearest grid line.
   const distance = (at, origin, pitch) => {
     const blocks = (at - origin) / (pitch * side);
     return Math.abs(blocks - Math.round(blocks)) * pitch * side;
   };
-  for (const frame of frames ?? []) {
+  for (const [index, frame] of (frames ?? []).entries()) {
     const pixels = frame?.pixels;
-    if (!pixels?.length) continue;
+    const placed = Array.isArray(grid) ? grid[index] : grid;
+    if (!pixels?.length || !placed) continue;
+    const { x0 = 0, y0 = 0, pitchX = 1, pitchY = 1, box = null } = placed;
     const { width, height } = frame;
     const left = Math.max(0, Math.ceil(box?.x0 ?? 0)), top = Math.max(0, Math.ceil(box?.y0 ?? 0));
     const right = Math.min(width, Math.floor(box?.x1 ?? width)), bottom = Math.min(height, Math.floor(box?.y1 ?? height));
@@ -234,9 +238,25 @@ export function blockStep(frames, { x0 = 0, y0 = 0, pitchX = 1, pitchY = 1, box 
  * null when the grid is too fine to tell on these frames (a block under 4 frame pixels).
  */
 export function blockiness(frames, grid) {
-  const found = BLOCK_SIDES.filter((side) => side * Math.min(grid.pitchX ?? 1, grid.pitchY ?? 1) >= 4)
-    .map((side) => blockStep(frames, { ...grid, side })).filter(Boolean);
+  const grids = Array.isArray(grid) ? grid : [grid];
+  const pitch = Math.min(...grids.flatMap((entry) => [entry?.pitchX ?? 1, entry?.pitchY ?? 1]));
+  const withSide = (side) => (Array.isArray(grid) ? grid.map((entry) => entry && { ...entry, side }) : { ...grid, side });
+  const found = BLOCK_SIDES.filter((side) => side * pitch >= 4)
+    .map((side) => blockStep(frames, withSide(side))).filter(Boolean);
   return found.length ? found.reduce((best, entry) => (entry.ratio > best.ratio ? entry : best)) : null;
+}
+
+/**
+ * Where a video's source pixels sit on the scene: {x0, y0, pitchX, pitchY} for a layer box ({x0,
+ * y0, x1, y1}, scene pixels) and the file's {width, height}. A video is drawn whole and centered in
+ * its box (render.js: preserveAspectRatio meet), so a 16:9 clip in a 9:16 box gets bars above and
+ * below and one scale on both axes. Null when either size is unknown.
+ */
+export function sourceGrid(box, size) {
+  const boxWidth = (box?.x1 ?? 0) - (box?.x0 ?? 0), boxHeight = (box?.y1 ?? 0) - (box?.y0 ?? 0);
+  if (!(boxWidth > 0 && boxHeight > 0 && size?.width > 0 && size?.height > 0)) return null;
+  const pitch = Math.min(boxWidth / size.width, boxHeight / size.height);
+  return { x0: box.x0 + (boxWidth - size.width * pitch) / 2, y0: box.y0 + (boxHeight - size.height * pitch) / 2, pitchX: pitch, pitchY: pitch };
 }
 
 /**

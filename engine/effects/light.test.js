@@ -431,6 +431,9 @@ test("reduced motion: the calm preview leaves out short Light bursts and holds s
   assert.deepEqual(calmGroup[0].animations.map((animation) => animation.id), ["move"]);
   const groupedQuiet = [{ id: "group", kind: "composed", start: 1, animations: [move] }];
   assert.equal(calmLightAnimations(groupedQuiet), groupedQuiet, "a group with nothing to calm: the same array");
+  // lift_dark's grain holds still in the calm preview; another grain keeps moving.
+  const grains = [{ id: "wall.lift-grain", kind: "effect", effect: "grain", start: 0, duration: 4, to: { amount: 0.1, size: 2 } }, { id: "film", kind: "effect", effect: "grain", start: 0, duration: 4, to: { amount: 0.2 } }];
+  assert.deepEqual(calmLightAnimations(grains).map((animation) => animation.to.animated), [false, undefined]);
 
   // Through the renderer: in the middle of the burst the calm picture is the picture without it.
   const scene = (layerAnimations) => createScene({ id: "calm", width: 200, height: 100, duration: 3, layers: [

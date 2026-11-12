@@ -7,7 +7,7 @@ import { expandComponents } from "../../engine/linkedComponents.js";
 import { mainScene } from "../../engine/board.js";
 import { coveredAt } from "../../engine/quality/techniques.js";
 import { area, boxAt, intersection, visibleBoxAt } from "../../engine/quality/model.js";
-import { blockiness, blockStep, cropFrame, deblockFor, gammaToMean, liftDeblockId, liftGrainId, liftId, liftShot, lumaStats } from "../../engine/quality/liftDark.js";
+import { blockiness, blockStep, cropFrame, deblockFor, gammaToMean, liftDeblockId, liftGrainId, liftId, liftShot, lumaStats, sourceGrid } from "../../engine/quality/liftDark.js";
 
 // 240 px wide: wider than match_references' 160, so the 2nd and 98th percentiles have pixels to stand on.
 const MEASURE_WIDTH = 240;
@@ -40,8 +40,9 @@ export function pictureShots(model) {
     if (!shown.length) continue;
     const picked = [...new Set(Array.from({ length: PER_SHOT }, (_, step) => Math.min(shown.length - 1, Math.floor(((step + 0.5) / PER_SHOT) * shown.length))))].map((index) => shown[index]);
     const share = Math.max(...picked.map((entry) => area(entry.box))) / area(frame);
-    // whole: the picture's own box (letterbox bars and the frame edge not cut off), where its source pixels sit.
-    shots.push({ layerId: item.source.layerId, name: item.name ?? item.source.layerId, times: picked.map((entry) => entry.time), boxes: picked.map((entry) => entry.box), whole: boxAt(item, model.times.indexOf(picked[0].time)), video: item.kind === "video", share, first: shown[0].time });
+    // wholes: the picture's own box at each picked time (not cut by the frame edge), where its source
+    // pixels sit; a picture that moves or zooms puts its codec grid somewhere else on each frame.
+    shots.push({ layerId: item.source.layerId, name: item.name ?? item.source.layerId, times: picked.map((entry) => entry.time), boxes: picked.map((entry) => entry.box), wholes: picked.map((entry) => boxAt(item, model.times.indexOf(entry.time))), video: item.kind === "video", share, first: shown[0].time });
   }
   return shots.sort((a, b) => a.first - b.first);
 }
@@ -81,6 +82,23 @@ export async function liftDark(document, { sceneId = null, layerIds = [], target
   const own = layerIds.map((layerId) => shots.find((shot) => shot.layerId === layerId) ?? ownShot(baseScene, layerId)).filter(Boolean);
   const others = shots.filter((shot) => !layerIds.includes(shot.layerId) && shot.share >= OTHER_SHARE);
   const all = [...own, ...others];
+  // A video's source pixels on the scene at each picked time, from its box and the file's size
+  // (sourceGrid: drawn whole and centered in the box); none when either is unknown. Its frames are
+  // then cut to the picture itself: the bars a contained clip leaves in its box (a 16:9 clip in a
+  // 9:16 box) are neither its tones nor its blocks.
+  const grids = new Map();
+  for (const shot of all) {
+    const size = shot.video && shot.wholes ? await sourceSize(shot.layerId) : null;
+    const placed = (shot.wholes ?? []).map((whole, index) => {
+      const grid = sourceGrid(whole, size);
+      const picture = grid && { x0: grid.x0, y0: grid.y0, x1: grid.x0 + size.width * grid.pitchX, y1: grid.y0 + size.height * grid.pitchY };
+      const box = grid && (shot.boxes?.[index] ? intersection(shot.boxes[index], picture) : picture);
+      return grid && area(box) > 0 ? { ...grid, box } : null;
+    });
+    if (!placed.length || !placed.every(Boolean)) continue;
+    shot.boxes = placed.map((entry) => entry.box);
+    if (own.includes(shot)) grids.set(shot.layerId, placed);
+  }
   const times = all.flatMap((shot) => shot.times);
   const width = Math.min(MEASURE_WIDTH, model.width);
   const scale = width / model.width;
@@ -96,32 +114,26 @@ export async function liftDark(document, { sceneId = null, layerIds = [], target
   const otherMean = median(others.map((shot) => lumaStats(shot.frames)?.mean));
   const aim = Number.isFinite(target) ? target / 255 : otherMean ?? FALLBACK_TARGET / 255;
   const aimLine = Number.isFinite(target) ? `target ${target}` : otherMean !== null ? `target ${levels255(otherMean)} (median of ${others.length} other shot${others.length === 1 ? "" : "s"})` : `target ${FALLBACK_TARGET} (no other shot to follow; target:<0-255> sets it)`;
-  // A video's source pixels on the scene: its own box over the file's size (null when either is unknown).
-  const grids = new Map();
-  for (const shot of own) {
-    const size = shot.video && shot.whole ? await sourceSize(shot.layerId) : null;
-    if (!(size?.width > 0 && size?.height > 0)) continue;
-    grids.set(shot.layerId, { x0: shot.whole.x0, y0: shot.whole.y0, pitchX: (shot.whole.x1 - shot.whole.x0) / size.width, pitchY: (shot.whole.y1 - shot.whole.y0) / size.height });
-  }
-  // Block steps are read at full scene size (a 240 px frame cannot show a 16 px block), inside the shot's box.
+  const pitchOf = (layerId) => (grids.has(layerId) ? grids.get(layerId)[0].pitchX : 1);
+  // Block steps are read at full scene size (a 240 px frame cannot show a 16 px block), inside the
+  // shot's box, on the shot's layer drawn alone: text, other pictures and overlays on top add steps
+  // of their own that hide the source's blocks (the stair shot: 1.97 alone, 0.93 under its caption).
   const gridded = own.filter((shot) => grids.has(shot.layerId));
-  const fullTimes = gridded.flatMap((shot) => shot.times);
-  const blocksOf = (frames, shot, side) => {
-    const at = gridded.slice(0, gridded.indexOf(shot)).reduce((sum, entry) => sum + entry.times.length, 0);
-    const mine = frames.slice(at, at + shot.times.length);
-    const grid = { ...grids.get(shot.layerId), box: shot.boxes?.[0] ?? null };
-    return side ? blockStep(mine, { ...grid, side }) : blockiness(mine, grid);
+  const blocksOf = async (document, shot, side) => {
+    const frames = await render(alone(expandComponents(document, scene.id, { fonts }), shot.layerId), shot.times, { width: model.width });
+    const grid = grids.get(shot.layerId);
+    return side ? blockStep(frames, grid.map((entry) => ({ ...entry, side }))) : blockiness(frames, grid);
   };
-  const fullBefore = fullTimes.length ? await render(expandComponents(base, scene.id, { fonts }), fullTimes, { width: model.width }) : [];
+  const blocksBefore = new Map();
+  for (const shot of gridded) blocksBefore.set(shot.layerId, await blocksOf(base, shot));
   const still = reduced ?? Boolean(baseScene?.composition?.reduced);
   const lifted = [], skipped = [];
   for (const shot of own) {
-    const grid = grids.get(shot.layerId);
-    const lift = liftShot(shot.frames, aim, { sourceScale: grid ? Math.max(grid.pitchX, grid.pitchY) : 1 });
+    const lift = liftShot(shot.frames, aim, { sourceScale: pitchOf(shot.layerId) });
     if (!lift) { skipped.push(shot); continue; }
     const amount = grain === false ? null : Number.isFinite(grain) ? grain : lift.grain?.amount ?? null;
-    const blocks = grid ? blocksOf(fullBefore, shot) : null;
-    lifted.push({ ...shot, ...lift, amount, size: lift.grain?.size ?? 1, gamma: gammaToMean(shot.frames, lift.after.mean), blocks, deblock: deblockFor(blocks, grid ? Math.max(grid.pitchX, grid.pitchY) : 1) });
+    const blocks = blocksBefore.get(shot.layerId) ?? null;
+    lifted.push({ ...shot, ...lift, amount, size: lift.grain?.size ?? 1, gamma: gammaToMean(shot.frames, lift.after.mean), blocks, deblock: deblockFor(blocks, pitchOf(shot.layerId)) });
   }
   const ops = lifted.flatMap((entry) => [
     // Before the curve, so the steps are smoothed at the source's own levels.
@@ -135,8 +147,7 @@ export async function liftDark(document, { sceneId = null, layerIds = [], target
     // The receipt's "after" is the render (overlays and the frame finish included), not the model.
     const drawn = await render(expandComponents(after, scene.id, { fonts }), times, { width });
     for (const entry of lifted) entry.after = lumaStats(framesOf(entry, drawn)) ?? entry.after;
-    const fullAfter = lifted.some((entry) => entry.blocks) ? await render(expandComponents(after, scene.id, { fonts }), fullTimes, { width: model.width }) : [];
-    for (const entry of lifted) if (entry.blocks) entry.blocksAfter = blocksOf(fullAfter, entry, entry.blocks.side);
+    for (const entry of lifted) if (entry.blocks) entry.blocksAfter = await blocksOf(after, entry, entry.blocks.side);
   }
   const level = (value) => Math.round(value * 100) / 100;
   const blockLine = (entry) => !entry.blocks ? ""
@@ -147,6 +158,16 @@ export async function liftDark(document, { sceneId = null, layerIds = [], target
     ? `lift_dark ${aimLine}: ${lifted.map(shotLine).join("; ")}${kept}. Effects ${lifted.some((entry) => entry.deblock) ? "<layer>.lift-deblock (deblock), " : ""}<layer>.lift (curves) and <layer>.lift-grain; again replaces them, remove:true takes them off.`
     : `lift_dark ${aimLine}: nothing lifted${kept || ` (no frame of ${layerIds.map(name).join(", ")} measured)`}.`];
   return { document: after, lines, lifted };
+}
+
+// An expanded scene with only `layerId` and the groups around it drawn (every other layer hidden),
+// or the scene as it is when the layer is not in it.
+export function alone(scene, layerId) {
+  const byId = new Map((scene?.layers ?? []).map((layer) => [layer.id, layer]));
+  const keep = new Set();
+  for (let at = byId.get(layerId); at && !keep.has(at.id); at = at.parentId ? byId.get(at.parentId) : null) keep.add(at.id);
+  if (!keep.size) return scene;
+  return { ...scene, layers: scene.layers.map((layer) => (keep.has(layer.id) ? layer : { ...layer, visible: false })) };
 }
 
 // PER_SHOT scene times spread over a layer's own time in the scene, or null.
