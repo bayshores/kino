@@ -12,7 +12,7 @@ import { createWebCache } from "./web-cache.mjs";
 import { createFootageFinder } from "./footage-finder/index.mjs";
 import { candidateLine, droppedLine, elsewhereLine, knownEdits, nothingFoundText, parseFootageLines, scannedLine, someoneElses } from "./footage-finder/search.mjs";
 import { createCommonsSource, parseCommonsSearch } from "./footage-finder/licensed.mjs";
-import { addCandidates, createFootageActions, FOOTAGE_TOPIC_LINE, logoLast, scanText } from "./footage-finder/actions.mjs";
+import { addCandidates, createFootageActions, FOOTAGE_TOPIC_LINE, logoLast, scanText, shotLine } from "./footage-finder/actions.mjs";
 import { LOOK_MODEL, lookModelReady } from "./look-embed.mjs";
 import { createAgentService } from "./agent/service.mjs";
 import { LIBRARY_TOPICS } from "./agent/actions.mjs";
@@ -275,7 +275,7 @@ test("two identical searches at once share one yt-dlp call, and one caller cance
   }
 });
 
-test("a scan puts dark and title shots last, joins 0.96-alike neighbors, gives match as a z-score and removes the copy", async () => {
+test("a scan keeps dark shots tagged in place, puts title shots last, joins 0.96-alike neighbors, gives match as a z-score and removes the copy", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "kino-test-times-"));
   const copyFolder = path.join(directory, "copy");
   await mkdir(copyFolder);
@@ -308,16 +308,19 @@ test("a scan puts dark and title shots last, joins 0.96-alike neighbors, gives m
     const copy = { folder: copyFolder, files: [{ start: 60, end: 70, file: path.join(copyFolder, "scan.60.webm") }] };
     const scan = await scanFootage("yt-abcdefghijk", copy, { dataRoot: directory, want: "white hair", embed, tools });
     await assert.rejects(stat(copyFolder), { code: "ENOENT" });
-    assert.deepEqual(scan.skipped, { dark: 1, text: 1, subtitles: 0, short: 0, repeats: 1 });
-    // Numbers follow time (A 1, B+C 2, D 3, E 4); the clean shots rank first, the dark and title shots last.
-    assert.deepEqual(scan.shots.map((shot) => shot.n), [1, 2, 3, 4]);
-    assert.deepEqual(scan.shots.map((shot) => [shot.start, shot.end]), [[60, 62], [62, 66], [66, 68], [68, 70]]);
-    assert.deepEqual(scan.shots.slice(2).map((shot) => shot.flags), [["dark"], ["text"]]);
+    // A dark shot is tagged, never skipped for darkness alone (run 6 lost the night scene it asked for).
+    assert.deepEqual(scan.skipped, { dark: 0, text: 1, subtitles: 0, short: 0, repeats: 1 });
+    // Numbers follow time (A 1, B+C 2, D 3, E 4); the clean and dark shots rank by score (the moving
+    // dark shot before the held one), the title shot last.
+    assert.deepEqual(scan.shots.map((shot) => shot.n), [1, 3, 2, 4]);
+    assert.deepEqual(scan.shots.map((shot) => [shot.start, shot.end]), [[60, 62], [66, 68], [62, 66], [68, 70]]);
+    assert.deepEqual([scan.shots[1].flags, scan.shots[3].flags], [["dark"], ["text"]]);
+    assert.match(shotLine("F1", scan.shots[1]), / dark, mean 13 of 255$/);
     assert.equal(scan.shots[0].face, 100);
     // Closeness 0, 0, 0, 1 as z-scores; only the title card matches, and a flagged shot never shows a match.
     assert.deepEqual(scan.shots.map((shot) => shot.match), [-0.6, -0.6, -0.6, 1.7]);
     assert.equal(scan.matchShown, false);
-    assert.deepEqual(sheetStills, ["still-A", "still-B", "still-D", "still-E"]);
+    assert.deepEqual(sheetStills, ["still-A", "still-D", "still-B", "still-E"]);
     assert.deepEqual((await readScan(directory, "yt-abcdefghijk")).shots.length, 4);
     // Ten even shots, one of them close to the words: a z-score of 3 counts, and that shot leads.
     const ten = Array.from({ length: 10 }, (_, index) => ({ start: index, end: index + 1, motion: index === 7 ? 10 : 60, face: 0, luma: 0.5, text: 0, logo: 0,

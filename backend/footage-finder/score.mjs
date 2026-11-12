@@ -300,7 +300,8 @@ export function rankShots(shots, { wantVector = null, drawn = false } = {}) {
     if (shot.text >= TEXT_SHARE) flags.push("text");
     else if (shot.subs >= SUBTITLE_SHARE) flags.push("subtitles");
     if (shot.end - shot.start < SHORT_SECONDS) flags.push("short");
-    for (const flag of flags) skipped[flag] += 1;
+    // A dark shot is tagged, not skipped (TAG_ONLY).
+    for (const flag of flags) if (flag !== "dark") skipped[flag] += 1;
     if (shot.logo >= TEXT_SHARE) flags.push("logo");
     const base = round3(0.5 * shot.motion + 0.3 * (shot.face ?? 0) + 20 * (1 - shot.text) - (flags.includes("logo") ? 10 : 0));
     return { ...shot, flags, base };
@@ -314,8 +315,17 @@ export function rankShots(shots, { wantVector = null, drawn = false } = {}) {
 // ---- files ----------------------------------------------------------------------------------
 
 const SCAN_ID = /^[A-Za-z0-9_-]{1,64}$/;
-/** A shot of these flags goes after the clean ones (a logo alone is a small cost, not a reason). */
-const isLast = (shot) => (shot.flags ?? []).some((flag) => flag !== "logo");
+/**
+ * Flags that tag a shot without moving it after the clean ones: a logo is a small cost, and a dark
+ * shot is kept in its place and said so (run 6's scan put 18 dark shots last, among them the night
+ * climb the person asked for, .scratch/ceiling/trace-run6.md and b/result.md friction 12). Dark
+ * footage can be lifted; it is never dropped for darkness alone.
+ */
+const TAG_ONLY = new Set(["logo", "dark"]);
+/** True when a shot has no flag but a tag (logo, dark): a clean shot. */
+export const cleanShot = (shot) => (shot.flags ?? []).every((flag) => TAG_ONLY.has(flag));
+/** A shot of these flags goes after the clean ones. */
+const isLast = (shot) => !cleanShot(shot);
 /** Clean shots first, then best score, then earliest. */
 const compareShots = (a, b) => Number(isLast(a)) - Number(isLast(b)) || b.score - a.score || a.start - b.start;
 
@@ -567,6 +577,8 @@ export async function scanFootage(id, copy, { dataRoot, want = "", embed = null,
     const rows = ranked.shots.map((shot, index) => ({
       n: numbered[index].n, start: numbered[index].start, end: numbered[index].end, motion: shot.motion, face: shot.face,
       match: shot.match, score: shot.score, base: shot.base, flags: shot.flags,
+      // A dark shot keeps its mean light (0 to 1), so its line says how dark.
+      ...(shot.flags.includes("dark") && Number.isFinite(shot.luma) ? { luma: shot.luma } : {}),
       ...(shot.vector ? { vector: encodeVector(shot.vector) } : {}),
     }));
     // The shots of earlier scans stay under their numbers, and every shot of the video is then
@@ -581,7 +593,7 @@ export async function scanFootage(id, copy, { dataRoot, want = "", embed = null,
     const shotsOf = together.map((row, index) => ({ ...row, match: answer.matches[index], score: answer.scores[index] }));
     shotsOf.sort(compareShots);
     const skipped = { dark: 0, text: 0, subtitles: 0, short: 0 };
-    for (const shot of shotsOf) for (const flag of shot.flags) if (flag in skipped) skipped[flag] += 1;
+    for (const shot of shotsOf) for (const flag of shot.flags) if (flag in skipped && flag !== "dark") skipped[flag] += 1;
     const windows = [...(before?.windows ?? []), ...copy.files.map((window) => ({ start: window.start, end: window.end }))]
       .filter((window, index, list) => list.findIndex((other) => other.start === window.start && other.end === window.end) === index);
     const scan = {

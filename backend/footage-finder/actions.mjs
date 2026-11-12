@@ -8,7 +8,7 @@
 // about 50 s; a longer one answers with its progress and a next call that repeats it.
 import { call } from "../agent/next-call.mjs";
 import { readTime } from "./scan.mjs";
-import { SCAN_VERSION } from "./score.mjs";
+import { cleanShot, SCAN_VERSION } from "./score.mjs";
 import { candidateLine, droppedLine, editsLast, elsewhereLine, nothingFoundText, scannedLine, someoneElses, withStudies } from "./search.mjs";
 import { scanCall, searchCall } from "./step.mjs";
 import { needLine, wantBySection } from "./needs.mjs";
@@ -167,7 +167,8 @@ export function shotLine(code, shot, { matchShown = false } = {}) {
   const parts = [`${code}.${shot.n}`, `${stamp(shot.start)}-${stamp(shot.end)}`, `${(shot.end - shot.start).toFixed(1)}s`, `motion ${Math.round(shot.motion ?? 0)}`];
   if (Number.isFinite(shot.face)) parts.push(`face ${Math.round(shot.face)}`);
   if (matchShown && Number.isFinite(shot.match)) parts.push(`match ${shot.match >= 0 ? "+" : ""}${shot.match.toFixed(1)}`);
-  if (shot.flags?.length) parts.push(shot.flags.join(" "));
+  // A dark shot says how dark (mean luma of 255), so a dark scene the person asked for is picked knowingly.
+  if (shot.flags?.length) parts.push(shot.flags.map((flag) => (flag === "dark" && Number.isFinite(shot.luma) ? `dark, mean ${Math.round(shot.luma * 255)} of 255` : flag)).join(" "));
   if (shot.hasSubs) parts.push("has subtitles");
   if (shot.says) parts.push(`says: "${shot.says}"`);
   return parts.join(" ");
@@ -175,7 +176,7 @@ export function shotLine(code, shot, { matchShown = false } = {}) {
 
 /** The shots a scan answer's import call names: the best clean ones (no flag but logo). */
 export function importPicks(scan, most = FOOTAGE_IMPORT_PICKS) {
-  return (scan.shots ?? []).filter((shot) => (shot.flags ?? []).every((flag) => flag === "logo")).slice(0, most).map((shot) => shot.n);
+  return (scan.shots ?? []).filter(cleanShot).slice(0, most).map((shot) => shot.n);
 }
 
 function skippedLine(skipped = {}) {

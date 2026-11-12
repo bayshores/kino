@@ -353,6 +353,8 @@ test("look source and mark_subject refuse what they cannot do, in words", { skip
   assert.match(small.text, /^crop: x 0–100%, y 0–100% of the source \(dashed; the clip covers 32% of the frame\); the result is on the right$/m);
   await agent("edit", { project: "refusals", ops: [{ op: "update_layer", layer: "footage", properties: { visible: false } }] });
   assert.match((await look({ layer: "footage", t: 1 })).text, /^source footage @1s \(not on screen at 1 s\): file 1 s of /m);
+  // No t: the mark goes on the frame of the last look at that layer (file 1 s), said in the receipt.
+  assert.match((await mark({ layer: "footage", box: [20, 20, 30, 60] })).text, /mark_subject footage: no t, so at your last look \(file 1 s\)/);
 });
 
 test("subject boxes stop at 600 a layer; the receipt and inspect stay small", { skip: skipWithoutMediaTools, timeout: 180_000 }, async () => {

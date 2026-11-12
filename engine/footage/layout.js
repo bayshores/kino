@@ -9,6 +9,7 @@ import { safeArea } from "../blocks/formats.js";
 import { SCREEN_NAME } from "../movePicks.js";
 import { mediaFrameState, mediaPlaybackRange } from "../playback.js";
 import { markedSubject } from "./moments.js";
+import { cropPast, paddedMark, MARK_ZOOM_MOST } from "./burned.js";
 
 const round = (value) => Math.round(value);
 
@@ -209,6 +210,30 @@ function backdropAnimation(animation, opacity) {
 }
 
 /**
+ * A fill crop (`box`, the layer's box in scene pixels) moved or zoomed so the marks burned into the
+ * file (`marks` [{where, box}], fractions) are outside the window: the least zoom from the crop's own
+ * zoom, as near its own center as the cuts allow (burned.js cropPast). `aim` (the subject or face
+ * box, fractions) must stay SUBJECT_KEPT in the new window and the zoom at most `zoomMost`; else the
+ * crop is kept and the answer says why. Answers null when no mark shows in the crop, else
+ * {box | null, marks: {out, zoom?, kept?: "face" | "zoom"}}.
+ */
+export function cropPastMarks(box, marks, frame, size, aim = null, zoomMost = MARK_ZOOM_MOST) {
+  const windowOf = (layerBox) => {
+    const left = -layerBox.x / layerBox.width, top = -layerBox.y / layerBox.height;
+    return [left, top, left + frame.width / layerBox.width, top + frame.height / layerBox.height];
+  };
+  const shows = (bounds) => marks.some((mark) => Array.isArray(mark?.box) && shareIn(paddedMark(mark.box), [bounds[0], bounds[1], bounds[2] - bounds[0], bounds[3] - bounds[1]]) > 0);
+  const before = windowOf(box);
+  if (!shows(before)) return null;
+  const fit = cropPast(marks, frame, size, { center: [(before[0] + before[2]) / 2, (before[1] + before[3]) / 2], scale: box.width / size.width });
+  if (!fit) return { box: null, marks: { out: false, kept: "zoom" } };
+  const after = windowOf(fit);
+  if (fit.zoom > zoomMost + 1e-9) return { box: null, marks: { out: false, kept: "zoom", zoom: fit.zoom } };
+  if (aim && shareIn(aim, [after[0], after[1], after[2] - after[0], after[3] - after[1]]) < SUBJECT_KEPT) return { box: null, marks: { out: false, kept: "face", zoom: fit.zoom } };
+  return { box: { x: fit.x, y: fit.y, width: fit.width, height: fit.height }, marks: { out: true, zoom: fit.zoom } };
+}
+
+/**
  * kino's own shot layout for a video layer that was placed by hand: the same choice compose
  * {footage} makes (shotLayout), from the file's size, the subject marked on the layer (mark_subject)
  * and the subjects measured in the file (`samples`, subjects-v1 or people-v1). Returns
@@ -218,7 +243,7 @@ function backdropAnimation(animation, opacity) {
  *                            backdrop: a blurred copy to put right under the layer (blur-fill), or null.
  * `taken` is the set of layer ids in use. Throws a plain sentence when the layer cannot be framed.
  */
-export function frameShot(scene, layer, { size, samples = [], taken = new Set() } = {}) {
+export function frameShot(scene, layer, { size, samples = [], taken = new Set(), marks: burnedMarks = [], zoomMost = MARK_ZOOM_MOST } = {}) {
   if (layer.type !== "video") throw new Error(`frame needs a video layer; ${layer.name || layer.id} is ${/^[aeiou]/.test(layer.type) ? "an" : "a"} ${layer.type} layer.`);
   if (layer.parentId) throw new Error(`${layer.name || layer.id} is inside a group: frame works on a layer of the scene itself (take it out of the group, or frame the group's footage before grouping).`);
   if (!(size?.width > 0 && size?.height > 0)) throw new Error(`frame needs the size of ${layer.name || layer.id}'s file (import it with import_media first).`);
@@ -250,7 +275,12 @@ export function frameShot(scene, layer, { size, samples = [], taken = new Set() 
     { focus: marked?.center ?? seen.face, subject: marked?.box ?? null, salient: seen.salient });
   // What the crop was aimed at, for the agent's receipt.
   const on = widened ? "mark-salient" : marked ? "mark" : seen.face ? "face" : seen.salient ? "salient" : null;
-  if (layout.kind === "fill") return { kind: "fill", on, patch: { ...layout.main }, backdrop: null };
+  if (layout.kind === "fill") {
+    // A mark burned into the file (the footage facts' marks) stays outside the crop when it can.
+    const aim = marked?.box ?? seen.faceBox ?? null;
+    const past = burnedMarks.length ? cropPastMarks(layout.main, burnedMarks, frame, size, aim, zoomMost) : null;
+    return { kind: "fill", on, patch: { ...(past?.box ?? layout.main) }, backdrop: null, ...(past ? { marks: past.marks } : {}) };
+  }
   const patch = { ...layout.main, radius: layout.radius, shadow: { color: "#000000B3", x: 0, y: Math.round(0.02 * frame.height), blur: Math.round(0.05 * frame.height) } };
   const back = layout.backdrop;
   let id = `${layer.id}-blur`;

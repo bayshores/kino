@@ -203,7 +203,8 @@ export function saidMatches(text, said) {
  * {shots, hits (shots that say it)}.
  */
 export function applySaid(shots, lines, said = "") {
-  const clean = (shot) => (shot.flags ?? []).every((flag) => flag === "logo");
+  // Clean: no flag but a tag (a logo or a dark picture, score.mjs TAG_ONLY).
+  const clean = (shot) => (shot.flags ?? []).every((flag) => flag === "logo" || flag === "dark");
   const marked = shots.map((shot) => {
     const says = shotSays(shot, lines);
     const out = says ? { ...shot, says } : { ...shot };

@@ -58,6 +58,10 @@ import { projectSeed } from "../../engine/deck.js";
 import { composeLenient, deckComposition, deckFinish } from "../../engine/blocks/deckVariant.js";
 import { FOOTAGE_FIELDS, readFootageList } from "./footage.mjs";
 import { frameShot } from "../../engine/footage/layout.js";
+import { markWays, MARK_ZOOM_MOST } from "../../engine/footage/burned.js";
+
+// "top-left and bottom-right": where a file's burned-in marks sit.
+const markPlaces = (marks) => [...new Set(marks.map((mark) => mark.where).filter(Boolean))].join(" and ") || "corner";
 import { planEdit } from "../../engine/footage/plan.js";
 import { footageCues, footageOps } from "../../engine/footage/ops.js";
 import { footageBrand, guessTreatment, treatmentFromPick, treatmentNamed, TREATMENT_NAMES } from "../../engine/footage/treatments.js";
@@ -209,7 +213,7 @@ const OPERATIONS = {
   },
   mark_subject: {
     fields: ["layerId", "t", "box", "part", "shows"],
-    rules: 'mark_subject {layer, t, box, part?, shows?}: marks the subject in a video layer\'s source frame at scene time t, after you looked at it. box is [x, y, w, h] in % of the source (look {mode:"source"} draws the grid; x, y is the top-left corner); kino keeps it at that moment of the file. part names a deliberate part crop (part:"eyes" for a strip). shows names what of the ask this frame shows (the word ask_unmet names; it counts only at a second you looked at). Send shows without box when it stands in the background: the subject boxes stay as they are (shows with box:null removes that mark). box:null removes the box at that frame. Mark each shot\'s start, middle and end (a listed end is the next shot\'s first frame: mark 0.05 s before it), and every 0.5 s where the subject moves.',
+    rules: 'mark_subject {layer, t, box, part?, shows?}: marks the subject in a video layer\'s source frame at scene time t, after you looked at it (no t: the frame of your last look at that layer; a look anywhere in the same shot of the file counts as seen). box is [x, y, w, h] in % of the source (look {mode:"source"} draws the grid; x, y is the top-left corner); kino keeps it at that moment of the file. part names a deliberate part crop (part:"eyes" for a strip). shows names what of the ask this frame shows (the word ask_unmet names; it counts only at a second you looked at). Send shows without box when it stands in the background: the subject boxes stay as they are (shows with box:null removes that mark). box:null removes the box at that frame. Mark each shot\'s start, middle and end (a listed end is the next shot\'s first frame: mark 0.05 s before it), and every 0.5 s where the subject moves.',
   },
   frame_shot: {
     fields: ["layerId", "layerIds", "sceneId"],
@@ -661,6 +665,10 @@ const TRANSLATE = {
   mark_subject(operation, resolver) {
     if (operation.layerId === undefined) throw problem("mark_subject needs layer, a video layer's name or code.");
     operation.layerId = layerRef(resolver, operation.layerId);
+    // No t: the file second of the last look at this layer's source (a director sent it without t
+    // after a look, .scratch/ceiling/c/result.md friction 3); the apply step checks it is this file.
+    const look = resolver.sourceLooks?.[operation.layerId];
+    if (operation.t === undefined && Array.isArray(look?.at) && look.at.length && Number.isFinite(look.at.at(-1))) operation.lookedAt = { src: look.src, at: look.at.at(-1) };
   },
   // layer and layers both work; they become one list (each layer once).
   frame_shot(operation, resolver) {
@@ -871,7 +879,9 @@ function mediaFinder(list, projectId) {
     if (!found) throw problem(`No uploaded picture or video "${text}".${images.length ? "" : ' Import one first: project {action:"import", file}.'}`, closest(text, images.map((item) => item.name)));
     if (!(found.width > 0 && found.height > 0)) throw problem(`The picture "${text}" has no known size; import it again.`);
     const video = String(found.mime).startsWith("video/") ? { kind: "video", duration: Number(found.duration) || 0 } : {};
-    return { id: found.id, src: found.src ?? `/api/media/${found.id}`, width: found.width, height: found.height, name: found.name, ...video, ...(Array.isArray(found.busy) ? { busy: found.busy, edges: found.edges, flat: found.flat } : {}) };
+    // footage.marks: logos the footage finder's scan found burned into the file (frame_shot keeps them out).
+    return { id: found.id, src: found.src ?? `/api/media/${found.id}`, width: found.width, height: found.height, name: found.name, ...video, ...(Array.isArray(found.busy) ? { busy: found.busy, edges: found.edges, flat: found.flat } : {}),
+      ...(Array.isArray(found.footage?.marks) && found.footage.marks.length ? { footage: { marks: found.footage.marks } } : {}) };
   };
 }
 
@@ -1914,8 +1924,15 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     const name = layer.name || layer.id;
     if (layer.type !== "video") throw problem(`mark_subject needs a video layer; ${name} is ${/^[aeiou]/.test(layer.type) ? "an" : "a"} ${layer.type} layer.`);
     const t = operation.t;
-    if (typeof t !== "number" || !Number.isFinite(t) || t < 0 || t > scene.duration) throw problem(`t is scene seconds, from 0 to ${round(scene.duration)}.`);
-    const at = round(mediaFrameState(layer, t).sourceTime);
+    const looked = t === undefined && operation.lookedAt?.src === layer.src ? operation.lookedAt.at : null;
+    if (looked === null && (typeof t !== "number" || !Number.isFinite(t) || t < 0 || t > scene.duration)) {
+      // The refusal names the layer's own span in scene seconds, so the next call can be sent as it is.
+      const range = mediaPlaybackRange(layer, scene.duration);
+      const [from, to] = [round(range?.start ?? 0), round(range?.end ?? scene.duration)];
+      throw problem(`t is scene seconds, from 0 to ${round(scene.duration)}. ${name} shows from ${from} to ${to} s (look {mode:"source", layer:"${name}", t:${round((from + to) / 2)}} first, then mark_subject {layer:"${name}", t:${round((from + to) / 2)}, box}; without t kino uses your last look at ${name}).`);
+    }
+    const at = looked !== null ? round(looked) : round(mediaFrameState(layer, t).sourceTime);
+    if (looked !== null) work.notes.push(`mark_subject ${name}: no t, so at your last look (file ${Number(at.toFixed(2))} s)`);
     const boxes = layer.subjectBoxes?.src === layer.src ? layer.subjectBoxes.boxes : [];
     const others = boxes.filter((entry) => Math.abs(entry.at - at) > SAME_MOMENT + 1e-9);
     const count = (number) => `${number} ${number === 1 ? "box" : "boxes"} on this layer`;
@@ -2043,8 +2060,11 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
       catch { throw problem(`frame_shot needs ${name}'s file in kino's media library (import it with project {action:"import", file} and use its src).`); }
       const size = { width: file.width, height: file.height };
       const samples = (await subjectSamples?.(layer)) ?? [];
+      // Logos the footage finder found burned into the file: the crop keeps them out (a reset to the
+      // full frame brought one back in a director's draft, .scratch/ceiling/c/result.md friction 2).
+      const marks = Array.isArray(file.footage?.marks) ? file.footage.marks.filter((mark) => Array.isArray(mark?.box) && mark.box.length === 4) : [];
       let shot;
-      try { shot = frameShot(scene, layer, { size, samples, taken: new Set(allIds()) }); }
+      try { shot = frameShot(scene, layer, { size, samples, taken: new Set(allIds()), marks }); }
       catch (error) {
         if (!/is already framed/.test(error.message)) throw problem(error.message);
         const backdrop = error.message.match(/framed: (.+) is its blurred backdrop/)?.[1] ?? "a blurred copy";
@@ -2054,7 +2074,7 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
       const same = ["x", "y", "width", "height"].every((key) => Math.abs((layer[key] ?? 0) - shot.patch[key]) <= 1);
       if (shot.kind === "fill" && same) { work.notes.push(`frame_shot ${name}: already framed (kino's crop is where it is)`); continue; }
       let next;
-      try { next = applyOperations(document, [{ type: "frame_shot", sceneId: scene.id, layerId, size, samples }]); }
+      try { next = applyOperations(document, [{ type: "frame_shot", sceneId: scene.id, layerId, size, samples, ...(marks.length ? { marks } : {}) }]); }
       catch (error) { throw problem(error.message); }
       document.scenes = next.scenes;
       const box = `${shot.patch.width}×${shot.patch.height} at ${shot.patch.x}, ${shot.patch.y}`;
@@ -2062,6 +2082,9 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
       work.notes.push(shot.kind === "fill"
         ? `frame_shot ${name}: ${on ? `cropped to ${on}` : "filled the frame"} (${box})`
         : `frame_shot ${name}: whole shot as a card (${box}), blurred backdrop ${shot.backdrop.id} added under it`);
+      if (shot.marks) work.notes.push(shot.marks.out
+        ? `frame_shot ${name}: the mark burned into its ${markPlaces(marks)} stays outside the crop (${shot.marks.zoom}x)`
+        : `frame_shot ${name}: the mark burned into its ${markPlaces(marks)} still shows: cropping it out would ${shot.marks.kept === "face" ? "cut the subject" : `need over ${MARK_ZOOM_MOST}x`}. ${markWays(name, marks, { width: scene.width, height: scene.height }, size, shot.patch)}`);
       // No saved faces and no mark: kino framed the file by its size alone. Faces are measured by a full check.
       if (!samples.length && !layer.subjectBoxes?.boxes?.length)
         work.notes.push(`frame_shot ${name}: no faces measured for this file yet, so the frame uses only its size (a full check with pixels on finds faces; then frame_shot again after deleting the backdrop, or mark_subject)`);

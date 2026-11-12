@@ -119,6 +119,15 @@ test("frame: a hand-placed 16:9 layer in 9:16 gets blur-fill; a face from subjec
   const shotOf = (layer) => { const { kind, on } = frameShot(scene(layer), layer, { size: wide, samples: seesFace }); return [kind, on]; };
   assert.deepEqual(shotOf(mouth()), ["blur-fill", "mark-salient"]);
   assert.deepEqual(shotOf(mouth({ part: "mouth" })), ["fill", "mark"]);
+  // A logo burned into the file's top-left (the footage facts) stays out of a 16:9 fill crop (a full-frame
+  // reset brought it back in a director's draft); one that needs over 1.35x is kept and said so.
+  const plain = createLayer("video", { id: "plain", name: "plain", src: "/api/media/keeper.mp4", x: 0, y: 0, width: 1920, height: 1080, mediaSourceDuration: 10 });
+  const wideScene = createScene({ id: "w", width: 1920, height: 1080, duration: 4, layers: [plain] });
+  const logo = [{ where: "top-left", box: [0.042, 0, 0.25, 0.125] }];
+  const past = frameShot(wideScene, plain, { size: wide, samples: [], marks: logo });
+  assert.deepEqual([past.patch.y <= 1 - 0.125 * past.patch.height, past.marks], [true, { out: true, zoom: 1.14 }]);
+  assert.deepEqual(frameShot(wideScene, plain, { size: wide, samples: [], marks: [{ where: "left", box: [0.02, 0.1, 0.3, 0.4] }] }).marks, { out: false, kept: "zoom", zoom: 1.57 });
+  assert.equal(frameShot(wideScene, plain, { size: wide, samples: [] }).marks, undefined);
   // A file of unknown size is refused with a sentence, nothing saved.
   assert.throws(() => applyOperations(document, [{ type: "frame_shot", sceneId: "s", layerId: "keeper" }]), /needs the size of keeper's file/);
   // Framing a layer that already has its blurred backdrop is refused: a second one would stack.

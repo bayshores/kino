@@ -39,7 +39,7 @@ import { aloneFrames, lookDifference, SAME_FRAMING, SAME_LIGHT } from "./sourceP
 import { breakAfter, heardEdges, heardWords } from "./speech.js";
 import { peopleNear } from "./people.js";
 import { markHoldsSalient, sampleBoxes, SUBJECT_KEPT } from "../../footage/layout.js";
-import { cropPast, markSpan, MARK_SECONDS, MARK_SEEN } from "../../footage/burned.js";
+import { cropPast, markSpan, markWays, MARK_SECONDS, MARK_SEEN, MARK_ZOOM_MOST } from "../../footage/burned.js";
 
 // The most file pixels one output pixel may stretch over before the picture looks soft.
 export const UPSCALE_MAX = 1.3;
@@ -146,9 +146,30 @@ function playedStretch(scene, layer) {
  * the file the agent already saw). A mark made without that look is a guess from the layer's
  * position, not a seen subject.
  */
-export function seenMark(layer, sourceLooks, from, to) {
+export function seenMark(layer, sourceLooks, from, to, shots = null) {
+  // A look inside the same shot of the file (no cut between it and the stretch) saw the same
+  // picture: a director's mark was refused although a look had shown a nearby second
+  // (.scratch/ceiling/a/result.md friction 8). shots: the file's measured [{start, end}].
+  const same = (Array.isArray(shots) ? shots : []).filter((shot) => shot.start <= to + 1e-6 && shot.end >= from - 1e-6);
   return Object.values(sourceLooks ?? {}).some((look) => look?.src === layer.src
-    && (look.at ?? []).some((at) => at >= from - LOOK_REACH && at <= to + LOOK_REACH));
+    && (look.at ?? []).some((at) => (at >= from - LOOK_REACH && at <= to + LOOK_REACH) || same.some((shot) => at >= shot.start - 1e-6 && at <= shot.end + 1e-6)));
+}
+
+/**
+ * The people samples of a file ({samples}) a layer plays: those in the file stretch [from, to],
+ * else the one nearest its middle within half a second plus half the stretch (as frame_shot reads
+ * them). Answers the same shape, or the input when it has no samples.
+ */
+export function playedSamples(found, from, to) {
+  const samples = found?.samples;
+  if (!Array.isArray(samples) || !samples.length) return found;
+  let inside = samples.filter((sample) => Number.isFinite(sample?.t) && sample.t >= from - 1e-6 && sample.t <= to + 1e-6);
+  if (!inside.length) {
+    const middle = (from + to) / 2;
+    const closest = samples.filter((sample) => Number.isFinite(sample?.t)).reduce((best, sample) => (!best || Math.abs(sample.t - middle) < Math.abs(best.t - middle) ? sample : best), null);
+    inside = closest && Math.abs(closest.t - middle) <= SALIENT_REACH + (to - from) / 2 ? [closest] : [];
+  }
+  return { ...found, samples: inside };
 }
 
 const hasMarks = (layer) => layer.subjectBoxes?.src === layer.src && (layer.subjectBoxes.boxes?.length ?? 0) > 0;
@@ -260,12 +281,15 @@ export function cropNoSubject(model, ctx) {
       const [width, height] = layer.recording.frame;
       return [Math.max(0, (x / width) * 100 - 5), Math.max(0, (y / height) * 100 - 5), 10, 10].map((value) => Math.round(value * 10) / 10);
     } : null;
-    const found = ctx.people?.[layer.src];
+    const [playsFrom, playsTo] = playedStretch(scene, layer);
+    // Only the samples of the stretch the layer plays: a face or a crop at a file second the layer
+    // never shows is not this shot's (a director's crop was judged at a second before its mediaOffset,
+    // .scratch/ceiling/c/result.md friction 2).
+    const found = playedSamples(ctx.people?.[layer.src], playsFrom, playsTo);
     // On a file with no faces found, a mark made without a look at the file is a guess from the
     // layer's position, so it does not count as marked (the crop is judged as if nothing were marked).
     const faceFound = (found?.samples ?? []).some((sample) => sampleBoxes(sample).some((entry) => entry.kind === "face"));
-    const [playsFrom, playsTo] = playedStretch(scene, layer);
-    const unlooked = hasMarks(layer) && !faceFound && !seenMark(layer, ctx.sourceLooks, playsFrom, playsTo);
+    const unlooked = hasMarks(layer) && !faceFound && !seenMark(layer, ctx.sourceLooks, playsFrom, playsTo, ctx.mediaShots?.[layer.src]);
     const marked = (hasMarks(layer) && !unlooked) || Boolean(pointer);
     let cropped = null, croppedCount = 0, lost = null;
     // Faces the detector found whole in the file that the crop cuts: with no mark (faceCut), or
@@ -330,7 +354,7 @@ export function cropNoSubject(model, ctx) {
       const cut = faceCut.worst;
       findings.push({
         rule: "crop_no_subject", severity: "error", itemId: item.id, at: sec(cut.time),
-        message: `${ctx.name(item)} cuts a face found whole in its file at the ${cut.side} at ${sec(cut.time)} s: only ${Math.round(cut.share * 100)}% of it is in the frame. If the cut is meant (an eye strip), mark_subject the part you mean.`,
+        message: `${ctx.name(item)} cuts a face found whole in its file at the ${cut.side} at ${sec(cut.time)} s (scene; file ${sec(cut.second)} s): only ${Math.round(cut.share * 100)}% of it is in the frame. If the cut is meant (an eye strip), mark_subject the part you mean.`,
         measured: `${Math.round(cut.share * 100)}% of the face box ${boxText(cut.face)} (file ${sec(cut.second)} s) in the frame at ${sec(cut.time)} s, cut at the ${cut.side}, for ${sec((faceCut.count * step) / model.fps)} s, no subject marked`,
         required: `at least ${Math.round(SUBJECT_KEPT * 100)}% of a face found whole in the file in the frame; if the cut is meant (an eye strip), mark_subject the part you mean`,
         // kino's own framing of the layer: automatic when nothing moves it.
@@ -343,7 +367,7 @@ export function cropNoSubject(model, ctx) {
       const name = ctx.name(item);
       const call = `edit {"ops":[{"op":"frame_shot","layers":[${JSON.stringify(String(name).replace(/^"(.*)"$/, "$1"))}]}]}`;
       const held = cut.mark ? `; the mark ${boxText(cut.mark)} holds ${Math.round(insideShare(cut.box, [cut.mark[0], cut.mark[1], cut.mark[0] + cut.mark[2], cut.mark[1] + cut.mark[3]]) * 100)}% of it` : "";
-      const cutText = `${name} cuts what kino sees in its file at the ${cut.side} at ${sec(cut.time)} s: ${Math.round(cut.share * 100)}% of it is in the frame (a saliency box, not a face)`;
+      const cutText = `${name} cuts what kino sees in its file at the ${cut.side} at ${sec(cut.time)} s (scene; file ${sec(cut.second)} s): ${Math.round(cut.share * 100)}% of it is in the frame (a saliency box, not a face)`;
       // A mark nobody looked at does not count here, yet frame_shot would crop on it: the look comes first.
       const lookCall = `look {mode:"source", layer:${name}, t:${sec(cut.time)}}`;
       findings.push({
@@ -412,7 +436,7 @@ export function narrowWindow(model, ctx) {
     const found = ctx.people?.[layer.src];
     // A mark the agent made after looking at this stretch of the file clears a window that keeps it.
     const [playsFrom, playsTo] = playedStretch(scene, layer);
-    const looked = seenMark(layer, ctx.sourceLooks, playsFrom, playsTo);
+    const looked = seenMark(layer, ctx.sourceLooks, playsFrom, playsTo, ctx.mediaShots?.[layer.src]);
     let count = 0, narrowest = null, shownFrom = null, shownTo = null;
     for (let index = 0; index < model.times.length; index += step) {
       if (item.samples.opacity[index] < SHOWN || soft(item, index) || coveredAt(model, item, index)) continue;
@@ -491,10 +515,18 @@ export function burnedInMark(model, ctx) {
       if (found.count * step < model.fps * MARK_SECONDS - 1e-6) continue;
       const name = ctx.name(item);
       const plain = JSON.stringify(String(name).replace(/^"(.*)"$/, "$1"));
-      const fit = size && heldStill(model, item) ? cropPast(marks, { width: scene.width, height: scene.height }, size) : null;
-      const call = fit
+      const frame = { width: scene.width, height: scene.height };
+      const fit = size && heldStill(model, item) ? cropPast(marks, frame, size) : null;
+      // A crop past MARK_ZOOM_MOST (a guess) or one that cuts a face found in the file: the other ways first.
+      const second = mediaFrameState(layer, found.time).sourceTime;
+      const faces = fit && ctx.people?.[layer.src] ? facesAt(ctx.people[layer.src], second) : [];
+      const fitBounds = fit ? [-fit.x / fit.width * 100, -fit.y / fit.height * 100, (scene.width - fit.x) / fit.width * 100, (scene.height - fit.y) / fit.height * 100] : null;
+      const cutsFace = Boolean(fitBounds && faces.some((face) => (faceKept(face, fitBounds)?.share ?? 1) < SUBJECT_KEPT));
+      const ways = size ? markWays(name, marks, frame, size, layer) : "";
+      const call = fit && fit.zoom <= MARK_ZOOM_MOST && !cutsFace
         ? `edit {"ops":[{"op":"update_layer","layer":${plain},"properties":{"x":${fit.x},"y":${fit.y},"width":${fit.width},"height":${fit.height}}}]} crops every mark out (${fit.zoom}x zoom; look {mode:"source", layer:${name}} shows what it keeps)`
-        : `zoom or move ${name} until the mark is outside the frame`;
+        : fit ? `${cutsFace ? "a crop past it cuts a face" : `a crop past it needs ${fit.zoom}x`}. ${ways}`
+          : `zoom or move ${name} until the mark is outside the frame. ${ways}`;
       findings.push({
         rule: "burned_in_mark", severity: "warn", itemId: item.id, at: sec(found.time),
         message: `${name} still shows the mark burned into its ${mark.where} (${markSpan(mark.box)} of the file) at ${sec(found.time)} s.`,
