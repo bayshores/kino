@@ -371,7 +371,11 @@ export function cleanTake(text) {
   const tidy = (value) => value.replace(/[\s.,;:!?]+$/, "");
   if (flat.length <= TAKE_LIMIT) return tidy(flat);
   const match = new RegExp(RANGE, "i").exec(flat);
-  if (!match) return tidy(flat.slice(0, TAKE_LIMIT));
+  if (!match) {
+    // At a whole word, unless one word alone is longer than the limit.
+    const whole = flat.slice(0, TAKE_LIMIT + 1).replace(/\s+\S*$/, "");
+    return tidy(whole && whole.length <= TAKE_LIMIT ? whole : flat.slice(0, TAKE_LIMIT));
+  }
   const words = tidy(`${flat.slice(0, match.index)} ${flat.slice(match.index + match[0].length)}`.replace(/(?:[\s,;]*\b(?:from|to)\b)+[\s,;.]*$/i, "").replace(/\s+/g, " ").trim());
   const stretch = `, from ${match[0]}`;
   const room = Math.max(0, TAKE_LIMIT - stretch.length);

@@ -200,7 +200,7 @@ function liftLayerFields(operation, fixes) {
     const suggestions = closest(unknown[0], [...own, ...LAYER_PROPERTY_NAMES].filter((key) => key !== "type"));
     // A layer has no times of its own: they are animations (a start and duration on the layer was the common slip).
     const timed = operation.type === "add_layer" && unknown.some((key) => ["start", "duration", "end", "delay", "from", "to"].includes(key))
-      ? ' A layer has no start or duration: its times are animations, such as animations:[{preset:"fade", start:2, duration:0.5}] (in) and {preset:"hide", start:5} (out).' : "";
+      ? ' A layer has no start or duration: its times are animations. The retry keeps yours as {preset:"show", start} and {preset:"hide", start:<start + duration>} (a cut in and out); an entrance such as {preset:"fade", start:2, duration:0.5} can take the show\'s place.' : "";
     throw Object.assign(new Error(`${unknown.map((key) => `"${key}"`).join(", ")} ${unknown.length === 1 ? "is not a field" : "are not fields"} of ${operation.type} or of a layer.${suggestions.length ? ` Did you mean ${suggestions.join(", ")}?` : ""}${timed}`), { suggestions });
   }
   const properties = { ...(operation.properties ?? {}) };

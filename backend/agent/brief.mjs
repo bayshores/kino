@@ -950,11 +950,15 @@ function openParts(state, video) {
         // Look at the moment first (setSeen refuses a moment that was not shown), then label it.
         const at = video.seenOpen[unlabeled[0]];
         // How much is still needed, in one line: labels done of all, and the moments each reference has.
-        const counts = wanted.map((id) => video.seenCount?.[id]).filter(Boolean);
+        const counts = wanted.map((id) => video.seenCount?.[id]).filter((entry) => entry?.of > 0);
         const total = counts.reduce((sum, entry) => sum + entry.of, 0);
         const done = counts.reduce((sum, entry) => sum + entry.labeled, 0);
-        const per = counts.length ? Math.max(...counts.map((entry) => entry.of)) : 0;
-        const amount = total ? `: labels ${done} of ${total}, ${per} moment${per === 1 ? "" : "s"} for ${wanted.length > 1 ? `each of ${wanted.length} references` : "the reference"}` : "";
+        // References with different moment counts are named one by one ("6 + 4 moments"), never as a shared count.
+        const sizes = [...new Set(counts.map((entry) => entry.of))];
+        const per = sizes.length === 1 ? sizes[0] : null;
+        const amount = !total ? ""
+          : per !== null ? `: labels ${done} of ${total}, ${per} moment${per === 1 ? "" : "s"} for ${counts.length > 1 ? `each of ${counts.length} references` : "the reference"}`
+          : `: labels ${done} of ${total}, ${counts.map((entry) => entry.of).join(" + ")} moments in ${counts.length} references`;
         // Each reference's moments still to label, so one answer names them all (video.seenCount[id].left).
         const left = unlabeled.map((id) => ({ ref: id, at: video.seenCount?.[id]?.left?.length ? video.seenCount[id].left : [video.seenOpen[id]] }));
         open.push({ step: `label ${unlabeled[0]}${unlabeled.length > 1 ? ` +${unlabeled.length - 1}` : ""} on screen (seen)${amount}`, left, call: { tool: "look", input: { mode: "reference", ref: unlabeled[0], t: at } } });
@@ -1164,7 +1168,8 @@ export function lockNeeded(state, video = {}) {
   // Everything the lock still needs, in one list (the refusal says it at once): the idea and its
   // signature, the spine, the fonts, then the person's approval or a waiver with a reason.
   const left = lock === "missing"
-    ? [(noIdea || !hasText(style?.idea)) && "idea", (noIdea || !style?.signatures?.length) && "signature", !style?.spine?.length && "spine", !(style?.fonts && Object.keys(style.fonts).length) && "fonts"].filter(Boolean)
+    // (An idea line the brief already has is carried into the call, so only a missing one is named.)
+    ? [!hasText(style?.idea) && !hasText(state.brief.fields?.idea?.text) && "idea", (noIdea || !style?.signatures?.length) && "signature", !style?.spine?.length && "spine", !(style?.fonts && Object.keys(style.fonts).length) && "fonts"].filter(Boolean)
     : [];
   left.push("approval or waiver");
   return lock === "missing"

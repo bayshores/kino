@@ -430,6 +430,8 @@ test("clock and the agent's lines", () => {
   assert.match(takeCutNote(longTake), /^The take was \d+ characters and the limit is 160: kept "pacing: .*, from 1:02 to 1:20" \(the stretch it names is kept\)\.$/);
   assert.match(takeCutNote(`pacing: ${"x ".repeat(100)}`), /^The take was 207 characters and the limit is 160: kept "pacing: x x/);
   assert.equal(takeCutNote("pacing: long holds"), "");
+  // Without a stretch the cut also ends at a whole word.
+  assert.equal(cleanTake(`pacing: ${"abcdefghi ".repeat(20)}`), `pacing: ${"abcdefghi ".repeat(14)}abcdefghi`);
   assert.equal(takeWithoutStretch("pacing: long holds, from <m:ss> to <m:ss>"), "pacing: long holds");
   assert.equal(takeWithoutStretch("pacing: long holds, from 1:20 to 1:02"), "pacing: long holds");
   assert.equal(takeWithoutStretch("<structure, pacing: what>"), "");

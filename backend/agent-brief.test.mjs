@@ -853,6 +853,7 @@ test("the reference step: before the plan, until 2 references are saved; not whe
   // With the idea, a spine around it and a style bible; deck cards are drafted as dealt moves.
   const withIdea = { ...state, brief: { ...state.brief, fields: { ...state.brief.fields, idea: { text: "the phone guides him by sound", by: "guessed" } } }, deck: { cards: [{ tag: "parallax" }] } };
   const drafted = nextMove(withIdea, { seconds: 24, layers: 31, references: 2, treatmentsWaived: true });
+  assert.deepEqual(lockNeeded(withIdea, { layers: 31 }).left, ["signature", "spine", "fonts", "approval or waiver"], "the brief's idea line goes into the call: not named as missing");
   assert.match(drafted.step, /^lock direction: spine \+ style bible/);
   assert.deepEqual(Object.keys(drafted.call.input.fields.style).filter((key) => ["spine", "fonts", "moves", "waived"].includes(key)), ["spine", "fonts", "moves"], "the draft asks the person: no drafted waiver");
   assert.deepEqual([drafted.call.input.fields.style.avoids, drafted.call.input.fields.style.sources], [undefined, { moves: "dealt" }], "no drafted bans; deck moves stay dealt");
@@ -1386,6 +1387,9 @@ test("the order labels what each studied reference shows on screen (seen) before
   // Two studied of three saved: the first two studied are labeled, whichever was saved first.
   assert.deepEqual(orderSteps(state, { ...refs, saved: ["yt:a", "yt:b", "yt:c"], studied: ["yt:b", "yt:c"], treatmentsWaived: true, seenOpen: { "yt:a": 1.8, "yt:c": 1.8 } }).map((part) => part.step), ["label yt:c on screen (seen)"]);
   assert.deepEqual(orderSteps(state, { ...refs, treatmentsWaived: true, seenOpen: {} }), []);
+  // The step counts the labels: references with different moment counts are named one by one.
+  const counted = { "yt:a": { of: 6, labeled: 6, left: [] }, "yt:b": { of: 4, labeled: 1, left: [2, 3.5, 5.4] } };
+  assert.equal(orderSteps(state, { ...refs, treatmentsWaived: true, seenOpen: { "yt:b": 2 }, seenCount: counted })[0].step, "label yt:b on screen (seen): labels 7 of 10, 6 + 4 moments in 2 references");
   await savedReference(id, "kinoSeen001", null, 9);
   await savedReference(id, "kinoSeen002", null, 9);
   const compose = { project: id, ops: [{ op: "compose", duration: 12, beats: [{ recipe: "headline-reveal", text: "Skate now" }] }] };

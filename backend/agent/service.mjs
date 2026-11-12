@@ -287,12 +287,31 @@ function valueFix(sent, message) {
     }
     return undefined;
   }
+  // A Show or Hide past the scene's end changes nothing on screen: an add_layer's inline one is left
+  // out of the agent's own op (its other animations and fields kept), a lone add_animation one is dropped.
+  const lasts = /^(?:Hide|Show) at [\d.]+ s is outside the scene, which lasts ([\d.]+) s\b/.exec(reason)?.[1];
+  if (lasts !== undefined) {
+    const isVisibility = (entry) => /^(?:preset-)?(?:hide|show)$/i.test(String(entry?.preset ?? entry?.kind ?? ""));
+    const past = (entry) => isVisibility(entry) && Number(entry.start) > Number(lasts);
+    if ((sent.op ?? sent.type) === "add_layer" && Array.isArray(sent.animations) && sent.animations.some(past)) {
+      const kept = sent.animations.filter((entry) => !past(entry));
+      return { animations: kept.length ? kept : null };
+    }
+    if ((sent.op ?? sent.type) === "add_animation" && past(sent)) return null;
+  }
   // A field the op does not have ("start", "duration" are not fields of add_layer ...): the op goes in
   // without it, with everything else as sent (it was replaced by the op's example, losing the agent's own fields).
   const unknownFields = /^((?:"[^"]+"(?:, )?)+) (?:is not a field|are not fields) of /.exec(reason)?.[1] ?? (/\bhas no field "([^"]+)"/.exec(reason) ? `"${/\bhas no field "([^"]+)"/.exec(reason)[1]}"` : null);
   if (unknownFields) {
     const named = [...unknownFields.matchAll(/"([^"]+)"/g)].map((match) => match[1]).filter((key) => key in sent);
-    if (named.length) return Object.fromEntries(named.map((key) => [key, null]));
+    if (named.length) {
+      const fix = Object.fromEntries(named.map((key) => [key, null]));
+      // An add_layer's own times (start, duration, end) are kept as a Show and a Hide at those
+      // seconds on the agent's op: the layer cuts in and out when it said, with no look added.
+      const times = (sent.op ?? sent.type) === "add_layer" ? layerTimesAsVisibility(sent) : [];
+      if (times.length) fix.animations = [...(Array.isArray(sent.animations) ? sent.animations : []), ...times];
+      return fix;
+    }
   }
   const field = /^([A-Za-z][\w]*): must be\b/.exec(reason)?.[1];
   const properties = sent.properties && typeof sent.properties === "object" && !Array.isArray(sent.properties) ? sent.properties : null;
@@ -301,6 +320,19 @@ function valueFix(sent, message) {
   if (typeof value === "string" && value.trim() !== "" && Number.isFinite(Number(value))) return { properties: { ...properties, [field]: Number(value) } };
   const { [field]: _dropped, ...rest } = properties;
   return Object.keys(rest).length ? { properties: rest } : null;
+}
+// A layer op's start, duration or end (seconds) as a Show and a Hide at those times, [] when it has none.
+function layerTimesAsVisibility(sent) {
+  const seconds = (value) => (typeof value === "string" && value.trim() !== "" ? Number(value) : value);
+  const start = seconds(sent.start);
+  const duration = seconds(sent.duration);
+  const end = seconds(sent.end);
+  const from = Number.isFinite(start) && start > 0 ? start : 0;
+  const until = Number.isFinite(end) && end > from ? end : Number.isFinite(duration) && duration > 0 ? from + duration : null;
+  return [
+    ...(from > 0 ? [{ preset: "show", start: Math.round(from * 1000) / 1000 }] : []),
+    ...(until !== null ? [{ preset: "hide", start: Math.round(until * 1000) / 1000 }] : []),
+  ];
 }
 // Why a "seen <id> @<s> <kinds>: <words>" line did not parse: the first part that is wrong, with the
 // character or word that broke it (the line was refused with no reason before).
@@ -2709,7 +2741,9 @@ export function createAgentService(deps) {
       const value = named ? undefined : valueFix(sent, problem.message);
       if (named) fix[index] = named;
       else if (value !== undefined) fix[index] = value;
-      else if (problem.details.example) fix[index] = problem.details.example;
+      // The example stands in only for an op of its own kind: an inline animation's add_animation
+      // example never replaces the agent's add_layer (its name, text and other animations).
+      else if (problem.details.example && !(problem.details.example.op === "add_animation" && sent?.op !== "add_animation")) fix[index] = problem.details.example;
     }
     if (!Object.keys(fix).length) {
       const type = problems[0]?.details?.type;
