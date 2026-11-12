@@ -184,9 +184,10 @@ const EFFECT_PARAMETER_OVERRIDES = {
   "impact-lines": { count: 60, thickness: 10, inner: 0.35, centerX: 0.4, centerY: 0.55, rate: 8, seed: 5, color: "#F77F00" },
   "film-burn": { amount: 0.8, edge: "right", reach: 0.6, speed: 0.5, seed: 9 },
   invert: { amount: 0.8, keepHue: true },
+  lightning: { bolts: 2, branches: 4, startX: 0.2, startY: 0.1, endX: 0.8, endY: 0.9, thickness: 14, color: "#FFD36B", seed: 5 },
 };
 
-assert.equal(EFFECTS.length, 61, "the A5 evidence covers the current catalog size");
+assert.equal(EFFECTS.length, 62,"the A5 evidence covers the current catalog size");
 function effectOperation(definition, layer = "Artwork") {
   return {
     op: "add_animation", layer, effect: definition.key,

@@ -16,7 +16,7 @@
 // Spoken also counts the references' measured voice (ctx.seenRefs[].heard, as reference_range reads
 // it): most of them with a voice before their loudest change, and 2 or more, count as showing it, while
 // one of the edit's clips says a line keep_line can keep (ctx.clipLines, a full check).
-// Made also counts kino's drawn overlays (speed-lines, impact-lines, film-burn) while they play.
+// Made also counts kino's drawn overlays (speed-lines, impact-lines, film-burn, lightning) while they play.
 // Error: 2 or more references show a kind at 2 or more moments and the edit shows it at none.
 // Warning: the edit shows a kind in under the lowest reference share by over 1/6, or plain
 // picture in more than the highest reference share by over 1/6. Pure data: no pixels.
@@ -49,7 +49,7 @@ const OVERLAY_EFFECTS = new Set([...Object.keys(PARTICLE_LOOKS), "glow", "light-
 const COLOR_EFFECTS = new Set(["curves", "lut", "hue-saturation", "white-balance", "color-wheels", "keep-color", "color-ranges", "color-look", "color-grade", "color-remover", "duotone", "tritone", "threshold-color"]);
 const SHAPES = new Set(["rectangle", "ellipse", "star", "path", "group"]);
 // kino's generated overlays (engine/effects/overlays.js, Post FX): drawn graphics, so they count as made.
-const DRAWN_OVERLAYS = new Set(["speed-lines", "impact-lines", "film-burn"]);
+const DRAWN_OVERLAYS = new Set(["speed-lines", "impact-lines", "film-burn", "lightning"]);
 // A drawn overlay at opacity or amount 0 draws nothing.
 const drawnShows = (entry) => [entry.to?.opacity, entry.to?.amount].every((value) => value === undefined || Number(value) > 0.01);
 const PICTURES = new Set(["video", "image"]);
@@ -223,6 +223,7 @@ const OVERLAY_WORDS = [
   ["speed-lines", /line|streak|stream|speed|ray|beam|motion|slash/i],
   ["impact-lines", /impact|focus|burst|radial|comic|zoom|shock/i],
   ["film-burn", /burn|heat|hot|fire|flare|orange|leak|glow/i],
+  ["lightning", /lightning|electric|bolt|thunder|\barcs?\b/i],
 ];
 
 // The generated overlay a made label's words point to (speed-lines when none does), as a ready edit call on the

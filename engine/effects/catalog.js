@@ -22,6 +22,7 @@ import { EDGE_LINES_BACKGROUNDS, renderEdgeLines } from "./edgeLines.js";
 import { EDGE_EFFECTS } from "./edges.js";
 import { LIGHT_EFFECTS } from "./light.js";
 import { PARTICLE_EFFECTS } from "./particles.js";
+import { LIGHTNING_EFFECT } from "./lightning.js";
 import { FINISH_EFFECTS } from "./finish.js";
 import { OVERLAY_EFFECTS } from "./overlays.js";
 import { FIELD_EFFECT } from "./field.js";
@@ -181,6 +182,8 @@ const definitions = [
   ...FINISH_EFFECTS,
   // Speed lines, impact lines, film burn and invert, drawn in code (overlays.js).
   ...OVERLAY_EFFECTS,
+  // Jagged electric bolts that re-draw on a seeded sequence (lightning.js).
+  LIGHTNING_EFFECT,
   { key: "3d-orbit", label: "3D Orbit", group: "Utility", kind: "ranged", render: renderOrbit,
     parameters: {
       rotateY: number("Rotate Y", 0, -3600, 3600, 1, "°", { initial: 360 }),
