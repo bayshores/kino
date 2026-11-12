@@ -35,6 +35,7 @@ import { mediaFrameState } from "./playback.js";
 import { exposureTable } from "./effects/colorUtility.js";
 import { visibleByOperations } from "./visibilityOps.js";
 import { animationPartners } from "./animationPartners.js";
+import { faceCover } from "./blocks/moves/wordPanel.js";
 
 const round3 = (value) => Math.round(value * 1000) / 1000;
 
@@ -627,21 +628,73 @@ test("word-panel sizes a turned panel from the word's box, colors it from the sh
   const made = run({ textLayer: "kill", shape: "sign", turn: -12, pad: 0.5, layer: "clip" }, { shotColor: () => ({ h: 200, s: 0.6, l: 0.4 }) });
   const part = (result, name) => result.added.find(({ layer }) => layer.move.part === name).layer;
   const group = part(made, "group"), panel = part(made, "panel"), text = part(made, "word");
-  // The panel is the word's laid-out box plus 0.5 font sizes across (60 px) and 0.3 up and down (36 px).
+  // The panel is the word's drawn box plus 0.5 font sizes across (60 px) and 0.3 up and down (36 px).
   const laid = layoutText(word, defaultFonts);
-  assert.deepEqual([group.width, group.height], [Math.round(laid.width + 120), Math.round(laid.height + 72)]);
+  assert.deepEqual([group.width, group.height], [Math.round(laid.naturalWidth + 120), Math.round(laid.naturalHeight + 72)]);
   assert.equal(group.rotation, -12);
   assert.ok(panel.parentId === group.id && text.parentId === group.id && panel.strokeWidth > 0, "a sign: panel with a border and the word in one turned group");
-  assert.deepEqual([text.x, text.y], [60, 36]);
+  assert.equal(text.textAlign, "center");
+  assert.ok(Math.abs(text.x + text.width / 2 - group.width / 2) < 1 && text.y === 36, `word centered: ${text.x}+${text.width} in ${group.width}`);
   assert.match(made.notes.join(" | "), /clip's hue from its picture \(200°\)/);
   assert.match(made.notes.join(" | "), /word #[0-9A-F]{6} at \d/);
-  // Yours hides while the panel shows; the group cuts on and hides at the end.
-  assert.ok(made.animations.some(({ layerId, animation }) => layerId === "kill" && animation.kind === "hide" && animation.start === 0.5));
+  // Yours (no show or hide steps of its own) is hidden from 0 s with no show after: the word shows only with the panel.
+  const yoursKeys = made.animations.filter(({ layerId }) => layerId === "kill").map(({ animation }) => [animation.kind, animation.start]);
+  assert.deepEqual(yoursKeys, [["hide", 0]]);
   assert.deepEqual(group.animations.map((animation) => [animation.name, animation.start]), [["Cut on", 0.5], ["Hide", 1.5]]);
+  // A wide fixed text box with a short word: the panel is fitted to the drawn word, inset printed, the same both sides.
+  const wide = createLayer("text", { id: "wide", name: "wide", x: 150, y: 150, width: 1100, height: 240, text: "SO", fontSize: 140, textAlign: "left", fill: "#FFFFFF" });
+  scene.layers.push(wide);
+  const fittedRun = run({ textLayer: "wide", shape: "box", pad: 0.3, turn: 4 });
+  const fittedGroup = part(fittedRun, "group"), fittedWord = part(fittedRun, "word");
+  assert.ok(fittedGroup.width < 600, `panel ${fittedGroup.width} px wide for a two-letter word in a 1100 px box`);
+  assert.ok(Math.abs(fittedWord.x - (fittedGroup.width - fittedWord.width - fittedWord.x)) <= 1, "the same room left and right");
+  assert.match(fittedRun.notes.join(" | "), /word centered in it, its drawn box \d+x\d+ px \(your text box 1100x240\), inset 42 px left and right, 25 px top and bottom/);
+  // A text box narrower than its word (it broke inside the word): the panel's copy is widened so the word stays on one line.
+  scene.layers.push(createLayer("text", { id: "narrow", name: "narrow", x: 150, y: 150, width: 300, height: 240, text: "DEFINITELY.", fontSize: 140, fill: "#FFFFFF" }));
+  const narrowRun = run({ textLayer: "narrow", shape: "box", turn: 4 });
+  assert.equal(layoutText(part(narrowRun, "word"), defaultFonts).lines.length, 1);
+  assert.match(narrowRun.notes.join(" | "), /your text box 300 px is narrower than its word "DEFINITELY\." \(\d+ px drawn\)/);
+  scene.layers = scene.layers.filter((layer) => layer.id !== "narrow");
+  // A face mark: the share of the face box a panel covers, and of its eye band (25 to 50% down it).
+  const marked = { id: "m", type: "video", src: "m.mp4", x: 0, y: 0, width: 1920, height: 1080, subjectBoxes: { src: "m.mp4", boxes: [{ at: 0.5, box: [40, 20, 20, 40], part: "face" }] } };
+  // Past the mark's half second the scan's pose head is used; each source keeps its own worst, the mark first.
+  const scan = [{ t: 2, faces: [], people: [{ headBox: [0.4, 0.3, 0.1, 0.1] }] }];
+  const faceShares = faceCover({ samples: () => scan }, marked, { x: 700, y: 300, width: 600, height: 260 }, 0, 0.5, 2);
+  assert.deepEqual(faceShares.map((worst) => [worst.from, Math.round(worst.share * 100), Math.round(worst.eyes.share * 100), worst.at]), [["your mark", 67, 100, 0.5], ["pose scan", 100, 100, 1.83]]);
+  // A source with its own show and hide steps keeps them: hidden while the move draws, back after.
+  const timed = createLayer("text", { id: "timed", name: "timed", x: 150, y: 600, width: 400, height: 140, text: "GO", fontSize: 120, fill: "#FFFFFF", animations: [{ id: "timed-off", name: "Hide", kind: "hide", start: 4 }] });
+  scene.layers.push(timed);
+  const timedKeys = run({ textLayer: "timed", shape: "box" }).animations.filter(({ layerId }) => layerId === "timed").map(({ animation }) => [animation.kind, animation.start]);
+  assert.deepEqual(timedKeys, [["hide", 0.5], ["show", 1.5]]);
+  // A second placement in the scene: its own seed pick, and the count of placements sharing turn, size and side.
+  const first = run({ textLayer: "kill", shape: "box" });
+  placeMove(scene, { id: "word-panel", name: "word-panel", settings: { textLayer: "kill", shape: "box" } }, first);
+  const second = runMove(MOVES["word-panel"], { id: "word-panel-2", input: readMoveInput(MOVES["word-panel"], { textLayer: "kill", shape: "box" }), scene, style: styleFor({ look: "crisp", frame: { width: 1920, height: 1080 } }), fonts: defaultFonts, start: 3, dur: 1, media });
+  assert.notEqual(part(second, "group").rotation, part(first, "group").rotation);
+  assert.match(second.notes.join(" | "), /seed pick for placement 2 in this scene/);
+  assert.match(second.notes.join(" | "), /word-panel placements in this scene: 2; 0 already share this one's turn/);
+  const same = runMove(MOVES["word-panel"], { id: "word-panel-3", input: readMoveInput(MOVES["word-panel"], { textLayer: "kill", shape: "box", turn: part(first, "group").rotation }), scene, style: styleFor({ look: "crisp", frame: { width: 1920, height: 1080 } }), fonts: defaultFonts, start: 3, dur: 1, media });
+  assert.match(same.notes.join(" | "), /1 already share this one's turn [-\d.]+°, size \d+x\d+ px and side \(\w+\): word-panel/);
+  // Deleting the move's group takes its hide off yours (and the record); an old save with the show at the end is settled on read.
+  const gone = applyOperations(createDocument({ id: "d", name: "wp", scenes: [structuredClone(scene)] }), [{ type: "delete_layer", sceneId: "s", layerId: "word-panel-group" }]);
+  const after = gone.scenes[0];
+  assert.deepEqual(after.layers.find((layer) => layer.id === "kill").animations, []);
+  assert.ok(!(after.moves ?? []).some((entry) => entry.id === "word-panel"));
+  const old = structuredClone(scene);
+  old.layers.find((layer) => layer.id === "kill").animations = [{ id: "word-panel.textLayer-hide", name: "Hide", kind: "hide", start: 0.5 }, { id: "word-panel.textLayer-show", name: "Show", kind: "show", start: 1.5 }];
+  const read = parseDocument(createDocument({ id: "d", name: "wp", scenes: [old] })).scenes[0];
+  assert.deepEqual(read.layers.find((layer) => layer.id === "kill").animations.map((animation) => [animation.kind, animation.start]), [["hide", 0]]);
+  // An old save with only the hide at the start (the move ended with the scene, so no show) is settled too.
+  old.layers.find((layer) => layer.id === "kill").animations = [{ id: "word-panel.textLayer-hide", name: "Hide", kind: "hide", start: 0.5 }];
+  const readHide = parseDocument(createDocument({ id: "d", name: "wp", scenes: [old] })).scenes[0];
+  assert.deepEqual(readHide.layers.find((layer) => layer.id === "kill").animations.map((animation) => [animation.kind, animation.start]), [["hide", 0]]);
+  scene.layers = scene.layers.filter((layer) => !["wide", "timed"].includes(layer.id) && layer.move?.instance !== "word-panel");
+  scene.layers.find((layer) => layer.id === "kill").animations = [];
+  delete scene.moves;
   // No measured hue: the look's accent, said so. Reduced motion fades it on.
   const plain = run({ textLayer: "kill", shape: "box" }, { reduced: true });
   assert.match(plain.notes.join(" | "), /the look's accent/);
-  assert.match(plain.notes.join(" | "), /seed pick, a starting guess/);
+  assert.match(plain.notes.join(" | "), /seed pick for placement 1 in this scene, a starting guess/);
   assert.equal(part(plain, "group").animations[0].name, "Fade in");
   // slam lands from 1.25x about the panel's own center: the center stays put while it lands.
   const slam = part(run({ textLayer: "kill", shape: "box", turn: 6, enter: "slam" }), "group");

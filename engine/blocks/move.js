@@ -329,6 +329,8 @@ export function runMove(definition, options) {
     fontFace(family) { return fontFaces[family] ?? null; },
     /** Every layer of the scene (groups' parts too), as they are now. */
     sceneLayers() { return scene.layers; },
+    /** The records of the other moves already in this scene (scene.moves, without this one). */
+    sceneMoves() { return (scene.moves ?? []).filter((entry) => entry.id !== id); },
     /**
      * One of the scene's layers by ID, as it is now. Moves work on top-level layers, except in
      * the fields a move lists in `nested`: it only animates that layer and adds its parts beside

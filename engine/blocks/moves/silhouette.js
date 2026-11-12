@@ -84,7 +84,7 @@ export function matteShape(matte, width, height, level = 128) {
 }
 
 // The file second a clip shows at scene time `time`.
-const fileSecond = (layer, time) => (layer.mediaOffset ?? 0) + (time - (layer.mediaStart ?? 0)) * (layer.mediaSpeed ?? 1);
+export const fileSecond = (layer, time) => (layer.mediaOffset ?? 0) + (time - (layer.mediaStart ?? 0)) * (layer.mediaSpeed ?? 1);
 
 // The shot's own span on the scene's clock: where it shows (a clip from mediaStart for mediaDuration).
 function shotSpan(layer, sceneDuration) {
@@ -96,7 +96,7 @@ function shotSpan(layer, sceneDuration) {
 // The head boxes near file second `second` ([x, y, w, h] fractions) and where they came from: the
 // agent's face or head marks (mark_subject part "face"/"head"), else the faces and the people pose
 // heads the scan saved (a pose head often stands in on drawn footage, where faces are mostly missed).
-function headsNear(footage, samples, second) {
+export function headsNear(footage, samples, second) {
   const marks = footage.subjectBoxes?.src === footage.src ? footage.subjectBoxes.boxes ?? [] : [];
   const marked = marks.filter((entry) => Array.isArray(entry?.box) && ["face", "head"].includes(String(entry.part ?? "").toLowerCase()) && Math.abs(entry.at - second) <= 0.5 + 1e-6);
   if (marked.length) return { boxes: marked.map((entry) => entry.box.map((value) => value / 100)), from: "your mark" };

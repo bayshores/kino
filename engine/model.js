@@ -33,6 +33,7 @@ import { normalizeShadowList } from "./stackedShadows.js";
 import { STACKED_STROKE_TYPES, normalizeStrokeList } from "./stackedStrokes.js";
 import { normalizeMaterial } from "./typeMaterial.js";
 import { migrateDocument } from "./documentMigration.js";
+import { settleWordPanels } from "./moveLeftovers.js";
 import { sceneRectangles, MAX_CANVAS_COORDINATE } from "./sceneLayout.js";
 import { LETTER_SPACING_LIMIT } from "./letterSpacing.js";
 import { normalizeAxes } from "./fontAxes.js";
@@ -1658,6 +1659,8 @@ function normalizeScene(raw, index, counters) {
     ),
   );
   validateParents(scene.layers, path);
+  // A word-panel saved with its source word left on screen outside the panel (moveLeftovers.js).
+  settleWordPanels(scene);
   return scene;
 }
 

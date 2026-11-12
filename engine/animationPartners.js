@@ -35,7 +35,8 @@ export function animationPartners(layer, animation, moves) {
  * What a move leaves on the scene's other layers once `gone` (layer ids) are deleted, for each move
  * whose last own layer is among them: [{move, left: [{layer, animation}]}]. A delete_layer of a
  * move's part keeps the animations the move put on your layers (a flash's plate deleted, its
- * fade in stayed on the next shot); the move op with remove:true takes them.
+ * fade in stayed on the next shot), except its show and hide steps, which go with it; the move op
+ * with remove:true takes the rest.
  */
 export function moveLeftovers(scene, gone) {
   const deleted = new Set(gone);
@@ -45,7 +46,8 @@ export function moveLeftovers(scene, gone) {
     const kept = (scene.layers ?? []).filter((layer) => !deleted.has(layer.id));
     if (kept.some((layer) => layer.move?.instance === instance)) continue;
     const left = kept.flatMap((layer) => flattenAnimations(layer.animations ?? [])
-      .filter((animation) => String(animation.id ?? "").startsWith(`${instance}.`))
+      // Its show and hide steps leave with its last layer (moveLeftovers.js settleDeletedMoves).
+      .filter((animation) => String(animation.id ?? "").startsWith(`${instance}.`) && animation.kind !== "show" && animation.kind !== "hide")
       .map((animation) => ({ layer, animation })));
     if (!left.length) continue;
     const record = (scene.moves ?? []).find((entry) => entry?.id === instance);

@@ -18,6 +18,8 @@ import { layoutText, resizeTextLayer, textUnits } from "../../textLayout.js";
 import { hslToHex, shotHue } from "./backdrop.js";
 import { CURVES, contrast, hide, motion, round, show } from "./kit.js";
 import { cutoutShares } from "../../subjectRoom.js";
+import { enabledAnimations } from "../../animationEnabled.js";
+import { fileSecond, headsNear } from "./silhouette.js";
 
 const SHAPES = ["box", "sign", "strip"];
 // Starting guesses (not measured): padding in font sizes across and up/down, and the turn range.
@@ -25,6 +27,8 @@ const PAD_X = 0.3;
 const PAD_Y = 0.18;
 const TURN = [3, 9];
 const COVERED = 0.6;
+// The eye band of a face or head box: 25% to 50% down it (a proportion guess, not measured).
+const EYES = [0.25, 0.5];
 const STEP = 1 / 30;
 
 /**
@@ -68,6 +72,63 @@ function letterBoxes(word, fonts, turn, pivot) {
   });
 }
 
+/** A laid-out text layer's drawn box in scene px: from its leftmost to its rightmost line, top line to bottom (not its text box). */
+function drawnBox(word, fonts) {
+  const layout = layoutText(word, fonts);
+  if (!layout.lines.length) return { x: word.x, y: word.y, width: word.width, height: word.height };
+  const left = Math.min(...layout.lines.map((line) => line.x)), right = Math.max(...layout.lines.map((line) => line.x + line.width));
+  const top = word.verticalAlign === "bottom" ? layout.height - layout.naturalHeight : word.verticalAlign === "middle" ? (layout.height - layout.naturalHeight) / 2 : 0;
+  return { x: word.x + left, y: word.y + top, width: right - left, height: layout.naturalHeight };
+}
+
+/**
+ * The widest single word of a text layer as drawn on one line ({text, width} in px), so a text box
+ * narrower than one of its words (which then breaks inside the word) can be widened to keep it whole.
+ */
+export function widestWord(word, fonts) {
+  const words = String(word.text ?? "").split(/\s+/).filter(Boolean);
+  return words.reduce((best, text) => {
+    const width = layoutText({ ...word, text, textStyleRanges: undefined, textResize: "width-height" }, fonts).naturalWidth;
+    return width > best.width ? { text, width } : best;
+  }, { text: "", width: 0 });
+}
+
+/**
+ * The largest share of a face or head box on `clip` (mark_subject part face/head, else the scan's
+ * faces and pose heads, silhouette.js headsNear) that the panel `box` turned `turn` degrees about
+ * its center covers, every 1/6 s over [from, to], with the share of its eye band: the worst for
+ * each source of boxes, your mark first ([{share, at, from, eyes: {share, at}}]; [] when none is known).
+ */
+export function faceCover(ctx, clip, box, turn, from, to) {
+  const samples = ctx.samples(clip.id);
+  const cos = Math.cos((-turn * Math.PI) / 180), sin = Math.sin((-turn * Math.PI) / 180);
+  const cx = box.x + box.width / 2, cy = box.y + box.height / 2;
+  const inside = (x, y) => {
+    const dx = x - cx, dy = y - cy;
+    return Math.abs(dx * cos - dy * sin) <= box.width / 2 && Math.abs(dx * sin + dy * cos) <= box.height / 2;
+  };
+  // A mark covers 0.5 s each side of its time and the scan the rest, so each source keeps its own worst.
+  const bySource = new Map();
+  for (let time = from; time <= to + 1e-6; time += 1 / 6) {
+    const heads = headsNear(clip, samples, fileSecond(clip, time));
+    for (const [hx, hy, hw, hh] of heads?.boxes ?? []) {
+      const x0 = clip.x + hx * clip.width, y0 = clip.y + hy * clip.height, w = hw * clip.width, h = hh * clip.height;
+      let hits = 0, eyeHits = 0;
+      for (let i = 0; i < 12; i += 1) for (let j = 0; j < 12; j += 1) {
+        if (!inside(x0 + ((i + 0.5) / 12) * w, y0 + ((j + 0.5) / 12) * h)) continue;
+        hits += 1;
+        if (j >= EYES[0] * 12 && j < EYES[1] * 12) eyeHits += 1;
+      }
+      const share = hits / 144, eyeShare = eyeHits / (12 * 12 * (EYES[1] - EYES[0]));
+      const worst = bySource.get(heads.from) ?? { share: -1, from: heads.from, eyes: { share: -1 } };
+      if (share > worst.share) Object.assign(worst, { share, at: round(time, 2) });
+      if (eyeShare > worst.eyes.share) worst.eyes = { share: eyeShare, at: round(time, 2) };
+      bySource.set(heads.from, worst);
+    }
+  }
+  return [...bySource.values()].sort((a, b) => (b.from === "your mark") - (a.from === "your mark"));
+}
+
 /** The first time after `start` a layer stops showing (checked a frame at a time), or the scene's end. */
 function shownUntil(ctx, layerId, start) {
   for (let time = start + STEP; time < ctx.sceneDuration; time += STEP) if (!ctx.shownAt(layerId, time)) return round(time, 3);
@@ -105,22 +166,37 @@ export const wordPanel = {
     const end = ctx.dur === null && shot && ctx.shownAt(shot.id, t) ? shownUntil(ctx, shot.id, t) : ctx.end;
     if (shot && ctx.dur === null) ctx.note(`leaves at ${end} s, where ${shot.id} stops showing (send dur to choose)`);
 
-    // The word as laid out: its box is what the panel is sized from.
-    const { id: _id, name: _name, animations: _own, move: _move, parentId: _parent, pin: _pin, ...look } = resizeTextLayer(yours, ctx.fonts);
+    // The word as laid out: its drawn box (the lines' own width, not the text box) is what the panel is sized from.
+    const { id: _id, name: _name, animations: _own, move: _move, parentId: _parent, pin: _pin, ...laid } = resizeTextLayer(yours, ctx.fonts);
+    // A text box narrower than one of its words breaks inside that word ("DEFINITEL" over "Y."):
+    // the panel's copy is widened to the widest word as drawn, keeping its alignment's anchor.
+    const widest = widestWord(laid, ctx.fonts);
+    const wide = Math.ceil(widest.width) + 2;
+    const look = wide > laid.width
+      ? resizeTextLayer({ ...laid, width: wide, x: round(laid.x - (wide - laid.width) * (laid.textAlign === "right" ? 1 : laid.textAlign === "center" ? 0.5 : 0), 1) }, ctx.fonts)
+      : laid;
+    if (look !== laid) ctx.note(`your text box ${Math.round(laid.width)} px is narrower than its word "${widest.text}" (${Math.round(widest.width)} px drawn), which broke inside it: the panel's word box is ${wide} px wide, so the word stays whole`);
     const fontSize = look.fontSize ?? 40;
-    const shapePick = ctx.rng.pick(SHAPES);
-    const turnPick = round(ctx.rng.between(TURN[0], TURN[1]) * (ctx.rng.next() < 0.5 ? -1 : 1), 1);
+    const others = ctx.sceneMoves().filter((entry) => entry.name === "word-panel");
+    // Each placement in a scene gets its own seed pick (the seed alone gave every placement the same turn).
+    const placement = others.length;
+    const shapePick = SHAPES[(SHAPES.indexOf(ctx.rng.pick(SHAPES)) + placement) % SHAPES.length];
+    const spread = (ctx.rng.next() + placement * 0.618) % 1;
+    const turnPick = round((TURN[0] + spread * (TURN[1] - TURN[0])) * (ctx.rng.next() < 0.5 ? -1 : 1) * (placement % 2 ? -1 : 1), 1);
     const shape = input.shape ?? shapePick;
     const turn = input.turn ?? turnPick;
     const padShare = input.pad ?? PAD_X;
     const padX = Math.round(fontSize * padShare), padY = Math.round(fontSize * padShare * (PAD_Y / PAD_X));
-    const wordBox = { x: look.x, y: look.y, width: look.width, height: look.height };
+    const wordBox = drawnBox(look, ctx.fonts);
     const center = [wordBox.x + wordBox.width / 2, wordBox.y + wordBox.height / 2];
     // A strip runs past both edges of the frame however it turns (the frame's diagonal and some).
     const reach = Math.ceil(Math.hypot(ctx.frame.width, ctx.frame.height) * 1.1);
     const panelBox = shape === "strip"
-      ? { x: Math.round(center[0] - reach / 2), y: Math.round(wordBox.y - padY), width: reach, height: Math.round(wordBox.height + 2 * padY) }
+      // Centered on the frame (centered on a word near one edge, it ended inside the frame at the other).
+      ? { x: Math.round(ctx.frame.width / 2 - reach / 2), y: Math.round(wordBox.y - padY), width: reach, height: Math.round(wordBox.height + 2 * padY) }
       : { x: Math.round(wordBox.x - padX), y: Math.round(wordBox.y - padY), width: Math.round(wordBox.width + 2 * padX), height: Math.round(wordBox.height + 2 * padY) };
+    // The word's own text box, fitted to its lines and centered: no empty room at one side.
+    const fitted = { ...look, x: round(center[0] - (Math.ceil(wordBox.width) + 2) / 2, 1), y: round(wordBox.y, 1), width: Math.ceil(wordBox.width) + 2, height: Math.ceil(wordBox.height), textAlign: "center", verticalAlign: "top", textResize: "height" };
 
     // Colors: measured from the shot when it has a hue, else the look's accent; printed either way.
     let panelColor = typeof input.color === "string" && input.color !== "auto" ? input.color : null;
@@ -132,9 +208,19 @@ export const wordPanel = {
     }
     const inks = [input.ink, look.fill, ctx.style.colors.text, ctx.style.colors.bg].filter((color) => typeof color === "string" && /^#[0-9a-f]{6}/i.test(color));
     const ink = input.ink ?? inks.reduce((best, color) => (contrast(color, panelColor) > contrast(best, panelColor) ? color : best), inks[0]);
-    ctx.note(`panel ${shape} ${panelBox.width}x${panelBox.height} px: the word's box ${Math.round(wordBox.width)}x${Math.round(wordBox.height)} px plus ${padX} px across and ${padY} px up and down (pad ${padShare} of the ${fontSize} px font${input.pad === undefined ? ", a starting guess" : ""})`);
+    const padSaid = `pad ${padShare} of the ${fontSize} px font${input.pad === undefined ? ", a starting guess" : ""}`;
+    ctx.note(shape === "strip"
+      ? `panel strip ${panelBox.width}x${panelBox.height} px across the frame; word centered up and down on it where you placed it, its drawn box ${Math.round(wordBox.width)}x${Math.round(wordBox.height)} px (your text box ${Math.round(laid.width)}x${Math.round(laid.height)}), ${padY} px above and below (${padSaid})`
+      : `panel ${shape} ${panelBox.width}x${panelBox.height} px; word centered in it, its drawn box ${Math.round(wordBox.width)}x${Math.round(wordBox.height)} px (your text box ${Math.round(laid.width)}x${Math.round(laid.height)}), inset ${padX} px left and right, ${padY} px top and bottom (${padSaid})`);
     ctx.note(`panel color ${panelColor}: ${colorFrom}; word ${ink} at ${round(contrast(ink, panelColor), 2)}:1 on it`);
-    ctx.note(`turned ${turn}°${input.turn === undefined ? " (seed pick, a starting guess)" : ""}`);
+    ctx.note(`turned ${turn}°${input.turn === undefined ? ` (seed pick for placement ${placement + 1} in this scene, a starting guess: nothing in the shot measured for it)` : ""}`);
+    const side = (box) => { const middle = (box.x + box.width / 2) / ctx.frame.width; return middle < 0.4 ? "left" : middle > 0.6 ? "right" : "center"; };
+    if (others.length) {
+      // How many placements already share this one's turn, size and side (each placement's group as it is now).
+      const groups = others.map((entry) => ctx.sceneLayers().find((layer) => layer.id === `${entry.id}-group`)).filter(Boolean);
+      const alike = groups.filter((group) => Math.abs((group.rotation ?? 0) - turn) < 1 && Math.abs(group.width / panelBox.width - 1) < 0.1 && Math.abs(group.height / panelBox.height - 1) < 0.1 && side(group) === side(panelBox));
+      ctx.note(`word-panel placements in this scene: ${others.length + 1}; ${alike.length} already share this one's turn ${turn}°, size ${panelBox.width}x${panelBox.height} px and side (${side(panelBox)})${alike.length ? `: ${alike.map((group) => group.id.replace(/-group$/, "")).join(", ")}` : ""}`);
+    }
 
     // One group, turned about its own center, holding the panel and the word.
     const groupBox = panelBox;
@@ -143,12 +229,21 @@ export const wordPanel = {
     const border = shape === "sign" ? Math.max(2, Math.round(fontSize * 0.07)) : 0;
     ctx.add("panel", createLayer("rectangle", { name: "Panel", x: 0, y: 0, width: groupBox.width, height: groupBox.height, fill: panelColor,
       radius: shape === "sign" ? Math.round(fontSize * 0.12) : 0, stroke: ink, strokeWidth: border, role: "decor", allowOverlap: true }), "top", group);
-    ctx.add("word", { ...look, x: round(wordBox.x - groupBox.x, 1), y: round(wordBox.y - groupBox.y, 1), fill: ink, rotation: 0, role: yours.role ?? "headline", allowOverlap: true }, "top", group);
+    ctx.add("word", { ...fitted, x: round(fitted.x - groupBox.x, 1), y: round(fitted.y - groupBox.y, 1), fill: ink, rotation: 0, role: yours.role ?? "headline", allowOverlap: true }, "top", group);
 
-    // Yours is hidden while the move draws it, and back after if it showed then.
-    const back = ctx.shownAt(yours.id, end);
-    ctx.animate(yours.id, "hide", hide(t), "textLayer");
-    if (back) ctx.animate(yours.id, "show", show(end), "textLayer");
+    // Yours is the word's source. With no show or hide steps of its own it is hidden from 0 s, so
+    // the word shows only with its panel (deleting the move's group takes this hide away again).
+    // With steps of its own it is hidden while the move draws it, and back after if it showed then.
+    const steps = enabledAnimations(yours.animations ?? []).filter((step) => step?.kind === "show" || step?.kind === "hide");
+    if (!steps.length) {
+      ctx.animate(yours.id, "hide", hide(0), "textLayer");
+      ctx.note(`${yours.id} (the word's source) hidden from 0 s: the word shows only with the panel, ${t} to ${end} s`);
+    } else {
+      const back = ctx.shownAt(yours.id, end);
+      ctx.animate(yours.id, "hide", hide(t), "textLayer");
+      if (back) ctx.animate(yours.id, "show", show(end), "textLayer");
+      if (back) ctx.note(`${yours.id} shows again at ${end} s (its own show and hide steps)`);
+    }
 
     const tags = ["type-cut"];
     if (ctx.reduced) ctx.animate(group, "in", motion({ name: "Fade in", kind: "in", start: t, duration: Math.min(0.2, (end - t) / 3), easing: CURVES.fade, from: { opacity: 0 }, to: { opacity: 1 } }));
@@ -160,9 +255,17 @@ export const wordPanel = {
     } else ctx.animate(group, "in", motion({ name: "Cut on", kind: "in", start: t, duration: 0.001, easing: CURVES.fade, from: { opacity: 0 }, to: { opacity: 1 } }));
     ctx.animate(group, "hide", hide(end));
 
+    // The face or head box on the shot (a mark, else the scan) under the panel, worst moment.
+    const clip = shot ? (shot.type === "video" ? shot : ctx.clipsOf(shot.id)[0]) : subject?.cutoutOf ? ctx.sceneLayers().find((layer) => layer.id === subject.cutoutOf) : null;
+    if (clip?.type === "video") {
+      const face = faceCover(ctx, clip, groupBox, turn, t, end);
+      if (face.length) ctx.note(`covers ${face.map((worst) => `${Math.round(worst.share * 100)}% of the face or head box (${worst.from}) at ${worst.at} s and ${Math.round(worst.eyes.share * 100)}% of its eye band at ${worst.eyes.at} s`).join("; ")} (eye band: ${EYES[0] * 100} to ${EYES[1] * 100}% down the box, a proportion guess)${subject ? ` (behind ${subject.id})` : ""}`);
+      else ctx.note(`no face or head box marked or scanned on ${clip.id} from ${t} to ${end} s (mark_subject part "face" adds one)`);
+    }
+
     if (subject) {
       tags.push("type-behind");
-      const covered = letterCover(letterBoxes(look, ctx.fonts, turn, [groupBox.x + groupBox.width / 2, groupBox.y + groupBox.height / 2]), subject, t, end);
+      const covered = letterCover(letterBoxes(fitted, ctx.fonts, turn, [groupBox.x + groupBox.width / 2, groupBox.y + groupBox.height / 2]), subject, t, end);
       if (covered) {
         ctx.note(`covered by ${subject.id}'s box (worst moment per letter): ${covered.map((letter) => `${letter.text} ${Math.round(letter.share * 100)}%`).join(", ")}`);
         const hidden = covered.filter((letter) => letter.share > COVERED);
