@@ -9,7 +9,8 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { mainScene } from "../../engine/board.js";
-import { cardNames, madeNamesIn } from "../../engine/deck.js";
+import { cardNames, deckUse, madeNamesIn } from "../../engine/deck.js";
+import { deckInPlay } from "../../engine/quality/rules/style.js";
 import { referenceSignature } from "../../engine/quality/layoutSignature.js";
 import { shiftAnimation } from "../../engine/animationShift.js";
 import { isComposedAnimation } from "../../engine/animationTree.js";
@@ -943,7 +944,8 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
       const { model, findings: found, notes: sceneNotes, techniques: used = {}, pending } = full ?? await sceneFindings(document, scene, { fonts, codes, pixels, outputFps, signal, refs, seenRefs: listed, closeRefs, houseMoments, styleSpec: sceneStyle, deck: sceneDeck, briefFonts, length: sceneLength, asks: sceneAsks, speech, sceneLines, savedLines, people, soundSearch, media, isVideo, origin, playsOn, sourceLooks, base });
       if (pending) measuredAll = false;
       // How much of the video scene (or the one scene asked for) is designed: a fact, with the references' own.
-      if (model && (isVideo || sceneId)) made = { ...madeShare(model), refs: referenceMade(listed) };
+      // The deck part counts the cards deck_unused counts, from this scene's own techniques and made cards.
+      if (model && (isVideo || sceneId)) made = { ...madeShare(model), refs: referenceMade(listed), deck: sceneDeck ? deckUse(deckInPlay(sceneDeck, sceneStyle), used, madeNamesIn(scene)) : null };
       for (const [tag, count] of Object.entries(used)) techniques[tag] = (techniques[tag] ?? 0) + count;
       for (const note of sceneNotes) if (!notes.includes(note)) notes.push(note);
       for (const finding of found) {

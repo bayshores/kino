@@ -3316,7 +3316,7 @@ export function createAgentService(deps) {
     const returnsScene = scene ? record.document.scenes.find((item) => item.id === scene.id) : videoScene(record.document);
     if (returnsScene) lines.push(sceneReturnsLine(returnsScene, { scenes: record.document.scenes }));
     // And how much of it is designed, with the deck's unused cards and the references' own share.
-    const madeText = returnsScene ? madeLine(result.made, { refs: result.made?.refs, deck: dealt?.deck, counts: result.techniques, movesUsed: madeNamesIn(returnsScene) }) : "";
+    const madeText = returnsScene ? madeLine(result.made, { refs: result.made?.refs, deck: result.made?.deck }) : "";
     if (madeText) lines.push(madeText);
     // Where the mix passes the limiter, measured without a render: a fact line when the scene has sound.
     const mix = returnsScene && options.listen ? await mixPeaksOf(returnsScene) : null;

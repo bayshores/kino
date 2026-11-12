@@ -19,6 +19,7 @@ import { judderBlurId } from "./quality/techniques.js";
 import { aliveDuring } from "./quality/motionPixels.js";
 import { onscreenKinds } from "./quality/rules/referenceKinds.js";
 import { madeLine, madeShare, referenceMade } from "./quality/madeShare.js";
+import { deckUse } from "./deck.js";
 import { referenceChoices } from "./quality/referenceChoices.js";
 import { gradeFrame, gradeTable, matchShot, referenceLevels } from "./quality/exposureMatch.js";
 
@@ -2327,11 +2328,15 @@ test("madeShare: the share of moments with a made element, big type but not a ca
     rect("box", { x: 100, y: 100, width: 600, height: 400, animations: [show(0), hide(2)] }),
     text("title", "Go", { fontSize: 120, animations: [show(2)] })] })));
   assert.deepEqual([designed.moments, designed.made, designed.parts.graphic, designed.parts.type], [8, 8, 4, 4]);
+  // A cut-out of the clip (cut_out marks it cutoutOf) shown for the first second, on a 9:16 frame where 120 px type is under 8%.
+  const tall = madeShare(modelOf(scene({ width: 1080, height: 1920, layers: [footage("a", { width: 1080, height: 1920 }),
+    footage("cut", { cutoutOf: "a", width: 1080, height: 1920, animations: [hide(1)] }), text("title", "Go", { fontSize: 120 })] })));
+  assert.deepEqual([tall.made, tall.parts.cutout, tall.parts.type], [2, 2, 0]);
   const deck = { cards: [{ tag: "punch-in" }, { tag: "speed-lines" }, { tag: "grain" }] };
   const refs = referenceMade([{ id: "r1", seen: [{ at: 1, kinds: ["made"] }, { at: 2, kinds: ["type"] }] }, { id: "r2", seen: [] }]);
   assert.deepEqual(refs, [{ id: "r1", made: 1, total: 2 }], "only a reference with labels has a stored measure");
-  assert.equal(madeLine(designed, { refs, deck, counts: { "punch-in": 2 } }),
-    "made: 8 of 8 moments (100%) carry a made element (graphic 4, type 4) · deck: 2 of 3 cards unused (speed-lines, grain) · your 1 reference label made at 1 of 2 moments");
+  assert.equal(madeLine(designed, { refs, deck: deckUse(deck, { "punch-in": 2 }) }),
+    "made: 8 of 8 moments (100%) carry a made element (graphic 4, type 4) · deck: 2 of 3 cards unused (speed-lines, grain) · drawn graphic: yours 4 of 8 moments, your 1 reference's made label 1 of 2");
   assert.equal(madeLine(plain), "made: 0 of 8 moments (0%) carry a made element (cut-out, drawn graphic, shape, particle or designed type)", "no reference and no deck: only its own number");
 });
 
