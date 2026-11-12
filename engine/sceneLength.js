@@ -13,13 +13,16 @@
 //
 // 3. A full-frame picture or plate whose Hide is at the old end (within a frame) ends at the new one,
 //    so a longer scene does not end on bare background (and a shorter one does not keep a Hide past
-//    its end). Other layers that hide at the old end stay, and the receipt names them.
+//    its end). A scene made more than BOARD_FOLLOW_SECONDS longer leaves it, like a board's last
+//    shot; a clip that stops playing before the new end holds its last frame, and the receipt says
+//    for how long. Other layers that hide at the old end stay, and the receipt names them.
 //
 // All change the document passed in and return what moved, for the receipt.
 import { boardCoverage, boardSpan, mainScene, ONE_FRAME } from "./board.js";
 import { isComposedAnimation } from "./animationTree.js";
 import { fullFrameLayers } from "./quality/bareGaps.js";
 import { isVisibilityOperation, orderedVisibilityOperations } from "./visibilityOps.js";
+import { mediaPlaybackRange } from "./playback.js";
 
 // The most a board's last shot follows a length change. One second is 30 frames at the board's
 // 30 frames a second: five times the 6 frames at which an approved board already counts a moved
@@ -118,6 +121,9 @@ export function followLastLayers(scene, was, { fps = 30 } = {}) {
   const frame = 1 / (Number(fps) > 0 ? Number(fps) : 30);
   if (!(was > 0) || !(now > 0) || Math.abs(now - was) < 1e-6) return null;
   const whole = new Set(fullFrameLayers(scene, Math.max(0, was - frame)).map((layer) => layer.id));
+  // Like a board's last shot (BOARD_FOLLOW_SECONDS): a scene made more than a second longer is a
+  // different cut, so the picture would hold a stretch nobody chose; it stays and is named.
+  const tooLong = now - was > BOARD_FOLLOW_SECONDS + 1e-6;
   const moved = [];
   const left = [];
   for (const layer of scene.layers ?? []) {
@@ -127,8 +133,12 @@ export function followLastLayers(scene, was, { fps = 30 } = {}) {
     const others = orderedVisibilityOperations(layer.animations).filter((operation) => operation.start >= now - 1e-6 && operation.start !== hide.start);
     if (!whole.has(layer.id)) left.push({ layerId: layer.id, why: "not a full-frame picture" });
     else if (others.length) left.push({ layerId: layer.id, why: `another Hide or Show at ${others[0].start} s` });
+    else if (tooLong) left.push({ layerId: layer.id, why: `the scene grew ${round(now - was)} s, past the ${BOARD_FOLLOW_SECONDS} s a last shot follows` });
     else {
-      moved.push({ layerId: layer.id, animationId: hide.id, from: round(hide.start), to: round(now) });
+      // A clip whose Play ends before the new end holds its last frame there: measured, and named.
+      const plays = layer.type === "video" ? mediaPlaybackRange(layer, Infinity)?.end : null;
+      const holds = Number.isFinite(plays) && now - plays > frame / 2 ? { from: round(plays), seconds: round(now - plays) } : null;
+      moved.push({ layerId: layer.id, animationId: hide.id, from: round(hide.start), to: round(now), ...(holds ? { holds } : {}) });
       hide.start = round(now);
     }
   }

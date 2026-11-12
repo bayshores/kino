@@ -1252,6 +1252,9 @@ test("bareStrips: a full-frame picture moved or scaled off the frame names the e
   assert.deepEqual([strip.layer.id, strip.strips, strip.start, strip.end], ["a", { right: 150 }, 0, 6]);
   // Scaling about its pivot (the center, x 714) by 1.14 covers it; moving it back to x -192 covers it by position alone.
   assert.deepEqual([strip.scale.factor, strip.scale.scaleX, strip.shift], [1.14, 1.142, { x: -192 }]);
+  // Mirrored (scaleX -1) it leaves the same strip, and the scale keeps the mirror.
+  const [mirrored] = bareStrips(stretch(shot("a", { width: 2112, height: 1188, x: -342, y: -54, scaleX: -1 })));
+  assert.deepEqual([mirrored.strips, mirrored.scale.scaleX, mirrored.shift], [{ right: 150 }, -1.142, { x: -192 }]);
   // Strips on two opposite sides are an inset frame; a plate under the picture covers the strip; a slide-in covers it by its end.
   assert.deepEqual(bareStrips(stretch(shot("a", { width: 1700, x: 110 }))), []);
   const plate = { type: "rectangle", id: "plate", name: "plate", fill: "#222222", x: 0, y: 0, width: 1920, height: 1080, animations: [] };

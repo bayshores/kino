@@ -438,6 +438,15 @@ test("a scene given another length (update_scene, fit_music) moves the Hide of t
   const same = new Map();
   applyOperations(next, [{ type: "update_scene", sceneId: "s", properties: { duration: 14 } }], { reports: same });
   assert.equal([...same.values()].find((report) => report.layerFollow), undefined);
+  // Past 1 s longer (the board's follow limit) the picture stays and is named; a clip that stops playing first holds its last frame, measured.
+  const far = new Map();
+  const farther = applyOperations(next, [{ type: "update_scene", sceneId: "s", properties: { duration: 16 } }], { reports: far });
+  assert.equal(farther.scenes[0].layers.find((layer) => layer.id === "last").animations[0].start, 14);
+  assert.deepEqual([...far.values()].find((report) => report.layerFollow).layerFollow.left[0], { layerId: "last", why: "the scene grew 2 s, past the 1 s a last shot follows" });
+  const clip = createDocument({ scenes: [createScene({ id: "s", width: 1920, height: 1080, duration: 6, layers: [createLayer("video", { id: "clip", name: "clip", src: "/api/media/clip.mp4", x: 0, y: 0, width: 1920, height: 1080, mediaStart: 0, mediaDuration: 6, animations: [{ id: "clip.hide", kind: "hide", name: "Hide", start: 6 }] })] })] });
+  const held = new Map();
+  applyOperations(clip, [{ type: "update_scene", sceneId: "s", properties: { duration: 6.5 } }], { reports: held });
+  assert.deepEqual([...held.values()].find((report) => report.layerFollow).layerFollow.moved[0].holds, { from: 6, seconds: 0.5 });
   // fit_music takes a phrase end 6 frames before the scene end (120 bpm, phrase ends at 16 s): the same follow, through the audio path.
   const music = createLayer("audio", { id: "music", name: "music", src: "/api/media/0b8e3f8e-1111-4222-8333-444455556666.mp3", mediaDuration: 16.2, volume: 0.8 });
   const fitted = createDocument({ scenes: [createScene({ id: "s", width: 1920, height: 1080, duration: 16.2, layers: [music, picture("last", {}, 16.2)] })] });

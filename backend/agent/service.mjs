@@ -2655,7 +2655,7 @@ export function createAgentService(deps) {
         fields.sceneLength = {
           was, now: length, ...fields.sceneLength,
           lastShot: {
-            ...(moved.length ? { moved: moved.map((entry) => `${name(entry.layerId)} Hide ${entry.from} to ${entry.to} s`) } : {}),
+            ...(moved.length ? { moved: moved.map((entry) => `${name(entry.layerId)} Hide ${entry.from} to ${entry.to} s${entry.holds ? ` (its clip plays until ${entry.holds.from} s: it holds its last frame ${entry.holds.seconds} s)` : ""}`) } : {}),
             ...(left.length ? { left: left.map((entry) => `${name(entry.layerId)} (${entry.why})`) } : {}),
             ...(more ? { more } : {}),
           },

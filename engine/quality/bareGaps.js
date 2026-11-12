@@ -290,8 +290,9 @@ export function bareStrips(scene, { fps = 30, ids = null } = {}) {
       if (!world || world.opacity < 0.5) { ok = false; break; }
       const [a, b, c, d, e, f] = world.matrix;
       const width = world.state.width ?? 0, height = world.state.height ?? 0;
-      if (Math.abs(b) > 1e-6 || Math.abs(c) > 1e-6 || !(a > 0) || !(d > 0) || !(width > 0) || !(height > 0)) { ok = false; break; }
-      const box = { x0: e, x1: e + a * width, y0: f, y1: f + d * height };
+      // A mirrored picture (scaleX or scaleY below 0) is measured too: its box runs the other way.
+      if (Math.abs(b) > 1e-6 || Math.abs(c) > 1e-6 || !(Math.abs(a) > 0) || !(Math.abs(d) > 0) || !(width > 0) || !(height > 0)) { ok = false; break; }
+      const box = { x0: Math.min(e, e + a * width), x1: Math.max(e, e + a * width), y0: Math.min(f, f + d * height), y1: Math.max(f, f + d * height) };
       const share = (Math.min(W, box.x1) - Math.max(0, box.x0)) * (Math.min(H, box.y1) - Math.max(0, box.y0)) / (W * H);
       if (!(share >= FILLS)) { ok = false; break; }
       const raw = { left: Math.max(0, box.x0), right: Math.max(0, W - box.x1), top: Math.max(0, box.y0), bottom: Math.max(0, H - box.y1) };
