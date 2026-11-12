@@ -8,6 +8,7 @@
 // rules a family out: kino downloads the subset and looks at the real glyph before naming it.
 import { fontIgnorableCharacter, parseCatalogFontSource, parseUnicodeRange, unicodeRangeContains } from "../../engine/fontCatalogSource.js";
 import { fallbackCatalogIds } from "../../engine/fontFallback.js";
+import { KINO_OWN_FAMILIES } from "../../engine/footage/treatments.js";
 import { textGraphemes } from "../../engine/textSource.js";
 import { withTextStylePatches, withWholeTextStyle } from "../../engine/textStyleRanges.js";
 
@@ -199,6 +200,51 @@ export async function missingGlyphsHelp({ layer, layerRef, characters, fonts, ca
     fix: { op: "update_layer", layerId: layerRef, properties: { textStyleRanges: next.textStyleRanges } } };
 }
 
+// Words that describe a face, not name one: the catalog's category, a weight and name parts.
+const CLASS_WORDS = { serif: "serif", sans: "sans-serif", sansserif: "sans-serif", mono: "monospace", monospace: "monospace", script: "handwriting", brush: "handwriting", hand: "handwriting", handwriting: "handwriting", display: "display" };
+const WEIGHT_WORDS = {
+  bold: (weights) => Math.max(...weights) >= 700, heavy: (weights) => Math.max(...weights) >= 800, extra: (weights) => Math.max(...weights) >= 800, ultra: (weights) => Math.max(...weights) >= 800,
+  black: (weights) => Math.max(...weights) >= 900, thin: (weights) => Math.min(...weights) <= 300, light: (weights) => Math.min(...weights) <= 300,
+};
+const WEIGHT_LABELS = { bold: "700+", heavy: "800+", extra: "800+", ultra: "800+", black: "900", thin: "300-", light: "300-" };
+// condensed and narrow only appear in a family's name: they rank a category's families, or with no category word pick by name.
+const NAME_WORDS = ["condensed", "narrow", "mono"];
+const FILLER_WORDS = ["a", "an", "and", "the", "with", "very", "or", "of", "font", "fonts", "typeface", "type"];
+
+/** {categories, weights, names, ignored} for a search of 2+ words that holds a class or name word, else null. */
+function lookOf(term) {
+  // "sans serif" and "sans-serif" are one category; "extra light" is a light weight, not a heavy one.
+  const words = term.toLowerCase().replace(/sans[\s-]*serif/g, "sansserif").replace(/\b(?:extra|ultra)[\s-]*(light|thin)\b/g, "$1").match(/[a-z]+/g) ?? [];
+  if (words.length < 2 || !words.some((word) => CLASS_WORDS[word] || NAME_WORDS.includes(word))) return null;
+  const categories = [...new Set(words.filter((word) => CLASS_WORDS[word]).map((word) => CLASS_WORDS[word]))];
+  const weights = words.filter((word) => WEIGHT_WORDS[word]);
+  const names = words.filter((word) => NAME_WORDS.includes(word));
+  const ignored = words.filter((word) => !CLASS_WORDS[word] && !WEIGHT_WORDS[word] && !NAME_WORDS.includes(word) && !FILLER_WORDS.includes(word));
+  return { categories, weights, names, ignored };
+}
+
+// library {topic:"fonts", search:"condensed bold sans"}: catalog families of that kind, by their category and weights.
+async function lookFamilies({ categories, weights, names, ignored }, term, catalog) {
+  const { families: all, offline } = await catalog.list({ limit: 2500 });
+  const hasName = (family, word) => family.family.toLowerCase().includes(word);
+  // With no category word, the name words pick the families (every category is searched).
+  const matches = all.filter((family) => (categories.length ? categories.includes(family.category) : names.every((word) => hasName(family, word)))
+    && weights.every((word) => WEIGHT_WORDS[word](family.weights)));
+  const own = new Set(KINO_OWN_FAMILIES);
+  const named = (family) => names.filter((word) => hasName(family, word)).length;
+  // Best fit first: name words, then families kino does not pick itself, then more weights, then A to Z.
+  matches.sort((a, b) => named(b) - named(a) || own.has(a.family) - own.has(b.family) || b.weights.length - a.weights.length || a.family.localeCompare(b.family));
+  const range = (family) => (family.weights[0] === family.weights.at(-1) ? `${family.weights[0]}` : `${family.weights[0]}-${family.weights.at(-1)}`);
+  const kind = [...(categories.length ? categories : ["all categories"]), ...weights.map((word) => WEIGHT_LABELS[word])].join(", ");
+  const listed = matches.slice(0, LISTED);
+  const label = (family) => `${family.family} ${range(family)}${own.has(family.family) ? " [kino's own]" : ""}`;
+  return [
+    `catalog${offline ? " (offline: cached list)" : ""}, look ${JSON.stringify(term)} (${kind}, ${matches.length} match${ignored.length ? `; ignored: ${ignored.join(", ")}` : ""}): ${listed.map(label).join(", ") || "none match; use fewer words"}${matches.length > LISTED ? ` +${matches.length - LISTED} more` : ""}`,
+    "Compare by eye with the reference strip; set_font {layerIds, family, weight} downloads the one you pick."
+    + (listed.some((family) => own.has(family.family)) ? ` [kino's own] fonts are flagged by check unless a style line at a saved reference's moment names them (notes brief, style lines).` : ""),
+  ].join("\n");
+}
+
 /**
  * library {topic:"fonts", search}: installed families and catalog families whose name has
  * `search`, or, when `search` is one character, the fonts that really draw it.
@@ -214,11 +260,17 @@ export async function fontsLibraryText(search, { fonts, catalog }) {
   const lower = term.toLowerCase();
   const installed = [...new Set(fonts.entries().map((face) => face.family))].filter((family) => !lower || family.toLowerCase().includes(lower));
   const { families, total = families.length, offline } = await catalog.list({ search: term, limit: LISTED });
+  // No family name holds the whole search, but its words describe a look ("condensed bold sans").
+  const wanted = lookOf(term);
+  if (wanted && total === 0 && !installed.length) return lookFamilies(wanted, term, catalog);
+  // A few families that only contain the words ("brush script" in "Nanum Brush Script") are not a name: the look is offered too.
+  const partial = wanted && total > 0 && total <= 3 && !installed.length && !families.some((family) => family.family.toLowerCase().startsWith(lower));
   const more = (shown, count) => count > shown ? ` +${count - shown} more` : "";
   const narrow = 'search a name (such as "Roboto") or one character (such as "∞") to narrow.';
   return [
     `installed: ${installed.slice(0, LISTED).join(", ") || "none match"}${more(Math.min(LISTED, installed.length), installed.length)}`,
     `catalog${offline ? " (offline: cached list)" : ""}: ${families.map((family) => `${family.family} ${family.weights.join("/")}`).join(", ") || "none match"}${more(families.length, total)}${total > families.length ? `; ${narrow}` : ""}`,
     "set_font {layerIds, family, weight} downloads a catalog font when needed.",
+    ...(partial ? [await lookFamilies(wanted, term, catalog)] : []),
   ].join("\n");
 }

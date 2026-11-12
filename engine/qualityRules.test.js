@@ -1188,6 +1188,31 @@ test("default_font: a font the brand chose is not a default", async () => {
   await silent("default_font", inter, { brandFonts: ["Inter"] });
 });
 
+test("default_font: one of kino's own pair fonts warns once the project has references, unless a reference line or the person's words name it", async () => {
+  const mono = scene({ layers: [text("title", "Hello", { fontFamily: "Space Mono" })] });
+  await silent("default_font", mono, { brandFonts: ["Space Mono"] }); // no saved references: today's behavior
+  const [finding] = await fires("default_font", mono, { brandFonts: ["Space Mono"], savedRefCount: 2 }); // the brand does not choose it
+  assert.match(finding.message, /uses Space Mono from kino's own fonts; no reference or your words chose it\.$/);
+  assert.match(finding.fix.text, /^library \{topic:"fonts", search:/);
+  const refs = { savedRefCount: 2, savedRefIds: ["yt:AAAA"] };
+  await silent("default_font", mono, { ...refs, styleSpec: { lines: [{ ref: "yt:AAAA", at: 3, text: "Space Mono labels, as in ref R1 at 3s" }] } });
+  await silent("default_font", mono, { ...refs, asks: [{ id: "n1", text: "use space mono for the titles" }] });
+});
+
+test("default_font: a no, a never field, a guessed font or an unsaved reference does not choose kino's own font", async () => {
+  const mono = scene({ layers: [text("title", "Hello", { fontFamily: "Space Mono" })] });
+  const refs = { savedRefCount: 2, savedRefIds: ["yt:AAAA"] };
+  await fires("default_font", mono, { ...refs, asks: [{ id: "n1", text: "no Space Mono please, it looks like AI" }] });
+  await fires("default_font", mono, { ...refs, asks: [{ id: "brief never", field: "never", text: "use Space Mono" }] });
+  await fires("default_font", mono, { ...refs, styleSpec: { type: "heavy condensed, not Space Mono" } });
+  await fires("default_font", mono, { ...refs, styleSpec: { by: "guessed", fonts: { display: { family: "Space Mono" } } } });
+  await fires("default_font", mono, { ...refs, styleSpec: { lines: [{ ref: "yt:ZZZZ", at: 3, text: "Space Mono titles" }] } });
+  await silent("default_font", mono, { ...refs, styleSpec: { by: "you", quote: "my fonts", fonts: { display: { family: "Space Mono" } } } });
+  const serif = scene({ layers: [text("title", "Hello", { fontFamily: "Noto Serif" })] });
+  await silent("default_font", serif); // no saved references: today's behavior
+  await fires("default_font", serif, refs); // the bundled serif is kino's own pick too
+});
+
 test("default_font: a font the style spec or a reference chose is not an unchosen default", async () => {
   const arial = scene({ layers: [text("title", "Hello", { fontFamily: "Arial" })] });
   await fires("default_font", arial, { styleSpec: { wants: [] } });

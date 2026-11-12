@@ -71,6 +71,9 @@ What the checks measure, and how to keep a video small.
 - Show a feature with a few shapes (a card, an icon, one line of text). Do not draw a full
   app screen, a calendar grid cell by cell or rows of fake UI.
 - Leave out fields that match the defaults (weight 400, line height 1.2, left aligned). Set
-  the typeface your references chose; kino has no default type look.
+  the typeface your references chose: library {topic:"fonts", search:"condensed
+  bold sans"} lists catalog fonts of that kind. compose {footage} with saved references makes
+  a brand of colors only; without any, it uses one of kino's own pairs (check warns once you
+  save references, unless a style line at a saved reference's moment names the font).
 - A card used several times is a component: build it once, insert copies (the building blocks
   reference has the example).

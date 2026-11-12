@@ -6,7 +6,7 @@
 // framing.md) runs as written.
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
@@ -135,6 +135,22 @@ test("framing.md's crop to 9:16 runs as written: a layer and a crop per shot, th
   const library = await agent("library", { project: "framing", topic: "media", search: "sintel" });
   assert.match(library.text, /'sintel-village-dragon\.mp4' video\/mp4 384×216 4\.42s · 3 shots$/m);
   assert.match(library.text, /^shots: 3: 1\) 0–1\.25 s 2\) 1\.25–3\.33 s 3\) 3\.33–4\.42 s · crop with look \{mode:"source", layer\}$/m);
+});
+
+test("compose {footage} with a saved reference makes a brand of colors only, and check's default_font flags the title's font kino chose", { skip: skipWithoutMediaTools, timeout: 120_000 }, async () => {
+  await agent("project", { action: "create", id: "type-refs", name: "Type refs" });
+  const folder = path.join(server.dataDirectory, "inspire");
+  await mkdir(folder, { recursive: true });
+  await writeFile(path.join(folder, "kinoType001.json"), JSON.stringify({ id: "yt:kinoType001", title: "A reference", state: "measured", version: 2, seconds: 9, fingerprint: { seconds: 20, look: { brightness: 0.3, darkShare: 0.3 } } }));
+  const saved = await agent("library", { project: "type-refs", topic: "inspire", name: "save yt:kinoType001" });
+  assert.equal(saved.isError, undefined, saved.text);
+  const composed = await agent("edit", { project: "type-refs", ops: [{ op: "compose", footage: [clip.src], duration: 6, treatment: "loud", seed: 2 }] });
+  assert.equal(composed.isError, undefined, composed.text);
+  assert.match(composed.text, /made for this edit: colors only, accent #[0-9A-Fa-f]{6}; fonts come from your references/);
+  const { document } = await (await server.api("/api/projects/type-refs")).json();
+  assert.ok(document.brands.length && document.brands.every((brand) => !brand.fonts?.length), "the brand has colors and motion, no fonts");
+  const checked = await agent("check", { project: "type-refs", rules: ["default_font"] });
+  assert.match(checked.text, /default_font[^\n]*from kino's own fonts; no reference or your words chose it|default_font[^\n]*common default font/, checked.text);
 });
 
 test("variants {vary:\"format\"} composes a 16:9 footage scene again in 9:16, cropped on its marked subject and checked clean; a hand-built scene is refused", { skip: skipWithoutMediaTools, timeout: 120_000 }, async () => {

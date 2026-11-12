@@ -49,7 +49,7 @@ export function styleContext(spec) {
     // The lines that point at a moment of a reference (default_font reads a font they name).
     referenceLines: (spec.lines ?? []).filter(lineHasReference),
     // The style bible the consistency rules hold the timeline to (null when the spec has none).
-    fonts: isObject(spec.fonts) ? spec.fonts : null, accent: isObject(spec.accent) ? spec.accent : null,
+    fonts: isObject(spec.fonts) ? spec.fonts : null, fontsBacked: theirs("fonts") && isObject(spec.fonts), accent: isObject(spec.accent) ? spec.accent : null,
     logo: isObject(spec.logo) ? spec.logo : null, moves: moves.length ? moves : null,
     // The idea, its signature moments and the one-off set pieces.
     idea: typeof spec.idea === "string" && spec.idea.trim() ? spec.idea.trim() : null,
@@ -69,7 +69,23 @@ export function styleContext(spec) {
 // "type over the footage", "titles on top of the shot", "text across his face".
 const TYPE_OVER_FOOTAGE = /\b(type|text|titles?|words?|lettering)\b[^.]{0,40}\b(over|on top of|across)\b[^.]{0,30}\b(footage|video|clips?|shots?|picture|faces?|people|subjects?|b-roll)\b/i;
 // "never put text over faces" asks the opposite: a no, never, avoid or without in its sentence.
-const NEGATED = /\b(no|not|never|avoid|avoids|don'?t|doesn'?t|without|nothing)\b/i;
+export const NEGATED = /\b(no|not|never|avoid|avoids|don'?t|doesn'?t|without|nothing)\b/i;
+
+/**
+ * True when `text` names the font `family` somewhere not after a no, not, never or avoid in its
+ * clause ("no Space Mono" and "heavy condensed, not Space Mono" do not name it; "use Anton, not
+ * Mono" names Anton).
+ */
+export function namesFamily(text, family) {
+  const lower = String(text ?? "").toLowerCase();
+  const found = new RegExp(`(^|[^a-z])${String(family).toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^a-z]|$)`, "g");
+  for (let match = found.exec(lower); match; match = found.exec(lower)) {
+    const clause = lower.slice(0, match.index + match[1].length).split(/[.!?;,\n]/).pop();
+    if (!NEGATED.test(clause)) return true;
+  }
+  return false;
+}
+
 function asksTypeOverFootage(words) {
   const match = typeof words === "string" ? TYPE_OVER_FOOTAGE.exec(words) : null;
   return Boolean(match) && !NEGATED.test(words.slice(0, match.index + match[0].length).split(/[.!?;]/).pop());

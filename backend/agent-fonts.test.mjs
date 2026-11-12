@@ -194,6 +194,39 @@ test("fonts library: a name filters, one character lists fonts that have it, a c
   const character = await fontsLibraryText("∞", { fonts, catalog });
   assert.ok(character.startsWith(`fonts with "∞" (glyphs checked): Roboto 400 ${source("roboto")}, Lora 400 ${source("lora")}\n`), character);
   assert.match(character, /textStyleRanges range/);
+
+  // Words that name no family but describe a look filter by category and weight.
+  const look = await fontsLibraryText("elegant serif", { fonts, catalog });
+  assert.match(look, /^catalog, look "elegant serif" \(serif, 2 match; ignored: elegant\): Lora 400, Playfair Display 400\nCompare by eye with the reference strip; set_font \{layerIds, family, weight\}/, look);
+  assert.match(await fontsLibraryText("condensed bold sans", { fonts, catalog }), /\(sans-serif, 700\+, 0 match\): none match; use fewer words/);
+  assert.match(await fontsLibraryText("Filler 01", { fonts, catalog }), /^installed: none match\ncatalog: Filler 01 /, "a name that matches stays a name search");
+});
+
+test("fonts library look search: sans serif is one category, condensed is a name word, heavy means 800+, kino's own fonts are tagged and ranked last", async () => {
+  const entry = (family, category, weights) => ({ family, category, weights });
+  const families = [
+    entry("Abhaya Libre", "serif", [400, 700]), entry("Barlow Condensed", "sans-serif", [400, 800]), entry("Alkatra", "display", [400, 700]),
+    entry("Archivo", "sans-serif", [400, 900]), entry("Oswald", "sans-serif", [400]), entry("Roboto Condensed", "sans-serif", [300, 700, 800]),
+    entry("IBM Plex Mono", "monospace", [400, 700]), entry("Nanum Brush Script", "handwriting", [400]), entry("Zeyada", "handwriting", [400]),
+  ];
+  const catalog = { list: async ({ search = "" } = {}) => {
+    const found = families.filter((family) => family.family.toLowerCase().includes(search.toLowerCase()));
+    return { families: found, total: found.length, offline: false };
+  } };
+  const fonts = { entries: () => [] };
+  const sans = await fontsLibraryText("bold sans-serif", { fonts, catalog });
+  assert.doesNotMatch(sans, /Abhaya Libre|Alkatra/, "sans-serif is not also serif");
+  assert.match(sans, /\(sans-serif, 700\+, 3 match\): Roboto Condensed 300-800, Barlow Condensed 400-800, Archivo 400-900 \[kino's own\]\n/, "more weights first, kino's own last");
+  assert.equal((await fontsLibraryText("bold sans serif", { fonts, catalog })).replace("sans serif", "sans-serif"), sans);
+  const condensed = await fontsLibraryText("bold condensed", { fonts, catalog });
+  assert.match(condensed, /\(all categories, 700\+, 2 match\): Roboto Condensed 300-800, Barlow Condensed 400-800\n/, "only families with the word in their name");
+  assert.match(await fontsLibraryText("heavy sans", { fonts, catalog }), /\(sans-serif, 800\+, 3 match\)/);
+  assert.match(await fontsLibraryText("wide italic sans", { fonts, catalog }), /ignored: wide, italic\)/);
+  const mono = await fontsLibraryText("bold mono", { fonts, catalog });
+  assert.match(mono, /IBM Plex Mono 400-700 \[kino's own\]\n.*\[kino's own\] fonts are flagged by check/);
+  // "brush script" is inside one family's name: the name result comes first, then the look's families.
+  const brush = await fontsLibraryText("brush script", { fonts, catalog });
+  assert.match(brush, /^installed: none match\ncatalog: Nanum Brush Script 400\n.*\ncatalog, look "brush script" \(handwriting, 2 match\): Nanum Brush Script 400, Zeyada 400\n/);
 });
 
 // The agent service. The server does not download; this fills its font cache first.
