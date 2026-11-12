@@ -77,7 +77,8 @@ import { controlsLine } from "./controls.mjs";
 import { addRejected } from "./style.mjs";
 import { pickedEnding, pickedType } from "./treatments.mjs";
 import { activeApproval, boardFacts, boardPrint, laterAnswer, reframeApproved, settleBoard } from "./board.mjs";
-import { boardSpan, mainScene, reframeBoard } from "../../engine/board.js";
+import { boardSpan, mainScene, NONE, reframeBoard } from "../../engine/board.js";
+import { boardKeepOps, keptDuck, shotFileSpan, shotKeep, silentBoardLine } from "../../engine/boardSound.js";
 import { boardLook, BoardLookError, boardShotImage, SHOT_WIDTHS, styleFrameFacts, styleFrameImage } from "./board-look.mjs";
 import { boardData as boardScreenData } from "./board-data.mjs";
 import { BOARD_BUILD, boardBuilt } from "./board-build.mjs";
@@ -1967,6 +1968,68 @@ export function createAgentService(deps) {
     return speech;
   }
 
+  // Building the board: each shot with sound {keep} whose layer this edit placed keeps that stretch
+  // of its clip's sound (keep_line {from, to}, subtitle off; its dip as keep_line sets it), then one
+  // dip covers every kept stretch (a later keep_line's dip replaces the earlier ones). A shot whose
+  // keep_line is refused is named in the notes and the edit goes on (engine/boardSound.js).
+  async function keepBoardSound(before, after, work) {
+    const planned = boardKeepOps(before, after);
+    if (!planned.length) return after;
+    let next = after;
+    const kept = [];
+    let dip = null;
+    for (const { n, operation } of planned) {
+      try {
+        next = await runWithTranscript(next, operation, work);
+        kept.push({ layerId: operation.layerId, from: operation.from, to: operation.to });
+        const duck = work.reports?.get(operation)?.duck;
+        if (duck && duck !== "none") dip = duck.to;
+      } catch (error) { work.notes.push(`board shot ${n} keeps its clip's sound, but keep_line was refused: ${error.message}`); }
+    }
+    const music = next.board.music !== NONE ? next.board.music : null;
+    const duck = keptDuck(next, planned[0].operation.sceneId, kept, music, dip);
+    if (duck) {
+      const context = await operationContext(next, [duck]);
+      if (work.reports) context.reports = work.reports;
+      next = parseDocument(applyOperations(next, [duck], context));
+    }
+    const seconds = kept.reduce((sum, entry) => sum + entry.to - entry.from, 0);
+    if (kept.length) work.notes.push(`board: ${kept.length === 1 ? "1 shot keeps" : `${kept.length} shots keep`} the clip's own sound (${Number(seconds.toFixed(2))} s, keep_line, subtitle off)`);
+    // The scene already had a dip: kept as it was (engine/boardSound.js), and the call that adds these stretches to it.
+    if (kept.length && planned[0].operation.duckNone) {
+      const scene = next.scenes.find((item) => item.id === planned[0].operation.sceneId);
+      const name = (id) => scene?.layers.find((layer) => layer.id === id)?.name ?? id;
+      work.notes.push(`board: the music keeps the dip it had, none added under the kept clip sound; duck_audio {layer:"<music>", under:[<its voice>, ${[...new Set(kept.map((entry) => JSON.stringify(name(entry.layerId))))].join(", ")}]} dips it under both`);
+    }
+    return next;
+  }
+
+  // What each footage shot's clip holds, from what kino saved beside the file (nothing is measured
+  // here): its loudness over the shot (<file>.lufs, energy mean of the momentary values) and the
+  // lines heard in it (savedLinesOf). Plus the board's silent-plan line (silentBoardLine).
+  async function boardSoundNotes(document) {
+    const board = document.board;
+    const parts = [];
+    for (const [index, shot] of board.shots.entries()) {
+      const span = shotFileSpan(shot);
+      const id = typeof shot.media === "string" ? mediaIdFromSource(shot.media) : null;
+      if (!span || !id || !deps.mediaRoot) continue;
+      const file = path.join(deps.mediaRoot, id);
+      const curve = await Promise.resolve(loudnessCurves.saved?.(file)).catch(() => null);
+      const values = (curve?.momentary ?? []).filter((value, at) => value !== null && at * curve.step >= span[0] && at * curve.step <= span[1]);
+      const lufs = values.length ? Math.round(10 * Math.log10(values.reduce((sum, value) => sum + 10 ** (value / 10), 0) / values.length)) : null;
+      const lines = (await savedLinesOf(shot.media, document, 6)).filter((line) => line.end > span[0] && line.start < span[1]);
+      const keep = shotKeep(shot);
+      const what = [lufs !== null ? `${lufs} LUFS` : "", lines.length ? clipLinesText(lines, 1) : "", keep ? `keeps ${keep === "all" ? "all" : `${keep[0]}-${keep[1]} s`}` : ""].filter(Boolean);
+      if (what.length) parts.push(`${index + 1} ${what.join(", ")}`);
+    }
+    const notes = [];
+    if (parts.length) notes.push(`clip sound by shot (file seconds): ${parts.slice(0, 8).join("; ")}${parts.length > 8 ? `; +${parts.length - 8} more` : ""}`);
+    const silent = silentBoardLine(board);
+    if (silent) notes.push(silent);
+    return notes;
+  }
+
   // inspect {targets:["cuts"]}: the cuts of the video (its longest shown scene) with the words
   // around each from the saved transcripts and the loudness from the saved peaks. Nothing is
   // transcribed here: a check with pixels transcribes the heard sound.
@@ -2596,6 +2659,9 @@ export function createAgentService(deps) {
           const errors = Object.values(work.finished).some((entry) => entry.errors);
           work.finished.next = errors ? 'check {scene} (fix the errors it lists), then look {mode:"variants"}' : 'look {mode:"variants"}, then look {mode:"review", scene} on each';
         }
+        // The board's kept clip sound (shot sound {keep}): the layer this edit placed for that shot keeps it.
+        if (after.board) after = await keepBoardSound(before, after, work);
+        if (after.board && JSON.stringify(after.board) !== JSON.stringify(before.board)) work.notes.push(...await boardSoundNotes(after));
       } catch (error) {
         // An edit written against an older version that no longer applies is a conflict:
         // say what moved instead of sending the whole project back.

@@ -242,7 +242,7 @@ const OPERATIONS = {
   },
   board: {
     fields: ["music", "shots", "calls", "open"],
-    rules: 'board {music, shots:[{cue, dur, pacing, media, in, crop, subject, follow, text, sound, move, why, speed?, alts?, id?}], calls?, open?}: the storyboard (undo and rev as any edit); each call replaces it. Shots in time order, no gaps: over the music layer, or the whole video when music is "none". Every layer given, "none" when empty: media (an imported video or picture, or a video layer), in (file seconds), speed (the clip\'s playback speed, default 1: a shot uses dur × speed seconds of the file), crop [x, y, w, h] (% of the source, the video\'s shape) or "whole" (shown whole, such as a phone screen beside other things), subject {what, box, eyes?} (% of the source; eyes: the eye line\'s y), follow steady|track|sweep, text {text, family, weight?, size?, y?, fill?} (y: center, % from the top), sound {media, what}. move: the designed move {kind type|transition|camera|ui, name (a move, transition, recipe or preset; planned:true for a craft-plan move not built yet), ref "<reference key>@<seconds>"}, or {none:"<reason>"}; without one the shot is plain (footage plus words). pacing beat_cut|phrase_flow|free; why: one line; calls: your own calls and your decisions on open items left to you (≤ 6); open: questions for the person (≤ 3). A shot sent without id keeps the id of the shot it continues (same clip and nearest in, or same text). look {mode:"board"} shows it; notes checkpoint {id:"board"} asks the person.',
+    rules: 'board {music, shots:[{cue, dur, pacing, media, in, crop, subject, follow, text, sound, move, why, speed?, alts?, id?}], calls?, open?}: the storyboard (undo and rev as any edit); each call replaces it. Shots in time order, no gaps: over the music layer, or the whole video when music is "none". Every layer given, "none" when empty: media (an imported video or picture, or a video layer), in (file seconds), speed (the clip\'s playback speed, default 1: a shot uses dur × speed seconds of the file), crop [x, y, w, h] (% of the source, the video\'s shape) or "whole" (shown whole, such as a phone screen beside other things), subject {what, box, eyes?} (% of the source; eyes: the eye line\'s y), follow steady|track|sweep, text {text, family, weight?, size?, y?, fill?} (y: center, % from the top), sound {media, what} (a sound to add) and/or {keep:"all" | [from, to]} (the clip\'s own sound, file seconds: the layer you place for the shot keeps it, keep_line). move: the designed move {kind type|transition|camera|ui, name (a move, transition, recipe or preset; planned:true for a craft-plan move not built yet), ref "<reference key>@<seconds>"}, or {none:"<reason>"}; without one the shot is plain (footage plus words). pacing beat_cut|phrase_flow|free; why: one line; calls: your own calls and your decisions on open items left to you (≤ 6); open: questions for the person (≤ 3). A shot sent without id keeps the id of the shot it continues (same clip and nearest in, or same text). look {mode:"board"} shows it; notes checkpoint {id:"board"} asks the person.',
   },
 };
 const FIELD_ALIASES = [["scene", "sceneId"], ["layer", "layerId"], ["layers", "layerIds"]];
@@ -2450,7 +2450,7 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     if (footage.file && shot.crop === NONE) add("bad_shot", `shot ${n} shows ${footage.file.name}, so crop is [x, y, w, h] in % of the source, or "whole" when it shows whole.`);
     Object.assign(result, footage.fields, { follow: shot.follow });
     result.text = await boardText(document, scene, shot.text, `shot ${n}`, { add, work });
-    result.sound = boardSound(shot.sound, `shot ${n}`, { media, add });
+    result.sound = boardSound(shot.sound, `shot ${n}`, { media, add, shot, speed, video: footage.file?.kind === "video" });
     if (move) result.move = move;
     result.why = why;
     const alts = shot.alts ?? [];
@@ -2565,18 +2565,35 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     return { suggestions: closest(family, [...installed, ...families.map((entry) => entry.family)]) };
   }
 
-  // sound: "none", or {media, what}: a sound file the person sent (an audio or video file, or layer).
-  function boardSound(value, where, { media, add }) {
+  // sound: "none", {media, what}: a sound file the person sent (an audio or video file, or layer),
+  // and/or keep: the shot's clip keeps its own sound, "all" or [from, to] file seconds inside what
+  // the shot plays (engine/boardSound.js; building the board keeps it with keep_line).
+  function boardSound(value, where, { media, add, shot, speed, video }) {
     if (value === NONE) return NONE;
-    const long = isRecord(value) && typeof value.what === "string" && value.what.trim().length > BOARD_LIMITS.what;
+    const rule = `${where} sound is "none", {media, what (up to ${BOARD_LIMITS.what} characters)} for a sound to add, {keep:"all" | [from, to]} for the clip's own sound (file seconds), or both`;
+    if (!isRecord(value) || Object.keys(value).some((key) => !["media", "what", "keep"].includes(key))) { add("bad_shot", `${rule}.`); return NONE; }
+    let keep;
+    if (value.keep !== undefined) {
+      const plays = video && typeof shot.in === "number" && typeof shot.dur === "number" ? [shot.in, Number((shot.in + shot.dur * speed).toFixed(3))] : null;
+      const span = Array.isArray(value.keep) && value.keep.length === 2 && value.keep.every((item) => typeof item === "number" && Number.isFinite(item)) ? value.keep : null;
+      if (!plays) add("bad_shot", `${where} sound.keep keeps a video clip's own sound: the shot needs a video media and its in.`);
+      // keep:true is read as "all" (the guess a weak agent sends first; the skeptic's proof run).
+      else if (value.keep === "all" || value.keep === true) keep = "all";
+      else if (!span || !(span[1] > span[0])) add("bad_shot", `${rule}.`);
+      // At least 0.1 s of it inside what the shot plays (keep_line's shortest stretch).
+      else if (Math.min(span[1], plays[1]) - Math.max(span[0], plays[0]) < 0.1) add("bad_shot", `${where} sound.keep [${span.join(", ")}] is outside what the shot plays: file ${sec(plays[0])}–${sec(plays[1])} s.`);
+      else keep = [round(Math.max(span[0], plays[0])), round(Math.min(span[1], plays[1]))];
+      if (value.media === undefined && value.what === undefined) return keep ? { keep } : NONE;
+    }
+    const long = typeof value.what === "string" && value.what.trim().length > BOARD_LIMITS.what;
     if (long) add("bad_shot", `${where} sound.what is ${value.what.trim().length} characters, limit ${BOARD_LIMITS.what}.`);
-    if (!isRecord(value) || typeof value.what !== "string" || !value.what.trim() || typeof value.media !== "string") {
-      add("bad_shot", `${where} sound is "none" or {media, what (up to ${BOARD_LIMITS.what} characters)}.`);
+    if (typeof value.what !== "string" || !value.what.trim() || typeof value.media !== "string") {
+      add("bad_shot", `${rule}.`);
       return NONE;
     }
     const file = media(value.media.trim(), ["audio", "video"]);
     if (!file.src) { add("bad_shot", `${where} sound media ${JSON.stringify(value.media)} is not an imported sound file (library {topic:"media"} lists them).`, file.suggestions); return NONE; }
-    return long ? NONE : { media: file.src, what: value.what.trim() };
+    return long ? NONE : { media: file.src, what: value.what.trim(), ...(keep ? { keep } : {}) };
   }
 
   const APPLY = {

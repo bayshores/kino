@@ -153,6 +153,8 @@ const SEEN_AS = {
   // Words for seeing many frames at once (the look tool, not an effect); look-times is its topic.
   "contact sheet": ["look-times"], "many frames": ["look-times"], "chosen times": ["look-times"], "every nth frame": ["look-times"], "frame strip": ["look-times"], "side by side frames": ["look-times"],
   "several times": ["look-times"], "several frames": ["look-times"], "frames at once": ["look-times"], "before during after": ["look-times"],
+  // A clip's own sound kept in the edit: keep_line, or planned on a board shot as sound {keep} (engine/boardSound.js).
+  "clip sound": ["keep_line"], "own sound": ["keep_line"], "original sound": ["keep_line"], "original audio": ["keep_line"], "keep sound": ["keep_line"], "scene audio": ["keep_line"], "clip audio": ["keep_line"],
 };
 // Looks kino has no maker for yet. Asked for alone, they print a line that says so (and what to do)
 // instead of a name that only sounds close.
@@ -213,6 +215,7 @@ const WHEN = {
   // split-fields drifts its edge 0.15 of the frame by default, so the line names the field that makes it sweep.
   "split-fields": "an edge moving across one shot, a color field each side: travel:-1 sweeps it left to right over the whole frame (a wipe), 1 right to left",
   "shape-wipe": "a shape growing from one point to the next shot (point, shape circle, rounded, diamond, clock)",
+  keep_line: 'a clip\'s own sound heard over the music; on the board: shot sound {keep:"all" | [from, to]} (file seconds)',
 };
 // An op whose call needs a lookup first: a font is picked by its look.
 const OP_USE = { update_project: 'update_project {properties:{shutterAngle:180}} (motion blur on every move in look, sheets and drafts)', set_font:'library {topic:"fonts", search:"<the look: brush, handwritten, marker, stencil, slab, blackletter, condensed bold sans, a script such as japanese>"} (or like:"<picture path>", region:[x,y,w,h]: faces measured like its letters) then set_font {layerIds, family, weight}' };

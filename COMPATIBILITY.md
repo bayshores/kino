@@ -1471,6 +1471,9 @@ How to read it:
   {none}) is checked against kino's moves and move-like ops (frame), with every bad field named at once; a bad `ref` also
   names the project's saved keys, the fixed ref for a saved key sent without its moment, or the call that saves one. Evidence:
   `backend/agent-board.test.mjs`, `engine/board.test.js`.
+- **A shot keeps its clip's sound**: Test-verified. Shot `sound {keep:"all" | [from, to]}` (file seconds); placing
+  that shot's layer runs keep_line (subtitle off) and one dip under every kept stretch; the board answer prints each
+  clip's saved loudness and lines, and "keeps 0 s" over music. Evidence: `engine/board.test.js`, `backend/agent-board.test.mjs`.
 - **look board**: Verified. `look {mode:"board", page}` draws 4 shots a page with crops and measured
   framing flags and each shot's move, flagging shots that name no move (a chosen cut, move {none},
   is not flagged), at most 200 text tokens a page; the board ask lists those shots first. Evidence: `backend/look-board.test.mjs`,

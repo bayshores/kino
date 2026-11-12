@@ -140,9 +140,11 @@ export const OP_EXAMPLES = {
   match_references: { op: { op: "match_references" } },
   frame_shot: { op: { op: "frame_shot", layer: "footage" }, setup: [{ op: "add_layer", layerType: "video", name: "footage", properties: { src: "/api/media/<video>.mp4" } }], media: ["video"] },
   // A board covers the whole video (6 s here) or its music: one shot of the 2 s clip needs a 2 s scene
-  // (an example stays under 400 characters, so it has one shot).
+  // (an example stays under 400 characters, so it has one shot). The speaker's shot keeps its clip's
+  // own sound: run 8 copied this example's sound "none" onto all 11 shots and built every clip
+  // silent (.scratch/run8/trace/audio.md L69; transcript T235 to T243).
   board: { op: { op: "board", music: "none", shots: [{ cue: 0, dur: 2, pacing: "free", media: "<video>.mp4", in: 0, crop: [0, 7.8, 100, 84.4], subject: { what: "the speaker", box: [30, 10, 40, 80] },
-    follow: "steady", text: { text: "Ship faster", family: "Montserrat", y: 80 }, sound: "none", why: "the speaker says the line" }] }, setup: [{ op: "update_scene", properties: { duration: 2 } }], media: ["video"] },
+    follow: "steady", text: { text: "Ship faster", family: "Montserrat", y: 80 }, sound: { keep: "all" }, why: "the speaker says the line" }] }, setup: [{ op: "update_scene", properties: { duration: 2 } }], media: ["video"] },
   source: { op: { op: "source", name: "their message", text: "Make a 15 s promo for Orbit: plan the week in one view. Link orbit.app at the end." } },
   duplicate_layers: { op: { op: "duplicate_layers", layers: ["card"], offset: 24 } },
   multi_transform: { op: { op: "multi_transform", layers: ["card"], action: { kind: "scale", scaleX: 120, scaleY: 120 } } },
