@@ -1040,8 +1040,9 @@ How to read it:
   Test-verified on macOS 13+. The kino-measure helper's `--sounds` mode runs the macOS sound classifier on 1 s
   windows (`.sounds-v1` beside the file); the readout lists the 3 loudest events and the bed; keep_line {sound}
   keeps the loudest match at its own level, with no subtitle, and dips the music only when it would mask the sound.
-  Evidence: `engine/speech.test.js`, `engine/board.test.js`, `backend/measure-vision.test.mjs`. Gap: labels on drawn
-  footage under music are often instruments; not run through a render.
+  Evidence: `engine/speech.test.js`, `engine/board.test.js`, `backend/measure-vision.test.mjs`. Render: the mix change
+  under a kept laugh read +3.3 LU (receipt +4.5), under a chime -4.7 LU (receipt -3.1). Gap: labels on drawn footage
+  under music are often instruments (a laugh read 0.43 sure, so the readout does not list it).
 - **Compose keeps spoken lines**: Verified on plans in engine tests and probed on a real project. With no voice,
   compose {footage} keeps the clips' best lines heard (up to one per 6 s; `lines` number, texts or false),
   captioned, music ducked; the receipt lists kept and left-out lines with calls. `speech_unplayed` warns when

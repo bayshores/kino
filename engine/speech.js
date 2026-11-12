@@ -941,13 +941,35 @@ export function soundEvents(windows = [], { sure = SOUND_SURE } = {}) {
   return { events, bed };
 }
 
-/** `sounds laughter 0.5-2.0 s (-18 dB), dog 4.0-5.0 s (-30 dB), … · bed music`: the loudest few events. */
+/**
+ * Events as moments, loudest first: [{name: "mallet percussion / glockenspiel", labels, start, end, db}].
+ * Surest first, an event inside an earlier moment's span joins it, so a surer label is never hidden
+ * under a less sure one; a label with the very same span is named beside the first (2 at most).
+ */
+export function soundMoments(events = []) {
+  const moments = [];
+  for (const event of [...events].sort((a, b) => b.sure - a.sure)) {
+    const home = moments.find((moment) => event.start >= moment.start - 1e-6 && event.end <= moment.end + 1e-6);
+    const same = home && Math.abs(event.start - home.start) < 1e-6 && Math.abs(event.end - home.end) < 1e-6;
+    if (home) { if (same) home.labels.push(event.label); home.db = Math.max(home.db, event.db); }
+    else moments.push({ labels: [event.label], start: event.start, end: event.end, db: event.db });
+  }
+  return moments.sort((a, b) => b.db - a.db).map((moment) => ({ ...moment, name: moment.labels.slice(0, 2).map((label) => String(label).replaceAll("_", " ")).join(" / ") }));
+}
+
+/**
+ * `sounds laughter 0.5-2.0 s (-18 dB), mallet percussion / glockenspiel 5.0-6.5 s (-27 dB), … · bed music`:
+ * the loudest few moments. A less sure event inside a surer one's span is the same moment (the
+ * classifier names one sound several ways, and a window's db is the whole window's), so it joins
+ * that moment (a label with the very same span is shown beside the first, 2 at most) instead of taking a place: on a product clip measured in the
+ * skeptic proof (.scratch/barwave/wave/scene-sounds-review/RESULT.md) "mosquito buzz" and "insect"
+ * windows inside the speech took 2 of the 3 places and hid the chime after it.
+ */
 export function clipSoundsText({ events = [], bed = [] } = {}, most = 3) {
-  const shown = events.filter((event) => !bed.includes(event.label)).sort((a, b) => b.db - a.db);
-  const name = (label) => String(label).replaceAll("_", " ");
+  const moments = soundMoments(events.filter((item) => !bed.includes(item.label)));
   const parts = [];
-  if (shown.length) parts.push(`sounds ${shown.slice(0, most).map((event) => `${name(event.label)} ${event.start.toFixed(1)}-${event.end.toFixed(1)} s (${Math.round(event.db)} dB)`).join(", ")}${shown.length > most ? ", …" : ""}`);
-  if (bed.length) parts.push(`bed ${bed.slice(0, 2).map(name).join(", ")}`);
+  if (moments.length) parts.push(`sounds ${moments.slice(0, most).map((moment) => `${moment.name} ${moment.start.toFixed(1)}-${moment.end.toFixed(1)} s (${Math.round(moment.db)} dB)`).join(", ")}${moments.length > most ? ", …" : ""}`);
+  if (bed.length) parts.push(`bed ${bed.slice(0, 2).map((label) => String(label).replaceAll("_", " ")).join(", ")}`);
   return parts.join(" · ");
 }
 

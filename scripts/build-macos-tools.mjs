@@ -23,7 +23,8 @@ const CONFIG = JSON.parse(await readFile(CONFIG_PATH, "utf8"));
 const VOICE_HELPER_SOURCE = join(ROOT, "backend", "voice", "kino-voice.swift");
 // kino's own Swift helper for Apple Vision's subject and person masks (the edit op cut_out).
 const CUTOUT_HELPER_SOURCE = join(ROOT, "backend", "cutout", "kino-cutout.swift");
-// kino's own Swift helper for Apple Vision measures (Inspire's fingerprint, reference_drift).
+// kino's own Swift helper for Apple Vision measures (Inspire's fingerprint, reference_drift) and the
+// macOS sound classifier (a clip's sounds besides words, backend/footage/sounds.mjs).
 const MEASURE_HELPER_SOURCE = join(ROOT, "backend", "measure", "kino-measure.swift");
 const RECORDER_HELPER_SOURCE = join(ROOT, "backend", "recorder", "kino-recorder.swift");
 const BINARIES = ["ffmpeg", "ffprobe", "gifski", "kino-voice", "kino-cutout", "kino-measure", "kino-recorder"];
@@ -53,7 +54,7 @@ function printPlan() {
   console.log(`FFmpeg ${CONFIG.tools.ffmpeg.version}, x264 ${CONFIG.tools.x264.version}, libvpx ${CONFIG.tools.libvpx.version}, Opus ${CONFIG.tools.opus.version}, Gifski ${CONFIG.tools.gifski.version}.`);
   console.log("kino-voice: kino's Swift helper for Apple sound isolation, compiled from server/voice/kino-voice.swift.");
   console.log("kino-cutout: kino's Swift helper for Apple Vision subject masks, compiled from server/cutout/kino-cutout.swift.");
-  console.log("kino-measure: kino's Swift helper for Apple Vision measures (flow, text, feature prints), compiled from server/measure/kino-measure.swift.");
+  console.log("kino-measure: kino's Swift helper for Apple Vision measures (flow, text, feature prints) and the macOS sound classifier, compiled from server/measure/kino-measure.swift.");
   console.log("kino-recorder: kino's Swift helper for screen recordings (ScreenCaptureKit), compiled from backend/recorder/kino-recorder.swift.");
   console.log(`Output: ${OUTPUT_PATH}`);
   console.log("Run with --build to download hash-pinned upstream sources, verify FFmpeg's signature, and build only inside .local/macos-tools.");
@@ -699,7 +700,7 @@ async function build() {
       "Gifski Rust crate license metadata is listed in gifski-cargo-crates.json; crate sources and license files are vendored under ../sources.",
       "kino-voice: part of kino (MIT), compiled from ../sources/rebuild/backend/voice/kino-voice.swift; it calls the AUSoundIsolation audio unit that macOS provides and contains no Apple code.",
       "kino-cutout: part of kino (MIT), compiled from ../sources/rebuild/backend/cutout/kino-cutout.swift; it calls the Vision framework that macOS provides and contains no Apple code or model files.",
-      "kino-measure: part of kino (MIT), compiled from ../sources/rebuild/backend/measure/kino-measure.swift; it calls the Vision framework that macOS provides and contains no Apple code or model files.",
+      "kino-measure: part of kino (MIT), compiled from ../sources/rebuild/backend/measure/kino-measure.swift; it calls the Vision and SoundAnalysis frameworks that macOS provides and contains no Apple code or model files.",
       "kino-recorder: part of kino (MIT), compiled from ../sources/rebuild/backend/recorder/kino-recorder.swift; it calls the ScreenCaptureKit and AVFoundation frameworks that macOS provides and contains no Apple code.",
       "The exact configure arguments, source checksums, toolchain details, and system dylib closure are recorded in ../build-manifest.json.",
       "",

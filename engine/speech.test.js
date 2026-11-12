@@ -7,7 +7,7 @@ import { volumeAt } from "./animation.js";
 import { voiceLines } from "./mixLevels.js";
 import { mediaPlaybackRange } from "./playback.js";
 import { defaultFonts } from "./fonts.js";
-import { SOUND_LISTED, soundEvents } from "./speech.js";
+import { clipSoundsText, SOUND_LISTED, soundEvents } from "./speech.js";
 import { captionWordsFromSpeech, clipLines, clipLinesText, clipSoundText, readClipSound, cutSpeechIndices, fileWords, shiftScene, speechFlags, speechPieces, speechText, speechWords } from "./speech.js";
 
 // "So we will, we will um try. [mumble] Like, the Oaks app." in file seconds; cut = the quiet point before each word.
@@ -442,6 +442,10 @@ test("keep_line {sound} keeps the loudest matching scene sound at its own level,
   assert.deepEqual(bed, ["music"]);
   assert.deepEqual(events.filter((event) => event.label === "laughter").map((event) => [event.start, event.end, event.db]), [[0, 1, -30], [2, 3.5, -17]]);
   assert.equal(clipSoundText({ lufs: -20, sounds: { events, bed } }), "-20.0 LUFS · no voice heard · sounds laughter 2.0-3.5 s (-17 dB), laughter 0.0-1.0 s (-30 dB) · bed music");
+  // A less sure label inside a surer one's span is the same moment, so a quieter chime still gets a place.
+  const moment = (label, start, end, sure, db) => ({ label, start, end, sure, db });
+  assert.equal(clipSoundsText({ events: [moment("speech", 0, 5, 0.98, -15), moment("mosquito_buzz", 0.5, 1.5, 0.65, -15), moment("insect", 0.5, 1.5, 0.61, -15),
+    moment("glockenspiel", 5, 6.5, 0.8, -27), moment("mallet_percussion", 5, 6.5, 0.82, -27)] }), "sounds speech 0.0-5.0 s (-15 dB), mallet percussion / glockenspiel 5.0-6.5 s (-27 dB)");
   const flat = (lufs, seconds) => ({ step: 0.1, momentary: new Array(seconds * 10).fill(lufs) });
   const clip = createLayer("audio", { id: "clip", name: "laugh", src: "/api/media/clip.wav", mediaSourceDuration: 12 });
   const document = documentWith([clip, musicLayer()], 12);
@@ -463,7 +467,7 @@ test("keep_line {sound} keeps the loudest matching scene sound at its own level,
   // A loud sound over a quiet bed is not masked: the music stays.
   const clear = run({ levels: { clip: flat(-10, 12), music: flat(-30, 30) } });
   assert.deepEqual([volumeAt(clear.music, 3), clear.report.duck], [1, "none"]);
-  assert.throws(() => run({ sound: "gasp" }), /no "gasp" heard where laugh plays\. Heard there: music 0-3\.5 s, laughter 2-3\.5 s/);
+  assert.throws(() => run({ sound: "gasp" }), /no "gasp" heard where laugh plays\. Heard there: laughter 2-3\.5 s, music 0-3\.5 s, laughter 0-1 s\./);
   assert.throws(() => run({ events: undefined, eventsWhy: "no helper" }), /laugh's sounds are not measured here \(no helper\); give from and to/);
   assert.throws(() => run({ from: 1, to: 2 }), /give one of sound/);
 });

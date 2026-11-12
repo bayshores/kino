@@ -387,4 +387,6 @@ test("every look word an agent can search names an effect, move or op that exist
   assert.match(seenNames("code rain", { ops })[0], /^streaks \(effect/);
   assert.match(seenNames("light streak", { ops })[0], /^lens-flare \(effect/);
   assert.equal(noMakerLine("glow"), "");
+  // A clip's own non-speech sound: keep_line {sound}.
+  for (const word of ["keep the laugh in the clip", "scene sound"]) assert.match(seenNames(word, { ops })[0], /^keep_line \(op.*sound:"laughter"/, word);
 });
