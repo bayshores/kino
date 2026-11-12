@@ -484,8 +484,7 @@ export function letteringBoxes(image) {
     const pad = Math.max(1, Math.round(h * 0.1));
     const x = Math.max(0, box.x0 - pad), y = Math.max(0, box.y0 - pad);
     const right = Math.min(width, box.x1 + 1 + pad), bottom = Math.min(height, box.y1 + 1 + pad);
-    // letters: the columns of ink split by gaps (touching letters count as one).
-    found.push({ x: Math.round(x / factor), y: Math.round(y / factor), width: Math.round((right - x) / factor), height: Math.round((bottom - y) / factor), letters: letters.length });
+    found.push({ x: Math.round(x / factor), y: Math.round(y / factor), width: Math.round((right - x) / factor), height: Math.round((bottom - y) / factor) });
   }
   return found.sort((a, b) => b.width * b.height - a.width * a.height).slice(0, BOXES_KEPT);
 }

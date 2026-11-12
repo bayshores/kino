@@ -71,9 +71,10 @@ export function labelsByJob(labels) {
 /**
  * The fields a text layer of `job` gets on `scene` ({width, height, background, layers}) and where
  * they came from: { properties, from }. `labels` are the project's measured type labels; `text` (its
- * words) keeps the size inside the box: a payoff on one line, a subtitle on two.
+ * words) keeps the size inside the box: a payoff on one line, a subtitle on two. `face` ({family?,
+ * weight?}) is the face the agent already named (board text): the widths are measured from it.
  */
-export function jobTreatment(job, { scene, labels = [], text, advance = null } = {}) {
+export function jobTreatment(job, { scene, labels = [], text, advance = null, face = null } = {}) {
   const height = scene?.height ?? 1080;
   const width = scene?.width ?? 1920;
   const label = labelsByJob(labels)[job];
@@ -87,7 +88,7 @@ export function jobTreatment(job, { scene, labels = [], text, advance = null } =
   // {em, face} or null), else the GUESS above; the job's case is applied first.
   const weight = label?.weight ?? { subtitle: 600, payoff: 900, label: 500 }[job];
   const cased = job === "label" ? longestLine.toUpperCase() : longestLine;
-  const measuredWidth = longest && advance ? advance(cased, label?.family ?? "Inter", weight) : null;
+  const measuredWidth = longest && advance ? advance(cased, face?.family ?? label?.family ?? "Inter", face?.weight ?? weight) : null;
   // A label's letter spacing (0.08 of the size a letter) is added to its measured width.
   const ems = measuredWidth?.em > 0 ? measuredWidth.em / (job === "payoff" ? 1 : LINES[job]) + (job === "label" ? longest * 0.08 : 0) : longest * ADVANCE[job];
   const fit = longest ? Math.floor(boxWidth / ems) : Infinity;

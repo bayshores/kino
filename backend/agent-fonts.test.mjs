@@ -475,6 +475,10 @@ test("type by job: two measured type labels give a subtitle line and a payoff wo
   const wide = sized("WWWWWWWW");
   assert.match(wide.from, /widths measured from Inter 700\)/, "the nearest weight kino has");
   assert.ok(advance("WWWWWWWW", "Inter", 900).em * wide.properties.fontSize <= wide.properties.width, "the measured line fits its box");
+  // A face the agent already named (board text with a family) is the one measured.
+  const named = jobTreatment("payoff", { scene: { width: 1080, height: 1920, background: "#000000", layers: [] }, labels: [{ ...tall, family: "Inter" }], text: "WWWWWWWW", advance, face: { family: "Montserrat", weight: 600 } });
+  assert.match(named.from, /widths measured from Montserrat 600\)/);
+  assert.ok(advance("WWWWWWWW", "Montserrat", 600).em * named.properties.fontSize <= named.properties.width, "the named face's line fits its box");
 });
 
 test("agent service: an add_layer text with a role and no face or fill gets its job's fields and, as a payoff, a letter entrance by its cue", async (t) => {
