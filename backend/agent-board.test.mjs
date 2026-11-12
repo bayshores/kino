@@ -170,6 +170,15 @@ test("look board prints the pace on each side of the song's drop and its beat ti
   const take = (name, mediaStart, mediaOffset, mediaDuration) => ({ op: "add_layer", layerType: "video", name, properties: { src: clip.src, mediaStart, mediaOffset, mediaDuration } });
   assert.equal((await agent("edit", { project: "pace", ops: [take("climb", 0, 0, 3), take("again", 3, 2.5, 1.2)] })).isError, undefined);
   assert.match((await agent("check", { project: "pace" })).text, /on the drop at 3\.00 s: layer again \(sintel-village-dragon\.mp4\) repeats 0\.5 s of file 2\.5-3\.7 s shown at 0-3 s/);
+  // A shot with drop:true pins the drop: fit_music with no payoff puts the song's heard drop (3 s) on that shot's cut (1.5 s).
+  assert.equal((await editBoard("pace", [motion(0, 1.5), motion(1.5, 1.5, { drop: true }), motion(3, 1.2), motion(4.2, 1.8)], { music: "song" })).isError, undefined);
+  // bars:null: kept as measured with the beats (no fresh measure of the tone).
+  await writeFile(`${file}.song`, JSON.stringify({ ...JSON.parse(shape), bars: null }));
+  const fit = await agent("edit", { project: "pace", ops: [{ op: "fit_music", layer: "song" }] });
+  assert.equal(fit.isError, undefined, fit.text);
+  assert.match(fit.text, /1\.5 s \(the cut of board shot 2 \(drop:true\)\)/);
+  const fitted = (await record("pace")).document;
+  assert.deepEqual([fitted.board.shots[1].drop, fitted.cues.find((cue) => cue.name === "song-drop-1")?.time], [true, 1.5], fit.text);
   // The other tests share this song with no drop measured.
   await rm(`${file}.song`, { force: true });
 });
