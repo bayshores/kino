@@ -104,7 +104,7 @@ import { createPicks, SITTING_PICKS } from "./picks.mjs";
 import { rendererIsProcessor } from "../render-devices.mjs";
 import { plannedFrameCount } from "../export-batches.mjs";
 import { planClips } from "./clips-sheet.mjs";
-import { evenTimes, everyFrame, FRAMES_MOST, reviewColumns, sceneKey, SEAM_EDGE, SEAM_MERGE, SEAM_OFFSETS, SHEET_FRAMES, sheetTimes, SOURCE_EDGE, SOURCE_EDGE_RANGE, STRIP_TILES, tileSize, VERSUS_EDGE } from "./look.mjs";
+import { evenTimes, everyFrame, everyNth, FRAME_RATE, FRAMES_MOST, PAGE_WIDTH, PAGES_MOST, TIMES_MOST, reviewColumns, sceneKey, SEAM_EDGE, SEAM_MERGE, SEAM_OFFSETS, SHEET_FRAMES, sheetTimes, SOURCE_EDGE, SOURCE_EDGE_RANGE, STRIP_TILES, tileSize, VERSUS_EDGE } from "./look.mjs";
 import { boardShotKind, craftRow, editLoudest, editPixelKind, gapWords, imageStats, KIND_WORDS, pairRows, imageSoftAccent, pickRows, referenceMoments, ROWS_PER_STILL, shapeLoudest, SOFT_EDGE, softAccentLines } from "./versus.mjs";
 import { CAMERA_RULES, motionGraphImage, motionTrace, traceText } from "./motion-graph.mjs";
 import { kinoTimeline } from "../../engine/quality/kinoTimeline.js";
@@ -3051,6 +3051,8 @@ export function createAgentService(deps) {
     // answer only said "@10s", easy to miss. Now the time is read, and the answer says so.
     const misnamed = input.t == null ? ["time", "at"].find((key) => typeof input[key] === "number") : undefined;
     if (misnamed) input = { ...input, t: input[misnamed] };
+    // frame with one time in times: that time.
+    if ((input.mode ?? "sheet") === "frame" && input.t == null && Array.isArray(input.times) && input.times.length === 1) input = { ...input, t: input.times[0] };
     const record = await projectFor(input);
     noteDrawn(record);
     const projectId = record.document.id;
@@ -3067,7 +3069,10 @@ export function createAgentService(deps) {
     if (mode === "versus") return versusLook(input, { record, codes, fonts, state });
     if (mode === "viewer") return viewerLook({ record, codes, fonts, scene, state, beats: input.beats });
     if (mode === "critique") return critiqueLook(input, { record, codes, fonts, scene, state });
-    if (mode === "frame") {
+    if (timesWanted(mode, input)) {
+      ({ image, text, nextCall, extra } = await timesLook(input, { mode, document, codes, resolver, fonts, scene }));
+      lookKey = image.sceneId;
+    } else if (mode === "frame") {
       const time = clampTime(input.t ?? sec(scene.duration / 2), scene);
       // The longest edge is at most LOOK_MAX_EDGE (1280 px wide for 16:9, 720 px for 9:16).
       const widest = Math.floor(LOOK_MAX_EDGE * Math.min(1, scene.width / scene.height));
@@ -3240,9 +3245,10 @@ export function createAgentService(deps) {
     } else throw new AgentError("bad_input", `Unknown look mode "${mode}".`, { didYouMean: closest(mode, ["frame", "frames", "motion", "sound", "sheet", "zoom", "strip", "compare", "changed", "variants", "source", "board", "reference", "review", "versus", "viewer", "critique"]) });
 
     const images = [];
-    if (image.png) {
-      const file = await look.save(projectId, mode, image.png);
-      images.push({ path: file, mime: "image/png", data: input.inline === false ? undefined : image.png.toString("base64") });
+    // A times look can be several pages (image.pages); every other look is one image.
+    for (const page of image.pages ?? (image.png ? [image] : [])) {
+      const file = await look.save(projectId, mode, page.png);
+      images.push({ path: file, mime: "image/png", data: input.inline === false ? undefined : page.png.toString("base64") });
       text += `\nimage ${file}`;
     }
     if (misnamed) text += `\n(${misnamed} read as t: look takes t, in seconds)`;
@@ -5184,6 +5190,75 @@ export function createAgentService(deps) {
     const time = Number(value);
     if (!Number.isFinite(time) || time < 0) throw new AgentError("bad_input", "t is seconds from the start of the scene (0 or more).");
     return sec(Math.min(time, scene.duration));
+  }
+
+  // look frame with times of 2 or more, and look frames with times or every:<n> (a whole number of
+  // frames between from and to): the frames at chosen times in one call (GAPS friction 3).
+  function timesWanted(mode, input) {
+    const times = Array.isArray(input.times) ? input.times.length : 0;
+    return (mode === "frame" && times >= 2) || (mode === "frames" && (times >= 1 || typeof input.every === "number"));
+  }
+
+  // The tiles, labeled "time s f<frame>", as pages (look.mjs timesPlan: at most PAGES_MOST). frame
+  // with 2 to 4 times puts them side by side as wide as `width` allows (before, during, after of one
+  // move); frames takes `width` as the tile's long edge, as every-frame looks do. With `layer`, each
+  // tile is cropped to that layer's part on screen (joined over all the times, so tiles line up).
+  async function timesLook(input, { mode, document, codes, resolver, fonts, scene }) {
+    let layerId = null, layerScene = scene;
+    if (input.layer) {
+      layerId = resolver.resolve(String(input.layer), "layer");
+      layerScene = document.scenes.find((item) => item.layers.some((layer) => layer.id === layerId)) ?? scene;
+    }
+    const sceneNow = layerScene;
+    let times, more = null, every = null, end = null;
+    if (Array.isArray(input.times)) {
+      const bad = input.times.find((time) => typeof time !== "number" || !Number.isFinite(time) || time < 0);
+      if (bad !== undefined) throw new AgentError("bad_input", "times is a list of seconds from the start of the scene (0 or more), such as [1.2, 1.5, 1.9].");
+      times = input.times.map((time) => clampTime(time, sceneNow));
+      if (times.length > TIMES_MOST) { more = times.slice(TIMES_MOST); times = times.slice(0, TIMES_MOST); }
+    } else {
+      every = Math.round(input.every);
+      if (!(every >= 1)) throw new AgentError("bad_input", "every is a whole number of frames, 1 or more: every:4 draws every 4th frame from from to to.");
+      const bounds = stretchBounds({ from: input.from ?? input.t ?? 0, to: input.to }, sceneNow);
+      end = bounds.to;
+      const picked = everyNth(bounds.from, bounds.to, every);
+      times = picked.times;
+      more = picked.rest;
+    }
+    const prepared = await prepare(document, sceneNow.id, fonts);
+    const layer = layerId ? prepared.scene.layers.find((item) => item.id === layerId) ?? sceneNow.layers.find((item) => item.id === layerId) : null;
+    const crop = layer ? look.layerCrop(prepared, layer, times) : null;
+    const sideBySide = mode === "frame" && times.length <= 4;
+    const labels = times.map((time) => `${time.toFixed(2)}s f${Math.round(time * FRAME_RATE)}`);
+    let options, widthNote = "";
+    if (sideBySide) {
+      // As wide as look frame draws one (480 px by default, at most 1,280), narrowed only so the
+      // row fits one page.
+      const asked = Math.round(Math.max(64, input.width ?? Math.min(480, scene.width)));
+      const fit = Math.floor((PAGE_WIDTH - 4 * (times.length - 1)) / times.length);
+      const width = Math.min(asked, fit, 1280);
+      if (width < asked) widthNote = ` (${width} px each: ${times.length} must fit ${PAGE_WIDTH} px)`;
+      options = { width, crop, labels };
+    } else options = { longEdge: Math.round(Math.min(480, Math.max(96, input.width ?? 240))), crop, labels };
+    const drawn = await look.timesImages(prepared, times, options);
+    const shown = times.slice(0, drawn.plan.shown);
+    const left = times.slice(drawn.plan.shown);
+    const range = [Math.min(...shown), Math.max(...shown)];
+    noteLive({ sceneId: sceneNow.id, ...(layerId ? { layerIds: [layerId] } : {}), range }, [{ sceneId: sceneNow.id, ...(layerId ? { layerIds: [layerId] } : {}), range }]);
+    const layerField = input.layer ? { layer: input.layer } : {};
+    const widthField = input.width != null ? { width: input.width } : {};
+    // What is not drawn comes back as the call that draws it.
+    let nextCall = null;
+    if (left.length || (more != null && (!Array.isArray(more) || more.length))) {
+      nextCall = every != null
+        ? { tool: "look", input: { mode: "frames", from: sec(left.length ? left[0] : more), to: sec(end), every, ...layerField, ...widthField } }
+        : { tool: "look", input: { mode: "frames", times: [...left, ...(more ?? [])], ...layerField, ...widthField } };
+    }
+    const where = `${refName(sceneNow.id, codes)}${layer ? ` cropped to ${refName(layerId, codes)} (${crop.x},${crop.y} ${crop.width}×${crop.height}, its part on screen at any of the times)` : ""}`;
+    const pages = drawn.pages.length;
+    const asked = every != null ? `every ${every === 1 ? "" : `${every}th `}frame` : `${times.length === 1 ? "1 chosen time" : `${times.length} chosen times`}`;
+    const text = `frames ${where}: ${shown.length === times.length ? asked : `${shown.length} of ${asked}`} in ${pages === 1 ? "1 page" : `${pages} pages`}, tiles ${drawn.tile.width}×${drawn.tile.height}${widthNote}, ${drawn.plan.columns} a row, each labeled time and frame number at ${FRAME_RATE} fps: ${shown.join(" ")}${nextCall ? `\nnot drawn: ${every != null ? `the frames from ${sec(left.length ? left[0] : more)}s on` : plural(left.length + (more?.length ?? 0), "time")}; at most ${TIMES_MOST} times and ${PAGES_MOST} pages a call, and the next call draws the rest` : ""}`;
+    return { image: { pages: drawn.pages, frames: drawn.pages.flatMap((page) => page.frames), sceneId: sceneNow.id }, text, nextCall, extra: { times: shown, pages } };
   }
 
   // Sheet times from `from` to `to` (seconds; default the start and the end of the scene), spread

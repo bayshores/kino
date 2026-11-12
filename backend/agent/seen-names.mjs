@@ -82,6 +82,8 @@ const SEEN_AS = {
   "brush edge": ["shape-modifiers", "split-fields", "shape-wipe"], "rough edge": ["shape-modifiers", "split-fields", "shape-wipe"], "ragged edge": ["shape-modifiers", "shape-wipe"],
   "torn edge": ["shape-modifiers", "shape-wipe"], "jagged edge": ["shape-modifiers", "shape-wipe"], "dry brush": ["shape-modifiers", "split-fields"], "brush wipe": ["shape-wipe", "split-fields"], "brush mask": ["shape-modifiers", "shape-wipe"],
   "film burn": ["film-burn"], burn: ["film-burn"], "light burn": ["film-burn"], "film damage": ["film-burn", "grain"], "old film": ["film-burn", "grain", "vignette"],
+  // Words for seeing many frames at once (the look tool, not an effect); look-times is its topic.
+  "contact sheet": ["look-times"], "many frames": ["look-times"], "chosen times": ["look-times"], "every nth frame": ["look-times"], "frame strip": ["look-times"], "side by side frames": ["look-times"],
 };
 // Looks kino has no maker for yet. Asked for alone, they print a line that says so (and what to do)
 // instead of a name that only sounds close.
@@ -120,7 +122,8 @@ const TOPICS = { "clip-speed": "layer properties mediaSpeed and speed animations
   "text-ranges": "textStyleRanges (rotation, baselineShift, fill) and the layer field jitter",
   "shape-modifiers": "layer property roughenSize on a mask shape or path (a rough dry-brush edge; roughenDetail, roughenSeed, roughenBoil)",
   "layer-style": "layer properties fill, strokes, shadows and outlineGlow (hollow letters with a glowing outline)",
-  "scene-background": 'the whole frame in one op: {op:"update_scene", properties:{finish:true, letterbox:2.35}} (grain, lifted blacks, halation, vignette, bars)' };
+  "scene-background": 'the whole frame in one op: {op:"update_scene", properties:{finish:true, letterbox:2.35}} (grain, lifted blacks, halation, vignette, bars)',
+  "look-times": 'the look tool, not an edit: look {mode:"frames", times:[0.5, 1, 1.2], layer?} draws up to 60 chosen times as labeled pages; every:4 thins a range' };
 // An op whose call needs a lookup first: a font is picked by its look.
 const OP_USE = { set_font: 'library {topic:"fonts", search:"<the look: brush, handwritten, marker, stencil, slab, blackletter, condensed bold sans, a script such as japanese>"} then set_font {layerIds, family, weight}' };
 

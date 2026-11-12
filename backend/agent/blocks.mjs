@@ -1375,7 +1375,12 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     const again = stored ? (operation.replaces ? " (replaced: the same move on the same layers at the same time)" : " (made again)") : "";
     const earlier = operation.earlier;
     const earlierNote = earlier && !stored ? `; ${earlier.id} on the same layers stays${earlier.settings?.at !== undefined ? ` at ${JSON.stringify(earlier.settings.at)}` : ""} (to move it instead: {op:"move", name:"${definition.name}", id:"${earlier.id}", at:${JSON.stringify(settings.at ?? made.start)}}, then {op:"move", name:"${definition.name}", id:"${operation.id}", remove:true})` : "";
-    work.notes.push(`move ${operation.id}${again}: ${made.start}–${made.end} s; ${made.added.length} new layer${made.added.length === 1 ? "" : "s"}${madeNames}${touched.length ? `, animates ${touched.join(", ")}` : ""}${cutNote}; ${made.tags.join(", ")}${made.notes.length ? `; ${made.notes.join("; ")}` : ""}${cueNote}${earlierNote}`);
+    // The three times worth a look, as a ready call (GAPS friction 3: a director looked one time
+    // at a time): the start, the middle (a guess at the peak: the move's own timing has no
+    // single peak) and the end, side by side in one look. Left out for a move under 0.1 s.
+    const span = Number(made.end) - Number(made.start);
+    const lookNote = span >= 0.1 ? `; look {"mode":"frame","times":[${[made.start, round(Number(made.start) + span / 2), made.end].join(",")}]}` : "";
+    work.notes.push(`move ${operation.id}${again}: ${made.start}–${made.end} s; ${made.added.length} new layer${made.added.length === 1 ? "" : "s"}${madeNames}${touched.length ? `, animates ${touched.join(", ")}` : ""}${cutNote}; ${made.tags.join(", ")}${made.notes.length ? `; ${made.notes.join("; ")}` : ""}${cueNote}${earlierNote}${lookNote}`);
   }
 
   // ---- compose ------------------------------------------------------------------------------

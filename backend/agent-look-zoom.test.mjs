@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { readImage, startTestServer } from "./media.test.support.mjs";
 import { traceText } from "./agent/motion-graph.mjs";
+import { everyNth, PAGE_PIXELS, PAGE_WIDTH, PAGES_MOST, timesPlan } from "./agent/look.mjs";
 
 let server;
 after(async () => { await server?.stop(); });
@@ -158,6 +159,69 @@ test("look frames shows every frame of a stretch at 30 fps, and strip every:true
   assert.match(long.text, /36 frames .* look \{mode:"frames", from:1\.2, to:3\} for the rest/, long.text);
   const strip = await agent("look", { mode: "strip", anim: "phone.custom", every: true });
   assert.match(strip.text, /every frame at 30 fps, 16 tiles/, strip.text);
+});
+
+test("times pages stay inside the page size, balance their pages and cap a call at 3 pages", () => {
+  for (const tile of [{ width: 96, height: 54 }, { width: 240, height: 135 }, { width: 480, height: 270 }, { width: 135, height: 240 }, { width: 800, height: 450 }]) {
+    for (const count of [1, 7, 24, 60]) {
+      const plan = timesPlan(count, tile);
+      const rows = Math.ceil(plan.perPage / plan.columns);
+      const width = plan.columns * tile.width + (plan.columns - 1) * 4;
+      assert.ok(plan.shown <= count && plan.pages <= PAGES_MOST, JSON.stringify({ tile, count, plan }));
+      assert.ok(width <= PAGE_WIDTH || plan.columns === 1, `${tile.width}: ${width} px wide`);
+      assert.ok(rows === 1 || width * (rows * tile.height + (rows - 1) * 4) <= PAGE_PIXELS, `${tile.width}x${count}: ${rows} rows`);
+    }
+  }
+  // 24 tiles at the default size are one page (the 24 looks a director made one by one).
+  assert.deepEqual(timesPlan(24, { width: 240, height: 135 }), { columns: 6, perPage: 24, pages: 1, shown: 24 });
+  // Balanced: 40 tiles that fit 36 a page come as two pages of 20.
+  assert.deepEqual(timesPlan(40, { width: 240, height: 135 }).perPage, 20);
+  const fourth = everyNth(1, 2, 4);
+  assert.deepEqual([fourth.times.map((time) => time.toFixed(2)).join(" "), fourth.rest], ["1.00 1.13 1.27 1.40 1.53 1.67 1.80 1.93", null]);
+  assert.equal(everyNth(0, 100, 1).times.length, 60);
+  assert.equal(everyNth(0, 100, 1).rest, 2);
+});
+
+test("look frames with times: labeled pages within the size limits, side by side for frame, cropped to a layer, thinned by every", async () => {
+  // The scene is 1080×1920: tiles are 135×240 at the default long edge.
+  const chosen = await agent("look", { mode: "frames", times: [0.5, 1, 1.1, 1.25, 1.5, 2, 3] });
+  assert.equal(chosen.isError, undefined, chosen.text);
+  assert.match(chosen.text, /^frames s1: 7 chosen times in 1 page, tiles 135×240, 7 a row, each labeled time and frame number at 30 fps: 0\.5 1 1\.1 1\.25 1\.5 2 3$/m, chosen.text);
+  const page = await readImage(Buffer.from(chosen.images[0].data, "base64"));
+  assert.deepEqual([page.width, page.height], [7 * 135 + 6 * 4, 240]);
+
+  // 60 times at a large tile would be many pages: a call draws 3 pages, the rest comes back as a call.
+  const many = await agent("look", { mode: "frames", times: Array.from({ length: 60 }, (_, index) => index / 15), width: 480 });
+  assert.equal(many.images.length, 3, many.text);
+  for (const image of many.images) assert.ok((await readImage(Buffer.from(image.data, "base64"))).width <= 1568, "a page is at most 1,568 px wide");
+  assert.match(many.text, /not drawn: 45 times; at most 60 times and 3 pages a call/, many.text);
+  assert.match(many.text, /^next: look \{"mode":"frames","times":\[1,1\.07,/m, many.text);
+
+  // frame with 3 times: side by side at look frame's own width; 4 narrow to fit one row.
+  const three = await agent("look", { mode: "frame", times: [0.5, 1, 2] });
+  const row = await readImage(Buffer.from(three.images[0].data, "base64"));
+  assert.deepEqual([three.images.length, row.width, row.height], [1, 3 * 480 + 8, 853], three.text);
+  const four = await agent("look", { mode: "frame", times: [0.5, 1, 1.5, 2] });
+  assert.match(four.text, /389 px each: 4 must fit 1568 px/, four.text);
+  const one = await agent("look", { mode: "frame", times: [1] });
+  assert.match(one.text, /^frame s1 @1s /, one.text);
+
+  // layer: every tile is that layer's part on screen, joined over the times (phone grows 1 to 1.5 s).
+  const cropped = await agent("look", { mode: "frames", times: [0.5, 1.25, 1.5], layer: "phone" });
+  assert.equal(cropped.isError, undefined, cropped.text);
+  assert.match(cropped.text, /cropped to phone \(\d+,\d+ \d+×\d+, its part on screen at any of the times\)/, cropped.text);
+  const crop = await readImage(Buffer.from(cropped.images[0].data, "base64"));
+  // The phone (300×500 at 390,710, up to 2× while growing) joined over the times, 24 px margin: 3 tiles of its shape, not of the frame's 135×240.
+  const [, cropWidth, cropHeight] = /cropped to phone \(\d+,\d+ (\d+)×(\d+),/.exec(cropped.text);
+  assert.ok(Number(cropWidth) < 1080 && Number(cropHeight) < 1920, cropped.text);
+  assert.notEqual(crop.width, 3 * 135 + 2 * 4, `${crop.width}×${crop.height}: ${cropped.text}`);
+  assert.ok(Math.abs(crop.width - 8) / 3 / crop.height > 0.3 && Math.abs(crop.width - 8) / 3 / crop.height < 1, `${crop.width}×${crop.height}`);
+
+  // every:n frames between from and to.
+  const thin = await agent("look", { mode: "frames", from: 0, to: 2, every: 15 });
+  assert.match(thin.text, /^frames s1: every 15th frame in 1 page, tiles 135×240, 5 a row, each labeled time and frame number at 30 fps: 0 0\.5 1 1\.5 2$/m, thin.text);
+  const bad = await agent("look", { mode: "frames", times: [1, -2] });
+  assert.match(bad.text, /times is a list of seconds/, bad.text);
 });
 
 test("look motion: the trace measures each 0.5 s and notes the camera rules' findings, not its own verdicts", async () => {
