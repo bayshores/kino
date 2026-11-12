@@ -13,7 +13,8 @@ export const TEXT_STYLE_KEYS = Object.freeze([
 
 // Range-only keys: a letter can turn (degrees) or sit above or below the baseline (percent of its font
 // size, up is positive). The layer has no such style (its own rotation turns the whole box).
-export const RANGE_ONLY_KEYS = Object.freeze(["rotation", "baselineShift"]);
+// scaleX and scaleY stretch a letter about the middle of its ink (-1 mirrors it, 0 is not allowed).
+export const RANGE_ONLY_KEYS = Object.freeze(["rotation", "baselineShift", "scaleX", "scaleY"]);
 const ALL_RANGE_KEYS = Object.freeze([...TEXT_STYLE_KEYS, ...RANGE_ONLY_KEYS]);
 const STYLE_KEY_SET = new Set(ALL_RANGE_KEYS);
 const FONT_SOURCE_PATTERN =
@@ -93,6 +94,10 @@ function normalizeStyleValue(key, value, path) {
       return requireNumber(value, -360, 360, path);
     case "baselineShift":
       return requireNumber(value, -200, 200, path);
+    case "scaleX":
+    case "scaleY":
+      if (requireNumber(value, -10, 10, path) === 0) fail(path, "cannot be 0 (use -1 to mirror a letter)");
+      return value;
     default:
       fail(path, "is not a supported text style field");
   }

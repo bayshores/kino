@@ -34,13 +34,19 @@ export function glyphContours(glyph) {
   }
   // A letter that sits above or below the baseline (glyph.shift, pixels up) or turns about the
   // middle of its own ink (glyph.rotation, degrees, clockwise) is drawn there; its layout is unchanged.
+  // glyph.stretchX and stretchY (a range's scaleX and scaleY, -1 flips) scale it about the same middle, before the turn.
   const lift = glyph.shift || 0, turn = (glyph.rotation || 0) * Math.PI / 180;
+  const sx = glyph.stretchX ?? 1, sy = glyph.stretchY ?? 1;
   const flat = ([x, y]) => [glyph.x + x * glyph.scale, glyph.y - lift - y * glyph.scale];
   let point = flat;
-  if (turn && glyph.bounds) {
+  if ((turn || sx !== 1 || sy !== 1) && glyph.bounds) {
     const cx = glyph.x + glyph.bounds.x + glyph.bounds.width / 2, cy = glyph.y - lift + glyph.bounds.y + glyph.bounds.height / 2;
     const cos = Math.cos(turn), sin = Math.sin(turn);
-    point = (pair) => { const [px, py] = flat(pair); return [cx + (px - cx) * cos - (py - cy) * sin, cy + (px - cx) * sin + (py - cy) * cos]; };
+    point = (pair) => {
+      const [fx, fy] = flat(pair);
+      const px = cx + (fx - cx) * sx, py = cy + (fy - cy) * sy;
+      return [cx + (px - cx) * cos - (py - cy) * sin, cy + (px - cx) * sin + (py - cy) * cos];
+    };
   }
   return contours.map((contour) => ({ ...contour, start: point(contour.start), segments: contour.segments.map((segment) => ({ c1: point(segment.c1), c2: point(segment.c2), end: point(segment.end) })) }));
 }
@@ -90,7 +96,11 @@ export function glyphDrawBounds(glyph) {
 // baselineShift) puts "rotation" (degrees) and "shift" (pixels up) on each of its glyphs; glyphContours draws them.
 function turnedGlyph(style) {
   const turn = Number(style._textRangeRotation) || 0, lift = (Number(style._textRangeShift) || 0) / 100 * layoutFontSize(style.fontSize);
-  return { ...(turn ? { rotation: turn } : {}), ...(lift ? { shift: lift } : {}) };
+  // scaleX and scaleY of a range (-1 mirrors the letter) stretch it about the middle of its own ink.
+  const stretchX = Number.isFinite(style._textRangeScaleX) && style._textRangeScaleX !== 1 ? style._textRangeScaleX : null;
+  const stretchY = Number.isFinite(style._textRangeScaleY) && style._textRangeScaleY !== 1 ? style._textRangeScaleY : null;
+  return { ...(turn ? { rotation: turn } : {}), ...(lift ? { shift: lift } : {}),
+    ...(stretchX !== null ? { stretchX } : {}), ...(stretchY !== null ? { stretchY } : {}) };
 }
 
 function sameShapingStyle(left, right) {
@@ -131,7 +141,7 @@ function shapeItemRuns(runs) {
     if (combined.glyphs.some((glyph) => first.start + glyph.end > rangeAt(first.start + glyph.start).end))
       return group.map(shape);
     combined.glyphs = combined.glyphs.map((glyph) => {
-      const { fill: ignoredFill, rotation: ignoredTurn, shift: ignoredShift, ...rest } = glyph;
+      const { fill: ignoredFill, rotation: ignoredTurn, shift: ignoredShift, stretchX: ignoredX, stretchY: ignoredY, ...rest } = glyph;
       const { style } = rangeAt(first.start + glyph.start);
       const fill = style._textRangeFill;
       return { ...rest, ...(fill === undefined ? {} : { fill }), ...turnedGlyph(style) };

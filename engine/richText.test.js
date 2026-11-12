@@ -104,6 +104,15 @@ test("a range rotation and baseline shift move one letter's drawing, never the s
   assert.throws(() => doc(text({ textStyleRanges: [{ start: 0, end: 1, style: { rotation: 400 } }] })), /rotation/);
 });
 
+test("a range scaleX of -1 mirrors one letter about its own middle, never the spacing (GAPS item 22)", () => {
+  const plain = layoutText(text({ text: "Yo" }), fonts);
+  const mirrored = layoutText(text({ text: "Yo", textStyleRanges: [{ start: 1, end: 2, style: { scaleX: -1 } }] }), fonts);
+  assert.equal(mirrored.lines[0].width, plain.lines[0].width);
+  assert.equal(glyphPath(mirrored.lines[0].glyphs[0]), glyphPath(plain.lines[0].glyphs[0]), "the other letter is untouched");
+  assert.notEqual(glyphPath(mirrored.lines[0].glyphs[1]), glyphPath(plain.lines[0].glyphs[1]));
+  assert.throws(() => doc(text({ textStyleRanges: [{ start: 0, end: 1, style: { scaleX: 0 } }] })), /scaleX/);
+});
+
 test("jitter is fixed per seed, differs between seeds, keeps the spacing and is refused off text", () => {
   const paths = (jitter) => layoutText(text({ text: "Yo hand", width: 400, jitter }), fonts).lines[0].glyphs.map(glyphPath);
   const plain = layoutText(text({ text: "Yo hand", width: 400 }), fonts);
