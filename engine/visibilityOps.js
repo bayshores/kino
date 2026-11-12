@@ -51,6 +51,9 @@ export const TIMED_ANIMATION_FIELDS = Object.freeze([
   "shadowChannels",
   "behavior", // wiggle, oscillate, ramp, randomize and loop (behavior.js)
   "keys", // a custom animation's 3+ keys (model.js readAnimationKeys)
+  "fill", // holds From before the start (animation.js holdsFromBeforeStart)
+  "peak", // a value effect's rise-and-return (effects/animation.js)
+  "return",
 ]);
 
 const NAMES = Object.freeze({ hide: "Hide", show: "Show" });

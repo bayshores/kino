@@ -334,6 +334,11 @@ test("blur uses the evaluated frame value", () => {
   });
   const svg = renderLayerSvg(shape, 0);
   assert.match(svg, /<feGaussianBlur[^>]+stdDeviation="6"/);
+  // A group's frameRate holds every child's picture: at 2 per second, 0.4 s draws the 0 s picture.
+  const scene = { id: "s", name: "s", width: 100, height: 100, duration: 2, background: "#000000",
+    layers: [layer("held", "group", { frameRate: 2 }), { ...shape, parentId: "held" }] };
+  assert.match(renderSceneSvg(scene, 0.4), /<feGaussianBlur[^>]+stdDeviation="6"/);
+  assert.match(renderSceneSvg({ ...scene, layers: [layer("held", "group"), { ...shape, parentId: "held" }] }, 0.4), /stdDeviation="3.6"/);
 });
 
 test("interactive video uses only local media routes and normal rendering requires a frame", () => {

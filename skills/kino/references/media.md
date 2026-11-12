@@ -62,7 +62,8 @@ Syncing two clips · B-roll on the spoken word
 ## Clip speed: slow motion, reverse, choppy
 
 - Video, audio and GIF layers take `mediaSpeed` (0.05–16), `mediaReverse:true`, and video/GIF
-  `mediaFrameRate` (a choppy look). `mediaDuration` stays in scene seconds.
+  `mediaFrameRate` (a choppy look). `mediaDuration` stays in scene seconds. "On twos" for any
+  layer or group (motion, effects, children): `frameRate:12`.
 - Ramp the speed with animations `from`/`to` `{speed}` (or `preset:"speed"`). Picture, sound,
   beats and captions (`add_captions` `layerId`) all follow it; `check` does not call it motion.
 - Sound: `mediaPitch:"keep"` (default) or `"follow"` (tape-like) at a constant speed; ramps always

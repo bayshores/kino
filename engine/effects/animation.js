@@ -8,8 +8,31 @@ import { behaviorOffset, normalizeBehavior } from "../behavior.js";
 
 export const isEffectAnimation = (animation) => animation?.kind === "effect";
 /** The fields an effect animation has; its settings go inside `to` (and `from`). */
-export const EFFECT_ANIMATION_FIELDS = Object.freeze(new Set(["id", "name", "kind", "effect", "start", "duration", "easing", "intensity", "from", "to", "keepStill", "enabled", "behavior"]));
+export const EFFECT_ANIMATION_FIELDS = Object.freeze(new Set(["id", "name", "kind", "effect", "start", "duration", "easing", "intensity", "from", "to", "keepStill", "enabled", "behavior", "peak", "return"]));
 const allowed = EFFECT_ANIMATION_FIELDS;
+// Where a rise-and-return reaches `to`, as a share of its window, when only return is given. From
+// the transitions study's reference radial smear: the bloom peaks at frame 7 of 21 (0.33), then
+// falls back over the landing shot.
+export const DEFAULT_PEAK = 0.35;
+
+// A value effect with peak (0.05 to 0.95) or return: true rises from From to To by the peak and
+// falls back to From by the end of its window, so one animation is a pulse instead of two.
+function readPeak(animation, effect) {
+  if (animation.peak == null && (animation.return == null || animation.return === false)) return null;
+  if (effect.kind !== "value") throw new TypeError(`peak and return work on value effects; ${effect.key} is a ranged effect: give it a short start and duration instead`);
+  if (animation.return != null && typeof animation.return !== "boolean") throw new TypeError("return must be true or false");
+  if (animation.return === false) throw new TypeError("peak rises to `to` and falls back; leave out return:false, or leave out peak for a one-way change");
+  const peak = animation.peak ?? DEFAULT_PEAK;
+  if (typeof peak !== "number" || !Number.isFinite(peak) || peak < 0.05 || peak > 0.95)
+    throw new RangeError("peak is the share of the window where the value is highest: a number from 0.05 to 0.95");
+  return peak;
+}
+
+/** The share of the way from From to To at `share` (0..1 of the window), rising and falling for a peak. */
+function pulseShare(peak, share) {
+  if (peak == null) return share;
+  return share <= peak ? share / peak : (1 - share) / (1 - peak);
+}
 
 // The document normalizer already validates the common ID/name/enabled fields and the absolute
 // time of a Composed member. Refuse unrelated animation fields rather than silently losing them.
@@ -46,6 +69,10 @@ export function normalizeEffectAnimation(animation, { maxTime = MAX_TIME } = {})
         keyHint: (key, label) => `${label}.${key}: ${effect.key} has no setting ${key} that can move; use ${movable.join(", ") || "none"}` });
     } catch (error) { throw new TypeError(`behavior ${error.message}`); }
   }
+  const peak = readPeak(animation, effect);
+  delete result.return;
+  if (peak == null) delete result.peak;
+  else result.peak = peak;
   if (animation.intensity == null) delete result.intensity;
   else result.intensity = normalizeIntensity(animation.intensity);
   if (effect.kind === "ranged") {
@@ -93,7 +120,7 @@ function parametersAt(effect, from, to, progress) {
 
 function sample(operation, effect, from, time) {
   const seconds = clamp(time - operation.start, 0, operation.duration);
-  const progress = easingAt(operation.easing ?? effect.easing, seconds / operation.duration, operation.intensity ?? 50);
+  const progress = easingAt(operation.easing ?? effect.easing, pulseShare(operation.peak, seconds / operation.duration), operation.intensity ?? 50);
   const parameters = parametersAt(effect, from, operation.to, progress);
   if (operation.behavior) for (const [key, value] of Object.entries(parameters)) {
     const field = effect.parameters[key];

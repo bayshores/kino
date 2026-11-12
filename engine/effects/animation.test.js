@@ -102,6 +102,15 @@ test("value effects sample neutral or previous same-effect values and explicit F
   assert.equal(effectsAt(layer, 4)[0].parameters.amount, 0.25);
 });
 
+test("a value effect with peak rises to To and returns to From inside its window", () => {
+  const pulse = operation("pulse", "bulge", { from: { amount: 0 }, to: { amount: 1 }, peak: 0.25 });
+  const layer = layerWith([pulse]);
+  assert.deepEqual([0, 0.125, 0.25, 0.625, 1, 2].map((time) => effectsAt(layer, time)[0].parameters.amount), [0, 0.5, 1, 0.5, 0, 0]);
+  assert.equal(operation("back", "bulge", { return: true }).peak, 0.35, "return alone peaks at the default share");
+  assert.throws(() => operation("bad", "bulge", { peak: 1 }), /0.05 to 0.95/);
+  assert.throws(() => operation("ranged", "fluid-warp", { peak: 0.5 }), /ranged effect/);
+});
+
 test("omitted and null optional From and intensity stay absent while partial From values normalize", () => {
   const omitted = operation("omitted", "bulge", { from: null, intensity: null });
   assert.equal(Object.hasOwn(omitted, "from"), false);

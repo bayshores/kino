@@ -2115,12 +2115,13 @@ export function createAgentService(deps) {
     const choice = { family: operation.family, ...(operation.weight !== undefined ? { weight: operation.weight } : {}), ...(operation.style !== undefined ? { style: operation.style } : {}) };
     let next = document;
     const lacking = []; // the errors of layers whose face lacks some of their characters
+    const weightNotes = []; // a weight the family lacks: its nearest is set and named in notes
     try {
       for (const [sceneId, ids] of byScene) {
         // One layer at a time, so one refusal names every layer that lacks a character.
         const patches = [];
         for (const layer of fontTargetLayers(next, sceneId, ids)) {
-          try { patches.push(...await prepareFontPatches([layer], choice, { fonts, catalog: fontCatalog })); }
+          try { patches.push(...await prepareFontPatches([layer], choice, { fonts, catalog: fontCatalog, notes: weightNotes })); }
           catch (error) {
             if (error?.code !== "FONT_MISSING_CHARACTERS" || !error.layer) throw error;
             lacking.push(error);
@@ -2130,6 +2131,7 @@ export function createAgentService(deps) {
       }
     } catch (error) { throw operationFailed(index, operation, "set_font", error); }
     if (lacking.length) throw await missingCharactersRefusal(index, operation, layerIds, choice, lacking, fonts, fontsCache.resolver);
+    for (const line of weightNotes) fontsCache.notes?.push(`op ${index} set_font: ${line}`);
     return next;
   }
 

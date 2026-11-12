@@ -845,6 +845,10 @@ function normalizeAnimation(raw, path, ids, layer, depth = 0, offset = 0) {
       if (typeof animation.behavior[kind]?.[field] === "number" && fractions.length && numeric.length > 1)
         fail(`${path}.behavior.${kind}.${field}`, `one number ${kind === "wiggle" ? "drifts" : "moves"} every key by the same size, but ${fractions.join(", ")} ${fractions.length > 1 ? "are fractions" : "is a fraction"}: give one per key, such as {x:8, ${fractions[0]}:0.05}`);
   }
+  // fill: "both" holds From before the start, "forwards" keeps the layer's own values until then
+  // (animation.js holdsFromBeforeStart; left out, a Move holds and other operations do not).
+  if (animation.fill == null) delete animation.fill;
+  else if (animation.fill !== "both" && animation.fill !== "forwards") fail(`${path}.fill`, 'must be "both" or "forwards"');
   if (animation.shadowChannels === undefined || animation.shadowChannels === null) delete animation.shadowChannels;
   else {
     if (!propertyKeys.has("shadow")) fail(`${path}.shadowChannels`, "requires a Shadow animation");
@@ -1052,6 +1056,13 @@ function normalizeMediaTiming(layer, path) {
     layer.mediaSpeed = requireNumber(layer.mediaSpeed, `${path}.mediaSpeed`, MIN_MEDIA_SPEED, MAX_MEDIA_SPEED);
   if (layer.mediaFrameRate !== undefined)
     layer.mediaFrameRate = requireNumber(layer.mediaFrameRate, `${path}.mediaFrameRate`, MIN_MEDIA_FRAME_RATE, MAX_MEDIA_FRAME_RATE);
+  // frameRate ("on twos"): the layer, or a group with everything in it, is drawn at this many
+  // pictures a second, motion and effects alike (render.js steppedContext). null removes it.
+  if (layer.frameRate === null) delete layer.frameRate;
+  if (layer.frameRate !== undefined) {
+    if (layer.type === "audio") fail(`${path}.frameRate`, "needs a layer that is drawn; a sound has no pictures");
+    layer.frameRate = requireNumber(layer.frameRate, `${path}.frameRate`, 1, 120);
+  }
   if (layer.mediaInterpolation !== undefined && !MEDIA_INTERPOLATIONS.includes(layer.mediaInterpolation))
     fail(`${path}.mediaInterpolation`, `must be ${MEDIA_INTERPOLATIONS.join(", ")}`);
   if (layer.mediaPitch !== undefined && !MEDIA_PITCHES.includes(layer.mediaPitch))

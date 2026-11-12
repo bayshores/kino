@@ -77,8 +77,11 @@ async function ensureLayerFace(catalog, face, layer, family) {
   }
 }
 
-/** Downloads finish before any document operation. Exact local faces do not need catalog discovery. */
-export async function prepareFontPatches(layers, choice, { fonts, catalog }) {
+/**
+ * Downloads finish before any document operation. Exact local faces do not need catalog discovery.
+ * A weight the family lacks becomes its nearest weight; `notes` (optional array) gets one line for it.
+ */
+export async function prepareFontPatches(layers, choice, { fonts, catalog, notes = null }) {
   const problem = choiceProblem(choice);
   if (problem) throw new Error(problem);
   if (choice.source !== undefined && (typeof choice.source !== "string" || choice.source.length > 512))
@@ -128,6 +131,10 @@ export async function prepareFontPatches(layers, choice, { fonts, catalog }) {
         face = local.filter((entry) => entry.style === style).sort((a, b) => Math.abs(a.weight - weight) - Math.abs(b.weight - weight))[0];
         weight = face.variableAxes?.wght ? Math.max(face.variableAxes.wght.min, Math.min(face.variableAxes.wght.max, weight)) : face.weight;
       } else throw new Error(`Font “${choice.family}” is unavailable. Connect to download it, upload it, or choose a local font.`);
+    }
+    if (notes && choice.weight !== undefined && weight !== choice.weight) {
+      const line = `${face.family} has no weight ${choice.weight}: set ${weight}, its nearest`;
+      if (!notes.includes(line)) notes.push(line);
     }
     patches.push({ id: layer.id, fontFamily: face.family, fontSource: face.src || "", fontWeight: weight, fontStyle: style });
   }

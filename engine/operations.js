@@ -406,6 +406,8 @@ export function applyOperations(source, operations, {fonts, mediaBySrc, mediaByI
       if (operation.behavior !== undefined) added.behavior = operation.behavior;
       if (operation.duration !== undefined) added.duration = operation.duration;
       if (operation.keepStill !== undefined) added.keepStill = operation.keepStill;
+      // fill holds From before the start; peak and return make a value effect rise and fall back.
+      for (const field of ["fill", "peak", "return"]) if (operation[field] !== undefined) added[field] = operation[field];
       // On a Resize (width or height) anchor is its own: the point that stays put.
       if (operation.anchor !== undefined && sizeKeys(added).length) {
         if (operation.anchor !== null && !RESIZE_ANCHORS.some((entry) => entry.id === operation.anchor))

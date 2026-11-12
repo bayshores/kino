@@ -178,6 +178,9 @@ test("add_layer: a top-level layer field goes into properties and is reported; o
   const twice = await agent("edit", { ops: [{ op: "update_layer", layer: "tagline", text: "a", properties: { text: "b" } }] });
   assert.equal(twice.isError, true);
   assert.match(twice.data.reason, /text is given twice: at the top level and in properties/);
+  // The same value in both places is one field, not a conflict.
+  const same = await agent("edit", { ops: [{ op: "add_layer", layerType: "text", name: "same", properties: { name: "same", text: "x" } }] });
+  assert.equal(same.isError, undefined, same.text);
   const topLevel = await agent("edit", { ops: [{ op: "update_layer", layer: "tagline", y: 720 }] });
   assert.equal(topLevel.isError, undefined, topLevel.text);
   assert.equal(findLayer(await saved(), "tagline").y, 720);

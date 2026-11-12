@@ -85,6 +85,21 @@ test("in operations apply their from state before start; custom and out operatio
   assert.equal(evaluateLayer(layer, 3).opacity, 0.1);
 });
 
+test("a Move holds its From before it starts; fill chooses for any operation, and the first on a key wins", () => {
+  const move = operation({ id: "move", start: 2, from: { x: 2000 }, to: { x: 700 } });
+  const slide = createLayer("rectangle", { id: "slide", x: 0, animations: [move] });
+  assert.equal(evaluateLayer(slide, 1).x, 2000, "the panel waits off screen instead of covering the frame");
+  assert.equal(evaluateLayer(createLayer("rectangle", { x: 0, animations: [{ ...move, fill: "forwards" }] }), 1).x, 0);
+  // Other operations keep the layer's own value unless fill asks.
+  const pulse = operation({ id: "pulse", start: 2, from: { opacity: 0.2 }, to: { opacity: 1 } });
+  assert.equal(evaluateLayer(createLayer("rectangle", { animations: [pulse] }), 1).opacity, 1);
+  assert.equal(evaluateLayer(createLayer("rectangle", { animations: [{ ...pulse, fill: "both" }] }), 1).opacity, 0.2);
+  // A later Move never freezes an earlier one that is still playing.
+  const first = operation({ id: "first", start: 0, from: { x: 0 }, to: { x: 100 } });
+  const chained = createLayer("rectangle", { x: 0, animations: [first, operation({ id: "second", start: 2, from: { x: 500 }, to: { x: 900 } })] });
+  assert.equal(evaluateLayer(chained, 0.5).x, 50);
+});
+
 test("operations sort by start and original order, overlap by property, and persist endpoints", () => {
   const layer = createLayer("rectangle", {
     id: "layer-2",
@@ -170,7 +185,8 @@ test("presets create endpoint-based operations and scene evaluation preserves in
   assert.equal(move.kind, "custom");
   assert.deepEqual(move.from, { x: 130, y: 100 });
   assert.deepEqual(move.to, { x: 30, y: 40 });
-  assert.equal(evaluateLayer({ ...layer, animations: [move] }, 0).x, 30);
+  // A Move waits at its From before it starts (holdsFromBeforeStart), so it does not jump there.
+  assert.equal(evaluateLayer({ ...layer, animations: [move] }, 0).x, 130);
   assert.equal(evaluateLayer({ ...layer, animations: [move] }, 1).x, 130);
   assert.equal(JSON.stringify(layer), before);
 
