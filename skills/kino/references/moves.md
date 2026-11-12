@@ -91,8 +91,8 @@ Contents: The move op · The moves · Moves example · Trim paths and dashes
 - **punch-in**: the frame snaps closer on a `point` (`scale`, `hold`, `out`). **shake**: a
   random shake that dies down (`strength`, `frequency`, `decay`), `at` a cue in a music edit.
   Both refuse a layer that moves itself.
-- **backdrop-flash** `{layer, at}`: color field behind the subject (`frames`, `color`, `texture`,
-  `rim`, `punch`); it cuts out the clip.
+- **backdrop-flash** `{layer, at}`: color field behind the subject (cut out for
+  you); `frames`, `color`, `texture`, `tone`, `rim`, `punch`.
 
 Launch-video type (words arrive faint, then darken):
 

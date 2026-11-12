@@ -115,8 +115,19 @@ test("backdrop-flash puts a color field between the clip and its cut-out on the 
   assert.deepEqual([0.99, 1.01, 1.05, 1.08, 1.12, 1.14].map(at), [false, true, true, false, true, false]);
   assert.ok(field.layer.animations.some((animation) => animation.effect === "streaks"));
   assert.equal(made.animations.filter((entry) => entry.animation.effect === "rim-light").length, 2);
+  // tone "field": the subject's tritone on each run of on frames, its colors turned from the field's hue.
+  assert.deepEqual(made.animations.filter((entry) => entry.animation.effect === "tritone").map((entry) => [entry.layerId, entry.animation.to.highlightColor]), [["clip-subject", "#F5FFB8"], ["clip-subject", "#F5FFB8"]]);
   assert.deepEqual(made.animations.filter((entry) => entry.animation.name.startsWith("Flash punch x")).map((entry) => [entry.layerId, entry.animation.to.scaleX]), [["clip", 1.06], ["clip-subject", 1.06]]);
   assert.equal(made.end, 1.133);
+  // A cut-out the agent made stays on screen; one kino made for the flash shows on its frames only.
+  const subjectAt = (result) => (time) => visibleByOperations(result.animations.filter((entry) => entry.layerId === "clip-subject").map((entry) => entry.animation), time);
+  assert.deepEqual([0.99, 1.08, 1.5].map(subjectAt(made)), [true, true, true]);
+  scene.layers[1].cutoutFor = "backdrop-flash";
+  const own = runMove(definition, { id: "flash", input: readMoveInput(definition, { layer: "clip", subject: "clip-subject" }), scene, style: styleFor({ look: "crisp", frame: { width: 1920, height: 1080 } }), fonts: defaultFonts, start: 1, media });
+  assert.deepEqual([0.99, 1.01, 1.05, 1.08, 1.12, 1.14].map(subjectAt(own)), [false, true, true, false, true, false]);
+  // tone "own" on kino's cut-out (made without the clip's one-hue grade) puts the clip's grade back on the flash frames.
+  const kept = runMove(definition, { id: "flash", input: readMoveInput(definition, { layer: "clip", subject: "clip-subject", tone: "own" }), scene, style: styleFor({ look: "crisp", frame: { width: 1920, height: 1080 } }), fonts: defaultFonts, start: 1, media });
+  assert.deepEqual(kept.animations.filter((entry) => entry.animation.effect === "tritone").map((entry) => [entry.animation.to.midtoneColor, entry.animation.start]), [["#2FA866", 1], ["#2FA866", 1.1]]);
   assert.throws(() => readMoveInput(definition, { layer: "clip", frames: [1, 2] }), /1 \(on\) and 0 \(off\)/);
   assert.equal(readMoveInput(definition, { layer: "clip", color: "auto" }).color, "auto");
 });

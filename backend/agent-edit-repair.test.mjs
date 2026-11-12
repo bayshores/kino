@@ -429,6 +429,8 @@ test("library search answers one short line per topic, not the topics' text", as
   const phrase = await agent("library", { topic: "search", search: "crop video layer and word by word text reveal synced to speech" });
   const shown = phrase.text.split("\n").slice(2, 8).map((line) => line.split(" ")[0]);
   for (const id of ["captions", "text-animation", "speech"]) assert.ok(shown.includes(id), `${id} is near the top: ${shown}`);
+  // A move is found by the words an agent types for what it does.
+  assert.match((await agent("library", { topic: "search", search: "color flash behind subject" })).text, /backdrop-flash/);
   const none = await agent("library", { topic: "search", search: "zzqx" });
   assert.equal(withoutNext(none.text), 'Nothing mentions "zzqx". library {topic:"rules"} lists every topic.');
 });

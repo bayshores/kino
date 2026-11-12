@@ -1170,14 +1170,21 @@ function moveCutouts(operation, resolver, document, cutouts) {
     if (typeof source !== "string" || !["video", "image"].includes(resolver.layerTypeOf(source))) continue;
     const own = layers.find((layer) => layer.id === source);
     if (own?.cutoutOf || cutouts.some((cut) => cut.cutoutId === source)) { operation[key(name)] = source; continue; }
-    const subjectOf = (layer) => layer.cutoutOf === source && !layer.isMask && (layer.cutoutOutput ?? (/(?:silhouette|matte)/i.test(layer.name ?? "") ? "other" : "subject")) === "subject";
-    const reused = cutouts.find((cut) => cut.layerId === source && (cut.output ?? "subject") === "subject")?.cutoutId ?? layers.find(subjectOf)?.id;
+    // A cut-out another move made for itself (shown only in its own frames) is not reused by a different move.
+    const fits = (madeFor) => madeFor === undefined || madeFor === operation.name;
+    const subjectOf = (layer) => layer.cutoutOf === source && !layer.isMask && fits(layer.cutoutFor) && (layer.cutoutOutput ?? (/(?:silhouette|matte)/i.test(layer.name ?? "") ? "other" : "subject")) === "subject";
+    const reused = cutouts.find((cut) => cut.layerId === source && (cut.output ?? "subject") === "subject" && fits(cut.forMove))?.cutoutId ?? layers.find(subjectOf)?.id;
     if (reused) { operation[key(name)] = reused; continue; }
     const cut = translateOne({ type: "cut_out", layerId: source, ...(operation.sceneId ? { sceneId: operation.sceneId } : {}) }, resolver, document);
+    // cutout.own (backdrop-flash): the cut-out is the move's own, shown only in its frames, so the
+    // copy leaves out the clip's glow, which the clip under it already draws (cutout-operation.mjs).
+    if (field.cutout.own) cut.forMove = operation.name;
+    // Left out (not asked for by name): without a cut-out engine or a subject, the move goes on without it.
+    if (operation[key(name)] === undefined) cut.optional = true;
     cutouts.push(cut);
     made.push(cut);
     operation[key(name)] = cut.cutoutId;
-    operation.cutoutMade = [...(operation.cutoutMade ?? []), `${cut.cutoutName} (cut_out of ${resolver.nameOf("layer", source) ?? source})`];
+    operation.cutoutMade = [...(operation.cutoutMade ?? []), { id: cut.cutoutId, text: `${cut.cutoutName} (cut_out of ${resolver.nameOf("layer", source) ?? source})` }];
   }
   return made;
 }

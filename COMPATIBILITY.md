@@ -729,9 +729,10 @@ How to read it:
   (edit, then look): 3 frames each, 0 check errors; streaks, wedges, a warm edge glow, a flipped picture, a 1.3x snap
   that returns to 1x, an edge-covered shake.
 - **backdrop-flash**: Verified. One move puts a color field (auto hue from the shot's grade or picture, turned -35°,
-  streaks, rim-light, punch 1.06) between a clip and its subject on frames [1,1,0,1]; the edit makes or reuses the
-  cut_out itself (engine/moves.test.js; backend/agent-moves.test.mjs gate; the grade-bloom-flash re-run: 1 move in
-  place of 10 ops and 2 cut_outs).
+  streaks, subject tone, rim-light, punch 1.06) between a clip and its subject on frames [1,1,0,1]; the edit makes or
+  reuses the cut_out itself, shown on those frames only, and tints the shot where no cut-out can be made
+  (engine/moves.test.js; backend/agent-moves.test.mjs gate; the grade-bloom-flash re-run: 1 move in place of 10 ops
+  and 2 cut_outs).
 - **impact-accent move**: Partly verified. `move {name:"impact-accent", kind, at:"cue:<name>"}` flashes, shakes,
   impact-frames, dips or strobes a shot only when the cue motivates that kind (footage impact or light, song seam,
   top accent, rest, measured onset fill), sized by its weight; raw times, beat numbers, align/dur and song cues

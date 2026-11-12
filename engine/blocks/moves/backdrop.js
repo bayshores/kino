@@ -19,7 +19,8 @@
 //   its highlight), else the shot's dominant hue measured from its picture at `at`, turned -35°.
 //   Evidence for -35°: grade-bloom-flash graded the shot #2FA866 (147°) and settled on #36E01C
 //   (112°). Saturation 78% and lightness 49% are the study's field. Without either: the study's green.
-// - rim: rim-light width 8, spread 20 (the effect's own defaults, from the rim studies); its color
+// - tone "field": the subject's tritone on the on frames, from the study's subject grade (see build).
+// - rim: rim-light width 8 (the effect's default, from the rim studies), spread 12 and core 0 (see build); its color
 //   the field's hue turned another -25° at 68% lightness (guess, aimed at the reference's
 //   yellow-green rim #D4FF5A over the green field).
 // - punch 1.06: the treatments table (the study used 1.08 over 0.1 s; the reference is "a touch closer").
@@ -86,10 +87,11 @@ export const backdropFlash = {
   shortest: FRAME,
   fields: {
     layer: { kind: "layer", required: true, about: "the clip or picture (full frame); its subject cut-out is made or reused in the same edit" },
-    subject: { kind: "layer", cutout: { of: "layer", auto: true }, about: "the subject cut-out (default: kino makes or reuses the cut_out of layer; a plain clip given here is cut out too)" },
+    subject: { kind: "layer", cutout: { of: "layer", auto: true, own: true }, about: "the subject cut-out (default: kino makes one for the flash, shown only on its frames and without the clip's glow, or reuses a cut_out of layer; a plain clip given here is cut out too)" },
     frames: { kind: "flags", most: 24, about: "the flash's frames at 30 fps, 1 on and 0 off (default [1, 1, 0, 1])" },
     color: { kind: "color", auto: true, about: "the field's color (default auto: the shot's grade or picture hue turned -35°)" },
     texture: { kind: "choice", values: ["streaks", "none"], about: "streaks (default: faint falling light streaks on the field) or none (a flat field)" },
+    tone: { kind: "choice", values: ["field", "own"], about: "field (default: on the flash frames the subject is toned in the field's colors, like the shot's grade) or own (it keeps its own colors)" },
     rim: { kind: "choice", values: [true, false], about: "a rim light on the subject while the field shows (default true)" },
     punch: { kind: "number", low: 1, high: 1.5, about: "how much closer the frame is during the flash (default 1.06; 1 none)" },
   },
@@ -99,7 +101,9 @@ export const backdropFlash = {
   build(ctx, input) {
     const layer = ctx.layer(input.layer, "layer");
     const footage = layer.cutoutOf ? ctx.layer(layer.cutoutOf, "layer") : layer;
-    const subject = input.subject ? ctx.layer(input.subject, "subject") : layer.cutoutOf ? layer : null;
+    // A subject the edit could not make (no cut-out engine here, no subject found) is not in the scene: tint instead.
+    const made = input.subject && ctx.sceneLayers().some((entry) => entry.id === input.subject);
+    const subject = made ? ctx.layer(input.subject, "subject") : layer.cutoutOf ? layer : null;
     if (subject && ctx.order(subject.id) < ctx.order(footage.id)) throw new Error(`backdrop-flash subject: ${subject.id} is under ${footage.id}; the cut-out must be above the clip.`);
     const pattern = input.frames ?? PATTERN;
     if (!pattern.some(Boolean)) throw new Error("backdrop-flash frames: give at least one 1 (an on frame).");
@@ -122,19 +126,46 @@ export const backdropFlash = {
     if (!subject) ctx.note(`no subject cut-out of ${footage.id}: the field tints the shot (blend color) instead of replacing what is behind the subject`);
     // On and off frames: shown on each run of 1s, hidden after it.
     const runs = onRuns(pattern);
+    // A subject cut-out kino made for this flash (cutoutFor) shows on the same frames only, so the
+    // shot around the flash renders exactly as before the move.
+    const own = subject?.cutoutFor === backdropFlash.name;
     for (const [index, run] of runs.entries()) {
-      ctx.animate(field, `on-${index + 1}`, show(t + run.start * FRAME));
-      ctx.animate(field, `off-${index + 1}`, hide(t + (run.start + run.frames) * FRAME));
+      for (const [target, role] of [[field, null], ...(own ? [[subject.id, "subject"]] : [])]) {
+        ctx.animate(target, `on-${index + 1}`, show(t + run.start * FRAME), role);
+        ctx.animate(target, `off-${index + 1}`, hide(t + (run.start + run.frames) * FRAME), role);
+      }
     }
     if ((input.texture ?? "streaks") === "streaks") {
       // From the scene's start, so the falling field is full (not just born) when it shows.
       ctx.animate(field, "streaks", effect({ name: "Streaks", effect: "streaks", start: 0, duration: Math.max(FRAME, end), easing: [0, 0, 1, 1],
         to: { count: 600, color: mix(base, "#FFFFFF", 0.35), color2: mix(base, "#FFFFFF", 0.8), opacity: 0.35, direction: 180, haze: 0 } }));
     }
+    // tone "field": the subject's tritone on the on frames, the study's subject grade (#0A1A10,
+    // #8CC048, #F6FFB8 over its #36E01C field, thresholds 0.18 and 0.48, softness 0.5, contrast
+    // 1.1) kept as turns from the field's hue: shadow +30°, midtone -26°, highlight -44°. A cut-out
+    // kino made for the flash has no one-hue grade of the clip's (backend/agent/cutout-operation.mjs
+    // MOVE_DROPS), so this tone reads the picture's own shading; tone "own" puts the clip's grade back.
+    const tone = input.tone ?? "field";
+    const at = (run) => ({ start: t + run.start * FRAME, duration: run.frames * FRAME });
+    if (subject && tone === "field") {
+      const to = { shadowColor: hslToHex({ h: h + 30, s: 0.44, l: 0.07 }), midtoneColor: hslToHex({ h: h - 26, s: 0.49, l: 0.52 }), highlightColor: hslToHex({ h: h - 44, s: 0.99, l: 0.86 }),
+        threshold1: 0.18, threshold2: 0.48, softness: 0.5, contrast: 1.1, normalize: false };
+      runs.forEach((run, index) => ctx.animate(subject.id, `tone-${index + 1}`, effect({ name: "Flash tone", effect: "tritone", ...at(run), easing: [0, 0, 1, 1], to }), "subject"));
+    } else if (own) {
+      const grades = (footage.animations ?? []).filter((animation) => animation?.kind === "effect" && animation.enabled !== false && ["tritone", "duotone"].includes(animation.effect));
+      runs.forEach((run, index) => grades.forEach((grade, number) => {
+        const { id: _id, ...copy } = grade;
+        ctx.animate(subject.id, `grade-${index + 1}-${number + 1}`, { ...copy, ...at(run) }, "subject");
+      }));
+    }
     if (subject && (input.rim ?? true) && !ctx.reduced) {
       const rimColor = hslToHex({ h: h + RIM_TURN, s: 1, l: 0.68 });
+      // edge outside: a ring on the field, like the study's grown silhouette under the subject;
+      // core 0: the reference rim is yellow-green with no white line in it. spread 12 and intensity
+      // 0.6 are guesses: spread 20 at intensity 1 added up to a white halo about twice the
+      // reference's 4 to 6 px rim at 480p.
       runs.forEach((run, index) => ctx.animate(subject.id, `rim-${index + 1}`, effect({ name: "Flash rim", effect: "rim-light", start: t + run.start * FRAME, duration: run.frames * FRAME, easing: [0, 0, 1, 1],
-        to: { color: rimColor, width: 8, spread: 20 } }), "subject"));
+        to: { color: rimColor, width: 8, spread: 12, core: 0, edge: "outside", intensity: 0.6 } }), "subject"));
     }
     const punch = ctx.reduced ? 1 : input.punch ?? 1.06;
     if (punch > 1) {

@@ -1273,7 +1273,9 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     if (made.cues.length) document.cues = withCues(document.cues, made.cues.map((cue) => ({ name: cue.name, time: round(cue.time), kind: "marker" })));
     const touched = [...new Set(made.animations.map((entry) => entry.layerId))];
     const cueNote = made.cues.length ? `; cues ${made.cues[0].name} to ${made.cues.at(-1).name} (a sound on each: at "cue:${made.cues[0].name}")` : "";
-    const cutNote = operation.cutoutMade?.length ? `; made the subject ${operation.cutoutMade.join(", ")}` : "";
+    // Only the cut-outs that were made (an optional one is skipped where no engine or subject is found).
+    const cutsMade = (operation.cutoutMade ?? []).filter((cut) => scene.layers.some((layer) => layer.id === cut.id)).map((cut) => cut.text);
+    const cutNote = cutsMade.length ? `; made the subject ${cutsMade.join(", ")}` : "";
     work.notes.push(`move ${operation.id}${stored ? " (made again)" : ""}: ${made.start}–${made.end} s; ${made.added.length} new layer${made.added.length === 1 ? "" : "s"}${touched.length ? `, animates ${touched.join(", ")}` : ""}${cutNote}; ${made.tags.join(", ")}${made.notes.length ? `; ${made.notes.join("; ")}` : ""}${cueNote}`);
   }
 
