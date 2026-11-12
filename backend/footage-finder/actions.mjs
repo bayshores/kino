@@ -265,7 +265,8 @@ export const SHOT_FILTERS = {
   longer: over(lengthOf, true),
   shorter: over(lengthOf, false),
   bigger: over(sizeOf, true),
-  // A shot that never read figures (no figure key: kept from an older scan) is left out and counted.
+  // A shot that never read figures (no figure key: kept from an older scan, or a shot shorter than
+  // the 0.5 s between frames that read them) is left out and counted, never read as "no figure".
   figure: (value) => { const test = yesNo((shot) => Boolean(shot.figure))(value); return test && ((shot) => shot.figure !== undefined && test(shot)); },
   scale: oneOf((shot) => framingOf(shot)?.scale ?? null, ["wide", "medium", "close"]),
   height: heightBetween,
@@ -325,7 +326,7 @@ export function narrowShots(shots = [], filter = undefined, sort = undefined, { 
     boxless ? `${boxless} have no face or salient box and are left out.` : "",
     unframed ? `${unframed} have no figure or face box and are left out.` : "",
     unmoved ? `${unmoved} kept no movement measure and are left out.` : "",
-    unread ? `${unread} kept no figure measure (an older scan) and are left out.` : "",
+    unread ? `${unread} have no figure measure (kept from an older scan, or no frame of the shot read figures) and are left out.` : "",
     unknown.length ? `Not measured, left out: ${unknown.join(", ")}.` : "",
     ignored.length ? `Not known, left out: ${ignored.join(", ")} (filter: ${Object.keys(SHOT_FILTERS).join(", ")}; sort: ${Object.keys(SHOT_SORTS).join(", ")}).` : "",
   ];

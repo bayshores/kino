@@ -404,7 +404,10 @@ test("framing facts: a small figure in a wide frame, a pan, a close face; filter
   // A shot kept from an older scan has no movement measure: counted, not silently dropped.
   assert.equal(narrowShots([...shots, { n: 5, start: 8, end: 9, motion: 10 }], { moving: "still" }).line, "Filter moving:still: 2 of 5 shots. 1 kept no movement measure and are left out.");
   // Nor did it read figures: figure:false never counts it as having none.
-  assert.equal(narrowShots([...shots, { n: 5, start: 8, end: 9, motion: 10 }], { figure: false }).line, "Filter figure:false: 2 of 5 shots. 1 kept no figure measure (an older scan) and are left out.");
+  assert.equal(narrowShots([...shots, { n: 5, start: 8, end: 9, motion: 10 }], { figure: false }).line, "Filter figure:false: 2 of 5 shots. 1 have no figure measure (kept from an older scan, or no frame of the shot read figures) and are left out.");
+  // Figures are read every other frame: a 0.25 s shot between two of them read none, which is no "no figure".
+  const everyOther = frames.map((frame, index) => (index % 2 ? (({ people, ...rest }) => rest)(frame) : frame));
+  assert.equal(shotFacts(0.25, 0.5, everyOther).figure, undefined);
   assert.deepEqual(ns(undefined, "wide"), [1, 3, 2, 4]);
   assert.deepEqual(ns(undefined, "close"), [2, 3, 1, 4]);
   assert.equal(narrowShots(shots, { room: 70 }).line, "Filter room:70: 2 of 4 shots. 1 have no figure or face box and are left out.");
