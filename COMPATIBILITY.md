@@ -263,6 +263,10 @@ How to read it:
   from a recent project that shares most of its footage or the story. Evidence:
   `engine/deck.test.js`, `backend/agent-deck.test.mjs`. Gap: material is read from layer names and types,
   not pixels.
+- **Deck from evidence**: Verified (tests, run 6 probe). Saved faces, marked subjects and heard lines, and the
+  techniques labeled references show, deal made cards (cut_out, keep_line, one-call treatments) with a why;
+  labels give at most half the hand and 2 per reference; an unused deck deals again when they arrive; check's
+  advice names unused cards with a call. Evidence: `engine/deck.test.js`, `backend/agent-deck.test.mjs`. Gap: dark footage not read yet.
 - **Treatments**: Verified (tests). Brief field `treatments` (5 stories, each with a required tension,
   turn and source): kino drops the most typical and asks
   the person to pick from 3, which becomes the idea. Evidence: `backend/agent-deck.test.mjs`, `backend/agent-brief.test.mjs`. Gap: no run

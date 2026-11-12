@@ -146,6 +146,14 @@ export function readCallFor(name, { ops = [] } = {}) {
  * the names its words stand for (SEEN_AS), then names that hold one of its words. One line each.
  */
 export function seenNames(query, { ops = [], limit = 5 } = {}) {
+  return seenNameList(query, { ops }).slice(0, limit).map((name) => {
+    const call = readCallFor(name, { ops });
+    return `${name} (${call.kind}: ${call.use}; ${call.read})`;
+  });
+}
+
+/** The bare kino names of seenNames, best first, all of them (the deck reads labels with it; "cut_out" is always an op here). */
+export function seenNameList(query, { ops = ["cut_out", "keep_line"] } = {}) {
   // Punctuation and case do not count ("Bloom!" is bloom; "cut_out" and "cut-out" are cut out).
   const text = String(query ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
   if (!text) return [];
@@ -161,8 +169,5 @@ export function seenNames(query, { ops = [], limit = 5 } = {}) {
   // Else a word that is a whole part of a name ("leaks" in light-leaks).
   // Ops are left out here: the search's ops line already lists the ops that hold a word.
   if (!found.length && !noMakerLine(text)) for (const word of words.filter((entry) => entry.length > 3 && !LOOSE.has(entry) && !GENERIC.has(entry))) for (const name of all.filter((entry) => !ops.includes(entry))) if (name.split("-").includes(word)) add(name);
-  return found.slice(0, limit).map((name) => {
-    const call = readCallFor(name, { ops });
-    return `${name} (${call.kind}: ${call.use}; ${call.read})`;
-  });
+  return found;
 }

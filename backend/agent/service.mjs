@@ -68,7 +68,8 @@ import { applyBrief, aspectLabel, asksOf, plainWordsProblem, storedQuoteProblem,
 import { createFootageFacts, MAX_FOOTAGE } from "./footage.mjs";
 import { createFootageCache } from "../footage/analyze.mjs";
 import { createPeopleCache } from "../footage/people.mjs";
-import { applySwap, dealDue, deckData, deckInputs, deckRequest, deckStatusLine, deckText, loadMoves, mediaKeys, newDeal, RECENT_PROJECTS, swapProblem } from "./deck.mjs";
+import { applySwap, cardCall, dealDue, deckData, deckInputs, deckRequest, deckStatusLine, deckText, loadMoves, mediaKeys, newDeal, RECENT_PROJECTS, swapProblem } from "./deck.mjs";
+import { madeNamesIn } from "../../engine/deck.js";
 import { answerStep, checkpointStep, dashboardAnswerStep, finalRefusal, openStops, reopenStep, settleWaiting, statusLines, statusMove, StopError, stopRules, stopsSummary, topRules, waitingData, waitingStop, waivedLine, workPrint } from "./stops.mjs";
 import { finishLog, logCall, stepNameOf, stepRows, stepsLine, stepsTable } from "./step-log.mjs";
 import { controlsLine } from "./controls.mjs";
@@ -2642,7 +2643,7 @@ export function createAgentService(deps) {
     const rules = input.rules == null || input.rules === true ? null : (Array.isArray(input.rules) ? input.rules : [input.rules]).map(String);
     const options = { codes, sceneId: scene?.id, pixels: input.pixels !== false, listen: input.listen !== false, rules, outputFps: input.fps == null ? 30 : readFps(input.fps, (message) => new AgentError("bad_input", message)) };
     // A settled brief has a deck by the time the video is checked (deck_unused counts it).
-    await deckFor(projectId, record.document);
+    const dealt = await deckFor(projectId, record.document);
     noteLive({ sceneId: scene?.id ?? null });
     let fonts = await fontsFor(record.document);
     let result = await findingsFor(record.document, { ...options, fonts });
@@ -2687,6 +2688,10 @@ export function createAgentService(deps) {
     if (report.waivedFindings.length) lines.push(`waived: ${report.waivedFindings.slice(0, 5).map((entry) => `${entry.rule} ${entry.ref}`).join(", ")}${report.waivedFindings.length > 5 ? ", …" : ""}`);
     // Advice (info): taste notes in one line; they never block a render.
     if (report.advice) lines.push(`advice (does not block): ${report.advice}. check {rules:[code]} lists one.`);
+    // The deck's unused cards by name, with one ready call for the first (trace-code.md section 2:
+    // the advice line named only the rule, so run 6 never saw which cards were left).
+    const unusedDeck = result.findings.find((finding) => finding.rule === "deck_unused" && !finding.waived && finding.unused?.length);
+    if (unusedDeck && report.advice) lines.push(`deck unused: ${unusedDeck.unused.join(", ")}; first: ${cardCall(unusedDeck.unused[0], await loadMoves(), dealt?.deck?.facts?.slots)}`);
     if (!report.errors && !report.warnings) lines.push("Nothing to fix.");
     else if (!applied && report.autoFixes) lines.push(`check {fix:"auto"} applies the ${report.autoFixes} ${report.autoFixes === 1 ? "fix" : "fixes"} marked auto.`);
     // What the video uses (engine/quality/techniques.js), and whose style the style rules follow.
@@ -5825,20 +5830,58 @@ export function createAgentService(deps) {
     if (!deal && !reroll && !state.deck && !isSettled(state.brief)) return null;
     const treatmentsWaived = (document.checkWaivers ?? []).some((waiver) => waiver.code === TREATMENTS_WAIVER && waiver.target === "*");
     if (!deal && !reroll && pickOpen(state.brief, { seconds: videoFacts(document).seconds, treatmentsWaived })) return null;
-    const inputs = await deckInputs(state, document);
+    const inputs = await deckInputs(state, document, await deckEvidence(document));
     const picked = pickedDeck(document);
     const adopt = picked && (picked.seed !== state.deck?.seed || picked.reroll !== state.deck?.reroll);
-    if (!reroll && !adopt && !dealDue(state.deck, inputs.basis)) return { deck: state.deck, basis: inputs.basis };
+    // Labels or footage facts that arrive after the deal deal again by themselves while no card is used.
+    const holds = document.scenes.flatMap((scene) => madeNamesIn(scene));
+    // The deck variant the person picked stays, also one saved before lockedBy existed (locked:true).
+    const chosen = Boolean(picked && !adopt && state.deck);
+    if (!reroll && !adopt && (chosen || !dealDue(state.deck, inputs.basis, { holds }))) return { deck: state.deck, basis: inputs.basis };
     const recent = await recentDecksOf(projectId);
     let deck;
     await agentState.update(projectId, (draft) => {
       const nextReroll = reroll ? (draft.deck?.reroll ?? 0) + 1 : adopt ? picked.reroll : draft.deck?.reroll ?? 0;
       deck = newDeal({ projectId, reroll: nextReroll, inputs, recent, now: now() });
       // A picked deck variant locks its deal: the person chose it.
-      if (adopt && !reroll) deck.locked = true;
+      if (adopt && !reroll) deck.lockedBy = "pick";
       draft.deck = deck;
     });
     return { deck, basis: inputs.basis };
+  }
+
+  // What the deal reads beyond the document (deck.mjs deckInputs): the footage facts kino saved
+  // (files with a face in .people-v1, lines in saved transcripts; never a new decode or whisper)
+  // and the project's labeled references. Each part that fails is left out.
+  async function deckEvidence(document) {
+    const scene = videoScene(document);
+    const clips = (scene?.layers ?? []).filter((layer) => layer.type === "video" && layer.src && layer.enabled !== false);
+    const srcs = [...new Set(clips.map((layer) => layer.src))];
+    // The layer a made card's call names (cardCall slots): one at speed 1 first, as keep_line needs it.
+    const layerOf = (src) => { const own = clips.filter((layer) => layer.src === src); return (own.find((layer) => !isRemapped(layer)) ?? own[0])?.name; };
+    const slots = {};
+    let faceClips = 0;
+    let lines = 0;
+    for (const src of srcs) {
+      try {
+        const saved = await peopleCache.saved(mediaFileOf({ src }));
+        if ((saved?.samples ?? []).some((sample) => sample.faces?.length)) { faceClips += 1; slots.clip ??= layerOf(src); }
+      } catch { /* not measured: no face counted */ }
+      const heard = await savedLinesOf(src, document, Infinity);
+      lines += heard.length;
+      if (heard.length && !slots.line) { slots.lineClip = layerOf(src); slots.line = heard[0].text; }
+    }
+    // Better: a whole line a layer plays at speed 1, so keep_line {line} finds it as sent (probe on
+    // run 6: the file's first line was not in the stretch its layer plays, and keep_line refused it).
+    const played = scene && lines ? (await sceneLines(scene, document)).find((line) => !line.slowed && !line.text.endsWith("…")) : null;
+    if (played) { slots.lineClip = clips.find((layer) => layer.id === played.layerId)?.name ?? played.layer; slots.line = played.text; }
+    // A clip with a box the agent marked is a subject too (engine/deck.js materialOf).
+    slots.clip ??= clips.find((layer) => layer.subjectBoxes?.src === layer.src && layer.subjectBoxes.boxes?.length)?.name;
+    const song = scene?.layers.find((layer) => !srcs.includes(layer.src) && isMusicLayer(layer, scene));
+    if (song) slots.song = song.name;
+    for (const key of Object.keys(slots)) if (!slots[key]) delete slots[key];
+    const refs = (await deps.inspire?.savedFingerprints?.(document.id, { labeled: true }).catch(() => [])) ?? [];
+    return { facts: { faceClips, lines }, refs, slots };
   }
 
   // The last projects' decks the deal reads (deck.mjs newDeal). A deck dealt before decks saved
@@ -5858,7 +5901,7 @@ export function createAgentService(deps) {
   async function nextDecks(projectId, document, count) {
     const current = (await deckFor(projectId, document, { deal: true })).deck;
     const state = await agentState.read(projectId);
-    const inputs = await deckInputs(state, document);
+    const inputs = await deckInputs(state, document, await deckEvidence(document));
     const recent = await recentDecksOf(projectId);
     return Array.from({ length: count }, (_, index) => newDeal({ projectId, reroll: current.reroll + index + 1, inputs, recent, now: now() }));
   }
@@ -5873,7 +5916,7 @@ export function createAgentService(deps) {
     if (seed === undefined && state.deck) return { deck: state.deck, pick };
     const inputs = await deckInputs(state, document);
     const recent = await recentDecksOf(document.id);
-    const deck = { ...newDeal({ projectId: document.id, reroll: seed ?? 0, inputs: { ...inputs, material }, recent, now: now() }), locked: true };
+    const deck = { ...newDeal({ projectId: document.id, reroll: seed ?? 0, inputs: { ...inputs, material }, recent, now: now() }), lockedBy: "compose" };
     await agentState.update(document.id, (draft) => { draft.deck = deck; });
     return { deck, pick };
   }

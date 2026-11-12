@@ -2211,6 +2211,13 @@ test("reference_kinds: an edit lacking a kind 2 references show at 2 moments is 
   // One labeled reference is not two: no error, and plain footage is not over that reference's share by a sixth.
   const one = await check("reference_kinds", scene({ layers: [footage("a")] }), { sceneName: "s1", seenRefs: MADE_REFS.slice(0, 1) });
   assert.deepEqual(one.findings.map((finding) => finding.severity), ["warn"]);
+  // References labeled at only some moments are judged on the moments they have (2 of 3 here).
+  const half = MADE_REFS.map((ref) => ({ ...ref, seen: ref.seen.slice(0, 3) }));
+  const [partly] = await fires("reference_kinds", scene({ layers: [footage("a")] }), { sceneName: "s1", seenRefs: half });
+  assert.match(partly.message, /your references show it at 2 of 3 \(yt:AAAAAAAAAAA/);
+  // One labeled moment is a share of 0 or 100%: no share warning from it.
+  const once = await check("reference_kinds", scene({ layers: [footage("a")] }), { sceneName: "s1", seenRefs: MADE_REFS.map((ref) => ({ ...ref, seen: ref.seen.slice(0, 1) })) });
+  assert.deepEqual(once.findings, []);
 });
 
 test("onscreenKinds: type, overlay, color, composite and plain are read from the layers; a gamma lift alone is no color look", () => {

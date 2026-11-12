@@ -10,7 +10,7 @@
 //
 // Every fix hint names concrete techniques from the vocabulary, never "add motion".
 import { CUT_TIMING_TAGS, PLAIN_TAGS, TECHNIQUES, isTechnique, techniqueOf } from "../../techniques.js";
-import { deckUse } from "../../deck.js";
+import { deckUse, madeCardOf } from "../../deck.js";
 import { paceCounts, referencePace } from "../referenceCompare.js";
 import { sectionCues } from "../../mixLevels.js";
 import { KEY_ROLES, boardPicks, pickOp, pickWords } from "../../movePicks.js";
@@ -723,6 +723,8 @@ export function deckUnused(model, ctx) {
     rule: "deck_unused", severity: "warn",
     measured: `${used.length} of ${total} cards used${used.length ? ` (${used.join(", ")})` : ""}`, required: `at least ${Math.ceil(total / 2)} of the deck's ${total}`,
     message: `${ctx.sceneName} leaves ${unused.join(", ")} of the deck (seed ${ctx.deck.seed}) unused, so it drifts back to the default edit.`,
-    fix: { kind: "hint", text: `Build ${unused.slice(0, 2).map((tag) => (techniqueOf(tag) ? `${tag} (${techniqueOf(tag).fits})` : tag)).join(" and ")}, or swap a card that does not fit: notes {action:"deck", swap:{out, in, why}}.` },
+    // The unused cards, so check's advice line can name them and a call for the first.
+    unused,
+    fix: { kind: "hint", text: `Build ${unused.slice(0, 2).map((tag) => (techniqueOf(tag) ? `${tag} (${techniqueOf(tag).fits})` : madeCardOf(tag) ? `${tag} (${madeCardOf(tag).line})` : tag)).join(" and ")}, or swap a card that does not fit: notes {action:"deck", swap:{out, in, why}}.` },
   }];
 }

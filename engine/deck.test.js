@@ -92,6 +92,37 @@ test("materialOf reads the document and the brief's made_from words", () => {
   assert.equal(fromWords.video, true);
   assert.equal(fromWords.sound, true);
   assert.equal(fromWords.numbers, false, "a number in a file name is not a number to count");
+  // Measured facts: a marked subject box, faces and heard lines join the material only when present.
+  document.scenes[0].layers[0].subjectBoxes = { src: "/api/media/app.mp4", boxes: [{ at: 1, box: [10, 10, 40, 80], by: "agent" }] };
+  assert.deepEqual(materialOf(document, { facts: { lines: 4 } }), { ...material, subject: true, subjectClips: 1, cutOut: true, lines: 4 });
+});
+
+test("made cards come on evidence only: a fact that holds or a reference label, under the label caps", () => {
+  // No fact, no label: never a made card.
+  assert.ok(deals(100).every((deck) => !deck.cards.some((card) => card.group === "made")));
+  // Heard lines and a subject: a fact card, said why.
+  const facts = { ...FOOTAGE, subject: true, subjectClips: 2, cutOut: true, lines: 4 };
+  for (const deck of deals(50, { material: facts })) {
+    const made = deck.cards.filter((card) => card.group === "made");
+    assert.ok(made.length >= 1 && made.length <= 2, deckLine(deck));
+    assert.ok(made.every((card) => card.why === "fact" && ["cut_out", "keep_line", "rim-light"].includes(card.tag)), deckLine(deck));
+  }
+  // A cut-out without a subject is never dealt, even when a reference shows it.
+  const cutOut = [{ name: "cut_out", refs: ["yt:a", "yt:b"] }];
+  assert.ok(deals(50, { evidence: cutOut }).every((deck) => !tags(deck).includes("cut_out")));
+  // Labels: loud treatments become dealable; at most half the hand, at most 2 from one reference.
+  const evidence = ["overexpose", "smear", "shatter", "speed-lines", "punch-in", "zoom-through"].map((name) => ({ name, refs: ["yt:a"] }));
+  const hands = deals(80, { evidence });
+  assert.ok(hands.some((deck) => deck.cards.some((card) => ["overexpose", "smear", "shatter"].includes(card.tag))));
+  for (const deck of hands) {
+    const labeled = deck.cards.filter((card) => card.why === "seen");
+    assert.ok(labeled.length <= 2, `one reference gives at most 2: ${deckLine(deck)}`);
+    assert.ok(labeled.length * 2 <= deck.cards.length + (deck.setPiece ? 1 : 0), deckLine(deck));
+    assert.ok(labeled.every((card) => card.refs === 1));
+  }
+  // A made card counts as used when the scene holds it (madeNamesIn, passed with the moves).
+  const made = { cards: [{ tag: "cut_out", group: "made", why: "fact" }], setPiece: null };
+  assert.deepEqual(deckUse(made, {}, ["cut_out"]), { used: ["cut_out"], unused: [] });
 });
 
 test("a backed style spec is dealt first; avoided tags never; a guessed spec only leans", () => {
