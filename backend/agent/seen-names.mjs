@@ -58,6 +58,8 @@ const SEEN_AS = {
   soften: ["scene-background"], diffusion: ["scene-background"], "soft focus": ["scene-background"], haze: ["scene-background", "fog"], hazy: ["scene-background", "fog"], mist: ["scene-background", "fog"],
   // Type, color and composite looks (the on-screen kinds a reference shows besides cuts and sound).
   font: ["set_font"], fonts: ["set_font"], typeface: ["set_font"], lettering: ["set_font"], typography: ["set_font"],
+  // Matching a reference's lettering: library {topic:"fonts", like} (GAPS item 1).
+  "match font": ["set_font"], "font match": ["set_font"], "same font": ["set_font"], "identify font": ["set_font"], "dot matrix": ["set_font"], "pixel font": ["set_font"], "rounded font": ["set_font"],
   electric: ["rim-light"],
   // Line art of footage (edge-lines) and a subject's edge as a drawn path (cut_out output "outline").
   edge: ["edge-lines", "rim-light", "cut_out"], edges: ["edge-lines", "rim-light", "cut_out"], "edge detect": ["edge-lines", "cut_out"], "find edges": ["edge-lines", "cut_out"],
@@ -122,7 +124,7 @@ const TOPICS = { "clip-speed": "layer properties mediaSpeed and speed animations
   "layer-style": "layer properties fill, strokes, shadows and outlineGlow (hollow letters with a glowing outline)",
   "scene-background": 'the whole frame in one op: {op:"update_scene", properties:{finish:true, letterbox:2.35}} (grain, lifted blacks, halation, vignette, bars)' };
 // An op whose call needs a lookup first: a font is picked by its look.
-const OP_USE = { set_font: 'library {topic:"fonts", search:"<the look: brush, handwritten, marker, stencil, slab, blackletter, condensed bold sans, a script such as japanese>"} then set_font {layerIds, family, weight}' };
+const OP_USE = { set_font: 'library {topic:"fonts", search:"<the look: brush, handwritten, marker, stencil, slab, blackletter, condensed bold sans, a script such as japanese>"} (or like:"<picture path>", region:[x,y,w,h]: faces measured like its letters) then set_font {layerIds, family, weight}' };
 
 /** The line for a look kino has no maker for yet ("speed lines"), else "". */
 export function noMakerLine(query) {

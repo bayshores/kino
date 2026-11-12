@@ -64,6 +64,18 @@ export function stripArgs(file, at, out) {
     "-vf", `fps=12,scale=${STRIP_WIDTH}:-2:flags=area,tile=${STRIP_FRAMES}x1`, "-frames:v", "1", "-q:v", "6", out];
 }
 
+/** One frame (PNG bytes) of the kept strips: the strip nearest `t`, its frame nearest `t` (library fonts like). */
+export async function referenceStripFrame(folder, strips, t) {
+  if (!strips?.length) throw new Error("no frame strips are kept for that reference.");
+  const strip = strips.reduce((best, item) => (Math.abs(item.at - t) < Math.abs(best.at - t) ? item : best));
+  const image = await loadImage(path.join(folder, strip.file));
+  const width = image.width / STRIP_FRAMES;
+  const index = Math.min(STRIP_FRAMES - 1, Math.max(0, Math.round((t - Math.max(0, strip.at - STRIP_LEAD)) * 12)));
+  const canvas = createCanvas(Math.round(width), image.height);
+  canvas.getContext("2d").drawImage(image, index * width, 0, width, image.height, 0, 0, canvas.width, canvas.height);
+  return canvas.toBuffer("image/png");
+}
+
 function runFfmpeg(args, signal) {
   return new Promise((resolve, reject) => {
     const child = spawn(ffmpegCommand(), ffmpegArgs(args), { stdio: ["ignore", "ignore", "pipe"], signal });

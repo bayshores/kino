@@ -197,7 +197,7 @@ test("fonts library: a name filters, one character lists fonts that have it, a c
 
   // Words that name no family but describe a look filter by category and weight.
   const look = await fontsLibraryText("elegant serif", { fonts, catalog });
-  assert.match(look, /^catalog, look "elegant serif" \(serif, 2 match; ignored: elegant\): Lora 400, Playfair Display 400\nCompare by eye with the reference strip; set_font \{layerIds, family, weight\}/, look);
+  assert.match(look, /^catalog, look "elegant serif" \(serif, 2 match; ignored: elegant\): Lora 400, Playfair Display 400\nCompare by eye with the reference strip, or library \{topic:"fonts", like:.*region:\[x,y,w,h\]\} ranks faces by the measured letters; set_font \{layerIds, family, weight\}/, look);
   assert.match(await fontsLibraryText("condensed bold sans", { fonts, catalog }), /\(sans-serif, 700\+, 0 match\): none match; use fewer words/);
   assert.match(await fontsLibraryText("Filler 01", { fonts, catalog }), /^installed: none match\ncatalog: Filler 01 /, "a name that matches stays a name search");
 });
@@ -221,7 +221,7 @@ test("fonts library look search: sans serif is one category, condensed is a name
   const condensed = await fontsLibraryText("bold condensed", { fonts, catalog });
   assert.match(condensed, /\(all categories, 700\+, 2 match\): Roboto Condensed 300-800, Barlow Condensed 400-800\n/, "only families with the word in their name");
   assert.match(await fontsLibraryText("heavy sans", { fonts, catalog }), /\(sans-serif, 800\+, 3 match\)/);
-  assert.match(await fontsLibraryText("wide italic sans", { fonts, catalog }), /ignored: wide, italic\)/);
+  assert.match(await fontsLibraryText("wide italic sans", { fonts, catalog }), /\(sans-serif, wide first, 4 match; ignored: italic\)/);
   const mono = await fontsLibraryText("bold mono", { fonts, catalog });
   assert.match(mono, /IBM Plex Mono 400-700 \[kino's own\]\n.*\[kino's own\] fonts are flagged by check/);
   // "brush script" is inside one family's name: the name result comes first, then the look's families.
@@ -264,6 +264,60 @@ test("fonts library class, style and script words: one word alone works, a scrip
   const scripts = { list: async () => ({ families: wide, total: wide.length, offline: false }) };
   assert.match(await fontsLibraryText("handwritten", { fonts, catalog: scripts }), /: Wavy Hand 100-900, Quill 400, Wavy Hand Thai 100-900\n/);
   assert.match(await fontsLibraryText("thai", { fonts, catalog: scripts }), /: Wavy Hand Thai 100-900\n/);
+});
+
+// GAPS item 1: "rounded geometric heavy sans" answered every heavy sans with "ignored: rounded, geometric".
+test("fonts library shape words rank instead of being ignored: rounded and geometric order a category, dot-matrix alone picks by name", async () => {
+  const entry = (family, category, weights) => ({ family, category, weights });
+  const families = [entry("Archivo", "sans-serif", [400, 900]), entry("Nunito", "sans-serif", [200, 1000]), entry("Poppins", "sans-serif", [100, 900]),
+    entry("M PLUS Rounded 1c", "sans-serif", [100, 900]), entry("Doto", "sans-serif", [100, 900]), entry("Silkscreen", "display", [400, 700]), entry("Lora", "serif", [400, 700])];
+  const catalog = { list: async ({ search = "" } = {}) => {
+    const found = families.filter((family) => family.family.toLowerCase().includes(search.toLowerCase()));
+    return { families: found, total: found.length, offline: false };
+  } };
+  const fonts = { entries: () => [] };
+  assert.match(await fontsLibraryText("rounded geometric heavy sans", { fonts, catalog }),
+    /\(sans-serif, 800\+, rounded first, geometric first, 5 match\): M PLUS Rounded 1c 100-900, Nunito 200-1000, Poppins 100-900, /);
+  assert.match(await fontsLibraryText("dot matrix", { fonts, catalog }), /\(all categories, dot first, matrix first, 1 match\): Doto 100-900\n/);
+  assert.match(await fontsLibraryText("pixel", { fonts, catalog }), /\(all categories, pixel first, 1 match\): Silkscreen 400-700\n/);
+});
+
+// library {topic:"fonts", like}: a picture of letters set in one bundled face ranks that face first.
+test("fonts like: the lettering in a picture ranks the face it was set in first, with words for what differs and a set_font call", async (t) => {
+  const { createCanvas, GlobalFonts } = await import("@napi-rs/canvas");
+  const { fontsLikeText } = await import("./font-like.mjs");
+  const folder = await mkdtemp(path.join(tmpdir(), "kino-like-"));
+  t.after(() => rm(folder, { recursive: true, force: true }));
+  GlobalFonts.registerFromPath(path.resolve("assets/fonts/NotoSerif-700.woff2"), "Like Serif");
+  const canvas = createCanvas(640, 200);
+  const context = canvas.getContext("2d");
+  context.fillStyle = "#182030"; context.fillRect(0, 0, 640, 200);
+  context.fillStyle = "#f4f0e8"; context.font = "96px 'Like Serif'"; context.fillText("STORM", 120, 140);
+  const file = path.join(folder, "frame.png");
+  await (await import("node:fs/promises")).writeFile(file, canvas.toBuffer("image/png"));
+  const fonts = await loadBundledFonts();
+  const catalog = { measuresFile: path.join(folder, "measures.json") };
+  const answer = await fontsLikeText({ like: file, region: [100, 30, 440, 140], text: "STORM", count: 3 }, { fonts, catalog });
+  assert.equal(answer.fonts[0].family, "Noto Serif", answer.text);
+  assert.ok(answer.fonts[0].weight >= 600, answer.text);
+  assert.match(answer.text, /^fonts like the lettering in .*frame\.png \[100, 30, 440, 140\]: weight [\d.]+, width [\d.]+, slant/);
+  assert.match(answer.text, /\n1\. Noto Serif 700 \(distance [\d.]+: [a-z ,]+\) set_font \{layerIds:\["<layer>"\], family:"Noto Serif", weight:700\}/);
+  assert.match(answer.text, /\n2\. (?!Noto Serif 700)/, "one line per face");
+  assert.match(await (await import("node:fs/promises")).readFile(catalog.measuresFile, "utf8"), /Noto Serif|NotoSerif/, "measures are kept on disk");
+});
+
+// Measured on the benchmark crops: a dotted lettering read dots 0.43 and lost to solid condensed faces,
+// and its class search ANDed "condensed" into the dotted families so none was downloaded.
+test("fonts like: dotted and solid letterings compare as classes, and a dotted class fetches dotted families on their own", async () => {
+  const { distance } = await import("./font-like.mjs");
+  const { classFamilies } = await import("./agent/font-help.mjs");
+  const dotted = { weight: 0.085, width: 0.557, slant: 0, corners: 0.833, contrast: 0, rough: 0.058, dots: 0.431 };
+  const doto = { weight: 0.044, width: 0.616, slant: 0, corners: 0.763, contrast: 0, rough: 0.251, dots: 1 };
+  const solid = { weight: 0.065, width: 0.404, slant: 0, corners: 0.85, contrast: 0, rough: 0.034, dots: 0 };
+  assert.ok(distance(dotted, doto) < distance(dotted, solid), `${distance(dotted, doto)} vs ${distance(dotted, solid)}`);
+  const families = [{ id: "doto", family: "Doto", category: "sans-serif", weights: [100, 900] }, { id: "barlow-condensed", family: "Barlow Condensed", category: "sans-serif", weights: [100, 900] }];
+  const catalog = { list: async () => ({ families, total: families.length, offline: false }) };
+  assert.deepEqual((await classFamilies(["dot-matrix", "condensed"], catalog)).map((family) => family.family), ["Doto", "Barlow Condensed"]);
 });
 
 // The agent service. The server does not download; this fills its font cache first.

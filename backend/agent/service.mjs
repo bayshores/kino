@@ -6602,6 +6602,25 @@ export function createAgentService(deps) {
         `catalog presets ({preset:{id, mode:"in"|"out", parameters}}): ${catalog.join(", ")}`,
         "library {topic:\"rules\", name:\"presets\"} has the details."].join("\n") };
     }
+    // like: the faces nearest the lettering in a picture or a saved reference's moment (font-like.mjs).
+    if (topic === "fonts" && input.like != null) {
+      const { fontsLikeText } = await import("../font-like.mjs");
+      const { classFamilies } = await import("./font-help.mjs");
+      const { referenceStripFrame } = await import("../measure/strips.mjs");
+      const referenceFrame = async (id, t) => {
+        const kept = await deps.inspire?.stripsFor?.(id);
+        if (!kept) throw new AgentError("not_ready", `${id} has no frame strips: library {topic:"inspire", name:"${id}"} adds and measures it.`);
+        return referenceStripFrame(kept.folder, kept.strips, Number.isFinite(t) ? t : kept.strips[0]?.at ?? 0);
+      };
+      try {
+        const { text, fonts: found, measures } = await fontsLikeText(input, { fonts: await loadFonts(), catalog: fontCatalog,
+          lookFamilies: (words) => classFamilies(words, fontCatalog), referenceFrame });
+        return { text, data: { fonts: found, measures } };
+      } catch (error) {
+        if (error instanceof AgentError) throw error;
+        throw new AgentError("bad_input", `fonts like: ${error.message}`);
+      }
+    }
     if (topic === "fonts")
       return { text: await fontsLibraryText(search || input.name, { fonts: await loadFonts(), catalog: fontCatalog }) };
     if (topic === "media") {

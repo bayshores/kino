@@ -725,5 +725,6 @@ export async function createFontCatalog({
     return verified ? { path: verified.filePath, mime: "font/ttf" } : null;
   }
 
-  return { list, detail, ensureFace, cachedEntries, loadInto, file, downloadsEnabled };
+  // measuresFile: library {topic:"fonts", like} keeps each face's measured glyphs there (font-like.mjs).
+  return { list, detail, ensureFace, cachedEntries, loadInto, file, downloadsEnabled, measuresFile: path.join(root, "like-measures.json") };
 }

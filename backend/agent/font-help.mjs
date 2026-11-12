@@ -220,6 +220,21 @@ const WEIGHT_WORDS = {
   black: (weights) => Math.max(...weights) >= 900, thin: (weights) => Math.min(...weights) <= 300, light: (weights) => Math.min(...weights) <= 300,
 };
 const WEIGHT_LABELS = { bold: "700+", heavy: "800+", extra: "800+", ultra: "800+", black: "900", thin: "300-", light: "300-" };
+// Shape words the catalog has no tag for: they rank a category's families by these name parts, or
+// with no category word pick the families that have one (GAPS item 1: "rounded geometric heavy sans"
+// answered "ignored: rounded, geometric"). GUESS: common family names of each class, checked by eye
+// on the catalog list; library {topic:"fonts", like} measures the letters themselves.
+const RANK_NAMES = {
+  rounded: ["rounded", "round", "nunito", "quicksand", "fredoka", "comfortaa", "baloo", "varela round", "dosis", "mplus rounded", "kosugi maru"],
+  geometric: ["montserrat", "poppins", "jost", "outfit", "urbanist", "league spartan", "questrial", "didact gothic", "lexend", "sora", "figtree", "manrope", "red hat display", "spartan", "kumbh"],
+  pixel: ["pixel", "silkscreen", "press start", "vt323", "tiny5", "micro 5", "jersey", "workbench", "sixtyfour", "bitcount", "jacquard"],
+  dot: ["doto", "dot", "matrix", "led", "bitcount"], dotted: ["doto", "dot", "matrix", "led"], matrix: ["matrix", "doto", "dot", "led", "bitcount"],
+  extended: ["expanded", "extended", "wide", "unbounded", "syncopate", "krona", "michroma", "lexend zetta", "lexend peta", "zen dots", "orbitron"],
+  wide: ["wide", "expanded", "extended", "unbounded", "syncopate", "krona", "michroma"], expanded: ["expanded", "extended", "wide"],
+  squared: ["square", "orbitron", "chakra petch", "exo", "saira", "oxanium", "tomorrow", "russo one", "black ops"],
+  square: ["square", "orbitron", "chakra petch", "exo", "saira", "oxanium", "tomorrow", "russo one", "black ops"],
+  compressed: ["compressed", "condensed", "narrow", "anton", "bebas", "oswald", "league gothic"],
+};
 // condensed and narrow only appear in a family's name: they rank a category's families, or with no category word pick by name.
 const NAME_WORDS = ["condensed", "narrow", "mono"];
 const FILLER_WORDS = ["a", "an", "and", "the", "with", "very", "or", "of", "font", "fonts", "typeface", "type"];
@@ -234,30 +249,58 @@ function lookOf(term) {
   // "japanese script" names a writing system; "script" alone is a handwriting face.
   const scripts = [...new Set(words.filter((word) => SUBSET_WORDS[word]).map((word) => SUBSET_WORDS[word]))];
   const kept = scripts.length ? words.filter((word) => word !== "script") : words;
-  const known = (word) => CLASS_WORDS[word] || NAME_WORDS.includes(word) || STYLE_NAMES[word] || SUBSET_WORDS[word];
+  const known = (word) => CLASS_WORDS[word] || NAME_WORDS.includes(word) || STYLE_NAMES[word] || SUBSET_WORDS[word] || RANK_NAMES[word];
   if (!kept.some(known)) return null;
   const categories = [...new Set(kept.filter((word) => CLASS_WORDS[word]).map((word) => CLASS_WORDS[word]))];
   const weights = kept.filter((word) => WEIGHT_WORDS[word]);
   const names = kept.filter((word) => NAME_WORDS.includes(word));
   const styles = kept.filter((word) => STYLE_NAMES[word]);
   const boost = kept.flatMap((word) => BOOST_NAMES[word] ?? []);
+  const ranks = kept.filter((word) => RANK_NAMES[word]);
   const ignored = kept.filter((word) => !known(word) && !WEIGHT_WORDS[word] && !FILLER_WORDS.includes(word));
-  return { categories, weights, names, styles, boost, scripts, ignored, single: words.length === 1 };
+  return { categories, weights, names, styles, boost, ranks, scripts, ignored, single: words.length === 1 };
+}
+
+/**
+ * The catalog families of a class (words such as "condensed", "dot-matrix", "brush", "heavy"),
+ * best fit first: [{id, family, weights}]. library {topic:"fonts", like} measures these.
+ */
+export async function classFamilies(words, catalog) {
+  // A shape word (dot-matrix, brush) is searched on its own: joined with "condensed" it would only
+  // keep dotted families with condensed in the name (measured: a dotted crop downloaded none). The
+  // other words search together. The lists take turns, the first word's list first.
+  const shaped = words.filter((word) => /dot|brush|pixel/.test(word));
+  const rest = words.filter((word) => !shaped.includes(word));
+  const queries = [...shaped, ...(rest.length ? [rest.join(" ")] : [])];
+  const lists = [];
+  for (const query of queries) {
+    const wanted = lookOf(query);
+    if (wanted) lists.push((await lookMatches(wanted, catalog)).matches);
+  }
+  const seen = new Set(), found = [];
+  for (let index = 0; lists.some((list) => index < list.length); index += 1)
+    for (const list of lists) if (index < list.length && !seen.has(list[index].id)) { seen.add(list[index].id); found.push(list[index]); }
+  return found;
 }
 
 // library {topic:"fonts", search:"condensed bold sans"}: catalog families of that kind, by their category, weights, style words and scripts.
-async function lookFamilies({ categories, weights, names, styles = [], boost = [], scripts = [], ignored }, term, catalog) {
+async function lookMatches({ categories, weights, names, styles = [], boost = [], ranks = [], scripts = [] }, catalog) {
   const { families: all, offline } = await catalog.list({ limit: 2500 });
   const hasName = (family, word) => family.family.toLowerCase().includes(word);
   const hasAny = (family, parts) => parts.some((part) => hasName(family, part));
-  // With no category word, the name words pick the families (every category is searched). A style
-  // word (stencil, slab) always needs its name part; a script needs that subset in the family.
-  const matches = all.filter((family) => (categories.length ? categories.includes(family.category) : names.every((word) => hasName(family, word)))
+  // With no category word, the name words pick the families (every category is searched); with no
+  // name word either, the shape words (rounded, pixel) pick them. A style word (stencil, slab)
+  // always needs its name part; a script needs that subset in the family.
+  const picks = (family) => (categories.length ? categories.includes(family.category)
+    : names.length ? names.every((word) => hasName(family, word))
+      : !ranks.length || ranks.some((word) => hasAny(family, RANK_NAMES[word])));
+  const matches = all.filter((family) => picks(family)
     && weights.every((word) => WEIGHT_WORDS[word](family.weights))
     && styles.every((word) => hasAny(family, STYLE_NAMES[word]))
     && scripts.every((script) => (family.subsets ?? []).some((subset) => subset.startsWith(script))));
   const own = new Set(KINO_OWN_FAMILIES);
-  const named = (family) => names.filter((word) => hasName(family, word)).length + Number(hasAny(family, boost));
+  const named = (family) => names.filter((word) => hasName(family, word)).length + Number(hasAny(family, boost))
+    + ranks.filter((word) => hasAny(family, RANK_NAMES[word])).length;
   // Best fit first: name words, then families kino does not pick itself, then more weights, then A to Z.
   matches.sort((a, b) => named(b) - named(a) || own.has(a.family) - own.has(b.family) || b.weights.length - a.weights.length || a.family.localeCompare(b.family));
   // Then one face per family line before its siblings: families that share their first name word
@@ -269,13 +312,19 @@ async function lookFamilies({ categories, weights, names, styles = [], boost = [
   const sibling = new Map(matches.map((family) => { const count = seen.get(line(family)) ?? 0; seen.set(line(family), count + 1); return [family, Math.min(count, 1)]; }));
   const order = new Map(matches.map((family, index) => [family, index]));
   matches.sort((a, b) => named(b) - named(a) || sibling.get(a) - sibling.get(b) || order.get(a) - order.get(b));
+  return { matches, offline, own };
+}
+
+async function lookFamilies(wanted, term, catalog) {
+  const { categories, weights, styles = [], scripts = [], ranks = [], ignored } = wanted;
+  const { matches, offline, own } = await lookMatches(wanted, catalog);
   const range = (family) => (family.weights[0] === family.weights.at(-1) ? `${family.weights[0]}` : `${family.weights[0]}-${family.weights.at(-1)}`);
-  const kind = [...(categories.length ? categories : ["all categories"]), ...weights.map((word) => WEIGHT_LABELS[word]), ...styles, ...scripts].join(", ");
+  const kind = [...(categories.length ? categories : ["all categories"]), ...weights.map((word) => WEIGHT_LABELS[word]), ...styles, ...ranks.map((word) => `${word} first`), ...scripts].join(", ");
   const listed = matches.slice(0, LISTED);
   const label = (family) => `${family.family} ${range(family)}${own.has(family.family) ? " [kino's own]" : ""}`;
   return [
     `catalog${offline ? " (offline: cached list)" : ""}, look ${JSON.stringify(term)} (${kind}, ${matches.length} match${ignored.length ? `; ignored: ${ignored.join(", ")}` : ""}): ${listed.map(label).join(", ") || "none match; use fewer words"}${matches.length > LISTED ? ` +${matches.length - LISTED} more` : ""}`,
-    "Compare by eye with the reference strip; set_font {layerIds, family, weight} downloads the one you pick."
+    "Compare by eye with the reference strip, or library {topic:\"fonts\", like:\"<picture path, or yt:id with t>\", region:[x,y,w,h]} ranks faces by the measured letters; set_font {layerIds, family, weight} downloads the one you pick."
     + (listed.some((family) => own.has(family.family)) ? ` [kino's own] fonts are flagged by check unless a style line at a saved reference's moment names them (notes brief, style lines).` : ""),
   ].join("\n");
 }
