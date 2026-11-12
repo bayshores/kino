@@ -102,6 +102,7 @@ import { createQualityChecker, qualityRulesText, videoScene } from "./quality.mj
 import { houseMoments, houseStructure, houseType } from "../house-memory.mjs";
 import { plateChanges, techniquesLine, techniquesUsed } from "../../engine/quality/techniques.js";
 import { sceneReturnsLine } from "../../engine/quality/returns.js";
+import { madeLine } from "../../engine/quality/madeShare.js";
 import { catalogLevel, KIND_WORDS as SOUND_KIND_WORDS, visibleActions } from "../../engine/soundActions.js";
 import { footageCueTime } from "../../engine/footageCues.js";
 import { FOOTAGE_VERSION } from "../footage/analyze.mjs";
@@ -837,7 +838,7 @@ export function createAgentService(deps) {
     const findings = mergeFindings(basic, checked.findings, { document, codes });
     const missed = checked.unchecked ?? [];
     const unchecked = missed.length && missed.length === checked.scenes ? "all" : missed.map((id) => refName(id, codes));
-    return { findings: rules ? findings.filter((finding) => rules.includes(finding.rule)) : findings, notes: checked.notes, ms: checked.ms, unchecked, techniques: checked.techniques ?? {}, styleSpec, stale: listen ? checked.stale ?? [] : [], crops: checked.crops ?? null, ask: checked.ask ?? "" };
+    return { findings: rules ? findings.filter((finding) => rules.includes(finding.rule)) : findings, notes: checked.notes, ms: checked.ms, unchecked, techniques: checked.techniques ?? {}, styleSpec, stale: listen ? checked.stale ?? [] : [], crops: checked.crops ?? null, ask: checked.ask ?? "", made: checked.made ?? null };
   }
 
   // The project's waivers that still silence a finding (stale ones left out): what the waived
@@ -3367,6 +3368,9 @@ export function createAgentService(deps) {
     // What comes back in the checked (or main) scene: a fact beside techniques, never a finding.
     const returnsScene = scene ? record.document.scenes.find((item) => item.id === scene.id) : videoScene(record.document);
     if (returnsScene) lines.push(sceneReturnsLine(returnsScene, { scenes: record.document.scenes }));
+    // And how much of it is designed, with the deck's unused cards and the references' own share.
+    const madeText = returnsScene ? madeLine(result.made, { refs: result.made?.refs, deck: result.made?.deck }) : "";
+    if (madeText) lines.push(madeText);
     // Where the mix passes the limiter, measured without a render: a fact line when the scene has sound.
     const mix = returnsScene && options.listen ? await mixPeaksOf(returnsScene) : null;
     if (mix) lines.push(describeMixPeaks(mix, { tail: "; all of them: look {mode:\"motion\", ref:\"sound\"}" }) + (mix.places.length && !(mix.auto && !mix.auto.places && !mix.auto.held) ? "; check {fix:\"auto\"} applies each xN over its place" : ""));

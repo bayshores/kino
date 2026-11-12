@@ -584,6 +584,10 @@ How to read it:
   footage and component play times moving too; `vary` steps a field per place and rebases a grow.
   look's sheet and review, and check, print a `returns:` line of what comes back. Evidence:
   `engine/duplicate.test.js`, `backend/agent-reach-geometry.test.mjs`. Gap: vary sets layer fields only.
+- **Made share and device counts**: Verified. check prints `made:` (share of moments with a cut-out,
+  drawn graphic, particle or designed type, the deck's unused cards, the references' made labels) and
+  `returns:` counts a group or a numbered stem (tread-1 to tread-4) as one device. Evidence:
+  `engine/qualityRules.test.js`, `engine/duplicate.test.js`, `backend/agent-deck.test.mjs`.
 - **Motion paths**: Verified. `motionPath` on a Move, up to 64 points with `alignToPath`. Evidence:
   `engine/motionPath.test.js`, `engine/motionPathTransforms.test.js`, `backend/motion-path-export.test.mjs`,
   golden `motion-paths`. Gap: inserting a point does not keep the exact curve.

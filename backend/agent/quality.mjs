@@ -9,7 +9,8 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { mainScene } from "../../engine/board.js";
-import { cardNames, madeNamesIn } from "../../engine/deck.js";
+import { cardNames, deckUse, madeNamesIn } from "../../engine/deck.js";
+import { deckInPlay } from "../../engine/quality/rules/style.js";
 import { referenceSignature } from "../../engine/quality/layoutSignature.js";
 import { shiftAnimation } from "../../engine/animationShift.js";
 import { isComposedAnimation } from "../../engine/animationTree.js";
@@ -17,6 +18,7 @@ import { evaluateLayer } from "../../engine/animation.js";
 import { moveLayerByWorldDelta } from "../../engine/geometry.js";
 import { expandComponents } from "../../engine/linkedComponents.js";
 import { RULES, runQuality } from "../../engine/quality/index.js";
+import { madeShare, referenceMade } from "../../engine/quality/madeShare.js";
 import { kinoTimeline } from "../../engine/quality/kinoTimeline.js";
 import { askLine } from "../../engine/quality/rules/ask.js";
 import { cropCounts, heldStill } from "../../engine/quality/rules/footage.js";
@@ -905,6 +907,7 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
     let measuredAll = !media.pending;
     // The video scene's narrow crops, counted as narrow_window judges them (a stop's ask shows the line).
     let crops = null;
+    let made = null;
     let ask = "";
     // What shape_guess and ask_unmet read besides the document: part of each scene's key.
     const askStamp = JSON.stringify([origin?.words ?? null, origin?.top?.[0]?.title ?? null, playsOn?.by ?? null, playsOn?.text ?? null, media.ownFootage, media.foundTitles, sourceLooks]);
@@ -949,6 +952,9 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
       if (speech.some((entry) => entry.missing) || peopleWhy) measuredAll = false;
       const { model, findings: found, notes: sceneNotes, techniques: used = {}, pending } = full ?? await sceneFindings(document, scene, { fonts, codes, pixels, outputFps, signal, refs, seenRefs: listed, closeRefs, houseMoments, styleSpec: sceneStyle, deck: sceneDeck, briefFonts, length: sceneLength, asks: sceneAsks, speech, sceneLines, savedLines, people, soundSearch, media, isVideo, origin, playsOn, sourceLooks, base });
       if (pending) measuredAll = false;
+      // How much of the video scene (or the one scene asked for) is designed: a fact, with the references' own.
+      // The deck part counts the cards deck_unused counts, from this scene's own techniques and made cards.
+      if (model && (isVideo || sceneId)) made = { ...madeShare(model), refs: referenceMade(listed), deck: sceneDeck ? deckUse(deckInPlay(sceneDeck, sceneStyle), used, madeNamesIn(scene)) : null };
       for (const [tag, count] of Object.entries(used)) techniques[tag] = (techniques[tag] ?? 0) + count;
       for (const note of sceneNotes) if (!notes.includes(note)) notes.push(note);
       for (const finding of found) {
@@ -985,7 +991,7 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
     // or each scene's full check kept): a quick check without saved faces or words would miss findings.
     const pixelsRan = Boolean(renderFrames) && !unchecked.length;
     const stale = !sceneId && measuredAll && (pixels || pixelsRan) ? staleWaivers(waivers, silencing, { pixelsRan }) : [];
-    return { findings, notes, ms: Math.round(performance.now() - started), scenes: scenes.length, unchecked, techniques: sorted, stale, crops, ask };
+    return { findings, notes, ms: Math.round(performance.now() - started), scenes: scenes.length, unchecked, techniques: sorted, stale, crops, ask, made };
   }
 
   return { check };

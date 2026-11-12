@@ -30,6 +30,9 @@ function subtree(layers, root) {
 
 // " copy" and a trailing " 3" come off a name, so copies group with their original.
 const nameBase = (name) => String(name ?? "").replace(/( copy)+( \d+)?$/i, "").replace(/ \d+$/, "").trim().toLowerCase();
+// The stem of layers named by number ("tread-1" to "tread-4"): one device, whether its parts show
+// together or one after another. A name that is only a number keeps it.
+const nameStem = (name) => nameBase(name).replace(/(?<=\p{L}\p{L})[-_ ]?\d+$/u, "") || nameBase(name);
 
 // A video's place is its play time, an instance's its clock, any other layer's the first Show or
 // animation start in it (0 with none).
@@ -100,9 +103,9 @@ function groupUses(scene, scenes) {
   const layers = scene?.layers ?? [];
   const groups = new Map();
   const shots = [];
-  const add = (key, label, time, layer) => {
+  const add = (key, label, time, layer, size = 1) => {
     if (!groups.has(key)) groups.set(key, { key, label, uses: [] });
-    groups.get(key).uses.push({ time, layer });
+    groups.get(key).uses.push({ time, layer, size });
   };
   const timeOf = (layer) => placeOf(layers, layer);
   const instances = new Map();
@@ -135,7 +138,9 @@ function groupUses(scene, scenes) {
       const base = nameBase(layer.name);
       add(`image:${layer.src}`, !base || base === "image" ? "image" : `image ${base}`, timeOf(layer), layer);
     } else {
-      add(`${layer.type}:${nameBase(layer.name)}`, nameBase(layer.name) || layer.type, timeOf(layer), layer);
+      // A group counts once; the layers inside it are the device's size.
+      const stem = nameStem(layer.name);
+      add(`${layer.type}:${stem}`, stem || layer.type, timeOf(layer), layer, layer.type === "group" ? Math.max(1, subtree(layers, layer).length - 1) : 1);
     }
   }
   for (const { key, label, time, layer } of instances.values()) add(key, label, time, layer);
@@ -143,9 +148,14 @@ function groupUses(scene, scenes) {
   return [...groups.values()];
 }
 
+// Uses closer than SAME_PLACE are one place; its size is the layers they add up to.
 const placesOf = (uses) => {
   const places = [];
-  for (const use of uses) if (!places.length || use.time - places[places.length - 1].time >= SAME_PLACE) places.push(use);
+  for (const use of uses) {
+    const last = places[places.length - 1];
+    if (!last || use.time - last.time >= SAME_PLACE) places.push({ ...use, size: use.size ?? 1 });
+    else last.size += use.size ?? 1;
+  }
   return places;
 };
 
@@ -161,7 +171,7 @@ export function returningDevices(scene, { scenes = [] } = {}) {
     const first = places[0].layer, last = places[places.length - 1].layer;
     const changes = CHANGE_KEYS.filter((key) => first[key] !== undefined && last[key] !== undefined && first[key] !== last[key])
       .slice(0, 2).map((key) => ({ key, first: first[key], last: last[key] }));
-    devices.push({ key: group.key, label: group.label, places: places.map((place) => round(place.time)), changes });
+    devices.push({ key: group.key, label: group.label, places: places.map((place) => round(place.time)), layers: Math.max(...places.map((place) => place.size ?? 1)), changes });
   }
   // A shot inside a returning group returns with it: listed once, as the group.
   const kept = devices.filter((device) => !device.key.startsWith("shot:")
@@ -191,9 +201,11 @@ export function openAndClose(scene, { duration = scene?.duration ?? 0, scenes = 
 const SHOWN_PLACES = 8;
 export function returnsLine(devices, { share = [] } = {}, limit = 4) {
   // "<label> at <times>": no count after the label, so "image at 2 5" is not read as a layer "image 2".
-  const times = (places) => (places.length > SHOWN_PLACES ? `${places.slice(0, SHOWN_PLACES).join(" ")} … (${places.length} places)` : places.join(" "));
-  const listed = devices.slice(0, limit).map((device) => `${device.label} at ${times(device.places)}${device.changes.length ? ` (${device.changes.map((change) => `${change.key} ${change.first} to ${change.last}`).join(", ")})` : ""}`);
-  const more = devices.length > limit ? ` · +${devices.length - limit} more` : "";
+  // A short run ends with its count ("×4"); a device of several layers says how many at a place.
+  const times = (places) => (places.length > SHOWN_PLACES ? `${places.slice(0, SHOWN_PLACES).join(" ")} … (${places.length} places)` : `${places.join(" ")} ×${places.length}`);
+  const listed = devices.slice(0, limit).map((device) => `${device.label}${device.layers > 1 ? ` (${device.layers} layers)` : ""} at ${times(device.places)}${device.changes.length ? ` (${device.changes.map((change) => `${change.key} ${change.first} to ${change.last}`).join(", ")})` : ""}`);
+  const rest = devices.slice(limit);
+  const more = rest.length ? ` · +${rest.length} more (${rest.slice(0, 8).map((device) => `${device.label} ×${device.places.length}`).join(", ")}${rest.length > 8 ? ", ..." : ""})` : "";
   const head = listed.length ? listed.join(" · ") + more : "no made layer, word, move or shot is shown twice";
   return `returns: ${head} · first 1 s and last frame share: ${share.length ? share.join(", ") : "nothing"}`;
 }

@@ -708,17 +708,23 @@ export function styleWanted(model, ctx) {
 // ---------------------------------------------------------------- the deck
 
 /**
+ * The deck's cards the video is held to: when the references or the picked idea's signature already
+ * name the type, a type card that was only drawn (not wanted by them) is left out, as kino has no
+ * default type look. deck_unused and check's made line count the same cards.
+ */
+export function deckInPlay(deck, style) {
+  const typeSet = [...(style?.backed ?? []), ...(style?.moments ?? []).map((moment) => moment.tag)].some((tag) => techniqueOf(tag)?.group === "type");
+  return typeSet ? { ...deck, cards: deck.cards.filter((card) => card.group !== "type" || card.why === "spec" || card.why === "signature") } : deck;
+}
+
+/**
  * The project's deck (engine/deck.js, ctx.deck) mostly unused: the video shows fewer than half of
  * its cards. A card swapped out is no longer in the deck, so it does not count.
  */
 export function deckUnused(model, ctx) {
   if (!ctx.deck || model.duration < EDIT_SECONDS) return [];
   const counts = Object.fromEntries(Object.entries(techniquesUsed(model)).map(([tag, list]) => [tag, list.length]));
-  // When the references or the picked idea's signature already name the type, a type card that was
-  // only drawn (not wanted by them) is not forced: kino has no default type look.
-  const typeSet = [...(ctx.style?.backed ?? []), ...(ctx.style?.moments ?? []).map((moment) => moment.tag)].some((tag) => techniqueOf(tag)?.group === "type");
-  const deck = typeSet ? { ...ctx.deck, cards: ctx.deck.cards.filter((card) => card.group !== "type" || card.why === "spec" || card.why === "signature") } : ctx.deck;
-  const { used, unused } = deckUse(deck, counts, ctx.movesUsed ?? []);
+  const { used, unused } = deckUse(deckInPlay(ctx.deck, ctx.style), counts, ctx.movesUsed ?? []);
   const total = used.length + unused.length;
   if (!total || used.length * 2 >= total) return [];
   return [{
