@@ -9,7 +9,7 @@
 import { call, callText } from "../agent/next-call.mjs";
 import { offeredLine, saidWords } from "../inspire.mjs";
 import { readTime } from "./scan.mjs";
-import { cleanShot, SCAN_VERSION } from "./score.mjs";
+import { cleanShot, placeName, SCAN_VERSION } from "./score.mjs";
 import { candidateLine, droppedLine, editsLast, elsewhereLine, nothingFoundText, scannedLine, someoneElses, withStudies } from "./search.mjs";
 import { scanCall, searchCall } from "./step.mjs";
 import { needLine, wantBySection } from "./needs.mjs";
@@ -160,19 +160,98 @@ function nextCandidate(footage, code, known = null) {
   return order.map((each) => list.find((entry) => entry.code === each)).find((entry) => entry && !entry.scan && !someoneElses(entry, known)) ?? null;
 }
 
+/** A shot's mean light, 0 to 255, or null when its scan did not keep it. */
+const lightOf = (shot) => (Number.isFinite(shot.luma) ? Math.round(shot.luma * 255) : null);
+
+/** "(middle, 6% of frame)": where a shot's subject box sits and its part of the frame. */
+const subjectPlace = (subject) => `(${placeName(subject.box)}, ${Math.max(1, Math.round(subject.share * 100))}% of frame)`;
+
 /**
- * One shot's line: `F1.37 3:17.2-3:19.0 1.8s motion 82 face 40 match +3.1`, flags after. face is
- * left out when faces were not read (no face detector, or drawn footage).
+ * One shot's line: `F1.37 3:17.2-3:19.0 1.8s motion 82 light 140 face 40 (middle, 6% of frame)
+ * match +3.1`, flags after. light is the mean of 255. face is left out when faces were not read
+ * (no face detector, or drawn footage); a shot without a face names where the eye goes instead
+ * (`salient (left, 30% of frame)`, Vision saliency) when that was measured. Saliency gives a box
+ * on nearly every picture, a flat dark one too (measured: 31% of a near-black frame), so it says
+ * where, never that something was found.
  */
 export function shotLine(code, shot, { matchShown = false } = {}) {
   const parts = [`${code}.${shot.n}`, `${stamp(shot.start)}-${stamp(shot.end)}`, `${(shot.end - shot.start).toFixed(1)}s`, `motion ${Math.round(shot.motion ?? 0)}`];
-  if (Number.isFinite(shot.face)) parts.push(`face ${Math.round(shot.face)}`);
+  const light = lightOf(shot);
+  if (light !== null) parts.push(`light ${light}`);
+  const face = shot.subject?.kind === "face" ? shot.subject : null;
+  if (Number.isFinite(shot.face)) parts.push(`face ${Math.round(shot.face)}${face ? ` ${subjectPlace(face)}` : ""}`);
+  if (shot.subject && !(face && Number.isFinite(shot.face))) parts.push(`${shot.subject.kind === "face" ? "face" : "salient"} ${subjectPlace(shot.subject)}`);
   if (matchShown && Number.isFinite(shot.match)) parts.push(`match ${shot.match >= 0 ? "+" : ""}${shot.match.toFixed(1)}`);
-  // A dark shot says how dark (mean luma of 255), so a dark scene the person asked for is picked knowingly.
-  if (shot.flags?.length) parts.push(shot.flags.map((flag) => (flag === "dark" && Number.isFinite(shot.luma) ? `dark, mean ${Math.round(shot.luma * 255)} of 255` : flag)).join(" "));
+  if (shot.flags?.length) parts.push(shot.flags.join(" "));
   if (shot.hasSubs) parts.push("has subtitles");
   if (shot.says) parts.push(`says: "${shot.says}"`);
   return parts.join(" ");
+}
+
+// True when a face was found in the shot (its share of frames, or its subject box).
+const hasFace = (shot) => shot.face > 0 || shot.subject?.kind === "face";
+const asNumber = (value) => (value === null || value === "" || typeof value === "boolean" ? NaN : Number(value));
+const yesNo = (test) => (value) => (typeof value === "boolean" ? (shot) => test(shot) === value : null);
+const over = (measure, above) => (value) => {
+  const limit = asNumber(value);
+  if (!Number.isFinite(limit)) return null;
+  return (shot) => { const known = measure(shot); return known !== null && (above ? known > limit : known < limit); };
+};
+const lengthOf = (shot) => shot.end - shot.start;
+const sizeOf = (shot) => (shot.subject ? shot.subject.share * 100 : null);
+
+/**
+ * library footage scan's `filter`: each key narrows the listed shots. light is the mean of 255,
+ * bigger the face (else salient) box's percent of the frame, speech a line said in the shot
+ * (captions or listening). A shot whose scan did not keep a measure (light from an older scan) is
+ * left out by it.
+ */
+export const SHOT_FILTERS = {
+  face: yesNo(hasFace),
+  speech: yesNo((shot) => Boolean(shot.says)),
+  brighter: over(lightOf, true),
+  darker: over(lightOf, false),
+  longer: over(lengthOf, true),
+  shorter: over(lengthOf, false),
+  bigger: over(sizeOf, true),
+};
+
+/** library footage scan's `sort`: each orders the listed shots, the first named first. */
+export const SHOT_SORTS = {
+  light: (shot) => -(lightOf(shot) ?? -1),
+  dark: (shot) => lightOf(shot) ?? 256,
+  length: (shot) => -lengthOf(shot),
+  size: (shot) => -(sizeOf(shot) ?? -1),
+  motion: (shot) => -(shot.motion ?? 0),
+  time: (shot) => shot.start,
+};
+
+/**
+ * A scan's shots narrowed by `filter` ({face: true, brighter: 100, longer: 2, ...}, SHOT_FILTERS)
+ * and ordered by `sort` (SHOT_SORTS; ties keep the scan's order). Answers {shots, line}: line says
+ * what was asked, how many shots are left, and any key it did not know (those are left out, never
+ * refused). Without filter or sort: the shots as they are and line "".
+ */
+export function narrowShots(shots = [], filter = undefined, sort = undefined) {
+  if (filter === undefined && sort === undefined) return { shots, line: "" };
+  const asked = filter && typeof filter === "object" && !Array.isArray(filter) ? filter : {};
+  const used = [], ignored = [], tests = [];
+  for (const [key, value] of Object.entries(asked)) {
+    const test = Object.hasOwn(SHOT_FILTERS, key) ? SHOT_FILTERS[key](value) : null;
+    if (test) { tests.push(test); used.push(`${key}:${value}`); } else ignored.push(`${key}:${short(oneLine(JSON.stringify(value)), 20)}`);
+  }
+  if (filter !== undefined && (!filter || typeof filter !== "object" || Array.isArray(filter))) ignored.push(`filter ${short(oneLine(JSON.stringify(filter)), 30)}`);
+  let out = shots.filter((shot) => tests.every((test) => test(shot)));
+  const order = sort === undefined ? null : Object.hasOwn(SHOT_SORTS, sort) ? SHOT_SORTS[sort] : null;
+  if (sort !== undefined && !order) ignored.push(`sort:${short(oneLine(JSON.stringify(sort)), 20)}`);
+  if (order) out = out.map((shot, index) => ({ shot, index })).sort((a, b) => order(a.shot) - order(b.shot) || a.index - b.index).map(({ shot }) => shot);
+  const lightless = used.some((part) => /^(brighter|darker):/.test(part)) ? shots.filter((shot) => lightOf(shot) === null).length : 0;
+  const parts = [
+    `${used.length ? `Filter ${used.join(" ")}` : "No filter"}${order ? `, sorted by ${sort}` : ""}: ${out.length} of ${shots.length} shot${shots.length === 1 ? "" : "s"}.`,
+    lightless ? `${lightless} kept no light (an older scan) and are left out.` : "",
+    ignored.length ? `Not known, left out: ${ignored.join(", ")} (filter: ${Object.keys(SHOT_FILTERS).join(", ")}; sort: ${Object.keys(SHOT_SORTS).join(", ")}).` : "",
+  ];
+  return { shots: out, line: parts.filter(Boolean).join(" ") };
 }
 
 /** The shots a scan answer's import call names: the best clean ones (no flag but logo). */
@@ -213,11 +292,13 @@ function noMatchLine(scan) {
  * The scan answer: what was looked at, the 12 best shots, the skips, the match word and, with a
  * song in the video, how many shots it needs (needs.mjs shotsNeeded).
  */
-export function scanText(candidate, scan, need = null, heard = null) {
+export function scanText(candidate, scan, need = null, heard = null, view = null) {
   const looked = (scan.windows ?? []).reduce((sum, window) => sum + window.end - window.start, 0);
   const shots = scan.shots ?? [];
-  const head = `${candidate.code} "${short(oneLine(candidate.title) || candidate.id, TITLE_SHOWN)}" · scanned ${clockOf(looked)}${candidate.seconds ? ` of ${clockOf(candidate.seconds)}` : ""} · ${shots.length} shot${shots.length === 1 ? "" : "s"}${shots.length > FOOTAGE_SHOTS_SHOWN ? `, best ${FOOTAGE_SHOTS_SHOWN}` : ""}:`;
-  const lines = shots.slice(0, FOOTAGE_SHOTS_SHOWN).map((shot) => shotLine(candidate.code, shot, { matchShown: scan.matchShown }));
+  // view: narrowShots' answer, the shots to list and its line.
+  const listed = view?.shots ?? shots;
+  const head = `${candidate.code} "${short(oneLine(candidate.title) || candidate.id, TITLE_SHOWN)}" · scanned ${clockOf(looked)}${candidate.seconds ? ` of ${clockOf(candidate.seconds)}` : ""} · ${shots.length} shot${shots.length === 1 ? "" : "s"}${listed.length > FOOTAGE_SHOTS_SHOWN ? `, best ${FOOTAGE_SHOTS_SHOWN}` : ""}:`;
+  const lines = [view?.line, ...listed.slice(0, FOOTAGE_SHOTS_SHOWN).map((shot) => shotLine(candidate.code, shot, { matchShown: scan.matchShown }))].filter(Boolean);
   const tail = [skippedLine(scan.skipped), marksLine(scan.marks)];
   if (scan.drawn) tail.push("Faces: not read on drawn footage.");
   if (scan.want && !scan.matchShown) tail.push(noMatchLine(scan));
@@ -399,7 +480,8 @@ export function createFootageActions({ finder, waitMs = FOOTAGE_WAIT_MS, keepMs 
     const id = scanIdOf(candidate);
     const plain = options.from === undefined && options.to === undefined && !options.whole;
     checkStretch(input.from, input.to, scanCall(candidate.code));
-    const repeat = scanCall(candidate.code, { ...(input.want !== undefined ? { want } : {}), ...(input.said !== undefined ? { said } : {}), ...(plain ? {} : { from: input.from, to: input.to, ...(options.whole ? { whole: true } : {}) }) });
+    const repeat = scanCall(candidate.code, { ...(input.want !== undefined ? { want } : {}), ...(input.said !== undefined ? { said } : {}), ...(plain ? {} : { from: input.from, to: input.to, ...(options.whole ? { whole: true } : {}) }),
+      ...(input.filter !== undefined ? { filter: input.filter } : {}), ...(input.sort !== undefined ? { sort: input.sort } : {}) });
     // A scan saved before with the same words answers at once.
     let result = plain ? await finder.readScan(id).catch(() => null) : null;
     // A scan of an older version is scanned again. One of other words is ranked again from its saved
@@ -477,7 +559,9 @@ export function createFootageActions({ finder, waitMs = FOOTAGE_WAIT_MS, keepMs 
     const applied = lines.length ? applySaid(result.shots ?? [], lines, said) : { shots: result.shots ?? [], hits: 0 };
     result = { ...result, shots: applied.shots };
     const heard = answer ? { ...answer, said, hits: applied.hits, noCaptionsKnown: Boolean(candidate.noCaptions), refLines: known?.lines } : null;
-    const picks = importPicks(result, need ? Math.min(FOOTAGE_SHOTS_SHOWN, Math.max(FOOTAGE_IMPORT_PICKS, need.import)) : FOOTAGE_IMPORT_PICKS);
+    // filter and sort narrow the listing (and so the import call) to the shots asked for.
+    const view = narrowShots(result.shots, input.filter, input.sort);
+    const picks = importPicks({ shots: view.shots }, need ? Math.min(FOOTAGE_SHOTS_SHOWN, Math.max(FOOTAGE_IMPORT_PICKS, need.import)) : FOOTAGE_IMPORT_PICKS);
     const spoken = lines.length ? spokenLines(lines, result.shots, said) : [];
     const firstHit = spoken.find((line) => line.hit);
     const update = (current) => {
@@ -496,8 +580,10 @@ export function createFootageActions({ finder, waitMs = FOOTAGE_WAIT_MS, keepMs 
     const following = nextCandidate(saved, candidate.code, known);
     // After this scan: someone else's edit says so once; and when fewer than half of the last search is scanned, how many.
     const listed = (saved.order ?? []).map((code) => saved.candidates.find((entry) => entry.code === code)).filter(Boolean).map((entry) => entry.code === candidate.code ? { ...entry, scan: entry.scan ?? { id } } : entry);
-    return { text: withLead(personClips, [reusedScan ? `${candidate.code}: ${REUSED_LINE} (its scan is saved here, nothing downloaded).` : "", scanText(candidate, result, need, heard), elsewhereLine(candidate, known), scannedLine(listed, known)]),
-      data: { code: candidate.code, id, shots: (result.shots ?? []).slice(0, FOOTAGE_SHOTS_SHOWN).map(({ n, start, end, motion, face, match, flags, says, said: hit, hasSubs }) => ({ n, start, end, motion, face, match, flags, ...(says ? { says } : {}), ...(hit ? { said: true } : {}), ...(hasSubs ? { hasSubs: true } : {}) })), matchShown: Boolean(result.matchShown),
+    return { text: withLead(personClips, [reusedScan ? `${candidate.code}: ${REUSED_LINE} (its scan is saved here, nothing downloaded).` : "", scanText(candidate, result, need, heard, view), elsewhereLine(candidate, known), scannedLine(listed, known)]),
+      data: { code: candidate.code, id, ...(view.line ? { listed: view.shots.length } : {}), shots: view.shots.slice(0, FOOTAGE_SHOTS_SHOWN).map(({ n, start, end, motion, face, match, flags, says, said: hit, hasSubs, luma, subject }) => ({ n, start, end, motion, face, match, flags,
+        ...(Number.isFinite(luma) ? { light: Math.round(luma * 255) } : {}), ...(subject ? { subject } : {}),
+        ...(says ? { says } : {}), ...(hit ? { said: true } : {}), ...(hasSubs ? { hasSubs: true } : {}) })), matchShown: Boolean(result.matchShown),
         ...(result.marks?.length ? { logo: markPlaces(result.marks), marks: result.marks.map(({ where, box }) => ({ where, box })) } : {}), ...(result.drawn ? { drawn: true } : {}), ...(song ? { song } : {}),
         ...(elsewhere ? { edit: true, ...(importNext ? { import: importNext } : {}) } : {}),
         ...(lines.length ? { captions: { lang: answer.lang, auto: Boolean(answer.auto), ...(answer.local ? { local: true } : {}), ...(said ? { said, hits: applied.hits } : {}) }, lines: spoken.map(({ start, end, text, gloss, hit, shots }) => ({ start, end, text, ...(gloss ? { gloss } : {}), shots, ...(hit ? { said: true } : {}) })) } : {}) },

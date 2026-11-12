@@ -1,6 +1,8 @@
 // The footage finder's scan, part 2: measure the 360p copy (scan.mjs) and rank its shots.
 // 1. For each downloaded stretch: its shots (shot-detection.mjs findShots), what moves, where the
-//    faces and text are and how bright it is (footage/analyze.mjs measureFootage, as compose
+//    faces, text and the eye's place (saliency) are and how bright it is; each shot keeps its mean
+//    light and one face box (else one saliency box) with its share of the frame (subjectOf)
+//    (footage/analyze.mjs measureFootage, as compose
 //    measures clips: 4 frames a second, -threads 2), what stays in place across cuts (a channel
 //    logo, a burned-in watermark: measure/fingerprint.mjs persistentElements), and one still in
 //    the middle of each shot.
@@ -210,7 +212,24 @@ export function shotFacts(start, end, samples = [], persistent = [], marks = [])
     text: share((sample) => sample.text.some(loose)),
     subs: share((sample) => sample.text.some((line) => loose(line) && isSubtitle(line.box))),
     logo: share((sample) => sample.text.some(isFixed)),
+    subject: subjectOf(inside, "faces", "face") ?? subjectOf(inside, "saliency", "saliency"),
+    salient: subjectOf(inside, "saliency", "saliency"),
   };
+}
+
+/**
+ * Where a shot's subject is: in each frame that found one, its largest box ([x, y, w, h] of the
+ * frame) under `key` (faces, or saliency: where the eye goes); of those, the median-sized one, a
+ * box one frame really had. Answers {kind, box, share (the box's part of the frame)} or null.
+ */
+export function subjectOf(samples, key, kind) {
+  const largest = samples.map((sample) => sample[key])
+    .filter((boxes) => Array.isArray(boxes) && boxes.length)
+    .map((boxes) => boxes.reduce((best, box) => (box[2] * box[3] > best[2] * best[3] ? box : best)))
+    .sort((a, b) => a[2] * a[3] - b[2] * b[3]);
+  if (!largest.length) return null;
+  const box = largest[Math.floor((largest.length - 1) / 2)].map((value) => round3(Math.max(0, Math.min(1, value))));
+  return { kind, box, share: round3(box[2] * box[3]) };
 }
 
 /**
@@ -233,6 +252,7 @@ export function mergeAlike(shots) {
       const longer = b > a ? shot : last;
       out[out.length - 1] = {
         ...last, end: shot.end, still: longer.still, vector: longer.vector,
+        subject: longer.subject ?? last.subject ?? shot.subject ?? null, salient: longer.salient ?? last.salient ?? shot.salient ?? null,
         motion: Math.round(blend("motion")), face: last.face === null && shot.face === null ? null : Math.round(blend("face")),
         luma: blend("luma"), text: blend("text"), subs: blend("subs"), logo: blend("logo"),
       };
@@ -553,7 +573,7 @@ export async function scanFootage(id, copy, { dataRoot, want = "", embed = null,
       // file is no longer than the stretch (a stretch that reached the video's end early).
       const lead = Math.max(0, duration - span);
       const { shots } = await use.findShots(window.file, { duration, signal, maxSeconds: WHOLE_MAX_SECONDS });
-      const measured = await use.measure(window.file, { width: facts.width, height: facts.height, duration, signal, events: false });
+      const measured = await use.measure(window.file, { width: facts.width, height: facts.height, duration, signal, events: false, subjects: true });
       for (const key of Object.keys(vision)) vision[key] ||= measured.vision?.[key] === true;
       const samples = measured.samples ?? [];
       const cuts = shots.slice(1).map((shot) => shot.start);
@@ -583,7 +603,11 @@ export async function scanFootage(id, copy, { dataRoot, want = "", embed = null,
     const [drawnVector, photoVector] = texts.slice(words ? 1 : 0).map((vector) => (vector ? normalize(vector) : null));
     // The face detector is made for photos: on drawn footage it reads nothing, so faces do not rank.
     const drawn = isDrawn(withStill.map((shot) => shot.vector), drawnVector, photoVector);
-    if (drawn) for (const shot of all) shot.face = null;
+    // There the subject is where the eye goes (saliency), never a face box.
+    for (const shot of all) {
+      if (drawn) { shot.face = null; shot.subject = shot.salient ?? null; }
+      delete shot.salient;
+    }
     const { shots: joined, repeats } = mergeAlike(all);
     const ranked = rankShots(joined, { wantVector: wantVector ? normalize(wantVector) : null, drawn });
     // Shot numbers (numberShots): time order in a first scan; a shot already numbered keeps its
@@ -606,8 +630,10 @@ export async function scanFootage(id, copy, { dataRoot, want = "", embed = null,
     const rows = ranked.shots.map((shot, index) => ({
       n: numbered[index].n, start: numbered[index].start, end: numbered[index].end, motion: shot.motion, face: shot.face,
       match: shot.match, score: shot.score, base: shot.base, flags: shot.flags,
-      // A dark shot keeps its mean light (0 to 1), so its line says how dark.
-      ...(shot.flags.includes("dark") && Number.isFinite(shot.luma) ? { luma: shot.luma } : {}),
+      // Every shot keeps its mean light (0 to 1) and where its subject is, so a listing can be
+      // narrowed by them (library footage filter, actions.mjs) without looking at each still.
+      ...(Number.isFinite(shot.luma) ? { luma: shot.luma } : {}),
+      ...(shot.subject ? { subject: shot.subject } : {}),
       ...(shot.vector ? { vector: encodeVector(shot.vector) } : {}),
     }));
     // The shots of earlier scans stay under their numbers, and every shot of the video is then
