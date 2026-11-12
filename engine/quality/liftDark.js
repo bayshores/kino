@@ -273,6 +273,77 @@ export function deblockFor(measured, sourceScale = 1) {
   };
 }
 
+// Fitting the deblock again when its first strength leaves the block step over the bar: each try
+// widens the blur by half its radius and raises the threshold by 1.5 times its own (on a lifted
+// 1920x1080 stair shot, radius 4 threshold 0.006 left a 16 px step of 0.81 levels, radius 6
+// threshold 0.016 left 0.41). The stated limit: two tries, a radius of half a block and a threshold
+// of 12 levels.
+export const DEBLOCK_TRIES = 2;
+const THRESHOLD_LIMIT = 12 / 255;
+
+/** The deblock `base` made stronger by `tries` steps, within the stated limit (side: the block side in source pixels). */
+export function strongerDeblock(base, tries, side = 16, sourceScale = 1) {
+  return {
+    radius: Math.round(Math.min(32, (side / 2) * sourceScale, base.radius * (1 + 0.5 * tries)) * 10) / 10,
+    threshold: Math.round(Math.min(THRESHOLD_LIMIT, base.threshold * (1 + 1.5 * tries)) * 1000) / 1000,
+  };
+}
+
+// The curve's output step for one source level at the shot's median (as liftGrain reads it).
+const slopeAt = (stats, stops) => {
+  const middle = Math.min(0.98, Math.max(stats.p50, stats.p2 + 0.02));
+  return liftValue(middle + 1 / 255, stats, stops) - liftValue(middle, stats, stops);
+};
+
+/**
+ * The largest lift (stops, to 0.01) whose block step stays at or under `bar` levels, for a shot
+ * whose step measured `step` at `stops`: the step a curve draws grows with its slope at the shot's
+ * median, so it is scaled by that slope. 0 when even the unlifted step is over; null when `step` is
+ * at or under the bar already.
+ */
+export function largestLift(stats, stops, step, bar) {
+  const now = slopeAt(stats, stops);
+  if (!(step > bar) || !(now > 0)) return null;
+  const drawn = (value) => step * slopeAt(stats, value) / now;
+  if (drawn(0) > bar) return 0;
+  let low = 0, high = stops;
+  for (let index = 0; index < 16; index += 1) {
+    const middle = (low + high) / 2;
+    if (drawn(middle) <= bar) low = middle; else high = middle;
+  }
+  return Math.floor(low * 100) / 100;
+}
+
+/** The mean luma (0 to 1) the lift curve for `stats` at `stops` draws on `frames`. */
+export function liftedMean(frames, stats, stops) {
+  return lumaStats(curved(frames, stats, stops))?.mean ?? null;
+}
+
+/**
+ * Banding in the shadows: the distinct luma levels (0 to 255) the darker half of each frame's
+ * pixels hold, counting a level that holds at least 1 in 2,000 of those pixels. The darker half is
+ * read on `reference` (the same frames before the lift, drawn at the same size), so before and
+ * after count the same pixels.
+ */
+export function shadowLevels(frames, reference = frames) {
+  const counts = new Map();
+  let total = 0;
+  for (const [index, frame] of (frames ?? []).entries()) {
+    const own = reference?.[index];
+    if (!frame?.pixels?.length || own?.pixels?.length !== frame.pixels.length) continue;
+    const values = [];
+    for (let at = 0; at < own.pixels.length; at += 4) values.push(luma(own.pixels, at));
+    const cut = [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
+    for (let at = 0, pixel = 0; at < frame.pixels.length; at += 4, pixel += 1) {
+      if (values[pixel] > cut) continue;
+      const level = Math.round(luma(frame.pixels, at));
+      counts.set(level, (counts.get(level) ?? 0) + 1);
+      total += 1;
+    }
+  }
+  return total ? [...counts.values()].filter((count) => count >= total / 2000).length : null;
+}
+
 /**
  * The grain for a lift, or null under GRAIN_FROM_STOPS: its spread matches one source level as the
  * curve draws it at the shot's median (the step a block edge makes), so a lift that amplifies the

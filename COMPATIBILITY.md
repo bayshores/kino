@@ -1759,6 +1759,11 @@ How to read it:
   the new one). Smooths compression block edges when the measured step is high; grain size follows the source scale. The target
   and means print in one range (full 0-255, with the target's video-range level); rendered mean 58 for target 60. Evidence:
   `backend/lift-deblock.test.mjs`. Gap: the means come from 6 rendered frames a shot (the next bullet), not every frame.
+- **lift_dark fits its deblock to the step after the lift**: the step is read with the grain off and against a bar from the
+  scene's bright shots; over it, up to 2 stronger tries, then the largest lift under the bar as a number; shadow levels before
+  and after. Verified on a generated clip (0.8 to 0.07) and a copied real stair shot (0.75 to 0.38, largest lift +2.47 stops,
+  levels 12 to 50). Evidence: `backend/lift-deblock.test.mjs`. Gap: the curve still runs on 8-bit levels; check does not name
+  block frames on lifted layers.
 - **lift_dark receipt equals the render on real footage**: Verified on a copy of a real night project (6 lifted shots: receipt A lift drawn more than a level off its target is fitted a second time (a caption over a dark wall: 58 to 60 for a target of 60).
   48.3 to 49.2 against a 1920 px render of 12 frames across each shot, 48.3 to 49.6; it was 47 to 48 against 50 to 56). Cause: the
   scaled video decode read dark colored footage up to 2 levels dark; video pictures now decode alike at every width. The receipt
