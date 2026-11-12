@@ -908,8 +908,14 @@ How to read it:
 - **Burned-in marks** (`burned_in_mark`): Stub-verified. A mark a scan finds in a corner is said as "a mark is
   burned into this clip's top-left" in the scan and list answers (marked videos list after clean ones), the
   import answer gives the crop numbers or a clean clip, and the check names a layer still showing it.
-  Evidence: `backend/footage-finder.test.mjs` (library footage, import), `engine/qualityRules.test.js`.
-  Gap: only text marks are found (a logo with no letters is not), marks are per video, not per shot.
+  `frame_shot` keeps the mark out of its crop (each mark widened 1/24 across for an icon); past 1.35x
+  or a cut face the receipt and check offer a shift or a soft cover.
+  Evidence: `backend/footage-finder.test.mjs` (library footage, import), `engine/qualityRules.test.js`,
+  `engine/footage.test.js` (frame_shot).
+  Gap: only text marks are found (a logo with no letters is not), marks are per video, not per shot;
+  a mark wider than a quarter of the frame (a long credit line) is not found.
+- **Dark shots kept**: Stub-verified. A scan tags a dark shot "dark, mean N of 255" and keeps its rank.
+  Evidence: `backend/footage-finder.test.mjs`.
 - **What a found video says**: Stub-verified, one live caption fetch. A scan reads a video's captions once
   (yt-dlp, kept per video), prints `says` per shot, `said:"words"` ranks the shots that say them first and
   the next call imports that line. Evidence: `backend/footage-finder.test.mjs` (captions, said, says).

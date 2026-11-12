@@ -1881,6 +1881,9 @@ test("narrow_window: a window under 40% of the file's width where no face was fo
   assert.equal(seenMark(TALL_CROP, keeperLooked, 0.6, 1), true);
   assert.equal(seenMark(TALL_CROP, keeperLooked, 1.4, 2), true, "0.5 s of reach");
   assert.equal(seenMark(TALL_CROP, keeperLooked, 1.6, 2), false);
+  // A look inside the same shot of the file (no cut between) saw the same picture; one across a cut did not.
+  assert.equal(seenMark(TALL_CROP, keeperLooked, 1.6, 2, [{ start: 0, end: 3 }]), true);
+  assert.equal(seenMark(TALL_CROP, keeperLooked, 1.6, 2, [{ start: 0, end: 1.2 }, { start: 1.2, end: 3 }]), false);
   assert.equal(seenMark(TALL_CROP, null, 0, 2), false);
 });
 
@@ -1922,10 +1925,16 @@ test("burned_in_mark: a window that still shows a mark found in the file warns w
   // The fix is the layer box that puts the mark outside the frame, with the numbers; it works.
   assert.match(mark.fix.text, /Pick a clean clip \(library \{topic:"footage"\} lists them first\), or edit \{"ops":\[\{"op":"update_layer","layer":"keeper","properties":\{"x":-131,"y":-147,"width":2182,"height":1227\}\}\]\}/);
   assert.deepEqual((await run({ ...full, x: -131, y: -147, width: 2182, height: 1227 })).findings, []);
-  // The least zoom over every choice of sides: two corners cut one side and one end (1.25x, not 1.32x for top and bottom);
+  // The least zoom over every choice of sides: with each mark widened by MARK_PAD across (a logo's icon
+  // beside its name), two corners cut top and bottom (1.32x); without the pad one side and one end (1.25x);
   // a 9:16 window slides past a corner mark with no zoom; a mark mid-frame cannot be cut off in one move.
-  const both = cropPast([...marks, { where: "bottom-right", box: [0.8, 0.88, 0.18, 0.09] }], { width: 1920, height: 1080 }, { width: 1920, height: 1080 });
-  assert.deepEqual([both.cut.left, both.cut.bottom, both.zoom], [20, 12, 1.25]);
+  const two = [...marks, { where: "bottom-right", box: [0.8, 0.88, 0.18, 0.09] }];
+  const both = cropPast(two, { width: 1920, height: 1080 }, { width: 1920, height: 1080 });
+  assert.deepEqual([both.cut.top, both.cut.bottom, both.zoom], [12, 12, 1.32]);
+  assert.equal(cropPast(two, { width: 1920, height: 1080 }, { width: 1920, height: 1080 }, { pad: 0 }).zoom, 1.25);
+  // A mark that needs more than MARK_ZOOM_MOST (1.35x) to crop out: the fix offers the other one-call ways.
+  const [big] = (await run(full, { [TALL_CROP.src]: [{ where: "top-left", box: [0.02, 0.03, 0.3, 0.3] }] })).findings;
+  assert.match(big.fix.text, /a crop past it needs 1\.\d+x\. Other ways: shift the crop away from the corner: edit .*; or a soft cover: edit \{"ops":\[\{"op":"add_layer","layerType":"rectangle"/);
   const slid = cropPast([{ where: "left", box: [0.02, 0.4, 0.15, 0.1] }], { width: 1080, height: 1920 }, { width: 1920, height: 1080 });
   assert.deepEqual([slid.zoom, slid.cut.left], [1, 34]);
   assert.equal(cropPast([{ where: "middle", box: [0.4, 0.4, 0.2, 0.2] }], { width: 1920, height: 1080 }, { width: 1920, height: 1080 }), null);
@@ -1944,7 +1953,7 @@ test("crop_no_subject: where no face was found, the window must keep what kino s
   // The 9:16 window (34% to 66%) keeps 69% of a box from 25% to 55%: a gate, fixed by frame_shot.
   const [cut] = (await cropRun("crop_no_subject", tall(), sees([25, 20, 30, 50]))).findings;
   assert.deepEqual([cut.severity, cut.fix.kind, cut.fix.auto], ["error", "frame_shot", true]);
-  assert.match(cut.message, /^"keeper" cuts what kino sees in its file at the left at 0 s: 69% of it is in the frame \(a saliency box, not a face\)\. edit \{"ops":\[\{"op":"frame_shot","layers":\["keeper"\]\}\]\} keeps it whole/);
+  assert.match(cut.message, /^"keeper" cuts what kino sees in its file at the left at 0 s \(scene; file 0 s\): 69% of it is in the frame \(a saliency box, not a face\)\. edit \{"ops":\[\{"op":"frame_shot","layers":\["keeper"\]\}\]\} keeps it whole/);
   // Kept whole: no finding, not even the arbitrary-crop warning; narrow_window is quiet with a box either way.
   assert.deepEqual((await cropRun("crop_no_subject", tall(), sees([40, 20, 20, 50]))).findings, []);
   assert.deepEqual((await cropRun("narrow_window", tall(), sees([25, 20, 30, 50]))).findings, []);

@@ -293,7 +293,8 @@ export function applyOperations(source, operations, {fonts, mediaBySrc, mediaByI
     if (operation.type === "frame_shot") {
       if (isEffectivelyLocked(scene.layers, layer.id)) throw new Error("Unlock this layer before framing it.");
       const taken = new Set(document.scenes.flatMap((item) => item.layers.map((entry) => entry.id)));
-      const shot = frameShot(scene, layer, { size: operation.size, samples: operation.samples, taken });
+      // `marks`: logos burned into the file (footage facts); the crop keeps them out when it can.
+      const shot = frameShot(scene, layer, { size: operation.size, samples: operation.samples, taken, ...(Array.isArray(operation.marks) ? { marks: operation.marks } : {}) });
       Object.assign(layer, shot.patch);
       if (shot.backdrop) scene.layers.splice(scene.layers.indexOf(layer), 0, shot.backdrop);
       continue;

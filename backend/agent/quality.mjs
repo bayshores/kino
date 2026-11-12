@@ -625,6 +625,7 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
     const found = {};
     const names = {};
     const burned = {};
+    const shotsOf = {};
     const pending = [];
     // Which video files the document plays are found clips and which are the person's (ask_unmet).
     const foundClips = new Set(), ownClips = new Set();
@@ -664,7 +665,9 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
         // `found`: kino's footage finder imported it (its record says where from); the rest are the person's.
         // `marks`: logos burned into the file, found by the finder's scan (burned_in_mark).
         const marks = Array.isArray(record?.footage?.marks) ? record.footage.marks.filter((mark) => Array.isArray(mark?.box) && mark.box.length === 4) : [];
-        entry = { size, name: typeof record?.name === "string" ? record.name : null, found: Boolean(record?.footage), marks };
+        // `shots`: the file's measured shots [{start, end}]: a source look inside the same shot counts (seenMark).
+        const shots = Array.isArray(record?.shots) ? record.shots.filter((shot) => Number.isFinite(shot?.start) && Number.isFinite(shot?.end)) : [];
+        entry = { size, name: typeof record?.name === "string" ? record.name : null, found: Boolean(record?.footage), marks, shots };
         // Unmeasured (failed or still running): not kept, so the next check reads the saved facts.
         if (!measured || Object.hasOwn(measured, "busy")) sizes.set(layer.src, entry);
         else pending.push(layer.src);
@@ -674,10 +677,11 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
       if (layer.type !== "audio") found[layer.src] = size;
       names[layer.src] = name;
       if (layer.type === "video" && entry.marks?.length) burned[layer.src] = entry.marks;
+      if (layer.type === "video" && entry.shots?.length) shotsOf[layer.src] = entry.shots;
       if (layer.type === "video") (entry.found ? foundClips : ownClips).add(layer.src);
     }
     // In each scene's key, so a check made before the facts came is not kept after.
-    return { sizes: found, names, burned, pending: pending.join(","), foundTitles: [...foundClips].map((src) => names[src]).filter(Boolean), ownFootage: ownClips.size > 0 };
+    return { sizes: found, names, burned, shots: shotsOf, pending: pending.join(","), foundTitles: [...foundClips].map((src) => names[src]).filter(Boolean), ownFootage: ownClips.size > 0 };
   }
 
   // A kept check, made the most recently used.
@@ -779,7 +783,7 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
       // The raw scene and each picture's file size (soft_upscale, crop_no_subject).
       scene, mediaSizes: media.sizes, mediaNames: media.names,
       // Logos burned into found clips (burned_in_mark): {src: [{where, box}]}.
-      burnedMarks: media.burned,
+      burnedMarks: media.burned, mediaShots: media.shots,
       // Files recorded together (sync_clips): out_of_sync holds a line to the picture of its moment.
       clipLinks: document.clipLinks ?? [],
       // The storyboard's shots (cue, dur, move kind): plain_beats judges each one.

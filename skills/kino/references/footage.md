@@ -55,11 +55,11 @@ image model did not run), and shots rank on motion, faces and clean frames.
 ## Reading a scan
 
 `F1.37 3:17.2-3:19.0 1.8s motion 82 face 40 match +3.1`: shot 37 of F1, its time in the video,
-length, motion and face (0 to 100), match (how far above the others it fits `want`). Dark shots,
-shots full of text, `subtitles` shots and shots under 0.4 s go last; `logo` marks a logo fixed
-for a while. A mark burned into most shots is said once ("a mark is burned into this clip's
-top-left"), and such videos list after clean ones. The import answer offers a clean clip or a crop
-with numbers; check `burned_in_mark` names a layer still showing it. Drawn footage has no face number ("Faces: not read
+length, motion and face (0 to 100), match (how far above the others it fits `want`). Shots full
+of text, `subtitles` shots and shots under 0.4 s go last; `logo` marks a logo fixed for a while;
+a dark shot keeps its rank (`dark, mean 13 of 255`). A burned-in mark is said once; such videos
+list after clean ones. Import offers a clean clip or a crop; `frame_shot` keeps the mark out;
+`burned_in_mark` names a layer still showing it (past 1.35x: a shift or a cover). Drawn footage has no face number ("Faces: not read
 on drawn footage."). Skipped counts say what was left out. With a song in the video, the answer
 says how many shots it needs (a cut every 2 beats on the drop, 4 on builds) and the import call
 names up to 1.5 times that. The answer's `next:` is that import call: change the shots after looking.
