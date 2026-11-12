@@ -74,10 +74,14 @@ export function neonOnDark(model, ctx) {
   }];
 }
 
+// The flash move's flat frames (frames:n): the join between two shots, held a frame or a few, not a
+// backdrop that sits flat on screen.
+const flatFlashFrame = (model, item) => Boolean(item?.move) && (model.moves ?? []).some((entry) => entry.id === item.move && entry.name === "flash" && entry.settings?.frames !== undefined);
+
 export function pureFrame(model, ctx) {
   const findings = [];
   for (const { paint, item } of backdrops(model)) {
-    if (typeof paint !== "string") continue;
+    if (typeof paint !== "string" || flatFlashFrame(model, item)) continue;
     const rgba = hexRgba(paint);
     if (!rgba || rgba[3] < 255) continue;
     const black = rgba[0] === 0 && rgba[1] === 0 && rgba[2] === 0;

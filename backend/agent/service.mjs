@@ -52,7 +52,7 @@ import { hideShareSecrets } from "../shares.mjs";
 import { mediaAllowedIn } from "../media-use.mjs";
 import { assignCodes, closest, createResolver, documentObjects, nearMiss, ReferenceError } from "./refs.mjs";
 import { SAMPLE_FRAME, sampleOps } from "./library-catalog.mjs";
-import { pictureAlpha } from "./picture-alpha.mjs";
+import { pictureAlpha, seeThrough } from "./picture-alpha.mjs";
 import { shotColor } from "./shot-color.mjs";
 import { libraryMedia, stripPng } from "./library-media.mjs";
 import { currentTurn, turnOver } from "./state.mjs";
@@ -3037,7 +3037,12 @@ export function createAgentService(deps) {
       if (unseen.length) (work.warnings ??= []).push(...unseen);
       const svgNames = importedNames(after, translation.operations, changes.created, nameOf);
       if (svgNames) (work.notes ??= []).push(svgNames);
-      for (const { note } of coverNotes(before, after, changes.created, nameOf)) (work.notes ??= []).push(note);
+      // A made clip or picture with an alpha channel lets what is under it show: no cover note for it.
+      const madeIds = new Set(changes.created);
+      const madeFiles = [...new Set((after.scenes ?? []).flatMap((scene) => scene.layers ?? []).filter((layer) => madeIds.has(layer.id) && (layer.type === "video" || layer.type === "image") && layer.src).map((layer) => layer.src))];
+      const clear = new Set();
+      for (const src of madeFiles.slice(0, 12)) if (await seeThrough(deps.mediaRoot, src).catch(() => false)) clear.add(src);
+      for (const { note } of coverNotes(before, after, changes.created, nameOf, { seeThrough: clear })) (work.notes ??= []).push(note);
       // A rule this edit waived past the limit is likely kino's mistake: say so in the receipt.
       const waivedCodes = translation.operations.filter((operation) => operation.type === "waive_check").map((operation) => operation.code);
       const waiverNote = waivedCodes.length ? waiverNotes(liveWaivers(after.checkWaivers, staleWaivers), { codes: waivedCodes }) : [];

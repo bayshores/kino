@@ -7,6 +7,7 @@ import { heardEdges, heardWords } from "./speech.js";
 import { area, boxAt, chainOf, frameAt, itemById, roundBox, tweensOf } from "../model.js";
 import { easingBezier } from "../../easing.js";
 import { WHIP_SHUTTER } from "../../previewBlur.js";
+import { elementKey, SAME_PLACE } from "../returns.js";
 
 // Position, scale and rotation: the keys linear_motion and the bounce rules look at.
 const MOTION_KEYS = new Set(["x", "y", "scaleX", "scaleY", "rotation"]);
@@ -179,10 +180,45 @@ export function springOnFade(model, ctx) {
   return findings;
 }
 
+// A copy returns when it shows where the one before it showed, or after that one is gone. Copies
+// seen together in different places (a staggered row, grid or ring) do not.
+function returnsAfter(model, earlier, later) {
+  if (later.start - earlier.start < SAME_PLACE - 1e-6) return false;
+  const at = frameAt(model, later.end);
+  const before = earlier.item.samples.opacity[at] ?? 0;
+  const now = later.item.samples.opacity[at] ?? 0;
+  if (before <= 0.05 || now <= 0.05) return true;
+  const center = (box) => [(box.x0 + box.x1) / 2, (box.y0 + box.y1) / 2];
+  const [ax, ay] = center(boxAt(earlier.item, frameAt(model, earlier.end)));
+  const [bx, by] = center(boxAt(later.item, at));
+  return Math.hypot(ax - bx, ay - by) <= 0.02 * Math.hypot(model.width, model.height);
+}
+
+// The movers: copies of one element (one name, words or file, as duplicate_layers {at} makes them)
+// that each return (returnsAfter) are one mover, since a returning element keeps its motion on
+// purpose. Copies that start together or stand together in a row stay separate.
+function moverCount(model, list) {
+  const firsts = new Map();
+  for (const motion of list) if (!firsts.has(motion.itemId) || motion.start < firsts.get(motion.itemId).start) firsts.set(motion.itemId, motion);
+  const byElement = new Map();
+  for (const [id, motion] of firsts) {
+    const item = itemById(model, id);
+    const key = item ? elementKey({ type: item.kind, name: item.name, text: item.text, src: item.src }) : id;
+    byElement.set(key, [...(byElement.get(key) ?? []), { item, start: motion.start, end: motion.end }]);
+  }
+  let count = 0;
+  for (const copies of byElement.values()) {
+    copies.sort((a, b) => a.start - b.start);
+    const returning = copies[0].item && copies.every((copy, index) => index === 0 || (copy.item && returnsAfter(model, copies[index - 1], copy)));
+    count += returning ? 1 : copies.length;
+  }
+  return count;
+}
+
 export function sameMotion(model, ctx) {
   const list = judgedMotions(model);
   const animated = new Set(list.map((motion) => motion.itemId));
-  if (animated.size < 4) return [];
+  if (animated.size < 4 || moverCount(model, list) < 4) return [];
   const keys = new Set(list.map((motion) => `${easingKey(motion.easing)} ${sec(motion.duration)}`));
   if (keys.size > 1) return [];
   const [first] = list;

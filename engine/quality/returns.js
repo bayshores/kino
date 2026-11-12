@@ -31,6 +31,70 @@ function subtree(layers, root) {
 // " copy" and a trailing " 3" come off a name, so copies group with their original.
 const nameBase = (name) => String(name ?? "").replace(/( copy)+( \d+)?$/i, "").replace(/ \d+$/, "").trim().toLowerCase();
 
+// A video's place is its play time, an instance's its clock, any other layer's the first Show or
+// animation start in it (0 with none).
+function placeOf(layers, layer) {
+  if (hasMediaPlay(layer)) return Number.isFinite(layer.mediaStart) ? layer.mediaStart : 0;
+  if (layer.type === "component" && Number.isFinite(layer.componentStart)) return layer.componentStart;
+  return selectionStart(subtree(layers, layer)) ?? 0;
+}
+
+/**
+ * The element a layer shows, as a key its copies share: a video or picture is its file, any other
+ * layer its type, its name less " copy" and a number (duplicate_layers names copies "<name> 2"),
+ * and its words.
+ */
+export function elementKey(layer) {
+  if ((layer?.type === "video" || layer?.type === "image") && layer.src) return `file:${layer.src}`;
+  return `${layer?.type}:${nameBase(layer?.name)}:${String(layer?.text ?? "").trim().toLowerCase()}`;
+}
+
+/**
+ * Each element shown at two or more places (SAME_PLACE apart): Map key → [s], in time order. A
+ * video or picture counts at any depth, any other layer at the top level. For rules that leave a
+ * returning element's repeats alone (sfx_restraint).
+ */
+export function elementPlaces(scene) {
+  const layers = scene?.layers ?? [];
+  const used = layers.filter((layer) => layer.type !== "audio" && layer.enabled !== false && !layer.move?.name
+    && (!layer.parentId || ((layer.type === "video" || layer.type === "image") && layer.src)));
+  const isClip = (layer) => layer.type === "video" && Boolean(layer.src);
+  // A clip's uses are one element when they come from one stretch of its file: cuts from all over
+  // one long file are different shots, not one returning shot.
+  const offset = (layer) => (Number.isFinite(layer.mediaOffset) ? layer.mediaOffset : 0);
+  const stretchStarts = new Map();
+  const stretchOf = new Map();
+  for (const layer of used.filter(isClip).sort((a, b) => offset(a) - offset(b))) {
+    const starts = stretchStarts.get(layer.src) ?? [];
+    if (!starts.length || offset(layer) - starts[starts.length - 1] > SAME_STRETCH) starts.push(offset(layer));
+    stretchStarts.set(layer.src, starts);
+    stretchOf.set(layer, starts.length - 1);
+  }
+  const uses = used.map((layer) => ({ key: isClip(layer) ? `${elementKey(layer)}#${stretchOf.get(layer)}` : elementKey(layer), time: placeOf(layers, layer), clip: isClip(layer) }));
+  const byKey = new Map();
+  for (const use of uses) byKey.set(use.key, [...(byKey.get(use.key) ?? []), use]);
+  const returning = new Map();
+  for (const [key, list] of byKey) {
+    const places = [];
+    for (const { time } of placesOf(list.sort((a, b) => a.time - b.time))) {
+      // A shot returns after a cut away: another clip starts between two of its places. Without one
+      // it plays on, so the later place is the same showing.
+      const last = places[places.length - 1];
+      const cutAway = !list[0].clip || last === undefined || uses.some((other) => other.clip && other.key !== key && other.time > last + 1e-6 && other.time < time - 1e-6);
+      if (cutAway) places.push(time);
+    }
+    if (places.length >= 2) returning.set(key, places);
+  }
+  return returning;
+}
+
+// File seconds that one stretch of a clip spans from its first use (a guess: longer than the
+// shots the studied edits cut from one file, shorter than a scene of a long recording).
+const SAME_STRETCH = 10;
+
+/** Two places of one element closer than this are one place (a layer and its plate). */
+export { SAME_PLACE };
+
 // Every group of alike uses: {key, label, uses:[{time, layer}]} (uses in time order).
 function groupUses(scene, scenes) {
   const layers = scene?.layers ?? [];
@@ -40,13 +104,7 @@ function groupUses(scene, scenes) {
     if (!groups.has(key)) groups.set(key, { key, label, uses: [] });
     groups.get(key).uses.push({ time, layer });
   };
-  // A video's place is its play time, an instance's its clock, any other layer's the first
-  // Show or animation start in it (0 with none).
-  const timeOf = (layer) => {
-    if (hasMediaPlay(layer)) return Number.isFinite(layer.mediaStart) ? layer.mediaStart : 0;
-    if (layer.type === "component" && Number.isFinite(layer.componentStart)) return layer.componentStart;
-    return selectionStart(subtree(layers, layer)) ?? 0;
-  };
+  const timeOf = (layer) => placeOf(layers, layer);
   const instances = new Map();
   for (const layer of layers) {
     if (layer.type === "audio") continue;

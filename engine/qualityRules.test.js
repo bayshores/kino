@@ -460,6 +460,10 @@ test("same_motion: four animated layers must not all share one easing and durati
   const [finding] = await fires("same_motion", four(0.5));
   assert.equal(finding.fix.kind, "hint");
   await silent("same_motion", four(1));
+  // One ring and its copies at 1, 2 and 3 s (duplicate_layers {at}) are one returning element, so one mover.
+  await silent("same_motion", scene({ layers: ["ring", "ring 2", "ring 3", "ring 4"].map((name, i) => rect(`ring${i}`, { name, animations: [fadeIn(i)] })) }));
+  // Copies staggered into a row (duplicate_layers {count, stagger, layout:"line"}) stand together in four places: four movers.
+  await fires("same_motion", scene({ layers: ["card", "card 2", "card 3", "card 4"].map((name, i) => rect(`card${i}`, { name, x: 40 + i * 440, animations: [fadeIn(i * 0.5)] })) }));
 });
 
 test("easing_repeat: at most two separate motions share an easing and duration", async () => {
@@ -1304,6 +1308,11 @@ test("pure_frame: a full-frame layer is not pure white", async () => {
   assert.equal(finding.fix.auto, true);
   assert.equal(finding.fix.properties.fill, "#fafaf7");
   await silent("pure_frame", backed("#fafaf7"));
+  // The flash move's one flat white frame (frames:1) is the join between two shots, not a backdrop.
+  const flat = (settings) => scene({ moves: [{ id: "flash1", name: "flash", settings, tags: ["flash"], start: 1, end: 1.033 }],
+    layers: [text("title", "Hello"), rect("flash-1", { x: 0, y: 0, width: 1920, height: 1080, fill: "#ffffff", move: { name: "flash", instance: "flash1", part: "flash" }, animations: [show(1), hide(1.033)] })] });
+  await silent("pure_frame", flat({ frames: 1 }));
+  await fires("pure_frame", flat({}));
 });
 
 test("default_font: text is not set in a common default font", async () => {

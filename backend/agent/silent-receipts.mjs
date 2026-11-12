@@ -1,6 +1,7 @@
 // Receipt notes for things an edit does that show nothing, or cover something, without a word
 // (GAPS Friction 4 and 5, benchmark rebuilds): a preset that cannot show on its target, and a
-// full-frame clip added over text or a graphic that is on screen at the same time.
+// full-frame clip added over text or a graphic that is on screen at the same time (not a file with
+// an alpha channel, which lets them show).
 // Both only read the saved documents and the ops of the edit; nothing here changes a document.
 
 // Presets that pixelate or dissolve the layer's one picture. On a layer drawn as repeated copies
@@ -66,15 +67,17 @@ function fullFrame(layer, scene) {
 /**
  * For each full-frame video or image this edit made on top of text or graphics that are on screen
  * at the same time, a note with the one reorder call that puts the clip under the lowest of them.
- * Returns [{ note, call }]: `call` is {tool, input}.
+ * Returns [{ note, call }]: `call` is {tool, input}. `seeThrough` holds the files with an alpha
+ * channel (an alpha WebM, a picture with a clear part): what is under them still shows, so they
+ * get no note.
  */
-export function coverNotes(before, after, createdIds, refName) {
+export function coverNotes(before, after, createdIds, refName, { seeThrough = new Set() } = {}) {
   const made = new Set(createdIds);
   const notes = [];
   for (const scene of after.scenes ?? []) {
     const layers = scene.layers ?? [];
     for (const [index, cover] of layers.entries()) {
-      if (!made.has(cover.id) || !fullFrame(cover, scene)) continue;
+      if (!made.has(cover.id) || !fullFrame(cover, scene) || seeThrough.has(cover.src)) continue;
       const [from, to] = windowOf(cover, scene);
       const under = layers.slice(0, index).filter((layer) => layer.parentId === null && layer.visible !== false && Number(layer.opacity) > 0
         && layer.role !== "background" && COVERABLE.has(layer.type) && !fullFrame(layer, scene)

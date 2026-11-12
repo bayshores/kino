@@ -14,7 +14,7 @@ import { createBlockRunner, translateBlock } from "./agent/blocks.mjs";
 import { layerHash, LAYERS_PER_PAGE, projectOutline } from "./agent/outline.mjs";
 import { inspectTargets, MAX_INSPECT } from "./agent/inspect.mjs";
 import { adviceLine, checkDocument, checkReport, checkSummary, groupFixLines, liveWaivers, MAX_FINDINGS, mergeFindings, openFindingLines, staleWaiverLine, waiverNotes } from "./agent/checks.mjs";
-import { staleWaivers } from "./agent/quality.mjs";
+import { staleWaivers, waiversFor } from "./agent/quality.mjs";
 import { matchReferences } from "./agent/exposure-match.mjs";
 import { defaultFonts } from "../engine/fonts.js";
 
@@ -845,6 +845,14 @@ test("advice is one line and not a warning; open findings list by rule; a rule w
   assert.deepEqual(waiverNotes(liveWaivers(holds, stale)), []);
   assert.equal(staleWaiverLine(stale), 'stale waivers (nothing left to waive): hold L0. Drop each: edit unwaive_check {code:"hold", target:"L0"}.');
   assert.equal(staleWaiverLine([]), "");
+  // A finding naming three layers (soft_upscale on one file) is waived only when all three are; each matching waiver is in use.
+  const model = { sceneId: "s1", itemOf: (id) => ({ id }) };
+  const soft = (target) => ({ code: "soft_upscale", target, reason: "a small test clip" });
+  const grouped = { rule: "soft_upscale", itemId: "a", itemIds: ["a", "b", "c"] };
+  const one = waiversFor(grouped, model, [soft("a")]);
+  assert.deepEqual([one.waiver, one.used.length], [undefined, 1]);
+  assert.equal(waiversFor(grouped, model, [soft("a"), soft("b"), soft("c")]).waiver?.target, "a");
+  assert.equal(waiversFor(grouped, model, [soft("s1")]).waiver?.target, "s1");
 });
 
 test("match_references grades only the shot outside the references' range, replaces its own grade on a second run and takes it off with remove", async () => {
