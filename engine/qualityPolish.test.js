@@ -232,12 +232,19 @@ test("held_static names what is drawn, never a cut_out's source or a mask helper
   const held = (source) => scene({ duration: 5, layers: [picture("clip", { x: 0, y: 0, width: 1200, height: 900 }), copy(source), text("title", "The end", { y: 800, animations: [fadeIn(0, 0.5)] }),
     rect("bar", { x: 100, y: 950, width: 200, height: 100, animations: [move(3.5, 1.5, { x: 100 }, { x: 1500 })] })] });
   assert.equal((await fires("held_static", held(null)))[0].itemId, "clip");
-  assert.equal((await fires("held_static", held("clip")))[0].itemId, "subject");
-  // A layer another layer is clipped by (a helper, not a group) is left out the same way.
-  const model = kinoTimeline(held(null), "scene", { fonts: defaultFonts });
-  model.items.find((item) => item.id === "subject").clipIds = ["clip"];
-  const { findings } = await runQuality(model, { codes: ["held_static"], pixels: false, context: {} });
-  assert.equal(findings[0].itemId, "subject");
+  const [named] = await fires("held_static", held("clip"));
+  assert.equal(named.itemId, "subject");
+  // Its fix moves the copy and the clip it was cut from together, so the subject never shows twice.
+  assert.deepEqual(named.fix.changes.map((change) => change.itemId).sort(), ["clip", "subject"]);
+  // A mask made of a group of big shapes (a torn edge): the shapes inside the mask never draw, so
+  // the finding names the masked layer (it named the largest shape inside the mask before).
+  const torn = scene({ duration: 5, layers: [
+    { type: "group", id: "field", name: "field", x: 0, y: 0, width: 1920, height: 1080, isMaskGroup: true },
+    { type: "group", id: "edge", name: "edge", parentId: "field", x: 0, y: 0, width: 1920, height: 1080, isMask: true },
+    rect("edge-a", { parentId: "edge", fill: "#ffffff", x: 0, y: -200, width: 2600, height: 1480 }),
+    rect("tint", { parentId: "field", fill: "#ff66aa", x: 0, y: 0, width: 1920, height: 1080 }),
+    rect("bar", { x: 100, y: 950, width: 200, height: 100, animations: [move(3.5, 1.5, { x: 100 }, { x: 1500 })] })] });
+  assert.equal((await fires("held_static", torn))[0].itemId, "tint");
 });
 
 test("held_static: nothing on screen moves for more than 1.5 s", async () => {

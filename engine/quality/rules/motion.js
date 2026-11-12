@@ -72,12 +72,12 @@ export function isAmbientDrift(model, item, tween) {
   const lines = item.fill == null && item.stroke != null;
   if (!light && !lines) return false;
   const [first, last] = [frameAt(model, tween.start), frameAt(model, tween.end)];
-  const travelled = [0, 0, 0, 0];
+  const traveled = [0, 0, 0, 0];
   for (let index = first + 1; index <= last; index += 1) {
     const [a, b] = [boxAt(item, index - 1), boxAt(item, index)];
-    [["x0", "y0"], ["x1", "y0"], ["x0", "y1"], ["x1", "y1"]].forEach(([x, y], corner) => { travelled[corner] += Math.hypot(b[x] - a[x], b[y] - a[y]); });
+    [["x0", "y0"], ["x1", "y0"], ["x0", "y1"], ["x1", "y1"]].forEach(([x, y], corner) => { traveled[corner] += Math.hypot(b[x] - a[x], b[y] - a[y]); });
   }
-  return Math.max(...travelled) / tween.duration <= AMBIENT_DRIFT.speed * model.width;
+  return Math.max(...traveled) / tween.duration <= AMBIENT_DRIFT.speed * model.width;
 }
 
 /**

@@ -312,22 +312,17 @@ export const isMoveTween = (tween) => tween.keys.some((key) => MOVE_KEYS.has(key
 export const neverShown = (item) => !item.isMask && maxOpacity(item) < 0.01;
 
 // Layers that exist to feed another layer, so a rule about what the viewer sees leaves them alone:
-// the clip a cut_out was made from (the copy has cutoutOf), a mask, and a layer that masks or clips
-// another (its id is in that layer's clipIds, or is a mask group's maskId). A cut-out recipe leaves
-// its source under the backdrop on purpose, and a mask helper never draws.
-const helpers = new WeakMap();
+// the clip a cut_out was made from (the copy has cutoutOf), a mask, and every layer inside a mask
+// (a mask that is a group of shapes: the model gives the group isMask, not its children, and the
+// children keep their own opacity). A cut-out recipe leaves its source under the backdrop on purpose,
+// and a mask helper never draws. (The masks of clipIds and maskId are masks, so isMask covers them.)
+const cutoutSources = new WeakMap();
+/** True for a mask and for every layer inside one. */
+export const inMask = (model, item) => chainOf(model, item).some((entry) => entry.isMask);
 export function isHelperLayer(model, item) {
-  if (item.isMask) return true;
-  if (!helpers.has(model)) {
-    const ids = new Set();
-    for (const other of model.items) {
-      if (other.cutoutOf) ids.add(other.cutoutOf);
-      if (other.maskId) ids.add(other.maskId);
-      for (const id of other.clipIds ?? []) if (itemById(model, id)?.kind !== "group") ids.add(id);
-    }
-    helpers.set(model, ids);
-  }
-  return helpers.get(model).has(item.id);
+  if (inMask(model, item)) return true;
+  if (!cutoutSources.has(model)) cutoutSources.set(model, new Set(model.items.map((other) => other.cutoutOf).filter(Boolean)));
+  return cutoutSources.get(model).has(item.id);
 }
 
 /** True when the item or one of its groups is marked perpetual or has a looping animation (behavior.js). */

@@ -1012,11 +1012,11 @@ How to read it:
   above it covers all that time warns; a full-frame flash, fade or tint gets an auto `move_layers`
   above the cover. Boxes only (no render): a cover of several layers or a cut-out picture is not seen,
   and only a solid shape, mp4 or jpg counts as a cover (a png, webm or mov may be clear).
-- **Checks leave deliberate craft alone**: `linear_motion` passes an ambient drift (2 s or more, line art
-  or blended light, under 3% of the frame width a second) and still fires on a fast move or a filled
-  card; `covered_layer` and `held_static` skip the source of a cut_out and a mask helper. Evidence:
-  `engine/qualityRules.test.js`, `engine/qualityPolish.test.js`.
   Evidence: `engine/qualityRules.test.js`, `backend/agent-overlap-fade-fix.test.mjs`.
+- **Checks leave deliberate craft alone**: `linear_motion` passes an ambient drift (2 s or more, line art
+  or a blended layer, under 3% of the frame width a second) and still fires on a fast move or a filled
+  card; `covered_layer` and `held_static` skip the source of a cut_out, a mask and the shapes inside a
+  mask. Evidence: `engine/qualityRules.test.js`, `engine/qualityPolish.test.js`.
 - **Measured** (hand-run eval, not in CI): ggml-small.en word starts 84 to 86% within 0.1 s on four
   real voiceovers. Not verified: joins by ear, video layers as the voice, other languages, the
   packaged app finding whisper-cli.
