@@ -26,6 +26,7 @@ import { LAYER_ROLES } from "../../engine/qualityFields.js";
 import { MEDIA_TIMING_TYPES } from "../../engine/mediaTime.js";
 import { TRIM_KEYS } from "../../engine/strokeTrim.js";
 import { withOutlineGlow } from "../../engine/outlineGlow.js";
+import { withSplatter } from "../../engine/splatter.js";
 import { REPEAT_KEYS } from "../../engine/repeater.js";
 import { MODIFIER_CHOICE_KEYS, MODIFIER_KEYS } from "../../engine/shapeModifiers.js";
 import { bezierFromCss, fixLayerProperties, fixOperation, gradientFromCss, hexFromHsl, isLayerFieldAlias, reshapeOperation, timeFromText } from "./common-mistakes.mjs";
@@ -172,6 +173,9 @@ const OPERATION_FIELDS = {
   update_layer: new Set(["type", "sceneId", "layerId", "properties"]),
 };
 
+// Shorthands checkLayerProperties turns into layer fields, so they may sit at the top level too.
+const SHORTHANDS = new Set(["splatter", "generate"]);
+
 function liftLayerFields(operation, fixes) {
   const own = OPERATION_FIELDS[operation.type];
   if (!own) return;
@@ -182,7 +186,7 @@ function liftLayerFields(operation, fixes) {
   // Another name for a layer field (color, colour, font) goes into properties too, where it
   // becomes the field (color → fill) as it does inside properties, or is refused there when the
   // layer does not use that field (align on a rectangle: align_layers lines layers up).
-  const unknown = loose.filter((key) => !LAYER_PROPERTIES.has(key) && !isLayerFieldAlias(key));
+  const unknown = loose.filter((key) => !LAYER_PROPERTIES.has(key) && !isLayerFieldAlias(key) && !SHORTHANDS.has(key));
   if (unknown.length) {
     const suggestions = closest(unknown[0], [...own, ...LAYER_PROPERTY_NAMES].filter((key) => key !== "type"));
     throw Object.assign(new Error(`${unknown.map((key) => `"${key}"`).join(", ")} ${unknown.length === 1 ? "is not a field" : "are not fields"} of ${operation.type} or of a layer.${suggestions.length ? ` Did you mean ${suggestions.join(", ")}?` : ""}`), { suggestions });
@@ -301,12 +305,40 @@ function showWindowOnUpdate(operation, fixes, resolver, document) {
   if (calls.length) resolver.notes.push(`mediaStart/mediaDuration time Play on media and do nothing on a ${layer.type}: it shows by Show and Hide, ${calls.join(", ")}`);
 }
 
+// splatter (true, a style or {style, seed, count, spread, angle, streaks, drips}) and its other
+// spelling generate:"splatter" draw a paint splat as the path of a path layer (engine/splatter.js).
+// On add_layer the layer becomes a path; on update_layer the splat fills the layer's own box.
+// A roughen added without a style is torn paper: every roughen the five recreated edits asked for
+// was a torn or dry-brush edge, and the first style's spikes matched none (GAPS item 12).
+function splatterShorthand(operation, properties, fixes, resolver, document) {
+  if (operation.type === "add_layer" && properties.roughenSize !== undefined && properties.roughenStyle === undefined)
+    properties = { ...properties, roughenStyle: "torn" };
+  if (properties.generate !== undefined) {
+    const { generate, ...rest } = properties;
+    if (generate !== "splatter") throw new Error(`generate makes "splatter" only; for other shapes use layerType rectangle, ellipse, star or path.`);
+    properties = { ...rest, splatter: rest.splatter ?? true };
+  }
+  if (properties.splatter === undefined || properties.splatter === null || properties.splatter === false) return properties;
+  if (operation.type === "add_layer") {
+    if (operation.layerType !== "path") { fixes.push(`layerType ${operation.layerType} → path (splatter)`); operation.layerType = "path"; }
+    return withSplatter(properties, null, { isNew: true });
+  }
+  if (operation.type !== "update_layer") throw new Error("splatter works on add_layer and update_layer.");
+  const { layerType } = layerContext(operation, resolver, document);
+  if (layerType && layerType !== "path") throw new Error(`splatter draws a path layer; ${operation.layerId} is a ${layerType}. Add one: add_layer {layerType:"path", properties:{splatter:true}}.`);
+  let id = null;
+  try { id = resolver.resolve(operation.layerId, "layer"); } catch { /* refused later */ }
+  const layer = document.scenes.flatMap((scene) => scene.layers).find((entry) => entry.id === id);
+  return withSplatter(properties, layer ? { width: layer.width, height: layer.height } : null);
+}
+
 function checkLayerProperties(operation, fixes, resolver, document) {
   let properties = operation.properties;
   if (!LAYER_PROPERTY_OPS.has(operation.type) || !properties || typeof properties !== "object" || Array.isArray(properties)) return;
   // outlineGlow {stroke, fill, glow, width} is a shorthand for the fill, strokes and shadows of the hollow glowing look.
   // Width and halo scale with the font: the layer's own size on an update, a new text layer's 48 on add.
   if (properties.outlineGlow !== undefined) properties = withOutlineGlow(properties, outlineGlowFontSize(operation, resolver, document));
+  properties = splatterShorthand(operation, properties, fixes, resolver, document);
   operation.properties = fixLayerProperties(properties, fixes, { ...layerContext(operation, resolver, document), known: LAYER_PROPERTIES,
     exampleOp: (changes) => sameOpWith(operation, changes) });
   showWindowAsAnimations(operation, fixes, resolver, document);

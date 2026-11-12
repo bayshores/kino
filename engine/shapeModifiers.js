@@ -17,19 +17,23 @@
 //   roughenDetail  0..1 (0.5): how fine and spiky the teeth are (0 = soft bumps, 1 = dense hairs)
 //   roughenSeed    0..9999 (0): which edge; the same seed draws the same teeth every frame
 //   roughenBoil    0..30 (0 = still): new teeth this many times a second (12 = "on twos" at 24 fps)
+//   roughenStyle   "teeth" (absent: the first roughen, irregular teeth and hairs), "torn" (torn
+//                  paper: lobes of several sizes with fine fibers, no one-point spikes) or "brush"
+//                  (dry brush: bristle streaks pulled along roughenAngle)
+//   roughenAngle   degrees, -360..360 (0 = to the right): the brush direction; animates
 // Peaks of the zig zag sit on the outline's corners and segment ends. Curves are offset and
 // twisted as fine straight pieces; an outline shrunk past its middle disappears. Each step keeps
 // the outline under a point budget (fewer teeth or coarser pieces past it) so the path can draw.
 // Roughen runs after the zig zag and before the offset path.
 export const MODIFIER_LAYER_TYPES = new Set(["rectangle", "ellipse", "star", "path"]);
 export const MODIFIER_REST = Object.freeze({ roundCorners: 0, bloatAmount: 0, twistAngle: 0, twistX: 0, twistY: 0, zigzagSize: 0, zigzagCount: 5, offsetAmount: 0,
-  roughenSize: 0, roughenDetail: 0.5, roughenSeed: 0, roughenBoil: 0 });
+  roughenSize: 0, roughenDetail: 0.5, roughenSeed: 0, roughenBoil: 0, roughenAngle: 0 });
 export const MODIFIER_KEYS = Object.keys(MODIFIER_REST);
-export const MODIFIER_CHOICES = Object.freeze({ zigzagPoints: ["corner", "smooth"], offsetJoin: ["miter", "round", "bevel"] });
+export const MODIFIER_CHOICES = Object.freeze({ zigzagPoints: ["corner", "smooth"], offsetJoin: ["miter", "round", "bevel"], roughenStyle: ["teeth", "torn", "brush"] });
 export const MODIFIER_CHOICE_KEYS = Object.keys(MODIFIER_CHOICES);
 const RANGES = { roundCorners: [0, 1000], bloatAmount: [-1, 1], twistAngle: [-3600, 3600], twistX: [-10000, 10000], twistY: [-10000, 10000],
   zigzagSize: [-1000, 1000], zigzagCount: [1, 100], offsetAmount: [-1000, 1000],
-  roughenSize: [0, 500], roughenDetail: [0, 1], roughenSeed: [0, 9999], roughenBoil: [0, 30] };
+  roughenSize: [0, 500], roughenDetail: [0, 1], roughenSeed: [0, 9999], roughenBoil: [0, 30], roughenAngle: [-360, 360] };
 const MITER_LIMIT = 4;
 const ROUND_STEP = Math.PI / 18;
 // Point budgets. vectorPath.js draws at most 10,000 segments and 1,000,000 characters (about
@@ -65,7 +69,8 @@ export function modifiersOf(state = {}, time = 0) {
     twist: twist ? { angle: (twist * Math.PI) / 180, center: [width / 2 + number(state, "twistX"), height / 2 + number(state, "twistY")] } : null,
     zigzag: size ? { size, count: Math.round(number(state, "zigzagCount")), smooth: state.zigzagPoints === "smooth" } : null,
     offset: amount ? { amount, join: MODIFIER_CHOICES.offsetJoin.includes(state.offsetJoin) ? state.offsetJoin : "miter" } : null,
-    roughen: rough ? { size: rough, detail: number(state, "roughenDetail"), seed: Math.round(number(state, "roughenSeed")) + step * 7919 } : null,
+    roughen: rough ? { size: rough, detail: number(state, "roughenDetail"), seed: Math.round(number(state, "roughenSeed")) + step * 7919,
+      style: MODIFIER_CHOICES.roughenStyle.includes(state.roughenStyle) ? state.roughenStyle : "teeth", angle: (number(state, "roughenAngle") * Math.PI) / 180 } : null,
   };
 }
 
@@ -405,10 +410,41 @@ function bump(seed, x) {
   return (hash(seed, i, 1) * (1 - s) + hash(seed, i + 1, 1) * s) * 2 - 1;
 }
 
-function roughen(contours, { size, detail, seed }, sign) {
+// Torn paper (style "torn"): GAPS item 12 and contest-a blind rows 11, 12, 20 found the teeth
+// above read as "a regular row of sharp triangular spikes" where the reference tears are
+// "organic ragged ... rounded, irregular, with paint clumps". So the offset is smooth noise in four
+// octaves (lobes over 5, 2 and 0.8 sizes of outline, fibers over 0.2), every one spread over
+// several points, so no single point sticks out. Weights are a guess, checked by eye against
+// contest-a f839 and f841 (.scratch/recreate/wave/splatter-torn/pair-*.jpg).
+function tornOffset(seed, distance, size, detail) {
+  return 0.55 * bump(seed, distance / (size * 5)) + 0.32 * bump(seed + 5, distance / (size * 2)) +
+    0.2 * bump(seed + 9, distance / (size * 0.8)) + (0.06 + 0.08 * detail) * bump(seed + 13, distance / (size * 0.2));
+}
+
+// Dry brush (style "brush"): contest-a f838 shows a white blob pulled sideways whose front and back
+// break into thin horizontal bristle streaks of uneven length (blind.md: "horizontally smeared"),
+// not spikes on the normal. Points move along the brush direction by their bristle's length; a
+// bristle is a band across the direction about 0.15 sizes wide (0.08 at detail 1), the length of
+// each one random, longest about 2 sizes; on f838 streaks run up to about 100 px past a core about
+// 250 px tall, and the director's first try set roughenSize 60 there. Edges along the direction
+// only get a fine grain. One bristle in five has no paint (it falls short): the gaps.
+function brushOffset(seed, point, normal, distance, size, detail, angle) {
+  const direction = [Math.cos(angle), Math.sin(angle)], across = [-direction[1], direction[0]];
+  const facing = dot(normal, direction);
+  const band = (dot(point, across) / size) / (0.15 - 0.07 * detail);
+  const bristle = Math.floor(band), h = hash(seed, bristle, 7);
+  const length = hash(seed, bristle, 8) < 0.2 ? -0.35 * h : 0.15 + 0.35 * (bump(seed + 3, band / 9) + 1) / 2 + 1.5 * h * h;
+  const weight = Math.min(1, Math.max(0, (Math.abs(facing) - 0.15) / 0.55));
+  const pull = scale(direction, Math.sign(facing) * weight * length * size);
+  return add(pull, scale(normal, 0.1 * size * bump(seed + 21, distance / (size * 0.3))));
+}
+
+function roughen(contours, { size, detail, seed, style = "teeth", angle = 0 }, sign) {
   const total = contours.reduce((sum, contour) => sum + segmentsOf(contour)
     .reduce((acc, { from, segment }) => acc + lengthTable(from, segment, 16).at(-1)[1], 0), 0);
-  const spacing = Math.max(1.5, size * (0.45 - 0.3 * detail), total / ROUGHEN_POINTS);
+  // Torn fibers and brush bristles need points closer than the teeth do.
+  const fine = style === "torn" ? size * 0.07 : style === "brush" ? size * (0.06 - 0.03 * detail) : size * (0.45 - 0.3 * detail);
+  const spacing = Math.max(1.5, fine, total / ROUGHEN_POINTS);
   const hairs = 0.05 + 0.2 * detail;
   let index = 0, along = 0;
   return contours.map((contour, which) => {
@@ -418,6 +454,8 @@ function roughen(contours, { size, detail, seed }, sign) {
     const points = [];
     const push = (point, normal, distance) => {
       index += 1;
+      if (style === "torn") { points.push(add(point, scale(normal, tornOffset(seed + which * 31, distance, size, detail) * size))); return; }
+      if (style === "brush") { points.push(add(point, brushOffset(seed + which * 31, point, normal, distance, size, detail, angle))); return; }
       const lobe = 0.6 * bump(seed + which * 31, distance / (size * 4)) + 0.4 * bump(seed + which * 31 + 17, distance / (size * 1.2));
       let off = lobe + 0.12 * (hash(seed, index, 2) * 2 - 1);
       if (hash(seed, index, 3) < hairs) off = 0.3 * lobe + (hash(seed, index, 5) < 0.7 ? 1 : -1) * (0.5 + hash(seed, index, 4) * 1.5);

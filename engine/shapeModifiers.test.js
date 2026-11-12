@@ -177,3 +177,23 @@ test("roughen draws irregular teeth fixed per seed, and a boil changes them only
   // Off by default: an old shape draws the same.
   assert.equal(modifyContours(shapeContours("rectangle", { ...state, roughenSize: 0 }), { ...state, roughenSize: 0 }).length, 1);
 });
+
+test("a torn roughen has no one-point spikes, and a brush one streaks along its angle", () => {
+  const state = { type: "rectangle", width: 400, height: 1000, roughenSize: 30, roughenDetail: 0.8 };
+  const edge = (more) => modifyContours(shapeContours("rectangle", state), { ...state, ...more })[0].segments.map(({ end }) => end)
+    .filter(([x, y]) => x > 300 && y > 50 && y < 950);
+  // Torn: every point sits near the middle of its neighbors (teeth hairs jump a whole size).
+  const torn = edge({ roughenStyle: "torn" }).map(([x]) => x - 400);
+  const jump = (list) => Math.max(...list.slice(1, -1).map((x, i) => Math.abs(x - (list[i] + list[i + 2]) / 2)));
+  assert.ok(jump(torn) < 0.25 * 30 && jump(edge({}).map(([x]) => x - 400)) > 30, `torn ${jump(torn)}`);
+  assert.ok(Math.max(...torn) - Math.min(...torn) > 30, "lobes reach about a size each way");
+  // Brush to the right: the right edge breaks into streaks of uneven length; up (-90) leaves it near straight.
+  const right = edge({ roughenStyle: "brush" }).map(([x]) => x - 400);
+  assert.ok(Math.max(...right) > 30 && new Set(right.map(Math.round)).size > 10, right.join(" "));
+  const up = edge({ roughenStyle: "brush", roughenAngle: -90 }).map(([x]) => x - 400);
+  assert.ok(Math.max(...up.map(Math.abs)) < 0.15 * 30, up.join(" "));
+  for (const roughenStyle of ["torn", "brush"]) {
+    const box = curveBox(modifyContours(shapeContours("rectangle", state), { ...state, roughenStyle })), reach = modifierReach(state);
+    assert.ok(box.x >= -reach && box.x + box.width <= 400 + reach, roughenStyle);
+  }
+});

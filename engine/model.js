@@ -536,7 +536,7 @@ function validateAnimatedValue(key, value, path) {
       return requireNumber(value, path, ...repeatRange(key));
     case "zigzagSize": case "zigzagCount": case "offsetAmount": case "roundCorners": case "bloatAmount":
     case "twistAngle": case "twistX": case "twistY":
-    case "roughenSize": case "roughenDetail": case "roughenSeed": case "roughenBoil":
+    case "roughenSize": case "roughenDetail": case "roughenSeed": case "roughenBoil": case "roughenAngle":
       return requireNumber(value, path, ...modifierRange(key));
     case "cornerRadii": {
       const radii = requireArray(value, path, 4);
