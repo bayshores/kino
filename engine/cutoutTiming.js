@@ -17,6 +17,10 @@ import { effectiveMediaDuration, mediaSceneTime, mediaSoundTime } from "./playba
 /** The id part of an outline's fades where no subject is found (cutout-operation.mjs). */
 export const LOST_FADE = "lost-fade-";
 const PLAY_KEYS =["mediaStart", "mediaDuration", "mediaOffset", "mediaSpeed", "mediaReverse", "mediaFreeze", "mediaSourceDuration", "mediaFrameRate", "playbackWindows"];
+// The keys a copy takes from its clip. The file's own length and frame rate are facts of each
+// file: a cut-out file carries lead frames and its own length, so comparing them called every such
+// copy "retimed on its own" and it kept the old speed (dm3 run b: 0.38x after the clip went to 1x).
+const TIMING_KEYS = PLAY_KEYS.filter((key) => key !== "mediaSourceDuration" && key !== "mediaFrameRate");
 const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 const FREEZE_SHOWS = { first: "before", last: "after", none: "during" };
 
@@ -85,8 +89,11 @@ export function followClipTiming(scene, before, after) {
       continue;
     }
     // A copy that still had the clip's old timing takes the new one (one retimed on its own keeps its own).
-    if (PLAY_KEYS.every((key) => same(layer[key], before[key]))) {
-      for (const key of PLAY_KEYS) if (after[key] !== undefined) layer[key] = structuredClone(after[key]);
+    if (TIMING_KEYS.every((key) => same(layer[key], before[key]))) {
+      for (const key of TIMING_KEYS) {
+        if (after[key] !== undefined) layer[key] = structuredClone(after[key]);
+        else delete layer[key];
+      }
       // Its subject's path moves to the times the clip now shows the same file moments.
       if (Array.isArray(layer.subjectPath)) retimeSubjectPath(layer, before, after);
     }
