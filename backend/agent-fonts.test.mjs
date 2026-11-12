@@ -340,7 +340,9 @@ test("fonts like: the lettering in a picture ranks the face it was set in first,
   tinyContext.fillStyle = "#f4f0e8"; tinyContext.font = "14px 'Like Serif'"; tinyContext.fillText("STORM", 100, 60);
   const small = await fontsLikeText({ like: "yt:aaaaaaaaaaa", text: "STORM", count: 2 }, { fonts, catalog, referenceFrame: async () => ({ bytes: tiny.toBuffer("image/png"), at: 0.1, kind: "first strip frame, t left out" }) });
   assert.match(small.text, /px of the 240x136 first strip frame, t left out @0\.1s: /);
-  assert.match(small.text, /\nthe letters measured are \d+ px tall \(under 24 px their stroke weight and slant are not measurable\): pass t /);
+  assert.match(small.text, /\nthe letters measured are \d+ px tall \(under 24 px their stroke weight, contrast and slant are not measurable, so faces are ranked on width, corners, rough edges and dots only\): pass t /);
+  // Too small to measure: the reference's weight, contrast and stance are printed as not measured, not compared.
+  assert.match(small.text, /\n1\. .*face vs ref: weight [\d.]+ vs not measured, width [\d.]+ vs [\d.]+, contrast [\d.]+ vs not measured, .* vs not measured\)/);
   assert.match(answer.text, /\n2\. (?!Noto Serif 700)/, "one line per face");
   assert.match(await (await import("node:fs/promises")).readFile(catalog.measuresFile, "utf8"), /Noto Serif|NotoSerif/, "measures are kept on disk");
   // Saved type labels: the same ranking runs at each labeled moment and its lines come first (here the saved moment is this picture).

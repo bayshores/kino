@@ -35,7 +35,10 @@ test("a material is checked: text layers only, known parts and kinds, amount 0 d
   assert.equal(zero, plain);
   // Shorthands, and a print given only a color takes an offset that follows the size (a starting guess, printed).
   const short = normalizeMaterial({ wear: 0.6, texture: "crackle", print: "#ff3fa4" });
-  assert.deepEqual(short, { wear: { amount: 0.6, seed: 1 }, texture: { amount: 0.5, seed: 1, kind: "crackle", color: "#000000" }, print: { color: "#FF3FA4", opacity: 1 } });
+  assert.deepEqual(short, { wear: { amount: 0.6, seed: 1 }, texture: { amount: 0.5, seed: 1, kind: "crackle" }, print: { color: "#FF3FA4", opacity: 1 } });
+  // A texture color left out follows the fill (white on dark letters, black on light ones), printed with its source.
+  assert.match(materialWords(short, 240, "#141414"), /; crackle #FFFFFF \(follows the #141414 fill, dark: a starting guess\) at 0\.5/);
+  assert.match(materialWords(short, 240, "#fff"), /; crackle #000000 \(follows the #fff fill, light: a starting guess\)/);
   assert.equal(materialWords({ print: short.print }, 240), "print #FF3FA4 offset 12,7 px (a starting guess: 0.05,0.03 of the size) at 1");
   assert.match(materialWords(short, 240), /^wear 0\.6 seed 1, 12 px deep \(a starting guess: 0\.05 of the 240 px size\); crackle/);
   assert.notEqual(renderSceneSvg(scene({ material: normalizeMaterial({ print: "#FF0000" }) }), 0.5, { fonts }), plain);
@@ -61,6 +64,9 @@ test("texture stays inside the letters and the print sits under them at its offs
   for (let i = 0; i < plain.length; i += 1) outside += textured.bits[i] && !plain[i];
   assert.equal(outside, 0);
   assert.ok(count(textured.bits) < count(plain) * 0.95);
+  // Dark letters with a texture of no color: the texture lights some of the inside (it follows the fill).
+  const dark = await lit(scene({ fill: "#141414", material: { texture: { kind: "crackle", amount: 0.5 } } }));
+  assert.ok(count(dark.bits) > count(plain) * 0.01, `lit ${count(dark.bits)} of ${count(plain)}`);
   const printed = await lit(scene({ fill: "#000000", strokes: [{ color: "#FFFFFF", width: 4, align: "outside" }], material: { print: { x: 30, y: 0, color: "#FF0000", opacity: 1 } } }));
   // Red shows right of the letters (the print), and the white outline stays on the letters.
   const { pixels } = printed.frame;

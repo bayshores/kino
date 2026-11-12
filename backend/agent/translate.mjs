@@ -358,13 +358,23 @@ function splatterShorthand(operation, properties, fixes, resolver, document) {
   return withSplatter(properties, layer ? { width: layer.width, height: layer.height } : null);
 }
 
+// The fill of the layer an update names (a texture color left out follows it), else a new text layer's.
+function layerFill(operation, resolver, document) {
+  if (operation.type === "add_layer") return createLayer("text").fill;
+  let id = null;
+  try { if (typeof operation.layerId === "string") id = resolver.resolve(operation.layerId, "layer"); } catch { /* refused later */ }
+  const layer = id && document.scenes.flatMap((scene) => scene.layers).find((entry) => entry.id === id);
+  return typeof layer?.fill === "string" ? layer.fill : null;
+}
+
 // A text material on the receipt: what each part draws at the layer's size, with the sizes and the
 // print offset kino filled in printed as starting guesses (type-material topic).
 function materialNote(operation, resolver, document) {
   const material = operation.properties?.material;
   if (!material || typeof material !== "object" || !resolver?.notes) return;
   const fontSize = typeof operation.properties.fontSize === "number" ? operation.properties.fontSize : outlineGlowFontSize(operation, resolver, document) ?? 100;
-  try { resolver.notes.push(`material at ${fontSize} px: ${materialWords(normalizeMaterial(material), fontSize)}`); } catch { /* the model check names the bad field */ }
+  const fill = typeof operation.properties.fill === "string" ? operation.properties.fill : layerFill(operation, resolver, document);
+  try { resolver.notes.push(`material at ${fontSize} px: ${materialWords(normalizeMaterial(material), fontSize, fill)}`); } catch { /* the model check names the bad field */ }
 }
 
 function checkLayerProperties(operation, fixes, resolver, document) {

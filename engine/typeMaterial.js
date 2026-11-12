@@ -58,7 +58,8 @@ export function normalizeMaterial(value, path = "material") {
     if (part === "texture") {
       if (!MATERIAL_TEXTURES.includes(given.kind)) fail(`${at}.kind`, `must be ${MATERIAL_TEXTURES.join(", ")}`);
       entry.kind = given.kind;
-      entry.color = hex(given.color ?? "#000000", `${at}.color`);
+      // Left out: the color follows the letters' fill when drawn (textureColor), not a fixed black.
+      if (given.color !== undefined) entry.color = hex(given.color, `${at}.color`);
     }
     if (part === "print") {
       // Both left out: the offset follows the font size when drawn (MATERIAL_GUESSES); one given: the other is 0.
@@ -74,14 +75,25 @@ export function normalizeMaterial(value, path = "material") {
   return Object.keys(output).length ? output : null;
 }
 
+// A texture color left out follows the letters' fill: white specks on a dark fill (lightness under
+// 0.5), black on a light one, so the texture shows (a fixed black vanished on round 5's #141414
+// letters). `from` names the fill it was read from; no hex fill keeps black.
+export function textureColor(fill) {
+  const six = typeof fill === "string" && HEX.test(fill) ? (fill.length === 4 ? `#${[...fill.slice(1)].map((digit) => digit + digit).join("")}` : fill) : null;
+  const value = six ? rgb(six) : null;
+  if (!value) return { color: "#000000" };
+  const lightness = (0.2126 * value[0] + 0.7152 * value[1] + 0.0722 * value[2]) / 255;
+  return { color: lightness < 0.5 ? "#FFFFFF" : "#000000", from: `${fill} fill, ${lightness < 0.5 ? "dark" : "light"}` };
+}
+
 // The parts that draw something: amount (or the print's opacity) above 0. A part left without a
 // field (a layer not yet checked by normalizeMaterial) takes the same defaults the check gives.
 // A print with neither x nor y takes the offset that follows the font size (`guessed` marks it).
-function activeParts(material, fontSize = 100) {
+function activeParts(material, fontSize = 100, fill = null) {
   if (!material || typeof material !== "object") return null;
   const filled = (part, defaults) => (part && typeof part === "object" ? { ...defaults, ...part } : null);
   const wear = filled(material.wear, { amount: 0.5, seed: 1 });
-  const texture = filled(material.texture, { amount: 0.5, seed: 1, color: "#000000" });
+  const texture = filled(material.texture, { amount: 0.5, seed: 1, ...textureColor(fill) });
   const offsetLeftOut = material.print && typeof material.print === "object" && material.print.x === undefined && material.print.y === undefined;
   const size = Number.isFinite(fontSize) && fontSize > 0 ? fontSize : 100;
   const print = filled(material.print, { color: "#000000", opacity: 1,
@@ -191,8 +203,8 @@ function textureTile(kind, seed, color) {
  * units; `defs` and `id(kind)` add definitions. `only` names the parts drawn in this pass
  * (letters drawn in two passes, outside strokes first: render.js unitsSvg).
  */
-export function drawMaterial(content, { material, outline, bounds, fontSize = 100, reach = 0, defs, id, only = null }) {
-  const active = activeParts(material, fontSize);
+export function drawMaterial(content, { material, outline, bounds, fontSize = 100, fill = null, reach = 0, defs, id, only = null }) {
+  const active = activeParts(material, fontSize, fill);
   if (!active || !outline || !bounds) return content;
   const pick = (part) => (!only || only.includes(part) ? active[part] : null);
   const wear = pick("wear"), texture = pick("texture"), print = pick("print");
@@ -236,13 +248,13 @@ export function drawMaterial(content, { material, outline, bounds, fontSize = 10
 }
 
 /** One line for a receipt: what the material draws, with sizes left out marked as starting guesses. */
-export function materialWords(material, fontSize = 100) {
-  const parts = activeParts(material, fontSize);
+export function materialWords(material, fontSize = 100, fill = null) {
+  const parts = activeParts(material, fontSize, fill);
   if (!parts) return "no material (every amount 0, or a print offset 0,0)";
   const words = [];
   const px = (value) => `${fmt(value)} px`;
   if (parts.wear) words.push(`wear ${parts.wear.amount} seed ${parts.wear.seed}, ${parts.wear.size != null ? `${px(parts.wear.size)} deep` : `${px(Math.max(0.5, fontSize * MATERIAL_GUESSES.wearSize))} deep (a starting guess: ${MATERIAL_GUESSES.wearSize} of the ${fmt(fontSize)} px size)`}`);
-  if (parts.texture) words.push(`${parts.texture.kind} ${parts.texture.color} at ${parts.texture.amount} seed ${parts.texture.seed}, ${parts.texture.size != null ? `${px(parts.texture.size)} cells` : `${px(Math.max(0.5, fontSize * MATERIAL_GUESSES.textureSize))} cells (a starting guess: ${MATERIAL_GUESSES.textureSize} of the size)`}`);
+  if (parts.texture) words.push(`${parts.texture.kind} ${parts.texture.color}${parts.texture.from ? ` (follows the ${parts.texture.from}: a starting guess)` : ""} at ${parts.texture.amount} seed ${parts.texture.seed}, ${parts.texture.size != null ? `${px(parts.texture.size)} cells` : `${px(Math.max(0.5, fontSize * MATERIAL_GUESSES.textureSize))} cells (a starting guess: ${MATERIAL_GUESSES.textureSize} of the size)`}`);
   if (parts.print) words.push(`print ${parts.print.color} offset ${fmt(parts.print.x)},${fmt(parts.print.y)} px${parts.print.guessed ? ` (a starting guess: ${MATERIAL_GUESSES.printX},${MATERIAL_GUESSES.printY} of the size)` : ""} at ${parts.print.opacity}`);
   return words.join("; ");
 }
