@@ -1104,7 +1104,27 @@ function steppedContext(layer, context) {
 
 // A scene time through every held clock around the drawing: what a held layer shows then.
 function heldTime(time, context) {
-  return (context.frameRates ?? []).reduce((held, rate) => steppedTime(held, rate), time);
+  return heldSceneTime(time, context.frameRates);
+}
+
+/** A scene time through held clocks (frameRates, from the outside in): the time a held layer shows. */
+export function heldSceneTime(time, frameRates = []) {
+  return frameRates.reduce((held, rate) => steppedTime(held, rate), time);
+}
+
+/**
+ * The held clocks a layer is drawn on, from the outside in: the frameRate of each group around it
+ * and its own, as renderLayer steps them. An export decodes a clip's pictures at these held times.
+ */
+export function layerClocks(layers, layer) {
+  const byId = new Map((layers ?? []).map((item) => [item.id, item]));
+  const rates = [];
+  const seen = new Set();
+  for (let at = layer; at && !seen.has(at.id); at = at.parentId == null ? null : byId.get(at.parentId)) {
+    seen.add(at.id);
+    if (at.frameRate > 0) rates.unshift(at.frameRate);
+  }
+  return rates;
 }
 
 function renderLayer(node, context, options = {}) {
