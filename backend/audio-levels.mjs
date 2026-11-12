@@ -221,6 +221,8 @@ export function describeLevels({ integratedLufs, loudnessRangeLu = null, truePea
 // copy) gives its peak, so every loud moment shows, not only the loudest.
 export const PEAK_METER = "ebur128=peak=true:metadata=1,aresample=192000,aformat=sample_fmts=dblp,asetnsamples=n=19200," +
   "astats=metadata=1:reset=1:measure_perchannel=Peak_level:measure_overall=none,ametadata=mode=print:file=-";
+// The same 0.1 s peaks without the loudness meter (one layer alone, place_sounds' bed).
+export const PEAK_WINDOWS = PEAK_METER.slice(PEAK_METER.indexOf("aresample"));
 // Peaks this close (s) are one place: a loud stretch, not one place per 0.1 s.
 const PLACE_GAP = 0.3;
 
@@ -299,14 +301,26 @@ export function describeMixPeaks(mix, { limit = 3, tail = "", label = "mix" } = 
  * limiter works at 9 -> 0 places (most 6.5 -> 0 dB over); -12.9 -> -13.4 LUFS, true peak +0.8 ->
  * -1.6 dBTP with loudness "off"; "auto" adds +4.2 -> +5.1 dB, then the limiter works at 82 -> 30 places".
  */
-export function describeMixFix(before, after) {
+export function describeMixFix(before, after, trimmed = []) {
   const most = (mix) => Math.max(0, ...mix.places.map((place) => place.overDb));
   const level = (mix) => (mix.integratedLufs === null ? "too short" : mix.integratedLufs);
   const peak = (mix) => (mix.truePeakDbtp === null ? "silent" : signed(mix.truePeakDbtp));
   const auto = before.auto && after.auto
     ? `; "auto" adds ${signed(before.auto.gainDb)} -> ${signed(after.auto.gainDb)} dB, then the limiter works at ${before.auto.places} -> ${after.auto.places} places` : "";
+  // Each place turned down (peakTrims trimmed): the layers and factors, its peak before and after.
+  const places = (after.windows ? trimmed : []).slice(0, 3).map((place) => {
+    const now = peakOver(after.windows, place.from, place.to);
+    return `${place.at} s ${place.layers.map((layer) => `${String(layer.name).slice(0, 24)} x${layer.factor}`).join(", ")}: ${signed(place.peakDbtp)} -> ${now === null ? "silent" : signed(now)} dBFS`;
+  });
+  if (trimmed.length > 3) places.push(`${trimmed.length - 3} more under fixed`);
   return `mix fix: the limiter works at ${before.places.length} -> ${after.places.length} places (most ${most(before)} -> ${most(after)} dB over); ` +
-    `${level(before)} -> ${level(after)} LUFS, true peak ${peak(before)} -> ${peak(after)} dBTP with loudness "off"${auto}`;
+    `${level(before)} -> ${level(after)} LUFS, true peak ${peak(before)} -> ${peak(after)} dBTP with loudness "off"${auto}${places.length ? `; places: ${places.join(" · ")}` : ""}`;
+}
+
+/** The loudest of `windows` ([{t, peak}] per 0.1 s) from `from` to `to` (s), or null when all are silent. */
+export function peakOver(windows, from, to) {
+  const inside = windows.filter((window) => window.t > from - 0.05 && window.t < to - 0.05).map((window) => window.peak);
+  return inside.length ? round1(Math.max(...inside)) : null;
 }
 
 /**

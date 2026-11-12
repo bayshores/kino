@@ -300,6 +300,11 @@ test("place_sounds what:\"footstep\" places four steps against the bed; an unkno
   const layers = (await (await server.api("/api/projects/steps")).json()).document.scenes[0].layers.filter((layer) => layer.id.startsWith("sfx-footstep-"));
   assert.equal(layers.length, 4);
   assert.ok(layers.every((layer) => layer.volume > 0.05 && layer.volume <= 2), JSON.stringify(layers.map((layer) => layer.volume)));
+  assert.doesNotMatch(placed.data.sounds.summary, / · peak: /, "3 LU under a quiet bed: no step reaches the limiter");
+  // A step asked 12 LU over the bed would pass the limiter's ceiling with the bed: its peak brings it down.
+  const loud = await agent("edit", { project: "steps", ops: [{ op: "place_sounds", sceneId: scene, at: [{ at: 0.5, what: "footstep", under: -12 }] }] });
+  const [, factor, volume] = loud.data.sounds.summary.match(/ · peak: sfx-footstep-5 -?[\d.]+ dBFS, \+[\d.]+ dB over the rest of the mix \(-[\d.]+ dBFS\) at 0\.\d s: x(0\.\d+) -> volume ([\d.]+), so the mix stays under the limiter \(-1\.5 dBFS\)$/) ?? [];
+  assert.ok(Number(factor) < 1, loud.data.sounds.summary);  assert.deepEqual(loud.data.sounds.peaks.map((entry) => [entry.layer, entry.factor, entry.volume]), [["sfx-footstep-5", Number(factor), Number(volume)]]);
 
   // A word the library lacks: the nearest library kinds and the finder call, filled in with the same word.
   const missing = await agent("edit", { project: "steps", ops: [{ op: "place_sounds", sceneId: scene, at: [{ at: 5, what: "marimba" }] }] });
@@ -328,4 +333,10 @@ test("place_sounds what:\"footstep\" places four steps against the bed; an unkno
   const quiet = await agent("edit", { project: "quiet-steps", ops: [{ op: "place_sounds", sceneId: quietScene, at: [{ at: 1, what: "footstep" }] }] });
   assert.equal(quiet.isError, undefined, quiet.text);
   assert.equal(quiet.data.sounds.placed, 1, quiet.text);
+  // A bed loud enough that the default render's "auto" gain (-7 dB here) keeps every peak under the
+  // ceiling: a whoosh 3 LU under it keeps its volume (its own peak summed in phase cut it x0.2).
+  const bed = after.find((layer) => layer.name === "music");
+  await agent("edit", { project: "steps", ops: [{ op: "update_layer", sceneId: scene, layerId: bed.id, properties: { volume: 4 } }] });
+  const loudBed = await agent("edit", { project: "steps", ops: [{ op: "place_sounds", sceneId: scene, at: [{ at: 3.5, what: "whoosh" }] }] });
+  assert.doesNotMatch(loudBed.data.sounds.summary, / · peak: /, loudBed.data.sounds.summary);
 });

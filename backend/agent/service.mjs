@@ -115,7 +115,7 @@ import { TYPE_VERSION } from "../../engine/quality/typeSignature.js";
 import { blocksFinal, FINAL_GATES, tasteNotes } from "../../engine/quality/index.js";
 import { ideaLines, signatureRanges } from "../../engine/quality/rules/signature.js";
 import { hasMusic, isMusicLayer } from "../../engine/quality/rules/sound.js";
-import { measureLayerBrightness, measureMixPeaks, readsBrightness, renderSceneFrames, sceneSoundClips, soundCurve } from "../export.mjs";
+import { measureLayerBrightness, measureMixPeaks, measurePeakWindows, readsBrightness, renderSceneFrames, sceneSoundClips, soundCurve } from "../export.mjs";
 import { autoGlowRamp, GLOW_PERCENTILES } from "../../engine/effects/glow.js";
 import { animationTreeEntries } from "../../engine/animationTree.js";
 import { decodeMono } from "../audio-analysis.mjs";
@@ -162,7 +162,7 @@ import { spokenLine } from "../../engine/blocks/moves/footage.js";
 import { VIDEO_FORMAT_NAMES, videoFormatsText } from "../../engine/blocks/videoFormats.js";
 import { existsSync } from "node:fs";
 import { avOffsetFinding } from "./av-offset.mjs";
-import { describeLevels, describeMixFix, describeMixPeaks, measureFileLevels } from "../audio-levels.mjs";
+import { LIMITER_CEILING_DB, describeLevels, describeMixFix, describeMixPeaks, measureFileLevels, peakOver } from "../audio-levels.mjs";
 import { peakTrims } from "../../engine/peakTrim.js";
 import { mediaIdFromSource } from "../../engine/replaceMedia.js";
 import { createBeatAnalysisCache, isSoundEffect, soundIsMusic, steadyBeat } from "../audio-analysis.mjs";
@@ -2334,9 +2334,65 @@ export function createAgentService(deps) {
     const context = await operationContext(document, [resolved]);
     if (work.reports) context.reports = work.reports;
     const next = parseDocument(applyOperations(document, [resolved], context));
+    const capped = await capPlacedPeaks(scene, next.scenes.find((item) => item.id === scene.id));
+    const report = work.reports?.get(resolved);
+    if (report && capped.length) {
+      report.peaks = capped;
+      const over = (entry) => (entry.overDb === null ? "alone" : `${entry.overDb > 0 ? "+" : ""}${entry.overDb} dB over the rest of the mix (${entry.restDbfs} dBFS)`);
+      report.summary += ` · peak: ${capped.map((entry) => `${entry.layer} ${entry.ownDbfs} dBFS, ${over(entry)} at ${entry.at} s: x${entry.factor} -> volume ${entry.volume}, so the mix stays under the limiter (${LIMITER_CEILING_DB} dBFS)`).join("; ")}`;
+    }
     // The report belongs to the agent's operation (the receipt reads reports by operation).
     if (work.reports?.has(resolved)) { work.reports.set(operation, work.reports.get(resolved)); work.reports.delete(resolved); }
     return next;
+  }
+
+  // The sounds place_sounds just added to `after` (vs `before`, the scene it was placed in) at a
+  // place where the mix passes the master limiter's ceiling come down to it. The mix is measured
+  // once with them (mixPeaksOf, kept for the next check); nothing more runs when no place has a new
+  // sound, or when the default render's "auto" gain alone keeps every peak under the ceiling (as
+  // check {fix:"auto"} leaves it). Then one FFmpeg run for the rest of the mix and one per sound
+  // there. The factor is (ceiling - rest) / (mix - rest) on the measured 0.1 s peaks: the new sounds'
+  // share of the peak, not their own peak summed in phase, which cut a hit over a song 14 dB.
+  // [{layer, at, ownDbfs, restDbfs, overDb, factor, volume}]; [] when nothing passes or the sound
+  // cannot be read. A place where the rest alone passes the ceiling is left to the "mix:" line.
+  async function capPlacedPeaks(before, after) {
+    const old = new Set(before.layers.map((layer) => layer.id));
+    const added = after.layers.filter((layer) => !old.has(layer.id) && layer.type === "audio" && layer.src);
+    if (!added.length || !deps.mediaRoot) return [];
+    const addedIds = new Set(added.map((layer) => layer.id));
+    const mix = await mixPeaksOf(after).catch(() => null);
+    if (!mix || (mix.auto && !mix.auto.places && !mix.auto.held)) return [];
+    const places = mix.places.filter((place) => place.playing.some((clip) => addedIds.has(clip.layerId)));
+    if (!places.length) return [];
+    const until = Math.min(after.duration, Math.max(...places.map((place) => place.to)) + 0.1);
+    const linear = (db) => 10 ** (db / 20);
+    const ceiling = linear(LIMITER_CEILING_DB);
+    const directory = await makeTempFolder("kino-mix-");
+    try {
+      const clips = await sceneSoundClips(after, { mediaRoot: deps.mediaRoot, directory, duration: after.duration });
+      const rest = await measurePeakWindows(clips.filter((clip) => !addedIds.has(clip.layerId)), until);
+      const capped = [];
+      for (const layer of added) {
+        let worst = null;
+        for (const place of places) {
+          if (!place.playing.some((clip) => clip.layerId === layer.id)) continue;
+          const other = peakOver(rest, place.from, place.to) ?? -Infinity;
+          const room = ceiling - linear(other);
+          if (room <= 0) continue;
+          const factor = room / (linear(place.peakDbtp) - linear(other));
+          if (!worst || factor < worst.factor) worst = { place, other, factor };
+        }
+        if (!worst) continue;
+        const own = peakOver(await measurePeakWindows(clips.filter((clip) => clip.layerId === layer.id), until), worst.place.from, worst.place.to);
+        const factor = Math.floor(100 * worst.factor) / 100;
+        layer.volume = Math.max(0.01, Math.round(1000 * (layer.volume ?? 1) * factor) / 1000);
+        const restDbfs = Number.isFinite(worst.other) ? Math.round(10 * worst.other) / 10 : "silent";
+        capped.push({ layer: layer.id, at: worst.place.at, ownDbfs: own, restDbfs,
+          overDb: Number.isFinite(worst.other) && own !== null ? Math.round(10 * (own - worst.other)) / 10 : null, factor, volume: layer.volume });
+      }
+      return capped;
+    } catch { return []; }
+    finally { await removeTempFolder(directory); }
   }
 
   // A library sound's media record: the one this project already imported (same credit id), or a new import.
@@ -3417,7 +3473,7 @@ export function createAgentService(deps) {
       // The mix's limiter places (the "mix:" line): each place's xN on the layers playing there,
       // over its span (engine/peakTrim.js). Layers another fix of this check changes wait for the next one.
       const mixScene = !options.listen ? null : scene ? record.document.scenes.find((item) => item.id === scene.id) : videoScene(record.document);
-      mixBefore = mixScene ? await mixPeaksOf(mixScene) : null;
+      mixBefore = mixScene ? await mixPeaksOf(mixScene, { perLayer: true }) : null;
       // When the default render's "auto" gain alone keeps every peak under the ceiling (not held by
       // them), those places only matter at loudness "off": the mix keeps its shape.
       const autoClears = mixBefore?.auto && !mixBefore.auto.places && !mixBefore.auto.held;
@@ -3429,7 +3485,7 @@ export function createAgentService(deps) {
         const touched = new Set(outcome.ops.flatMap((op) => [op.layerId, op.layer, ...(op.layerIds ?? [])]).filter(Boolean));
         const names = (id) => [id, mixScene.layers.find((layer) => layer.id === id)?.name];
         if (trim.ops.some((op) => names(op.layerId).some((ref) => touched.has(ref)))) outcome.dropped.push("mix: another fix changes those layers; check {fix:\"auto\"} again turns the peaks down");
-        else if (trim.ops.length) { outcome.ops.push(...trim.ops); outcome.fixed.push(...trim.fixed); mixTrimmed = true; }
+        else if (trim.ops.length) { outcome.ops.push(...trim.ops); outcome.fixed.push(...trim.fixed); mixTrimmed = trim.trimmed; }
         outcome.dropped.push(...trim.dropped);
       }
       if (outcome.ops.length) {
@@ -3448,7 +3504,7 @@ export function createAgentService(deps) {
         result = await findingsFor(record.document, { ...options, codes, fonts });
         // The mix measured again (kept for the "mix:" line below): the places before and after.
         const mixAfter = mixTrimmed ? await mixPeaksOf(scene ? record.document.scenes.find((item) => item.id === scene.id) : videoScene(record.document)) : null;
-        if (mixAfter) applied.mix = describeMixFix(mixBefore, mixAfter);
+        if (mixAfter) applied.mix = describeMixFix(mixBefore, mixAfter, mixTrimmed);
       } else applied = { ops: 0, fixed: [], dropped: outcome.dropped };
       // Whether the last fix:"auto" applied anything: next: names a plain check after one that
       // applied nothing (GAPS Friction 5: one rebuild was sent check fix:"auto" 30 times).
@@ -5490,14 +5546,15 @@ export function createAgentService(deps) {
   // one FFmpeg run, nothing drawn or encoded), kept per sound setup so a check that changed no
   // sound does not measure again. Null when nothing is heard or the sound cannot be read.
   const mixPeaksKept = new Map();
-  async function mixPeaksOf(scene) {
+  // perLayer: each layer sharing a place is measured alone too (check {fix:"auto"}).
+  async function mixPeaksOf(scene, { perLayer = false } = {}) {
     if (!scene.layers.some((layer) => (layer.type === "audio" || layer.type === "video") && layer.src)) return null;
     // Groups too: a hidden group silences the video inside it.
-    const key = createHash("sha1").update(JSON.stringify([scene.duration, scene.layers.filter((layer) => ["audio", "video", "group"].includes(layer.type))])).digest("hex");
+    const key = createHash("sha1").update(JSON.stringify([scene.duration, perLayer, scene.layers.filter((layer) => ["audio", "video", "group"].includes(layer.type))])).digest("hex");
     if (!mixPeaksKept.has(key)) {
       mixPeaksKept.set(key, (async () => {
         const directory = await makeTempFolder("kino-mix-");
-        try { return await measureMixPeaks(await sceneSoundClips(scene, { mediaRoot: deps.mediaRoot, directory, duration: scene.duration, lead: true }), scene.duration); }
+        try { return await measureMixPeaks(await sceneSoundClips(scene, { mediaRoot: deps.mediaRoot, directory, duration: scene.duration, lead: true }), scene.duration, undefined, { perLayer }); }
         catch { mixPeaksKept.delete(key); return null; }
         finally { await removeTempFolder(directory); }
       })());

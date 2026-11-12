@@ -6,7 +6,7 @@ import { createDocument, createLayer, createScene, parseDocument } from "./model
 import { applyOperations } from "./operations.js";
 import { animatesVolume, evaluateLayer, volumeAt } from "./animation.js";
 import { isAnimationCompatible } from "./animationCompatibility.js";
-import { peakTrims } from "./peakTrim.js";
+import { peakCauses, peakTrims } from "./peakTrim.js";
 
 const fade = (from, to, extra = {}) => ({ kind: "custom", start: 1, duration: 1, easing: "linear", from: { volume: from }, to: { volume: to }, ...extra });
 
@@ -118,4 +118,21 @@ test("a song whose limiter dips would churn its level keeps it; the hit at a pla
   assert.match(trim.dropped[0], /^mix 2 s x0\.7, 4 s x0\.58, 6 s x0\.7 song: 3 dips would turn its level 5 times in 4 s \(volume_churn\), so it keeps its level$/);
   // One dip turns it twice: no churn, so it is applied.
   assert.equal(peakTrims(document.scenes[0], [place(2, 0.7, ["song"])]).ops.length, 2);
+});
+
+test("measured alone, the layer that makes a place's peak comes down by its own factor; the others keep their level", () => {
+  const document = parseDocument({ ...createDocument(), scenes: [createScene({ id: "s", duration: 10, layers: [
+    createLayer("audio", { id: "song", name: "song", src: "/api/media/a.wav", volume: 1, mediaSourceDuration: 10 }),
+    createLayer("audio", { id: "step", name: "step", src: "/api/media/b.wav", volume: 1, mediaStart: 9.6, mediaSourceDuration: 0.3 })] })] });
+  // A footstep at 0 dBFS over a song at -8 dBFS: the mix +3.1 dBTP, x0.58 to reach the ceiling.
+  const place = (stepPeak, songPeak) => ({ at: 9.6, from: 9.6, to: 9.8, peakDbtp: 3.1, overDb: 4.6, factor: 0.58,
+    playing: [{ layerId: "song", name: "song", peakDbfs: songPeak }, { layerId: "step", name: "step", peakDbfs: stepPeak }] });
+  assert.deepEqual([...peakCauses(place(0, -8))], [["step", 0.43]], "(0.84 - 0.4 song) / 1.0");
+  const trim = peakTrims(document.scenes[0], [place(0, -8)]);
+  assert.deepEqual(trim.ops, [{ op: "update_layer", sceneId: "s", layerId: "step", properties: { volume: 0.43 } }]);
+  assert.deepEqual(trim.fixed, ["mix 9.6 s (9.6-9.8 s, 4.6 dB over): step x0.43 1->0.43 (alone 0 dBFS); kept song (alone -8 dBFS)"]);
+  assert.deepEqual(trim.trimmed, [{ at: 9.6, from: 9.6, to: 9.8, peakDbtp: 3.1, layers: [{ name: "step", factor: 0.43 }] }]);
+  // Both near the ceiling alone: no one layer can clear it, so both take the place's x0.58.
+  assert.equal(peakCauses(place(-2, -2.5)), null);
+  assert.deepEqual(peakTrims(document.scenes[0], [place(-2, -2.5)]).fixed, ["mix 9.6 s (9.6-9.8 s, 4.6 dB over) x0.58: song 1->0.58, step 0.58"]);
 });
