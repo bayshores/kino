@@ -14,6 +14,7 @@ import { MAX_RAY_COPIES_PER_STAGE, MAX_RAY_STAGES, rayFade, rayStages, renderLig
 import { flareVisibility, renderLensFlare } from "./lensFlare.js";
 import { calmLightAnimations } from "./light.js";
 import { renderRimLight } from "./rimLight.js";
+import { renderEdgeLines } from "./edgeLines.js";
 import { createLayer, createScene } from "../model.js";
 import { renderSceneSvg } from "../render.js";
 import { CPU_RASTER } from "../../tests/golden/raster.mjs";
@@ -141,6 +142,24 @@ test("rim light on a video matte: stair steps are smoothed, the frame border sta
   assert.ok(matte.pixel(32, 48)[3] < 60, `a matte's corner is rounded off: ${matte.pixel(32, 48)}`);
   assert.ok(matte.pixel(40, 46)[1] > 100, `the ring still runs along the step: ${matte.pixel(40, 46)}`);
   for (const [x, y] of [[100, 2], [118, 60], [60, 118], [2, 60]]) assert.equal(matte.pixel(x, y)[3], 0, `no ring along the frame border at ${x},${y}`);
+});
+
+test("edge lines: a line on the contour of a gray square, nothing on its flat parts, and the picture kept dim under it", async () => {
+  const size = 120;
+  const content = BLACK(size, size) + SQUARE("#808080");
+  const lines = (parameters) => draw(renderEdgeLines, { ...effectDefaults("edge-lines"), color: "#00FF00", ...parameters }, { width: size, height: size, content });
+  const alone = await lines({});
+  const onEdge = Math.max(...[48, 49, 50, 51].map((x) => alone.pixel(x, 60)[3]));
+  assert.ok(onEdge > 200, `the contour is drawn: alpha ${onEdge}`);
+  for (const [x, y] of [[60, 60], [20, 20], [100, 60]]) assert.equal(alone.pixel(x, y)[3], 0, `flat part at ${x},${y} stays empty`);
+  assert.ok(alone.pixel(50, 60)[1] > 200 && alone.pixel(50, 60)[0] < 40, `the line is the color given: ${alone.pixel(50, 60)}`);
+  const thick = await lines({ width: 6 });
+  const lit = (picture) => [...Array(12).keys()].filter((index) => picture.pixel(44 + index, 60)[3] > 128).length;
+  assert.ok(lit(thick) >= lit(alone) + 3, `width 6 draws a wider line: ${lit(thick)} px against ${lit(alone)}`);
+  const strict = await lines({ threshold: 0.9 });
+  assert.equal(Math.max(...[48, 49, 50, 51].map((x) => strict.pixel(x, 60)[3])), 0, "a threshold above the step draws nothing");
+  const kept = await lines({ background: "keep", dim: 0.5 });
+  assert.ok(Math.abs(kept.pixel(60, 60)[0] - 64) <= 2, `the gray inside is dimmed to half: ${kept.pixel(60, 60)}`);
 });
 
 test("light rays: the copy plan, the fade along a streak and the scene box", () => {

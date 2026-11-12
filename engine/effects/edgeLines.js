@@ -1,0 +1,80 @@
+// Edge lines: the layer's contours drawn as thin lines, found from its brightness. Works on a
+// video or image (the line art of a face, a hand, a scene), and on anything drawn.
+//
+// How the SVG filter works, step by step:
+// 1. Brightness: the picture as grays (alpha made whole, so transparent parts read as black).
+// 2. Smooth: a small blur (`smooth`), so video compression blocks and grain do not become lines.
+// 3. Difference: the gray picture against a copy shifted one pixel right, and against one shifted
+//    one pixel down (feBlend "difference" is |a - b|), added together: a bright line wherever
+//    the brightness changes. The shift is in layer pixels, so the lines keep their weight when a
+//    layer is scaled or exported at a higher density.
+// 4. Threshold: a ramp that keeps changes above `threshold` and fades the weaker ones in
+//    (softness 0.5 of the threshold, then 6 times as steep as the raw step), so lines are
+//    anti-aliased, not on or off.
+// 5. Width: the lines grown by (width - 1) / 2 px.
+// 6. Color: `color` shaped by those lines, only where the layer has pixels (a cut-out subject
+//    gets lines on itself, not in the empty frame around it).
+// 7. Background: "transparent" is the lines alone; "keep" lays them over the picture, which
+//    `dim` darkens first (0 leaves it as it is, 1 is black) so the lines read.
+//
+// Defaults come from the glow-outline study (.scratch/studies/glow-outline, interior line art
+// 2 to 4 px thick, lines in one color on a dark figure): width 2 and dim 0.6 under "keep" are
+// from that; threshold 0.1, smooth 1 and the ramp are guesses tuned on a 1080p face clip.
+import { filterEffect } from "./svg.js";
+import { numberParameter } from "./periodicDisplacement.js";
+import { hexColor } from "./glow.js";
+
+export const EDGE_LINES_BACKGROUNDS = Object.freeze(["transparent", "keep"]);
+
+const fmt = (value) => {
+  const rounded = Number(value.toFixed(4));
+  return Object.is(rounded, -0) ? "0" : String(rounded);
+};
+
+export function renderEdgeLines(frame) {
+  const width = numberParameter(frame, "width", 2, 0.5, 12);
+  const threshold = numberParameter(frame, "threshold", 0.1, 0, 1);
+  const smooth = numberParameter(frame, "smooth", 1, 0, 8);
+  const dim = numberParameter(frame, "dim", 0.6, 0, 1);
+  const background = EDGE_LINES_BACKGROUNDS.includes(frame?.parameters?.background) ? frame.parameters.background : "transparent";
+  const rgb = hexColor(frame, "color", "#FFFFFF");
+  // 1. Gray picture with whole alpha.
+  const steps = [`<feColorMatrix in="SourceGraphic" type="matrix" values="0.2126 0.7152 0.0722 0 0 0.2126 0.7152 0.0722 0 0 0.2126 0.7152 0.0722 0 0 0 0 0 0 1" result="edgeGray"/>`];
+  let gray = "edgeGray";
+  // 2. Smooth.
+  if (smooth > 0) {
+    steps.push(`<feGaussianBlur in="edgeGray" stdDeviation="${fmt(smooth)}" result="edgeSmooth"/>`);
+    gray = "edgeSmooth";
+  }
+  // 3. Difference against copies shifted right and down, added.
+  steps.push(`<feOffset in="${gray}" dx="1" dy="0" result="edgeRight"/>`,
+    `<feBlend in="${gray}" in2="edgeRight" mode="difference" result="edgeDx"/>`,
+    `<feOffset in="${gray}" dx="0" dy="1" result="edgeDown"/>`,
+    `<feBlend in="${gray}" in2="edgeDown" mode="difference" result="edgeDy"/>`,
+    `<feComposite in="edgeDx" in2="edgeDy" operator="arithmetic" k1="0" k2="1" k3="1" k4="0" result="edgeSum"/>`);
+  // 4. Threshold ramp on the red channel: 0 below `threshold`, rising to 1 over a span of
+  // 0.5 * threshold (at least 0.02), then to alpha.
+  const span = Math.max(0.02, threshold * 0.5);
+  const slope = 1 / span;
+  steps.push(`<feComponentTransfer in="edgeSum" result="edgeRamp"><feFuncR type="linear" slope="${fmt(slope)}" intercept="${fmt(-threshold * slope)}"/></feComponentTransfer>`,
+    `<feColorMatrix in="edgeRamp" type="matrix" values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 1 0 0 0 0" result="edgeLine"/>`);
+  let lines = "edgeLine";
+  // 5. Width: grown by (width - 1) / 2, then a half pixel of blur for the anti-aliased edge.
+  const grow = (width - 1) / 2;
+  if (grow > 0.25) {
+    steps.push(`<feMorphology in="edgeLine" operator="dilate" radius="${fmt(grow)}" result="edgeWide"/>`);
+    lines = "edgeWide";
+  }
+  steps.push(`<feGaussianBlur in="${lines}" stdDeviation="0.5" result="edgeSoft"/>`);
+  // 6. Color, kept on the layer's own pixels.
+  steps.push(`<feFlood flood-color="rgb(${rgb.join(",")})" result="edgeColor"/>`,
+    `<feComposite in="edgeColor" in2="edgeSoft" operator="in" result="edgeColored"/>`,
+    `<feComposite in="edgeColored" in2="SourceAlpha" operator="in" result="edgePaint"/>`);
+  // 7. Background.
+  if (background === "keep") {
+    const keep = 1 - dim;
+    steps.push(`<feColorMatrix in="SourceGraphic" type="matrix" values="${keep} 0 0 0 0 0 ${keep} 0 0 0 0 0 ${keep} 0 0 0 0 0 1 0" result="edgeBase"/>`,
+      `<feMerge><feMergeNode in="edgeBase"/><feMergeNode in="edgePaint"/></feMerge>`);
+  } else steps.push(`<feMerge><feMergeNode in="edgePaint"/></feMerge>`);
+  return filterEffect(frame, steps, { padding: Math.ceil(width) + 2 });
+}

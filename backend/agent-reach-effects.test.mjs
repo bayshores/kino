@@ -148,6 +148,7 @@ const EFFECT_PARAMETER_OVERRIDES = {
   "threshold-color": { contrast: 2, defaultColor: "#03045E", colorThreshold: 0.35, softness: 0.12, invertLuma: false },
   tritone: { threshold1: 0.28, threshold2: 0.7, softness: 0.2, contrast: 1.6, shadowColor: "#03045E", midtoneColor: "#D62828", highlightColor: "#CAF0F8" },
   "rgb-shift": { amount: 0.9, direction: 37, overflow: true },
+  "edge-lines": { color: "#00FFCC", width: 3, threshold: 0.06, background: "keep", smooth: 0.5, dim: 0.4 },
   grain: { amount: 0.8, size: 2, seed: 11, monochrome: false, rate: 24 },
   vignette: { amount: 0.9, midpoint: 0.4, roundness: 0.5, feather: 0.4, color: "#03045E" },
   "3d-orbit": { rotateY: 42, rotateX: 28, rotateZ: -12, pivotZ: 5, perspective: 0.65, cameraDistance: 3.5, showFront: true, showBack: true },
@@ -185,7 +186,7 @@ const EFFECT_PARAMETER_OVERRIDES = {
   invert: { amount: 0.8, keepHue: true },
 };
 
-assert.equal(EFFECTS.length, 60, "the A5 evidence covers the current catalog size");
+assert.equal(EFFECTS.length, 61, "the A5 evidence covers the current catalog size");
 function effectOperation(definition, layer = "Artwork") {
   return {
     op: "add_animation", layer, effect: definition.key,
