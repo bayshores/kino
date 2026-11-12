@@ -6,26 +6,11 @@ Contents: The vocabulary · The style spec · What check measures · The deck ·
 
 ## The vocabulary
 
-56 tags in 6 groups; `library {topic:"techniques", name?}` lists them. `*`: check cannot find it yet.
-
-- **transition**: cut, match-cut*, dissolve, fade-black, blur-through, zoom-through, whip-pan,
-  mask-wipe, glitch-hit, flash, push-transition
-- **camera**: slow-push, drift, parallax, orbit-3d, speed-ramp, freeze-frame, shake, punch-in
-- **type**: type-cut, type-fade, type-slide, type-pop, type-words, type-letters,
-  type-mask-rise, type-blur-in (not dealt), type-giant, type-counter, type-swap, type-kinetic
-- **texture**: speed-lines, particles, rgb-split, light-sweep, grain, vignette, depth-blur, motion-blur
-- **set piece**: tile-ring, clip-field*, draw-on, swipe-cards, logo-match-move, status-line, split-screen,
-  device-in-scene*, screen-zoom, type-behind (read from the `move` that built them)
-- **rhythm**: beat-cut, beat-kick, syncopated, hold
-
-check lists those used (`techniques: cut 12, type-pop 5`):
-
-- dissolve: opacities of two pictures cross; fade-black dips through dark. blur-through,
-  zoom-through (25%+ scale), whip-pan and push-transition are read at each full-frame change.
-- slow-push, drift: a slow move (1.2 s+) of a layer filling 40%; parallax: two, 1.5x apart.
-- type-*: how a text enters (words, letters, fade, slide, pop, blur, mask-rise, or cut).
-- beat-kick: 3+ pulses (1-10%, back in 0.4 s); depth-blur: a blurred picture behind sharp
-  ones; screen-zoom: a video scaled 2x in 1 s.
+56 tags in 6 groups: transition (cut, dissolve, whip-pan, mask-wipe, …), camera (slow-push,
+parallax, speed-ramp, …), type (type-words, type-giant, type-mask-rise, …), texture (grain,
+rgb-split, depth-blur, …), set piece (read from the `move` that built it) and rhythm (beat-cut,
+beat-kick, syncopated, hold). `library {topic:"techniques", name?}` lists them and how check
+finds each; check lists those used (`techniques: cut 12, type-pop 5`).
 
 ## The style spec
 
@@ -46,41 +31,27 @@ and avoids.
 
 **Only backed wants change rules.** A wanted tag turns rules off when the spec is `by:"you"`, or
 when a line with `ref` and `at` names it in `tags`. A guess with no reference turns nothing off.
-
-What a backed want does:
-
-| Wanted | Effect |
-|---|---|
-| dissolve, fade-black | `soft_cuts` is off (blur-through does not turn it off) |
-| type-words, type-letters | `word_by_word` off, typing keeps its stagger |
-| depth-blur | `blurred_backdrop` off, `text_slides` ignores blur |
-| beat-kick | `beat_kick` is off |
-| hold | `text_slides` is off |
-| the entrance every text uses | `same_entrance` is quiet |
-| any tag | `technique_repeat` lets it repeat (not loud accents); `style_wanted` wants it |
-
-An avoided tag used is a gate (`style_avoided`) only if the person banned it. Other gates never
-change with the spec.
+A backed dissolve or fade-black turns `soft_cuts` off; type-words or type-letters
+`word_by_word`; depth-blur `blurred_backdrop`; beat-kick `beat_kick`; hold `text_slides`; the
+entrance every text uses quiets `same_entrance`; any tag may repeat (`technique_repeat`) and is
+wanted (`style_wanted`). An avoided tag used is a gate (`style_avoided`) only if the person
+banned it. Other gates never change with the spec.
 
 ## What check measures
 
-Warnings (style_avoided a gate); each fix names techniques that fit. `text_slides` and
-`few_techniques` leave videos under 8 s alone.
+Warnings; each fix names techniques that fit. Limits: `library {topic:"rules", name:"quality",
+search:"<code>"}`. `text_slides` and `few_techniques` leave videos under 8 s alone.
 
-| Rule | Flags | Required |
-|---|---|---|
-| `text_slides` | text over a still, or dimmed or blurred footage, no sharp 20% screen on top | 25% at most, no card over 3 s bar the last |
-| `few_techniques` | a flat edit: no designed device (cut, type-cut, hold, beat-cut, syncopated don't count) | 1 under 70 s, then 2, 4 at most |
-| `plain_beats` | the hook, reveal or spine payoff (else first, last 2.5 s) of only footage, words, plain cuts, fades, blurs, freezes | a move on one; all plain holds the final render |
-| `technique_repeat` | monotony: a set piece over 3 times; one non-cut transition on 4+, 75% of changes, no plain cut; a loud accent over 3 times or once per 15 s; one entrance on 75% of texts | 2-3 alike uses: a motif |
-| `metronome` | shots within 20% of one length, or 90% of cuts on the beat at one count | |
-| `beat_kick` | the same small scale pulse 6 times or more | 5 alike at most |
-| `flat_sections` | next sections alike in 3 of: cut rate, motion, picture (footage, dark, light), framing scale | differ in 2 |
-| `style_avoided` | a technique the spec avoids, used | |
-| `style_wanted` | a backed wanted technique not used (hard cuts stay free) | |
-| `off_beat` | an accent 1 frame to 70 ms off a beat: a near miss | on it, or clearly between (syncopated) |
-| `deck_unused` | fewer than half of the deck's cards used (a swapped card does not count; a named type is not forced) | half or more |
-| `effect_fit` | music edit: loud effect on no cue, too big, over budget, stacked, on a talking face | auto removes; waive with cue:<name> |
+- `text_slides`: text over a still or dimmed footage for over 25% of the video.
+- `few_techniques`: a flat edit with no designed device (cuts and holds do not count).
+- `plain_beats`: the hook, reveal or spine payoff made of only footage, words and plain cuts.
+- `technique_repeat`: monotony (one set piece, transition, accent or entrance over and over;
+  2-3 alike uses are a motif). `metronome`: shots one length, or every cut on one count.
+  `beat_kick`: the same small pulse 6 times or more.
+- `flat_sections`: next sections alike in cut rate, motion, picture and framing scale.
+- `style_avoided`, `style_wanted`: the spec, broken. `off_beat`: an accent just off a beat.
+- `deck_unused`: under half of the deck's cards used. `effect_fit`: a loud effect on no cue,
+  too big, stacked or on a talking face (auto removes; waive with cue:<name>).
 
 ## The deck
 

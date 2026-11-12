@@ -6,24 +6,19 @@ Contents: Check · Polish · Looking · Review before final · Building in order
 
 ## Check
 
-- Each finding says what it measured, what is required and a fix op. `check {fix:"auto"}`
-  applies the `(auto)` fixes in one edit (skipping one that adds an error or keeps its finding),
-  re-checks, up to 3 rounds: call it once. A warning's fix skips layers your last
-  edit moved, a waiver names or a spine beat uses.
+- Each finding says what it measured, what is required and a fix op. A rule's exact limits:
+  `library {topic:"rules", name:"quality", search:"<code>"}`.
+- `check {fix:"auto"}` applies the `(auto)` fixes in one edit (skipping one that adds an error
+  or keeps its finding), re-checks, up to 3 rounds: call it once. A warning's fix skips layers
+  your last edit moved, a waiver names or a spine beat uses.
 - First `check` ends with `Rules:`; a same-rev repeat is 1 line (`{rules:true}`: all).
 - The first 8 lines of `check`, `look` versus and review, and `status` lead with what decides your
   next call (errors, advice, drift, `whole scene:`, inbox); the rest is detail.
-- `speech_cut` (gate, a voice cut mid-word): the sound reference.
-- `soft_upscale`: a picture drawn bigger than its file (over 1.3x warns, over 2x a gate).
-  `crop_no_subject`: footage cropped over 8%, no subject marked, warns; a marked subject
-  under 85% in frame is a gate. `head_cut_off` (Mac): a head out of the picture 1 s: play
-  another part or move it.
-- `jump_cut` (warns): back-to-back shots of one file framed alike: cut away or punch in.
-- `frozen_footage` (gate): a clip's picture stops 0.3 s+ (speed 0, a held frame, a still in its
-  place). Start it earlier, slow it (mediaSpeed 0.85+), or cut away. On a sound hit it warns.
-- `out_of_sync` (gate): a line over a synced file's picture of another moment: the fix retimes it.
-- `covered_layer` (warns): a solid shape, mp4 or jpg above hides a layer all its time on screen
-  (a png, webm or mov may be clear). Fix: move it above (auto for a full-frame overlay).
+- Footage: `speech_cut` (a voice cut mid-word: sound reference), `soft_upscale` (drawn over 1.3x
+  its file), `crop_no_subject` (cropped, no subject marked), `head_cut_off` (Mac), `jump_cut`
+  (one file framed alike back to back), `frozen_footage` (picture stops 0.3 s+: start earlier,
+  mediaSpeed 0.85+, or cut away), `out_of_sync` (a line over another moment of a synced file).
+- `covered_layer`: a solid shape, mp4 or jpg above hides a layer (png, webm, mov may be clear).
 - Motion rules (camera, brightness, frozen pictures): motion reference.
 - Contrast: under 0.2 s warns, longer is an error; the fix tries a scrim, a halo
   shadow, a darker place, a large-text size, then a plate.
@@ -43,43 +38,22 @@ Contents: Check · Polish · Looking · Review before final · Building in order
 
 ## Polish
 
-What a viewer calls sloppy though gates pass: fix it.
+What a viewer calls sloppy though gates pass: fix it. Each has an automatic fix
+(`check {fix:"auto"}`) but render_artifact.
 
-Each has an automatic fix (`check {fix:"auto"}`) but render_artifact:
-
-- `font_fallback` (gate): the text asks for a face kino has not loaded. Fix: the nearest loaded
-  weight, else the brand font, else the face it draws now (or `set_font` the exact face).
-- `text_collision` (gate): two texts touch, or a text runs into another text's plate
-  (a pill). Fix: the lesser one (a caption, else the later) moves to a free safe place, else
-  leaves before. `text_ghost` (gate): two words crossfading in one place mix. Fix: the new
-  one starts after the old.
-- `judder`: a layer over 20% of the frame pans 0.14+ frame widths a second unblurred (30 fps
-  or less). Fix (auto): motion blur while fast.
-- `text_wrap`: punctuation alone on a line or a one-word title broken (errors); a 2 or 3 word
-  title stacked by the wrap, or one short word under a long line (warnings). Fix: a width that
-  fits one line or balances the lines, or for 1 to 3 words a smaller size (at least type_min).
-- `cut_off_at_rest`: a picture, clip or phone at rest inside the 5% margin or cut by the edge.
-  Fix: scaled about its middle inside the margin.
-- `held_static`: nothing moves for over 1.5 s (1% of the diagonal a second, 0.4% for a picture
-  filling 30%; a clip, effect or fade counts). Fix: one slow move per hold (push, drift, letters
-  spread). End card still 3 s+: a push on the whole card (auto); over 4.5 s (a push counts as
-  still) an error: end sooner, add an element or end the song; silent over 5 s: cut to 2.5 s.
-  A planned still (end mark, black): `update_scene {rests:[{at, until}]}` (4 s in all).
-- `off_brand_font`: text outside the brand's fonts (`set_brand {fonts}`, or a family the brief
-  names); with no brand, a third type family. Fix (with a brand): `set_font` to the brand font
-  (nearest weight), headlines to the first.
-- `role_font_drift`: one family per role (display, stat, speech, caption), one caption size
-  per voice (caption track or color), warns; `fix:"auto"` never picks a font nobody chose. Warned: vocabulary_budget, brand_consistency, story_stall,
-  hook_readable, ending_count, accent_budget, `text_only_open` (3 s+ of text before any
-  picture or logo), `pacing_jump` (cut rate 3x, unless a cue, sound or spine edge is within
-  1 s and the new pace holds 12 s).
-- `type_min` (gate): body 3%, `role` headline 4% of the short side (32, 43 px at 1080p);
-  a URL or @handle is body. Fix: grow size and box.
-- Rendered (`check` only): `text_on_busy` (words over a phone, screen recording or sharp
-  detail; fix: the nearest calm place beside it, all parts of a caption together, else a plate
-  under the text), `small_on_empty` (a picture under 25% of a flat frame, 40% for footage, for
-  1.5 s; fix: grow and crop, add a scene or move the camera), `render_artifact` (an RGB split
-  drawing flat slabs; the fix softens it to 40%, or delete the animation).
+- Type: `font_fallback` (gate, a face kino has not loaded), `text_collision` and `text_ghost`
+  (gates: texts touch or mix), `text_wrap` (a lone word or punctuation on a line),
+  `type_min` (gate: body 3%, headline 4% of the short side; a URL is body), `off_brand_font`,
+  `role_font_drift` (one family per role, one caption size per voice; never a font nobody chose).
+- Framing: `cut_off_at_rest` (inside the 5% margin), `judder` (a big layer panning fast
+  unblurred: motion blur).
+- `held_static`: nothing moves for 1.5 s+. Fix: one slow move per hold. An end card still over
+  4.5 s is an error. A planned still (end mark, black): `update_scene {rests:[{at, until}]}` (4 s in all).
+- Warned: vocabulary_budget, brand_consistency, story_stall, hook_readable, ending_count,
+  accent_budget, `text_only_open`, `pacing_jump` (cut rate 3x, unless a cue, sound or spine edge
+  explains it).
+- Rendered (`check` only): `text_on_busy` (words over busy detail), `small_on_empty` (a small
+  picture on a flat frame), `render_artifact` (an RGB split drawing flat slabs).
 
 ## Looking
 
@@ -93,11 +67,9 @@ Each has an automatic fix (`check {fix:"auto"}`) but render_artifact:
   (`every:true`: each frame), `compare {rev}`, `changed`, `variants`.
 - `motion {from?, to?}` (graph and trace, no render), `frames {from, to?}` (each 30 fps frame):
   motion reference.
-- `source {layer, t?}`: a video layer's whole source frame at scene time t (default: the middle
-  of its time on screen), a 10% grid, the crop as a dashed box, the subject boxes (`agent`:
-  yours, from `mark_subject`; `vision`: Apple Vision, Mac only) and the result. The text gives
-  the shot, the crop in % and each box's share. Not your last look for `changed`.
-  Cropping: the framing reference.
+- `source {layer, t?}`: a video layer's whole source frame (default: mid-screen-time), a 10%
+  grid, the crop dashed, subject boxes (`agent`: from `mark_subject`; `vision`: Mac only), the
+  result and each box's share. Not your last look for `changed`. Cropping: framing reference.
 - `board {page?}`: the storyboard, 4 shots a page, with numbers (storyboard reference).
 
 ## Review before final
@@ -107,18 +79,16 @@ Each has an automatic fix (`check {fix:"auto"}`) but render_artifact:
 1. `edit`, then read the receipt: `newFindings` (at most 5, codes and times) are what it
    brought in; fix them next.
 2. `look {mode:"review"}` (a scene; `from`/`to` for a stretch) picks the moments that matter
-   (cuts, effects, moves, set pieces, text landing, quiet stretches),
-   ranks them by risk (risky: full size, 2 across; the rest 4 across). Each tile: the
-   whole frame, its time, what happens, findings in yellow. Cuts add seam rows (motion reference).
+   (cuts, effects, moves, text landing, quiet stretches), riskiest full size. Each tile: the
+   frame, its time, what happens, findings in yellow. Cuts add seam rows (motion reference).
 3. Study every frame for type, wrapping, overlaps, framing, empty space and artifacts. Fix them all in one `edit`.
 4. `look {mode:"review"}` again shows only the moments whose picture changed.
 5. `render {quality:"final"}` of the whole video is refused (`review_needed`) until every moment
    is reviewed as it is now. Drafts, stills (png) and scenes under 5 s are not gated. A
    skip: `waive_check {code:"review", target:"s1", reason}`.
-6. Saved references: with no `look {mode:"versus"}` in 10 revs, final runs it and answers its
-   rows: by place (opening, loudest change, ending, rest by position), same kind first; a pin
-   on its shot; 2 rows a still; labels. Gaps: fill, contrast, drift, range, softness, accent. A lost
-   judge round blocks. Skip: `waive_check {code:"reference", target:"*", reason}`.
+6. Saved references: with no `look {mode:"versus"}` in 10 revs, final runs it: rows by place
+   (opening, loudest change, ending), gaps in fill, contrast, drift, range, softness, accent. A
+   lost judge round blocks. Skip: `waive_check {code:"reference", target:"*", reason}`.
 
 ## Building in order
 

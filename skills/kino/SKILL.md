@@ -94,7 +94,7 @@ fields as `key=value`: `kino look frame t=3`.
 - [check-and-look](references/check-and-look.md): findings, looks; [motion](references/motion.md).
 - [ideas](references/ideas.md): story; [spine](references/spine.md): idea and lock.
 - [taste](references/taste.md): motion, readability, restraint.
-- [direction](references/direction.md): brief, stops, playback.
+- [direction](references/direction.md): brief; [stops](references/stops.md).
 - [dashboard](references/dashboard.md): history, notes, helpers.
-- [render](references/render.md): `preview=fast`, exports.
+- [render](references/render.md): exports.
 - [inspire](references/inspire.md): cuts; found [songs](references/soundtrack.md), [footage](references/footage.md); [workspace](references/workspace.md).

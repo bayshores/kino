@@ -11,94 +11,68 @@ Contents: The move op · The moves · Moves example · Trim paths and dashes
 - `move {name, at, dur?, id?, seed?, reduced?, look?, brand?, …its fields}`. `at` takes every
   time form (`1.2`, `"cue:drop"`, `"after:title.in"`). Layer fields take top-level layers or
   groups (a layer alone in a group means the group).
-- `library {topic:"moves", name?}` lists the moves, or one's fields and example.
+- `library {topic:"moves", name}` gives one move's fields, their defaults and an example:
+  read it before the first use. Without `name`: the list.
 - The receipt says when it plays, the layers it made, which of yours it animates. Its id is its
   name (`-2` at another time: the receipt has the call to move the first).
 - The same id, or layers and time, replaces it; `{name, id, remove:true}` removes it. Never
   edit its parts.
 - `seed` picks other choices. `reduced:true`: calm fades, small moves.
 - No move runs past the scene's end: `retime` it or start earlier.
+- Cues `<id>.1`… mark a move's steps (roll, type-on, stream) for sound.
 
 ## The moves
 
-- **caption-words**: captions low as written, a phrase at a time (never across a sentence's
-  end), cut on as said, one or two balanced lines. `keepCase:false` lowercases;
-  `entrance:"rise"`/`"pop"`; `highlight:"active"` is karaoke. Give `words` [{text, at}]
-  (forced-aligned) or `text`. Words a caption: `energy` (high 2-3, talk 3-5, calm 4-6) or
-  `group:1`; short words hold 0.3 s or pair up. `size:"small"`; `scrim:false`; clear of a
-  status line and covers (`avoid`). Font, colors, word box: captions-beats-sequences.md.
-- **zoom-through**: pushes into a point of one shot and comes out in the next.
-  `target:{layer, rect?}`: until a layer in `from` or its `rect` [x, y, w, h] % fills the
-  frame; no `to`: it stays. `reverse:true` pulls back from it (or an earlier push) to the whole
-  shot, 0.4 s expo-out, `title` landing. `flash:"white"`.
-- **whip-pan**: both shots slide a frame width, smeared (`smear`, `angle`).
+What each is for; fields from `library {topic:"moves", name}`.
+
+- **caption-words**: captions low as written, a phrase at a time, cut on as said, one or two
+  lines; `highlight:"active"` is karaoke. Give forced-aligned `words` [{text, at}] or `text`.
+  Font, colors, word box: captions-beats-sequences.md.
+- **zoom-through**: pushes into a point (or a layer's `target`) of one shot and comes out in the
+  next; `reverse:true` pulls back to the whole shot.
+- **whip-pan**: both shots slide a frame width, smeared.
 - **smear** (datamosh drag), **shatter** (glass shards), **split-fields** (two color fields, rough edge).
-- **push-through-type**: a big glossy word (or `layer`: your text, picture logo, path, shape or
-  group) fades in (`entrance:"sharpen"`: blur); the camera speeds into a letter (or the logo)
-  and the next shot shows inside it until it fills the frame.
-- **logo-match-move**: the logo arrives big, then flies into its place on a page, screen or
-  sign (`spot`, % of it), which sharpens.
+- **push-through-type**: a big glossy word (or your logo, path or group); the camera speeds into
+  a letter and the next shot shows inside it until it fills the frame.
+- **logo-match-move**: the logo arrives big, then flies into its `spot` on a page, screen or sign.
 - **speed-lines-phone**: light streaks rush past a phone pushing in.
-- **status-line**: an app icon with a changing status line: big left of center, or `place:"bottom-left"` a small corner badge; words
-  cut (`swap:"blur"` to blur); `size`. Moves off text (or refuses); later footage
-  goes under it; leaves before a dip to black or lone logo already there (else `dur`).
-- **swipe-cards**: the top card of a stack drags aside, tilts, fills with the brand color,
-  says YES or NO, flies off. `ramp:"expo"` shrinks gaps from `every` to `last` (1 s).
-- **roll**: `items` (words, or uploaded pictures by name) or your `layers` cut one to the next in
-  place, each shorter (`first` 1.4 s to `last` 0.1 s along `ramp` expo, linear or none), then
-  `land` holds `hold` 2 s (with `dur`, it lands at dur minus hold); each clip plays from its show
-  time. `lead:"NEW"` stays left, sliding with the land;
-  `layout:"wheel"` turns a list. Cues `<id>.1`… `<id>.land` for sound.
-- **rgb-split-hit**: on each beat colors split and snap back, kicking larger (`kick:0`: no).
+- **status-line**: an app icon with a changing status line, big or a corner badge; footage goes
+  under it.
+- **swipe-cards**: a card stack swiped YES or NO in the brand color, faster and faster.
+- **roll**: words, pictures or your `layers` cut one to the next in place, each shorter, then
+  land and hold; `layout:"wheel"` turns a list.
+- **rgb-split-hit**: on each beat colors split and snap back.
 - **parallax-stack**: 2-4 layers (far to near) drift at different rates.
-- **mask-through-shape**: the next shot opens from a circle, box or diamond (`ring`, `accent`).
+- **mask-through-shape**: the next shot opens from a circle, box or diamond.
 - **accent-hit**, **light-sweep**: one word or shape lit in one color (light.md).
-- **tile-ring**: a shot breaks into a turning ring of tiles (it and your `pictures`).
+- **tile-ring**: a shot breaks into a turning ring of tiles.
 - **build-in**: split_image pieces resolve in turn (building-blocks.md).
-- **ui-plane**: UI tilted in a dark void; `flat` lays it flat (tilt.md).
-- **window-punch-in**: a product window grows from 60% to 92% of frame width (by 0.8 s),
-  then pushes in 2%/s (`beats:[…]`: 1.5x steps); `glow` 0-1.
-- **lift-focus**: `detail:{layer, rect?}` (a layer, or part of a picture in %) lifts to a third
-  of the frame's width in the middle while the rest dims and blurs, then goes back.
-- **card-into-device**: a big leaning card (`picture` or `card`) turns flat, then shrinks into
-  `into:{layer, rect?}` (a phone's screen, %) as the phone fades in (`device:"there"`: on
-  already). `streaks` 0-1.
-- **carry**: one thing becomes the next shot, no cut: `{from, to, at}` (dur 0.5, expo-out).
-  Box, radius, fill and turn travel into `to`'s; contents crossfade midway.
-  `toRect`/`fromRect` [x, y, w, h] % carry into or out of a part (a phone's screen). `to` can be
-  a split_image piece.
+- **ui-plane**: UI tilted in a dark void (tilt.md).
+- **window-punch-in**: a product window grows to fill the frame, then pushes in slowly.
+- **lift-focus**: a detail lifts to the middle while the rest dims and blurs, then goes back.
+- **card-into-device**: a big leaning card turns flat and shrinks into a phone's screen.
+- **carry**: one thing becomes the next shot, no cut: box, radius, fill and turn travel from
+  `from` into `to` (or a part of it), contents crossfade.
 - **cursor**: clicks or drags a split_image piece (screens).
-- **freeze-shutter**: footage stops on the beat, a one-frame `shutter` (white, black, `kick`),
-  holds `hold` 0.6-1.5 s, optional `label`, then `release` (ramp, cut).
+- **freeze-shutter**: footage stops on the beat with a one-frame shutter, holds, then releases.
 - **speed-ramp**, **beat-repeat**: footage time on a cue (media.md).
-- **masked-type**: one big word made of the footage as the shot falls away around it; `subject`
-  (the clip, cut out for you) stands it behind the person; `reveal`: `rise` (default) or `cut`.
-- **perceive-insert**: `layer` (a clip), `at`, `region` [x,y,w,h] % (default: marked subject)
-  fills the frame 1s (`dur` 0.6-1.4), muted; `entry:"push"`.
-- **voice-type**: a spoken line set big word by word; `speech`+`line` or `words`.
+- **masked-type**: one big word made of the footage as the shot falls away; `subject` stands it
+  behind the person.
+- **perceive-insert**: a region of a clip fills the frame for about 1 s, muted.
+- **voice-type**: a spoken line set big word by word.
 - **split-screen**, **picture-in-picture**: panes, a corner inset (cutout.md).
-- **type-on**: your text `layer` (left-aligned, `role:"ui"`) types at `cps` 12, `wordPause` 0.08;
-  a caret trails; `field` (the box under it) grows. Cues `<id>.1` per word, `<id>.typed`.
-- **stream** (any text `layer`): words arrive `rate` 4/s (`unit:"letters"` 30), the newest two
-  in `from` (accent, #hex), then settle. **rewrite**: the layer, once read, blurs out; `new`
-  streams in its place (`old` first).
-  **decode**: random same-case letters settle in left to right. **assemble**: letters fly
-  together from a seeded `spread` {x, y, angle, scale}. `mode:"out"` reverses either.
-- **draw-on**: a line, outline or route (`layer`: a stroked rectangle, ellipse, star or path)
-  draws on, 0.4-1.2 s by length; fill fades in last.
-- **punch-in**: the frame snaps closer on a `point` (`scale`, `hold`, `out`). **shake**: a
-  shake that dies down, `at` a cue in a music edit. Both refuse a self-moving layer.
+- **type-on**: your text layer types with a caret; a box under it grows.
+- **stream**: words of any text layer arrive and settle. **rewrite**: the layer blurs out, `new`
+  streams in. **decode**: random letters settle left to right. **assemble**: letters fly together.
+- **draw-on**: a line, outline or route draws on; fill fades in last.
+- **punch-in**: the frame snaps closer on a point. **shake**: a shake that dies down, on a cue.
 - **overexpose**: a soft wash out and back, faces kept; `into` cuts at the peak.
-- **backdrop-flash** `{layer, at}`: a color field flashes behind the subject (cut out for you).
-- **energy-aura** `{layer, at}`: flame, smoke or electric aura off the subject.
+- **backdrop-flash**: a color field flashes behind the subject (cut out for you).
+- **energy-aura**: flame, smoke or electric aura off the subject.
 
-Launch-video type (words arrive faint, then darken):
-
-- **headline-write**: the `headline` writes on 4 words/s, centered. `exit:"dim"` fades it to 20%.
-- **logo-settle**: the logo mark (`picture` or `logo`) lands from 2.6x, the `wordmark` types on
-  beside it; `header:true` shrinks the lockup into a header.
-- **count-up**: an accent number counts to `value` ("98%", "$1.2M") in steady-width digits,
-  a `label` writes on under it.
+Launch-video type (words arrive faint, then darken): **headline-write** (writes on, centered),
+**logo-settle** (the mark lands, the wordmark types beside it), **count-up** (a number counts
+to `value` with a label).
 
 Moves use the brand's fonts (else the project's); a `scrim` only where words could fail.
 

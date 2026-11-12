@@ -15,30 +15,21 @@ Contents: Three calls · Visual words, not names · Reading a scan · What is sa
 ```
 
 1. `search`: the series or subject and the scene. Up to 10 videos, best first (the person's
-   pasted link, verified channels, big channels), each `F1`, `F2`... Other
-   people's edits, reactions, reviews, live and members-only videos are dropped. A video inspire
-   listed, a saved reference, or one whose study shows a patch staying in place is flagged
-   "someone else's edit", listed last; its scan's `next:` moves on (`data.import` keeps it).
-   `want` is saved.
-2. `scan` (`"top"`, `"F2"` or `"yt:<id>"`): downloads a 360p copy of the parts worth seeing
-   (the whole video up to 8 min; else its most replayed parts and the chapters your words name,
-   8 min in all; `from`/`to` for one stretch; `whole:true` up to 30 min), then lists the 12 best
-   shots. It waits about 50 s; a longer scan answers with progress: send the same call again.
-   Shot numbers: a code keeps its footage; a later scan of the same video numbers new shots
-   on from the last. All saved shots are ranked and matched to the newest
-   `want` together; the sheet is the newest scan's. Under half scanned, it names the next.
+   link, verified and big channels), each `F1`, `F2`... Other people's edits, reactions,
+   reviews, live and members-only videos are dropped; a likely edit (inspire listed it, a saved
+   reference, a fixed patch) is flagged "someone else's edit" and listed last. `want` is saved.
+2. `scan` (`"top"`, `"F2"` or `"yt:<id>"`): downloads a 360p copy of the parts worth seeing (8
+   min; its most replayed parts and the chapters your words name; `from`/`to` one stretch;
+   `whole:true` up to 30 min), then lists the 12 best shots. It waits about 50 s; a longer
+   scan answers with progress: send the same call again. A later scan numbers new shots on
+   from the last; all saved shots rank against the newest `want`.
 3. `import`: the shots you pick become H.264 clips (1080p at most), each with its credit, ready
-   for `compose {footage:[...]}` or `add_layer`. `F1.37` alone imports one shot; `from`/`to` a
-   stretch of 60 s at most. Only scanned videos import; 5 min a call, 15 min a project.
-   Imports queue: a second waits behind the running one and answers when done (60 s, else
-   "queued": repeat the call to read it). One line per clip: its `clip:` reference, then what it
-   `says` or `heard`, or why none.
+   for `compose {footage:[...]}` or `add_layer`. `F1.37` imports one shot; `from`/`to` a stretch
+   of 60 s at most; 5 min a call, 15 min a project. A second import queues ("queued": repeat
+   the call). One line per clip: its `clip:` reference, what it `says` or `heard`, or why none.
 
-Scans and cut clips are kept by video id: ones another project made are reused ("already on this
-computer: reused"), nothing downloaded. Another project's F code or `clip:yt-<id>` imports
-that video under this project's own code.
-
-The `kino` command sends `file=F1`, `file=F1.15` and `clip:` ids as typed.
+Scans and clips are kept by video id and reused across projects, nothing downloaded again. The
+`kino` command sends `file=F1`, `file=F1.15` and `clip:` ids as typed.
 
 `library {topic:"footage"}` lists the found videos. `look {mode:"source", ref:"F1"}` shows a
 scan's stills (`F1.<shot>`); look before you pick.
@@ -59,8 +50,8 @@ length, motion and face (0 to 100), match (how far above the others it fits `wan
 of text, `subtitles` shots and shots under 0.4 s go last; `logo` marks a logo fixed for a while;
 a dark shot keeps its rank (`dark, mean 13 of 255`). A burned-in mark is said once; such videos
 list after clean ones. Import offers a clean clip or a crop; `frame_shot` keeps the mark out;
-`burned_in_mark` names a layer still showing it (past 1.35x: a shift or a cover). Drawn footage has no face number ("Faces: not read
-on drawn footage."). With a song in the video, the answer
+`burned_in_mark` names a layer still showing it (past 1.35x: a shift or a cover). Drawn footage
+has no face number. With a song in the video, the answer
 says how many shots it needs (a cut every 2 beats on the drop, 4 on builds) and the import call
 names up to 1.5 times that. The answer's `next:` is that import call: change the shots after looking.
 
@@ -76,17 +67,13 @@ captions):` and `0:41 "..." (F1.12-F1.13)` rows. Auto captions are a guess (time
   instead of ranking last. `next:` imports that line by its time range:
   `{"tool":"project","action":"import","file":"F1","options":{"from":4.9,"to":7.3}}`.
 - No captions or no answer from YouTube: it says the words were not looked for.
-- Import also listens: a clip of 1.5 s or more with sound and no caption line gets `heard "..."
-  a-b s` (whisper on the clip's own sound, an English model: other languages come out as
-  sound-alike words; keep_line `{from, to, text}` takes a translation). `look` source lists `heard:`
-  per clip, and on one layer says `(muted here)` at volume 0. To keep a line over the song:
-  `{"tool":"edit","ops":[{"op":"keep_line","layer":"climb","line":"I'm just gonna see.","duck":"song"},{"op":"isolate_voice","layer":"climb"}]}`.
-  A line the trim cuts off is named `plays 5.3-7.4, line at 7.1-9.2` (file seconds); its call
-  moves mediaOffset first.
-- An import of a clip of 1.5 s or more adds `says "..." 0.3-2.1 s` (seconds in the clip).
-- Keep a said line: `keep_line {layer:"clip", line:"the words said", duck:"music"}` (case,
-  apostrophes and repeats ignored): the rest of the clip goes silent, a subtitle shows the line,
-  the music dips to 0.7 (`dip` sets it). Unread speech: `from`, `to` (scene seconds) and `text`.
+- Import also listens: a clip of 1.5 s or more adds `says "..." 0.3-2.1 s` (clip seconds), or
+  with no caption line `heard "..."` (whisper, an English model: other languages come out as
+  sound-alike words). `look` source lists `heard:` per clip (`(muted here)` at volume 0).
+- Keep a said line: `keep_line {layer, line, duck}`: the rest of the clip goes silent, a
+  subtitle shows the line, the music dips (`dip`, 0.7). Unread speech or a translation: `from`,
+  `to` (scene seconds) and `text`. A line the trim cuts off: its call moves mediaOffset first.
+  Over a song: `{"tool":"edit","ops":[{"op":"keep_line","layer":"climb","line":"I'm just gonna see.","duck":"song"},{"op":"isolate_voice","layer":"climb"}]}`.
 - compose {footage} keeps the clips' best lines heard (one per 6 s; `lines`: a number, [texts] or false).
 
 ## Note a video
@@ -110,12 +97,9 @@ The order opens `label yt:X on screen (seen)` for each of the first 2 saved, stu
 until all its moments are labeled; each label reply names the next look.
 Build toward the labels, not a template.
 
-The check `reference_kinds` (an error) reads the labels: with 2 or more labeled references, a kind
-(type, overlay, composite, color, made, spoken) that 2 of them show at 2 or more moments must show
-somewhere in your edit, read every 0.5 s. Its fix (and `next`) is a ready call: `library {topic:"search",
-search:"<label words>"}`, a kino overlay for made (1% of the frame at opacity 0.5+; overlays count),
-or `keep_line` for spoken (also required by the references' measured voice when a clip says a line,
-after `check {pixels:true}` transcribes it). Make your own version, not a copy.
+The check `reference_kinds` (an error) reads the labels: a kind that 2 labeled references show at
+2 or more moments must show somewhere in your edit. Its fix is a ready call (a library search, a
+kino overlay for made, `keep_line` for spoken). Make your own version, not a copy.
 Plain on purpose needs `waive_check {code:"reference_kinds", target:"<scene>", reason, quote}` with
 `quote` in words the person typed that say what is plain (just cuts, music only...); "your call" is refused.
 The search maps look words to kino names: font, outline, duotone, split screen, text behind, 3d,

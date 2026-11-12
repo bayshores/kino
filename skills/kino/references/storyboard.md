@@ -8,45 +8,32 @@ Read before building a video from footage (the `board` stop), or to plan any vid
 
 - Put the clip in the scene first, one video layer from 0 s, so scene time is file time
   (`look source` needs it). When you build the shots, delete it (or make it shot 1): its sound plays once.
-- One `board` op holds the whole storyboard; each call replaces it (undo, `rev`). Shots in
-  time order, no gap, no overlap: from the music layer's start to its end, or the whole
-  video when `music` is `"none"`.
-- Every layer of every shot is given, `"none"` when empty: `media` (an imported video or
-  picture, or a video layer) and `in` (file seconds), `crop`, `subject`, `follow`, `text`,
-  `sound`. `library {topic:"op", name:"board"}` has them all.
-- `crop` is `[x, y, w, h]` in % of the source, x, y top-left, at the video's shape: for 9:16
-  from 16:9, w = h × 0.316; `"whole"`: shown whole. Place it from
-  the subject: `look {mode:"source", layer, t}` (t: the shot's `in`) has a % grid. `subject` is
-  `{what, box, eyes?}` in % of the source as the frame at `in` shows it; `eyes` is the eye
-  line's y.
-- `follow`: `steady` (the crop holds still), `track` (it follows the subject) or `sweep` (one
-  straight pan). A subject that crosses the frame needs `track` or `sweep`.
-- `text` is `{text, family, weight?, size?, y?, fill?}` in a font kino has (`y`: its center,
-  % from the top). Use the face your references chose (example faces are placeholders).
-  Keep it off faces; no meme or novelty fonts unless asked.
-- `sound` is `"none"` or `{what}`, a concrete effect ("phone buzz on the table"): from the
-  person's files, or kino's own (`library sounds`, sound-library reference). Never a
-  made-up synth.
-- `pacing`: `beat_cut` (cuts on beats), `phrase_flow` (with the music's phrases or the voice)
-  or `free`. `why`: one line. `calls` (at most 6): your own choices, so an approval covers
-  them. `open` (at most 3): questions only the person can answer.
-- `move`: `{kind, name, ref}`, `kind` type, transition, camera or ui; `name` a move,
-  transition, recipe, preset, `frame` or `drift`, else `planned:true`; `ref` the moment
-  copied, `"<key>@<seconds>"` (a saved key, id or title; `look versus` pairs
-  it; refusals list them). Else `{none:"cut"}`: a plain cut, right for most shots.
-- Send the whole board again to change it, each shot with the `id` `look board` prints after
-  its number; a shot without one keeps the id of the shot it continues.
-- Refused (`op_failed`; its `boardError` says which): `missing_layer` (say "none"), `gap` or
-  `overlap` (the answer names the shot), `bad_shot` (every bad field named).
+- One `board` op holds the whole storyboard; each call replaces it. Shots in time order, no gap,
+  no overlap: the music layer's span, or the whole video when `music` is `"none"`.
+- Every shot gives every field, `"none"` when empty: `media` and `in` (file seconds), `crop`,
+  `subject`, `follow`, `text`, `sound`, `pacing`, `move`, `why`. Their exact shapes:
+  `library {topic:"op", name:"board"}`.
+- `crop` `[x, y, w, h]` % of the source at the video's shape (9:16 from 16:9: w = h × 0.316),
+  placed from the subject: `look {mode:"source", layer, t}` (t: the shot's `in`) has a % grid.
+  `subject` `{what, box, eyes?}`. `follow`: `steady`, `track` or `sweep`; a subject that crosses
+  the frame needs `track` or `sweep`.
+- `text` in the face your references chose (example faces are placeholders), off faces; no
+  meme or novelty fonts unless asked. `sound`: a concrete effect ("phone buzz on the table")
+  from the person's files or kino's library, never a made-up synth.
+- `pacing`: `beat_cut`, `phrase_flow` or `free`. `calls` (at most 6): your own choices, so an
+  approval covers them. `open` (at most 3): questions only the person can answer.
+- `move`: `{kind, name, ref}`, `ref` the reference moment copied (`"<key>@<seconds>"`; `look
+  versus` pairs it). Else `{none:"cut"}`: a plain cut, right for most shots.
+- Send the whole board again to change it, each shot with the `id` `look board` prints.
+  Refusals (`op_failed`, `boardError`) name the shot and every bad field.
 
 ## Look at it
 
-`look {mode:"board", page}` shows 4 shots a page: the source frame at `in` with the crop and the
-subject boxes, the app's covered areas shaded on 9:16, the cropped still with the real text,
-kino's numbers (subject % in the crop and from its edge, eyes % from the top), the move and
-your reason; its text, each shot's number, id, numbers and `look:` flags.
-Fix every `look:` flag you can before asking: the subject whole and 5%+ from the crop
-edge, eyes 20–45% from the top, nothing under the app's captions.
+`look {mode:"board", page}` shows 4 shots a page: the source frame with crop and subject boxes,
+the app's covered areas shaded on 9:16, the cropped still with the real text, kino's numbers,
+the move and your reason; its text, each shot's number, id and `look:` flags. Fix every flag
+you can before asking: the subject whole and 5%+ from the crop edge, eyes 20–45% from the
+top, nothing under the app's captions.
 
 ## Fresh-eyes check
 
@@ -69,25 +56,22 @@ Then ask with `fresh:"ran"`, or `fresh:"skipped"` when your app cannot start one
   when your app can send files, and end your turn. "All shots": the same call with `all:true`.
   After a redo or approve with notes, kino lists what changed, what they named
   but did not change, and a new shot order or music: send it as written.
-- Shot notes from the board screen: "use option B: <why>" (`alts[0]`; C is `alts[1]`), "make it 1.8 s
-  (was 2.1 s)", "remove this shot": edit `board` to match.
-- Style frame: with a picked `style.type` and footage, the answer carries one image (the type
-  over the first footage shot): send it with the ask.
-- Refused: `board_first` (save one first), `board_gap` (it no longer covers the music or
-  video), `open_items` (above), `move_needed` (no designed move on the hook, reveal or
-  payoff; it names moves that fit).
-- Sound: `none` when no shot has one; the first ask offers their files or kino's library.
-- Record their reply with `notes answer`.
-- The board is asked before the cut: placing a second shot or the first build waits for it (`board_needed`); drafts too.
+- Shot notes from the board screen ("use option B: <why>" is `alts[0]`, C `alts[1]`; "make it
+  1.8 s"; "remove this shot"): edit `board` to match.
+- With a picked `style.type` and footage, the answer carries a style frame (the type over the
+  first shot): send it with the ask.
+- Refused: `board_first`, `board_gap` (no longer covers the music or video), `open_items`,
+  `move_needed` (no designed move on the hook, reveal or payoff; it names moves that fit).
+- Record their reply with `notes answer`. Placing a second shot, the first build and drafts
+  wait for the board (`board_needed`).
 
 ## After the approval
 
 kino keeps a copy of the approved board: build to it. These lapse the approval: media, text,
 sound, pacing, follow, move, music (or its file), shot order, a shot added or removed, a new open
 item; a cut, in-point or end moved over 6 frames; a crop changed over 5% of the frame width.
-`board.lapsed` and `status` say so: ask again (only the changed shots are shown). A gap the video
-or music made lapses it until the board covers it again. Smaller changes are logged
-(`board.revisions`). "Approve with notes": make the changes. After the person answers rough,
+`board.lapsed` and `status` say so: ask again (only changed shots show). A gap lapses it until
+the board covers it again. Smaller changes are logged (`board.revisions`). "Approve with notes": make the changes. After the person answers rough,
 color or sound, only another song, media or shot list lapses it. Approved with only "your
 call": fix what a viewer finds (cut a repeat), never waive it.
 

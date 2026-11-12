@@ -28,16 +28,10 @@ Contents: Sound effects · Volume, fades and ducking · Music as structure · Se
 - Video and audio layers have `volume`, 0 (silent) to 4 (+12 dB; 1 is unchanged). Animate it
   with `from`/`to` `{volume}`: fade in `kind:"in"` from 0, fade out `kind:"out"` to 0. A `linear`
   fade from or to 0 is equal power, so a crossfade holds its level.
-- `duck_audio` dips music under the `under` layers (voices). A given `to` is kept.
-  Without it, dips sit 9 LU under the voice as rendered (else 0.25), one over 2 s stays within
-  8 dB (`held`), and one goes deeper so each line in it is 6 LU over the music (`deeper`),
-  to 0.1 at most (`quiet` names lines under). `fade` 0.15 s down, `fadeUp` 0.8 s up. A transcribed
-  voice dips for its words; a measured sound without words (a whoosh,
-  an untranscribed voice) dips while it is over -44 LUFS (`loud`). `warning`: a dip covers a section cue.
-  Rerun after moving a voice-over. `summary` names each dip's layers. The music comes back up
-  only for 3 s or more, never across a section cue (`sections`). List every voice-over in one `under`:
-  a second `duck_audio` on a layer replaces its dips (`replaced`). Several layers in
-  one edit: `duck` is a list of reports (`duck[0].summary`).
+- `duck_audio` dips music under the `under` layers (voices): by default 9 LU under the voice
+  as measured, a transcribed voice for its words. List every voice-over in one `under` (a
+  second run replaces the dips) and rerun after moving one; the receipt's `duck.summary` says
+  where it dips. Depth, fades and section cues: `library {topic:"op", name:"duck_audio"}`.
 - Fade out after the last dip: an animation starting inside a dip takes over from it.
 - Muffled until the drop: animate `lowpass` (cutoff Hz, 20-20000; none is off) from 400 to
   20000 over the bar before it, `kind:"in"`, `ease-in` (example below).
@@ -68,15 +62,10 @@ Contents: Sound effects · Volume, fades and ducking · Music as structure · Se
 
 ## Sound: separating voice from background
 
-- `isolate_voice` splits an audio or video layer's sound on this computer (nothing is uploaded).
-  `keep:"voice"` (default) plays only the voice, `"background"` only the rest, and `"both"` plays
-  the voice and adds an audio layer `<layer>-background` with the same Play and volume, so you
-  can turn either down. A video keeps its picture; only its sound changes.
-- `amount` 0–1 (default 1) leaves some
-  background in the voice. Running it again on one file is quick (`cached:true`).
-- The receipt's `voice` gives the engine and seconds; a refusal names the problem (`voiceError`).
-- `isolate_voice` does not duck music: send `duck_audio` in the same edit, and read where the
-  music dips in the receipt's `duck.summary` (`duck[n].summary` when it ducks several layers).
+- `isolate_voice` splits a layer's sound on this computer (nothing is uploaded). `keep:"voice"`
+  (default), `"background"`, or `"both"`: the voice plus an audio layer `<layer>-background`
+  you can turn down. A video keeps its picture. `amount` 0–1 leaves some background in.
+- It does not duck music: send `duck_audio` in the same edit.
 
 ```json
 {"op":"add_layer","layerType":"video","name":"interview","properties":{"src":"/api/media/<interview>.mp4"}}
@@ -92,32 +81,21 @@ Cut the slips out of a voiceover, then caption the rest (local whisper.cpp). `li
    and a flags line: `repeat`, `filler` (um, uh), `maybe` ("like": cut only if it is not meant),
    `unclear` (sound with no word), `low` (unsure words: check the spelling) and `pause`.
    `‖1.2` marks a pause that long. The first inspect takes a sixth of the file's length.
-   `speech:<layer>[file]`: the whole file in file seconds. whisper is told the brief's names; `re-heard`: unsure sentences heard alone.
+   `speech:<layer>[file]`: the whole file in file seconds.
 2. `cut_speech {layer, words:[indices]}` cuts those words (or `spans:[{from,to}]` in scene
    seconds). `pauses:0.4` shortens every pause over 0.4 s. The voice becomes pieces
    (`<name>`, `<name>-2` …) back to back with join fades; everything after a cut moves
-   earlier (`ripple:false`: only the voice). Indices never change: cut more by them.
-   A talking video morphs over each join (0.3 s optical flow in the render; the preview, check
-   and look show a dissolve; two shots stay cut; `morph:0.5`, `morph:false`). Undo: `restore:[indices]` (its `cut` line) or
-   `restore:"all"`; it moves what the last cut moved.
+   earlier (`ripple:false`: only the voice). Indices never change: cut more by them. A talking
+   video morphs over each join (`morph`). Undo: `restore:[indices]` or `restore:"all"`.
 3. `add_captions {speech:"<layer>", fix:{"heard":"meant"}}` captions the words the voice plays
    now, without um/uh, and corrects misheard names. Caption after cutting.
-4. `check` transcribes every heard audio and video layer once. `speech_cut` gates a clip that
-   starts or ends inside a word or mid-sentence (a full stop or 0.3 s pause ends one; words cut,
-   muted, over silence under -40 dB, or in a gap between same-clock clips of one take do not count), or whose cut lands in
-   loud sound near a word; a file that ends loud cuts its sentence off. A deliberate cut:
-   `waive_check`. The fix moves the edge to the sentence end or start, never over a cut word (not auto over a shot's cut). Warnings:
-   `speech_fragment` (a layer opens on a sentence's tail), `mute_word` (a mute or duck lets
-   part of its word through), `music_hard_stop` (a song stops loud: `fit_music` or a fade),
-   `end_on_fade` (fades out mid-phrase), `no_music` (soundtrack.md); measured: `voice_under_bed` (a line under 6 LU
-   over the beds: music, street sound, any sound of 3 s or more; or 2 words in a row under 3 LU: lift
-   them with a volume ramp or dip the beds), `voice_level_spread` (over 3 dB apart), `bed_jump` (beds
-   rise over 8 LU at a cut: J-cut the new bed 0.5 s early with a 0.5 s fade, or match its level),
-   `volume_churn` (a song or bed turns volume 3 times in 10 s: hold one level, duck once per spoken
-   stretch). A waiver on a layer lapses when its file changes or it is deleted. Renders clean lines at volume 0.5+ (rumble cut,
-   de-esser, compressor, EQ), then level them to -16 LUFS (per line when lines differ over 6 dB); `voiceCleanup:false` skips it.
-   `inspect {targets:["cuts"]}` lists cuts, words near them, dB jump. `speech_captions` warns when captions leave out heard words, or a text shows a muted clip's line (fix: keep_line). With no
-   speech model, check says so. Sound effects are skipped.
+4. `check` transcribes every heard layer once. `speech_cut` gates a clip that starts or ends
+   inside a word or mid-sentence; the fix moves the edge to the sentence end or start (a
+   deliberate cut: `waive_check`). Warnings: `speech_fragment`, `mute_word`,
+   `music_hard_stop`, `end_on_fade`, `no_music` (soundtrack.md); measured: `voice_under_bed` (a
+   line under 6 LU over the beds), `voice_level_spread`, `bed_jump` (J-cut the new bed 0.5 s
+   early), `volume_churn` (hold one level). The render cleans and levels lines to -16 LUFS
+   (`voiceCleanup:false` skips it). `inspect {targets:["cuts"]}` lists cuts and the words near them.
 
 If whisper-cli or its model is missing, the refusal says how to install them (macOS:
 `brew install whisper-cpp`, and a model such as `ggml-small.en.bin` in `~/.kino/models/`).
