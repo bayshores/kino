@@ -529,6 +529,13 @@ test("the aspect-ratio lock is off in old files, saves and loads, and must be tr
     );
 });
 
+test("mediaFreeze null reads as none, an unknown word is still refused", () => {
+  const parse = (value) => parseDocument(createDocument({ scenes: [createScene({ layers: [createLayer("video", { id: "clip", src: "/api/media/clip.mp4", mediaFreeze: value })] })] })).scenes[0].layers[0].mediaFreeze;
+  assert.equal(parse(null), "none");
+  assert.equal(parse("last"), "last");
+  assert.throws(() => parse("always"), /mediaFreeze/);
+});
+
 test("the fill toggle is on in old files, saves its paint while off, and must be true or false", () => {
   const legacy = parseDocument({
     version: 1,

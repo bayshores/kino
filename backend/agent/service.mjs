@@ -53,7 +53,7 @@ import { ConflictError } from "../store.mjs";
 import { hideShareSecrets } from "../shares.mjs";
 import { mediaAllowedIn } from "../media-use.mjs";
 import { assignCodes, closest, createResolver, documentObjects, nearMiss, ReferenceError } from "./refs.mjs";
-import { SAMPLE_FRAME, sampleOps } from "./library-catalog.mjs";
+import { SAMPLE_FRAME, deckCardText, sampleOps } from "./library-catalog.mjs";
 import { pictureAlpha, seeThrough } from "./picture-alpha.mjs";
 import { boxColor, filePalette, savedSize, shotColor, shotDetail, shotPalette } from "./shot-color.mjs";
 import { libraryMedia, stripPng } from "./library-media.mjs";
@@ -3536,6 +3536,13 @@ export function createAgentService(deps) {
         && fontWas.get(layer.id) !== ["fontFamily", "fontWeight", "fontStyle", "fontSource"].map((field) => layer[field] ?? "").join("|"));
       work.notes.push(...await faceAtCallNotes(namedFaces, { fonts, catalog: fontCatalog, nameOf: (layer) => refName(layer.id, afterCodes) }));
       const { findings, unchecked, stale: staleWaivers } = await findingsFor(after, { fonts, codes: afterCodes });
+      // mark_subject: whether crop_no_subject still holds for each layer this edit marked, and what it needs.
+      for (const [layerId, mark] of work.marks ?? []) {
+        const open = findings.find((finding) => finding.rule === "crop_no_subject" && !finding.waived && finding.ref === refName(layerId, afterCodes));
+        const tail = !open ? "crop_no_subject: not flagged for this layer in the check just now"
+          : `crop_no_subject: still ${open.severity}, ${open.markNeeds ?? `at ${open.at} s: ${open.message}`}`;
+        work.notes[mark.index] = `${work.notes[mark.index]}; ${tail}`;
+      }
       // The findings this edit brought into the stretch it changed, so a regression shows at once.
       const removedLayers = (before.scenes ?? []).flatMap((scene) => (scene.layers ?? []).filter((layer) => changes.removed.includes(layer.id)).map((layer) => ({ sceneId: scene.id, layerId: layer.id })));
       const stretches = changedStretches(before, after, [...touchedLayers(before, after), ...removedLayers], changes.changed);
@@ -8373,6 +8380,7 @@ export function createAgentService(deps) {
     if (topic === "effects") {
       if (!names[0]) return effectsListText();
       const found = effectDetailText(names[0]);
+      if (!found && deckCardText(names[0])) return { text: deckCardText(names[0]) };
       if (!found) throw new AgentError("not_found", `No effect "${names[0]}". library {topic:"effects"} lists them all.`, { didYouMean: closest(plainKey(names[0]), EFFECT_KEYS) });
       return found;
     }
@@ -8392,7 +8400,11 @@ export function createAgentService(deps) {
     }
     if (topic === "blocks") {
       try { return { text: blocksLibraryText(input.name) }; }
-      catch (error) { throw new AgentError("not_found", error.message, { didYouMean: error.suggestions ?? [] }); }
+      catch (error) {
+        const card = deckCardText(names[0]);
+        if (card) return { text: card };
+        throw new AgentError("not_found", error.message, { didYouMean: error.suggestions ?? [] });
+      }
     }
     if (topic === "formats") {
       try { return { text: videoFormatsText(input.name) }; }
@@ -8400,7 +8412,11 @@ export function createAgentService(deps) {
     }
     if (topic === "moves") {
       try { return { text: movesLibraryText(input.name) }; }
-      catch (error) { throw new AgentError("not_found", error.message, { didYouMean: error.suggestions ?? [] }); }
+      catch (error) {
+        const card = deckCardText(names[0]);
+        if (card) return { text: card };
+        throw new AgentError("not_found", error.message, { didYouMean: error.suggestions ?? [] });
+      }
     }
     // A `seen` label has commas (its kinds and its words): the name is not split into a list.
     if (topic === "inspire") return inspire(input, typeof input.name === "string" && /^\s*seen\s/i.test(input.name) ? input.name.trim() : names[0] ?? "", search);
@@ -8780,12 +8796,14 @@ export function createAgentService(deps) {
     // saved reference's kept shot pictures (inspire look vectors).
     const imported = media.filter((item) => item?.footage && mediaAllowedIn(item, projectId)).map((item) => ({ candidate: item.footage.candidate, shot: item.footage.shot, name: item.name }));
     const referenceLook = async (id) => (await deps.inspire?.reference?.(id, { look: true }))?.look ?? null;
-    try { reply = await footageOrigin.run(origin, () => footageActions.handle(input, { footage: state.footage ?? null, personClips, song, known, imported, referenceLook })); }
+    try { reply = await footageOrigin.run(origin, () => footageActions.handle(input, { footage: state.footage ?? null, latest: async () => (await agentState.read(projectId)).footage ?? null, personClips, song, known, imported, referenceLook })); }
     catch (error) {
       if (!(error instanceof FootageError)) throw error;
       throw Object.assign(new AgentError(error.code, error.message), error.nextCall ? { nextCall: error.nextCall } : {});
     }
     const { update, ...answer } = reply;
+    // F numbers belong to one project: an answer made without project= says which one it used.
+    if (!input.project && typeof answer.text === "string") answer.text = `Project ${record.document.id} (the open one; project=<id> picks another, and its F numbers are its own).\n${answer.text}`;
     return done(projectId, answer, update ? { change(draft) { draft.footage = update(draft.footage ?? null); } } : undefined);
   }
 

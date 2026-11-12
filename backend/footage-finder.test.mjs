@@ -804,8 +804,9 @@ test("library footage: the person's clips lead every answer, search's next is sc
   const layers = [createLayer("video", { id: "own", src: "/api/media/own1" }), createLayer("video", { id: "own2", src: "/api/media/own1" })];
   await store.createProject(createDocument({ id: "anime-edit", name: "Anime edit", scenes: [createScene({ id: "s1", layers })] }));
   const scanned = [];
+  let later = null;
   const finder = {
-    search: async () => ({ words: "show fight", candidates: Array.from({ length: 10 }, (_, index) => found(index + 1, { title: `Episode ${index + 1} ${"long title words ".repeat(8)}` })), dropped: { edits: 3, reactions: 2 }, cached: false }),
+    search: async () => later ?? ({ words: "show fight", candidates: Array.from({ length: 10 }, (_, index) => found(index + 1, { title: `Episode ${index + 1} ${"long title words ".repeat(8)}` })), dropped: { edits: 3, reactions: 2 }, cached: false }),
     readScan: async () => null,
     scan: async (candidate, options) => {
       scanned.push([candidate.code, options.want]);
@@ -848,6 +849,16 @@ test("library footage: the person's clips lead every answer, search's next is sc
   // The scan answer says it once; the scanned clip with a mark lists after the clean, unscanned ones; nothing is hidden.
   assert.match(scan.text, /\nNote: a mark is burned into this clip's top-left \(on every shot\)\. Pick a clean clip/);
   assert.ok(list.text.search(/\nF1 Big Studio/) > list.text.search(/\nF2 Big Studio/) && list.text.search(/\nF1 Big Studio/) > 0, list.text);
+  // A later search in the same project: a video found before keeps its F number (Episode 5 was listed fourth, an edit last), new ones count on from F10.
+  later = { words: "other fight", candidates: [found(5, { title: "Episode 5 again" }), found(11, { title: "Episode 11" }), found(12, { title: "Episode 12" })], dropped: {}, cached: false };
+  const again = await service.call("library", { project: "anime-edit", topic: "footage", search: "other fight" });
+  assert.equal(again.isError, undefined, again.text);
+  assert.deepEqual(again.data.candidates.map((entry) => [entry.code, entry.id]), [["F4", found(5).id], ["F11", found(11).id], ["F12", found(12).id]]);
+  assert.doesNotMatch(again.text, /^Project /);
+  // Without project= the answer's first line names the project it used (F numbers are per project).
+  await service.call("project", { action: "open", id: "anime-edit" });
+  const bare = await service.call("library", { topic: "footage" });
+  assert.match(bare.text, /^Project anime-edit \(the open one; project=<id> picks another/, bare.text);
 });
 
 test("library footage with an origin word and no clips of theirs: next is the footage search for the quote and the word, the finder is told the word; with their own clip: unchanged", async (t) => {

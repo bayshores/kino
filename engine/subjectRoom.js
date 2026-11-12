@@ -111,6 +111,19 @@ export function roomLine(room) {
   return ["left", "right", "above", "below"].map((side) => `${side} ${room[side] ? `${Math.round(room[side].x1 - room[side].x0)}×${Math.round(room[side].y1 - room[side].y0)}` : "none"}`).join(", ");
 }
 
+/**
+ * The sides of `room` that have space, best first: the size (px) a text of `size` px whose letter
+ * box is `ink` keeps there as a whole (not split), and the room's width and height. Most size
+ * first, then the larger room.
+ */
+export function roomSides(room, ink, size) {
+  const inkWidth = Math.max(1, ink.x1 - ink.x0), inkHeight = Math.max(1, ink.y1 - ink.y0);
+  return ["left", "right", "above", "below"].filter((side) => room[side]).map((side) => {
+    const width = Math.round(room[side].x1 - room[side].x0), height = Math.round(room[side].y1 - room[side].y0);
+    return { side, width, height, fits: Math.floor(size * Math.min(1, width / inkWidth, height / inkHeight)) };
+  }).sort((a, b) => b.fits - a.fits || b.width * b.height - a.width * a.height);
+}
+
 const clamp = (value, low, high) => (high < low ? low : Math.min(high, Math.max(low, value)));
 const sizeOf = (box) => ({ width: box.x1 - box.x0, height: box.y1 - box.y0 });
 
@@ -268,6 +281,8 @@ export function placeAroundSubject(scene, layers, subject, options) {
   // shows the share still inside the subject box).
   const sizes = layers.map((layer) => layer.fontSize);
   const smallest = Math.min(...layers.map((layer) => layer.fontSize ?? least));
+  // The size the room itself fits (before the floor), and the whole text's letter box for roomSides.
+  const fitted = Math.floor(smallest * Math.min(1, chosen.scale));
   const scale = Math.max(Math.min(1, chosen.scale), Math.min(1, least / smallest));
   if (scale < 1) {
     const center = { x: (ink.x0 + ink.x1) / 2, y: (ink.y0 + ink.y1) / 2 };
@@ -343,7 +358,7 @@ export function placeAroundSubject(scene, layers, subject, options) {
     } else moveTo(layers, spotIn(union(lettersOf(layers)), room[chosen.side]));
   }
   const after = worst(placed);
-  return { side: chosen.side, follow: Boolean(chosen.follow), keys, whole, scale, before, after, room, sizes, splitId };
+  return { side: chosen.side, follow: Boolean(chosen.follow), keys, whole, scale, before, after, room, sizes, splitId, fitted, ink, smallest };
 }
 
 // The track name on a pin place {around, follow} wrote.

@@ -149,6 +149,14 @@ test("notes brief saves a style spec; check follows it and shows the techniques;
   assert.match(one.text, /^slow-push \(camera\): /);
   const wrong = await agent("library", { topic: "techniques", name: "slowpush" });
   assert.equal(wrong.isError, true);
+  // A deck card name asked in moves, blocks or effects answers with what holds it, not "unknown".
+  for (const topic of ["moves", "blocks", "effects"]) {
+    const card = await agent("library", { topic, name: "fade-black" });
+    assert.notEqual(card.isError, true, topic);
+    assert.match(card.text, /^"fade-black" is a deck card[^]*Held by: [^]*add_animation/, topic);
+  }
+  assert.match((await agent("library", { topic: "moves", name: "parallax" })).text, /Held by: library \{topic:"moves", name:"parallax-stack"\}/);
+  assert.equal((await agent("library", { topic: "moves", name: "no-such-thing" })).isError, true);
 });
 
 test("the dashboard summary carries the spec without kino's bookkeeping", () => {

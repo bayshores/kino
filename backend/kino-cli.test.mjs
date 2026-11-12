@@ -60,6 +60,13 @@ function runKino(args, { env, input = "" } = {}) {
 }
 
 describe("parseCommand", () => {
+  test("--help and -h after a verb print the same text as kino help", async () => {
+    const help = (await run(process.execPath, [bin, "help"])).toString("utf8");
+    assert.match(help, /^kino: make motion videos/);
+    for (const argv of [["edit", "--help"], ["look", "frame", "-h"], ["library", "--help"]])
+      assert.equal((await run(process.execPath, [bin, ...argv])).toString("utf8"), help, argv.join(" "));
+  });
+
   test("turns command-line words into a verb, its input and options", async () => {
     const home = process.env.HOME ?? "~";
     const cases = [

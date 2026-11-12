@@ -2152,6 +2152,9 @@ test("crop_no_subject: where no face was found, the window must keep what kino s
   // A looked-at mark inside the box (a mouth in a face) does not stand for it; a part mark does.
   const [mouth] = (await cropRun("crop_no_subject", keeperMarked([40, 40, 8, 8]), sees([25, 20, 30, 50]), keeperLooked)).findings;
   assert.match(mouth.measured, /the mark \[40, 40, 8, 8\] holds 4% of it$/);
+  // What a mark still needs rides on the finding (the mark_subject receipt reads it): no mark, or a part-less mark that misses the box.
+  assert.match(cut.markNeeds, /^fails at 0-2 s; nothing marked there \(/);
+  assert.match(mouth.markNeeds, /^fails at 0-2 s; the mark at file 0 s has no part and holds 4% of the saliency box: send it again with a part name \(/);
   assert.deepEqual((await cropRun("crop_no_subject", keeperMarked([40, 40, 8, 8], { part: "mouth" }), sees([25, 20, 30, 50]), keeperLooked)).findings, []);
   // A mark nobody looked at does not count, but frame_shot would crop on it: the look comes first, never a frame_shot loop.
   const [unlooked] = (await cropRun("crop_no_subject", keeperMarked([60, 40, 10, 20]), sees([25, 20, 30, 50]))).findings;

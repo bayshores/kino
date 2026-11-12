@@ -262,11 +262,22 @@ test("place {around} sets a word beside the marked subject of the shot under it 
     { op: "place", layers: ["payoff"], around: "subject" },
   ] });
   assert.equal(placed.isError, undefined, placed.text);
-  assert.match(placed.text, /around the subject of shot at 0 s \(your mark at file 0 s\), over it \(subject box x 768-1152, y 194-1080\): split at the word gap: \\"KILL\\" left, \\"YOU\\" right \(new layer payoff-2\) · letters inside the subject box at the worst moment \d+% → 0% · room left 648×972, right 648×972, above 1728×116, below none/);
+  assert.match(placed.text, /around the subject of shot at 0 s \(your mark at file 0 s\), over it \(subject box x 768-1152, y 194-1080\): split at the word gap: \\"KILL\\" left, \\"YOU\\" right \(new layer payoff-2\) · letters inside the subject box at the worst moment \d+% → 0% · size 260 → 260 px \(both parts\) · room left 648×972, right 648×972, above 1728×116, below none/);
   const record = await saved("around-place");
   assert.deepEqual([findLayer(record, "payoff").text, findLayer(record, "payoff-2").text], ["KILL", "YOU"]);
   const word = await agent("around-place", "edit", { ops: [{ op: "place", layers: ["payoff-2"], around: "shot", side: "above" }] });
   assert.match(word.text, /: above · letters inside the subject box at the worst moment \d+% → 0% · size 260 → \d+ px to fit the room/);
+  // A subject near the left edge leaves a sliver on the left: the split's size before and after, the room on each side,
+  // and (the room fits less than type_min reads) the side with the most room as one call.
+  const edge = await agent("around-place", "edit", { ops: [
+    { op: "add_layer", layerType: "text", name: "edge-word", properties: { text: "KILL YOU", fontFamily: "Inter", fontWeight: 700, fontSize: 380, textResize: "width-height", x: 500, y: 400, width: 900, height: 300 } },
+    { op: "mark_subject", layer: "shot", t: 0, box: [8, 18, 40, 82] },
+    { op: "place", layers: ["edge-word"], around: "subject", side: "split" },
+  ] });
+  assert.equal(edge.isError, undefined, edge.text);
+  assert.match(edge.text, /size 380 → 36 px to fit the room · the room here fits \d+ px, under the 33 px the type size check reads; right has the most room \(\d+×972, keeps \d+ px\): edit \{\\"ops\\":\[\{\\"op\\":\\"place\\",\\"layers\\":\[\\"edge-word\\"\],\\"around\\":\\"subject\\",\\"side\\":\\"right\\"\}\]\}/);
+  assert.match(edge.text, /mark_subject shot: .*crop_no_subject: not flagged for this layer in the check just now/);
+  assert.match(edge.text, /room left \d+×972, right \d+×972/);
   // A face mark alone stands for a person: the box runs down to the picture's bottom, so no room below.
   const face = await agent("around-place", "edit", { ops: [
     { op: "add_layer", layerType: "video", name: "talk", properties: { src: "/api/media/00000000-0000-4000-8000-000000000001.mp4", x: 0, y: 0, width: 1920, height: 1080 } },

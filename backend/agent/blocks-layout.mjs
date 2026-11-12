@@ -5,7 +5,8 @@ import { ALIGNMENTS, alignmentDistance, layerWorldBox, moveLayerByWorldDelta } f
 import { typeFloor } from "../../engine/blocks/looks.js";
 import { frameScale, parseSlot, safeArea, slotBox } from "../../engine/blocks/formats.js";
 import { closest } from "./refs.mjs";
-import { placeAroundSubject, roomLine } from "../../engine/subjectRoom.js";
+import { placeAroundSubject, roomLine, roomSides } from "../../engine/subjectRoom.js";
+import { readableFloor } from "../../engine/quality/analysis.js";
 import { isRecord } from "../../engine/numbers.js";
 
 /** True for a slot ("B2:E5", "center", "slot:top-left"); false for anything else, such as a layer name. */
@@ -83,7 +84,17 @@ export function createLayoutOps({ fontsOf, problem, sceneOf, faceTarget = null, 
       const how = placed.side === "split"
         ? `split at the word gap: "${layers[0].text}" left, "${scene.layers.find((layer) => layer.id === placed.splitId).text}" right (new layer ${placed.splitId})`
         : placed.side;
-      const sized = placed.scale < 1 ? ` · size ${layers.map((layer, index) => `${placed.sizes[index]} → ${layer.fontSize}`).join(", ")} px to fit the room` : "";
+      const sizes = layers.map((layer, index) => `${placed.sizes[index]} → ${layer.fontSize}`).join(", ");
+      let sized = placed.scale < 1 ? ` · size ${sizes} px to fit the room` : placed.side === "split" ? ` · size ${sizes} px (both parts)` : "";
+      // The room fits a size under the one type_min reads (4% of the frame height for a headline, else 3%):
+      // the text stays at the floor over the subject's edge; the side with the most room is one call away.
+      const limits = readableFloor({ width: scene.width, height: scene.height });
+      const readable = Math.ceil(layers.some((layer) => layer.role === "headline") ? limits.headline : limits.body);
+      if (placed.fitted < readable) {
+        const best = roomSides(placed.room, placed.ink, placed.smallest).find((entry) => entry.side !== placed.side);
+        if (best && best.fits > placed.fitted)
+          sized += ` · the room here fits ${placed.fitted} px, under the ${readable} px the type size check reads; ${best.side} has the most room (${best.width}×${best.height}, keeps ${best.fits} px): edit ${JSON.stringify({ ops: [{ op: "place", layers: operation.layerIds, around: operation.around, side: best.side }] })}`;
+      }
       // Over the hold: how far the subject's box moves, and the worst moment's covered share.
       const moments = target.moments ?? [];
       const spread = moments.length > 1 ? Math.round(Math.max(...["x0", "x1", "y0", "y1"].map((edge) => Math.max(...moments.map((moment) => moment.box[edge])) - Math.min(...moments.map((moment) => moment.box[edge]))))) : 0;

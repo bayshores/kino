@@ -341,7 +341,7 @@ export function cropNoSubject(model, ctx) {
     // Faces the detector found whole in the file that the crop cuts: with no mark (faceCut), or
     // while the mark sits somewhere else (missed).
     // What kino sees (a saliency box where no face was found) that the crop cuts.
-    const faceCut = { count: 0, worst: null }, missed = { count: 0, worst: null }, salientCut = { count: 0, worst: null };
+    const faceCut = { count: 0, worst: null }, missed = { count: 0, worst: null }, salientCut = { count: 0, worst: null, times: [] };
     for (let index = 0; index < model.times.length; index += step) {
       if (item.samples.opacity[index] < SHOWN || soft(item, index) || coveredAt(model, item, index)) continue;
       const time = model.times[index];
@@ -384,7 +384,8 @@ export function cropNoSubject(model, ctx) {
         const kept = faceKept(salient, crop.bounds);
         if (kept.share < SUBJECT_KEPT) {
           salientCut.count += 1;
-          if (!salientCut.worst || kept.share < salientCut.worst.share) salientCut.worst = { ...kept, box: salient, mark, time, second };
+          salientCut.times.push(time);
+          if (!salientCut.worst || kept.share < salientCut.worst.share) salientCut.worst = { ...kept, box: salient, mark, time, second, markAt: entry?.at ?? null, bounds: crop.bounds };
         }
         continue;
       }
@@ -417,10 +418,24 @@ export function cropNoSubject(model, ctx) {
       const call = `edit {"ops":[{"op":"frame_shot","layers":[${JSON.stringify(String(name).replace(/^"(.*)"$/, "$1"))}]}]}`;
       const held = cut.mark ? `; the mark ${boxText(cut.mark)} holds ${Math.round(insideShare(cut.box, [cut.mark[0], cut.mark[1], cut.mark[0] + cut.mark[2], cut.mark[1] + cut.mark[3]]) * 100)}% of it` : "";
       const cutText = `${name} cuts what kino sees in its file at the ${cut.side} at ${sec(cut.time)} s (scene; file ${sec(cut.second)} s): ${Math.round(cut.share * 100)}% of it is in the frame (a saliency box, not a face)`;
+      // What clears it: the moments it fails at, the mark in the way (one with no part that misses the box), and the one call.
+      const [firstAt, lastAt] = [salientCut.times[0], salientCut.times.at(-1)];
+      const failsAt = firstAt === lastAt ? `${sec(firstAt)} s` : `${sec(firstAt)}-${sec(lastAt)} s`;
+      const markShare = cut.mark ? Math.round(insideShare(cut.box, [cut.mark[0], cut.mark[1], cut.mark[0] + cut.mark[2], cut.mark[1] + cut.mark[3]]) * 100) : null;
+      // The box to send: the mark already there, else the saliency box cut to the part the crop shows (a part mark must itself stay in the frame).
+      const [bx0, by0, bx1, by1] = cut.bounds;
+      const shown = [Math.max(cut.box[0], bx0), Math.max(cut.box[1], by0)];
+      const inFrame = [shown[0], shown[1], Math.min(cut.box[0] + cut.box[2], bx1) - shown[0], Math.min(cut.box[1] + cut.box[3], by1) - shown[1]];
+      const sent = cut.mark && insideShare(cut.mark, cut.bounds) >= SUBJECT_KEPT ? cut.mark : inFrame;
+      const fixCall = `edit {"ops":[{"op":"mark_subject","layer":${JSON.stringify(String(name).replace(/^"(.*)"$/, "$1"))},"t":${sec(cut.time)},"box":${JSON.stringify(sent.map((value) => Math.round(value * 10) / 10))},"part":"<the part>"}]}`;
+      const markNeeds = unlooked ? null : cut.markAt !== null
+        ? `fails at ${failsAt}; the mark at file ${sec(cut.markAt)} s has no part and holds ${markShare}% of the saliency box: send it again with a part name (${fixCall})`
+        : `fails at ${failsAt}; nothing marked there (${fixCall})`;
       // A mark nobody looked at does not count here, yet frame_shot would crop on it: the look comes first.
       const lookCall = `look {mode:"source", layer:${name}, t:${sec(cut.time)}}`;
       findings.push({
         rule: "crop_no_subject", severity: "error", itemId: item.id, at: sec(cut.time),
+        ...(markNeeds ? { markNeeds } : {}),
         message: unlooked
           ? `${cutText}, and its mark was never looked at: ${lookCall} first, then mark what the shot is about.`
           : `${cutText}. ${call} keeps it whole, as a card when it is wider than the frame; a deliberate part: mark_subject with part.${staleMark}`,

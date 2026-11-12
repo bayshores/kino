@@ -985,6 +985,8 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
           // deck_unused: the cards left unused, named in check's advice line.
           ...(finding.unused ? { unused: finding.unused } : {}),
           ...(finding.bbox ? { bbox: finding.bbox } : {}),
+          // crop_no_subject: what a mark_subject still needs (the moments, the mark in the way, the call).
+          ...(finding.markNeeds ? { markNeeds: finding.markNeeds } : {}),
           ...(fix !== undefined ? { fix } : {}), ...(call ? { call } : {}), ...(auto ? { auto: true, ...(finding.fix?.why ? { why: finding.fix.why } : {}), ...(finding.fix?.push ? { push: true } : {}) } : {}),
           ...(waiver ? { waived: waiver.reason } : {}),
           // A shot an animation moves: frame_shot would fight it, so a refused waiver answers with mark_subject.

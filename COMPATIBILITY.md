@@ -99,6 +99,7 @@ How to read it:
   import path's duration line was not run.
 - **Media src not imported**: Verified. A bare file name or URL in `src` is refused with the import
   step; `check` reports `missing_media` (`backend/agent-common-mistakes.test.mjs`).
+- **Small tool frictions (round 5)**: Verified. `update_layer` `mediaFreeze:null` reads as "none"; `library` moves, blocks and effects answer a deck card name (`fade-black`) with the topic and call that hold it; `place` around/split prints size before and after and, under the type_min size, the side with the most room as one call; `kino edit --help` prints `kino help`; a found video keeps its F number across searches and a footage answer without `project=` names the project; the `mark_subject` receipt says where `crop_no_subject` stands. Evidence: `engine/model.test.js`, `engine/qualityRules.test.js`, `backend/agent-style.test.mjs`, `backend/agent-blocks.test.mjs`, `backend/kino-cli.test.mjs`, `backend/footage-finder.test.mjs`.
 - **Reach of every engine feature**: Verified. Ops such as `duplicate_layers`, `import_svg`,
   `copy_layers`, `copy_scene` and `project manage` resources reach every engine feature. Evidence: the
   eight `backend/agent-reach-*.test.mjs` files; open rows in [Reachability audit](#reachability-audit).

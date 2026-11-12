@@ -557,6 +557,8 @@ export async function main(argv) {
   const { words } = splitOptions(argv);
   const [command] = words;
   if (!command || ["help", "--help", "-h"].includes(command)) return console.log(HELP);
+  // `kino edit --help` (any verb) prints the text `kino help` does, not a refusal of the option.
+  if (VERBS.includes(command) && argv.some((word) => word === "--help" || word === "-h")) return console.log(HELP);
   if (command === "--version" || command === "version") {
     const { version } = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
     return console.log(version);

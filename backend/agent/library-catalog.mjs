@@ -11,6 +11,7 @@ import { VIDEO_FORMATS } from "../../engine/blocks/videoFormats.js";
 import { EFFECTS, effectDefaults } from "../../engine/effects/catalog.js";
 import { COLOR_LOOK_NAMES } from "../../engine/effects/colorLook.js";
 import { TECHNIQUES, TECHNIQUE_GROUPS, techniqueOf } from "../../engine/techniques.js";
+import { madeCardOf } from "../../engine/deck.js";
 import { outlineGlow } from "../../engine/outlineGlow.js";
 
 export const SAMPLE_FRAME = Object.freeze({ width: 960, height: 540 });
@@ -421,4 +422,26 @@ export function sampleOps(kind, name) {
   if (kind === "technique" && MASK_SAMPLES[name]) return MASK_SAMPLES[name]();
   if (kind === "technique" && TECHNIQUE_SAMPLES[name]) return TECHNIQUE_SAMPLES[name]();
   return null;
+}
+
+const TOPIC_OF_KIND = { move: "moves", effect: "effects", recipe: "blocks", look: "blocks" };
+
+/** The library answer for a deck card name (a technique tag such as fade-black, or a made card)
+ *  that moves, blocks and effects do not carry under that name: what it is, and the topic and
+ *  call that hold it. null when the name is no deck card. */
+export function deckCardText(name) {
+  const tag = techniqueOf(String(name));
+  const made = madeCardOf(String(name));
+  if (!tag && !made) return null;
+  const what = tag ? `${tag.tag} (${tag.group}): ${tag.line}. Fits: ${tag.fits}.` : `${made.name}: ${made.line}.`;
+  const holders = tag ? libraryCatalog().entries.filter((item) => item.tags.includes(tag.tag) && TOPIC_OF_KIND[item.kind]).slice(0, 3) : [];
+  const lines = holders.map((item) => `library {topic:"${TOPIC_OF_KIND[item.kind]}", name:"${item.name}"}`);
+  if (made) lines.push(`call: ${made.call}`);
+  if (!lines.length) {
+    // A plain edit: the sample's own animation ops are the call (shot-a leaves, shot-b arrives).
+    const plain = (tag && sampleOps("technique", tag.tag)?.ops.filter((op) => op.op === "add_animation")) || [];
+    if (plain.length) lines.push(`no move, recipe or effect has this name; it is plain add_animation ops (shot-a leaves, shot-b arrives: send your own layers): edit ${JSON.stringify({ ops: plain })}`);
+    else lines.push(`no move, recipe or effect has this name: library {topic:"techniques", name:"${name}"}`);
+  }
+  return `"${name}" is a deck card, not a move, block or effect. ${what}\nHeld by: ${lines.join("; ")}`;
 }

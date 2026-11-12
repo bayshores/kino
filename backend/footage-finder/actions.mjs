@@ -528,7 +528,7 @@ export function createFootageActions({ finder, waitMs = FOOTAGE_WAIT_MS, keepMs 
     return [personClipsLine(personClips), ...lines].filter(Boolean).join("\n");
   }
 
-  async function search(input, { footage, personClips, signal, known = null }) {
+  async function search(input, { footage, personClips, signal, known = null, latest = null }) {
     const words = oneLine(input.search ?? input.query);
     const want = input.want === undefined ? null : short(oneLine(input.want), 160);
     const said = input.said === undefined ? null : short(oneLine(input.said), SAID_SHOWN);
@@ -566,7 +566,9 @@ export function createFootageActions({ finder, waitMs = FOOTAGE_WAIT_MS, keepMs 
       return { text: withLead(personClips, [nothingFoundText(found.words ?? words, found.tried), droppedLine(found.dropped)]),
         data: { candidates: [], dropped: found.dropped }, nextCall: searchCall(), update: want !== null || said !== null ? update : undefined };
     }
-    const after = update(footage);
+    // The numbers the answer names are the ones the save gives: the search waited on the network, so
+    // its codes come from the footage as it is now (a video keeps its F number across searches).
+    const after = update((await latest?.().catch(() => footage)) ?? footage);
     const listed = editsLast(logoLast(after.order.map((code) => after.candidates.find((entry) => entry.code === code))), known);
     const lines = [
       `Found ${listed.length} for "${found.tried ?? found.words ?? words}"${found.cached ? " (from today's search)" : ""}${after.want ? `; want: "${after.want}"` : ""}:`,

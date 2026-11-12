@@ -1106,7 +1106,9 @@ function normalizeLayer(raw, path, animationIds, counters) {
   if (raw.legacyStyleOverrides !== undefined && (type !== "component" || raw.legacyStyleOverrides !== true))
     fail(`${path}.legacyStyleOverrides`, "is only a migration marker on component instances");
   // Older documents always showed a video's first frame before Play and held its last frame after.
+  // null (an update_layer clearing the field) means "none": no frame is held.
   if (raw.mediaFreeze === undefined) layer.mediaFreeze = type === "video" ? "both" : "none";
+  else if (raw.mediaFreeze === null) layer.mediaFreeze = "none";
   layer.id = requireId(layer.id, `${path}.id`);
   if (counters.layerIds.has(layer.id))
     fail(`${path}.id`, `duplicate layer ID "${layer.id}"`);
