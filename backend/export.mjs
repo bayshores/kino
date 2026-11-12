@@ -36,7 +36,7 @@ import { gzipSync } from "node:zlib";
 import { createHash, randomUUID } from "node:crypto";
 import { inspectLottieImage, resizeLottieImage } from "./lottie-images.mjs";
 import { decodeLottieMediaFrame } from "./lottie-media-frames.mjs";
-import { ffmpegCommand, gifFrameFileName, probeMedia, videoGridArgs, videoGridCount, writeGifFrames } from "./media-probe.mjs";
+import { ffmpegCommand, gifFrameFileName, pictureScale, probeMedia, videoGridArgs, videoGridCount, writeGifFrames } from "./media-probe.mjs";
 import { remappedPictures, remappedSource } from "./media-remap.mjs";
 import { remappedSoundClip } from "./sound-remap.mjs";
 import { MAX_VOLUME, isRemapped, mediaInterpolationOf } from "../engine/mediaTime.js";
@@ -563,7 +563,7 @@ async function extractVideoFrames(layer, videoPath, { folder, fps, sceneTimes, d
     return mediaStep(signal, () => remappedPictures(source, needed, { folder, width, height, signal }));
   }
   const clampToEnd = (time) => Math.min(time, end);
-  const filters = [`scale=${width}:${height}:force_original_aspect_ratio=decrease`];
+  const filters = [pictureScale(width, height)];
   const ffmpeg = ffmpegCommand();
 
   // One FFmpeg run samples `count` pictures from `first` on, one per 1/fps seconds, and writes the

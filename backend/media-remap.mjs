@@ -20,7 +20,7 @@ import { lstat, mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createCanvas, loadImage } from "@napi-rs/canvas";
 import { encodeRenderPng } from "./render-png.mjs";
-import { ffmpegCommand, probeFrameRate, probeMedia, videoGridArgs } from "./media-probe.mjs";
+import { ffmpegCommand, pictureScale, probeFrameRate, probeMedia, videoGridArgs } from "./media-probe.mjs";
 import { runExportProcess as runProcess } from "./export-process.mjs";
 import { sha256File } from "./voice/model.mjs";
 import { MEDIA_SAMPLE_TOLERANCE } from "../engine/playback.js";
@@ -100,7 +100,7 @@ async function readFrames(input, indices, fps, { folder, prefix, width, height, 
       decoderArgs,
       // The grid gives frame base, base + 1, … (repeating the last frame past the end, forever), so
       // trim ends it after the run's last frame; select keeps the ones used, in order.
-      filters: [`trim=end_frame=${run.at(-1).to - base + 1}`, `select='${terms.join("+")}'`, `scale=${width}:${height}:force_original_aspect_ratio=decrease`],
+      filters: [`trim=end_frame=${run.at(-1).to - base + 1}`, `select='${terms.join("+")}'`, pictureScale(width, height)],
       // Quick PNG compression (lossless either way): these pictures live only as long as the export.
       outputArgs: ["-an", "-sn", "-dn", "-compression_level", "1", "-start_number", "0"],
     }), signal);

@@ -1644,6 +1644,12 @@ How to read it:
   the new one). Smooths compression block edges when the measured step is high; grain size follows the source scale. The target
   and means print in one range (full 0-255, with the target's video-range level); rendered mean 58 for target 60. Evidence:
   `backend/lift-deblock.test.mjs`. Gap: the means come from 3 rendered frames a shot, not the whole shot on real footage.
+- **lift_dark receipt equals the render on real footage**: Verified on a copy of a real night project (6 lifted shots: receipt
+  48.3 to 49.2 against a 1920 px render of 12 frames across each shot, 48.3 to 49.6; it was 47 to 48 against 50 to 56). Cause: the
+  scaled video decode read dark colored footage up to 2 levels dark; video pictures now decode alike at every width. The receipt
+  reads 6 frames at 240 px, prints the width and span, names a grade already on the shot with both means, and draws block steps
+  in one full-size render (14 renders to 4). Evidence: `backend/lift-deblock.test.mjs`. Gap: the grain lands the mean 1 to 2
+  levels over the target; deblock still leaves part of the step.
 - **Footage added above text goes under it**: Test-verified. Full-frame footage added above overlapping text is placed below the
   text; masks and explicit order ops are left alone. Evidence: `backend/agent-edit-repair.test.mjs`, `backend/agent-moves.test.mjs`.
 - **Cut facts in the render answer**: Test-verified. A draft or final mp4, webm or mov is decoded to 32x18 frames
