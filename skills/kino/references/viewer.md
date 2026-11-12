@@ -19,6 +19,10 @@ Before any viewer watches, write what each beat should leave the viewer knowing 
 {"tool":"notes","action":"intents","beats":[{"from":0,"to":3,"intent":"the viewer knows a judge called this the best project of the hackathon"},{"from":3,"to":6,"intent":"a bike blocks his way; the viewer worries, then is relieved when the app steers him around it"}]}
 ```
 
+Or send them with the packet in one call: `look {mode:"viewer", beats:[...]}`. A video with
+no brief needs none: its viewer matches the whole scene as one beat. The final render runs
+`look versus` itself when references are saved, and its answer has the rows.
+
 - One beat per idea: hook, goal, obstacle, turn, payoff, end. Times are the video's seconds.
 - Say what the viewer gets, not what you put on screen ("the viewer feels relief", not "show
   the bike").

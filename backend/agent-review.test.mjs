@@ -253,9 +253,10 @@ test("the reference gate: with no saved reference a final render is refused; wit
   assert.equal(saved.isError, undefined, saved.text);
   assert.match(saved.text, /\(1 saved\)\. Takes: type: one word a cut\./);
 
-  const refused = await agent("render", { project: id, action: "start", quality: "final", format: "gif" });
-  assert.equal(refused.data.error, "reference_needed", refused.text);
-  assert.deepEqual(nextCallOf(refused), { tool: "look", input: { mode: "versus" } });
+  // Not seen beside the reference yet: the final render runs look versus itself and its answer carries the rows.
+  const ran = await agent("render", { project: id, action: "start", quality: "final", format: "gif" });
+  assert.equal(ran.isError, undefined, ran.text);
+  assert.match(ran.text, /kino ran look versus for rev \d+ \(the reference gate\):\nversus rev \d+: 3 rows, yours \(left\) beside a saved reference/, ran.text);
   const versus = await agent("look", { project: id, mode: "versus" });
   assert.equal(versus.isError, undefined, versus.text);
   assert.match(versus.text, /^versus rev \d+: 3 rows, yours \(left\) beside a saved reference/);
@@ -474,15 +475,12 @@ test("the viewer gate: a 16 s video with footage needs intents, a packet and a f
   ] });
   assert.equal(built.isError, undefined, built.text);
   const start = { project: id, action: "start", quality: "final", format: "gif" };
+  // No brief: no intents step (the whole scene is one beat), the viewer packet is the next call.
   const noIntents = await agent("render", start);
   assert.equal(noIntents.data.error, "viewer_needed", noIntents.text);
-  assert.equal(nextCallOf(noIntents).input.action, "intents");
-  const early = await agent("look", { project: id, mode: "viewer" });
-  assert.equal(early.data.error, "intents_needed", "the intents come before any packet");
-
-  const saved = await agent("notes", { project: id, action: "intents", beats: [{ from: 0, to: 8, intent: "the viewer sees the street change color" }, { from: 8, to: 16, intent: "the viewer expects it to keep going" }] });
-  assert.equal(saved.isError, undefined, saved.text);
-  const packet = await agent("look", { project: id, mode: "viewer" });
+  assert.deepEqual(nextCallOf(noIntents), { tool: "look", input: { mode: "viewer" } });
+  // Intents sent with the packet are saved before it, in one call.
+  const packet = await agent("look", { project: id, mode: "viewer", beats: [{ from: 0, to: 8, intent: "the viewer sees the street change color" }, { from: 8, to: 16, intent: "the viewer expects it to keep going" }] });
   assert.equal(packet.isError, undefined, packet.text);
   assert.equal(packet.data.sheets.length, 4, "32 frames, 9 to a sheet");
   const sheet = await loadImage(await readFile(packet.data.sheets[0]));
@@ -502,10 +500,10 @@ test("the viewer gate: a 16 s video with footage needs intents, a packet and a f
   assert.deepEqual(nextCallOf(blocked), { tool: "edit", input: { ops: ["<show it, a caption last: @8s beat 2 missed: nothing suggests more>"] } }, "the same cut: a fix, not a new viewer");
   const passing = await agent("notes", { project: id, action: "viewer", rev, report, matches: [{ beat: 1, got: "yes" }, { beat: 2, got: "partly" }] });
   assert.match(passing.text, /no open story bugs/);
-  // The needs gate comes next: the material checked, every need answered by the person and done.
+  // The needs gate: a video with no brief owes no material check, but a need the agent asked waits for the person.
   const unchecked = await agent("render", start);
-  assert.equal(unchecked.data.error, "needs_unchecked", unchecked.text);
-  assert.equal(nextCallOf(unchecked).input.action, "needs");
+  assert.notEqual(unchecked.data?.error, "needs_unchecked", unchecked.text);
+  if (unchecked.data?.job) await agent("render", { project: id, action: "cancel", job: unchecked.data.job });
   const asked = await agent("notes", { project: id, action: "needs", items: [{ what: "a close shot of the street sign", why: "the viewer never learns where this is",
     ask: "Do you have a photo of the street sign?", options: [{ do: "Add a title card with the street name", cost: "a card, not the place", recommended: true }] }] });
   assert.equal(asked.isError, undefined, asked.text);
@@ -831,7 +829,7 @@ test("one helper a round: look critique carries the viewer's sheets when both ga
   // Both gates ask: the refusal and the gate list name one helper for both.
   const one = await build("one-helper");
   const asked = await final(one);
-  assert.match(asked.data.reason, /\d\) look critique \(viewer and critic\), one fresh subagent, notes critique \d\)/);
+  assert.match(asked.data.reason, /\d\) look critique \(viewer and critic\), one fresh subagent, notes critique: look \{"mode":"critique"\} \d\)/);
   assert.equal(asked.data.reason.match(/fresh subagent/g).length, 1, asked.data.reason);
   const packet = await agent("look", { project: one, mode: "critique", inline: false });
   assert.equal(packet.isError, undefined, packet.text);
@@ -870,7 +868,7 @@ test("one helper a round: look critique carries the viewer's sheets when both ga
   await writeFile(path.join(first.data.folder, "viewer.txt"), report);
   const saved = await agent("notes", { project: p0, action: "critique", rev: first.data.rev, lines: ["P0 t=1 · dot0 · hangs at the edge → move it to x=40 · its size"], matches: yes });
   assert.match(saved.text, /P0 1[\s\S]*look \{mode:"critique"\} for a fresh critic/);
-  assert.match((await final(p0)).data.reason, /\d\) fix the critic's P0s, look critique again \d\)/);
+  assert.match((await final(p0)).data.reason, /\d\) fix the critic's P0s, look critique again: edit \{"ops":\["<the edit for: [^"]*>"\]\} \d\)/);
   await agent("edit", { project: p0, ops: [{ op: "update_layer", layer: "dot0", properties: { x: 40 } }] });
   const second = await agent("look", { project: p0, mode: "critique", inline: false });
   assert.equal(second.data.viewer, undefined);
