@@ -153,5 +153,5 @@ test("burned-in text: the reader's lines become a mark and subtitles on the reco
   assert.equal(asked[1].step, 2.5);
   const unread = await readBurnedText("clip.mp4", { width: 1920, height: 1080, duration: 1.19 }, { readFrames: async () => null });
   assert.equal(unread.unread, NOT_READ);
-  assert.equal(burnedTextLine(unread), "burned-in text: not read on this system (Apple Vision's text reader is on a Mac only).");
+  assert.equal(burnedTextLine(unread), "burned-in text: not read on this system.");
 });

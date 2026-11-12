@@ -20,8 +20,8 @@ export const READ_WIDTH = 960;
 export const READ_STEP = 0.25;
 /** ... and at most this many frames a clip (a long clip is read at an even step instead). */
 export const READ_MOST = 48;
-/** What the record keeps on a computer with no text reader. */
-export const NOT_READ = "not read on this system (Apple Vision's text reader is on a Mac only)";
+/** What the record keeps on a computer with no text reader (Apple Vision reads the text, on a Mac only). */
+export const NOT_READ = "not read on this system";
 const TEXT_JOB = 2;
 
 /** The step (seconds) a clip of `duration` seconds is read at. */

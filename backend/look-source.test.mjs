@@ -115,8 +115,10 @@ test("framing.md's crop to 9:16 runs as written: a layer and a crop per shot, th
   // Small answers: the text before the image line and the image (at the default 640 px panel).
   // A Mac without the cut-out helper built explains how to build it; that setup line is not counted.
   const counted = (reply) => before0(reply.text).replace(/vision: skipped \(The kino-cutout helper is not built;[^)]*\)/, "vision: skipped");
+  // Off a Mac two more lines say what was not read (the cut-out and the burned-in text): 10 tokens more.
+  const most = process.platform === "darwin" ? 170 : 180;
   for (const reply of [first, second]) {
-    assert.ok(estimateTextTokens(counted(reply)) <= 170, `source text is ${estimateTextTokens(counted(reply))} tokens`);
+    assert.ok(estimateTextTokens(counted(reply)) <= most, `source text is ${estimateTextTokens(counted(reply))} tokens`);
     const size = pngSize(Buffer.from(reply.images[0].data, "base64"));
     assert.ok(size.height < size.width, "the source panel and the result side by side");
     assert.ok(estimateImageTokens(size) <= 600, `source image is ${estimateImageTokens(size)} image tokens (${size.width}×${size.height})`);
