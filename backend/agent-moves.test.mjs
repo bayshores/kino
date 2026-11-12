@@ -29,9 +29,9 @@ test("library moves lists every move in a line and gives one move's fields and e
   assert.equal(list.isError, undefined, list.text);
   const lines = list.text.split("\n").filter((line) => line.startsWith("- "));
   assert.deepEqual(lines.map((line) => line.slice(2).split("(")[0]), MOVE_NAMES);
-  assert.equal(MOVE_NAMES.length, 60);
-  // 8200 held 57 moves; light-shape, mosaic-reveal and impact-silhouette add a line each (about 2,170 tokens).
-  assert.ok(list.text.length < 8700, `the list stays small (${list.text.length} characters)`);
+  assert.equal(MOVE_NAMES.length, 61);
+  // 8200 held 57 moves; light-shape, mosaic-reveal, word-panel and impact-silhouette add a line each (about 2,220 tokens).
+  assert.ok(list.text.length < 8900, `the list stays small (${list.text.length} characters)`);
   for (const name of MOVE_NAMES) {
     const one = await api.agent("lib", "library", { topic: "moves", name });
     assert.equal(one.isError, undefined, one.text);

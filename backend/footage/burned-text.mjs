@@ -98,7 +98,7 @@ const spanOf = ([x, y, w, h]) => `${percent(x)}-${percent(x + w)}% across, ${per
 /**
  * One line for the import answer and look source: "burned-in text (read at 960 px, 5 frames): a mark
  * top-left "site" (1-9% across, 1-4% down) on 4 of 5 frames · a subtitle 1.0-1.15 s "words" (40-60%
- * across, 88-93% down)", "burned-in text: none read on 5 frames", or the unread reason once.
+ * across, 88-93% down)", "burned-in text: none (5 frames read)", or the unread reason once.
  */
 export function burnedTextLine(burned) {
   if (!burned) return null;
@@ -107,5 +107,5 @@ export function burnedTextLine(burned) {
   const subs = (burned.subtitles ?? []).slice(0, 4).map((sub) => `a subtitle ${sub.from === sub.to ? sub.from : `${sub.from}-${sub.to}`} s "${sub.words}" (${spanOf(sub.box)})`);
   const more = (burned.subtitles?.length ?? 0) > 4 ? ` (+${burned.subtitles.length - 4} more subtitles)` : "";
   const found = [...marks, ...subs];
-  return found.length ? `burned-in text (file s, read every ${burned.step} s at ${READ_WIDTH} px): ${found.join(" · ")}${more}.` : `burned-in text: none read on ${burned.read} frames (every ${burned.step} s at ${READ_WIDTH} px).`;
+  return found.length ? `burned-in text (file s, read every ${burned.step} s at ${READ_WIDTH} px): ${found.join(" · ")}${more}.` : `burned-in text: none (${burned.read} frames read).`;
 }

@@ -89,7 +89,7 @@ function runExample(name, scene, { reduced = false, seed = 1 } = {}) {
 }
 
 test("every move is described for the library with tags from the vocabulary and an example", () => {
-  assert.equal(MOVE_NAMES.length, 60);
+  assert.equal(MOVE_NAMES.length, 61);
   for (const name of MOVE_NAMES) {
     const move = MOVES[name];
     assert.equal(move.name, name);

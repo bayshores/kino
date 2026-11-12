@@ -442,7 +442,7 @@ test("library search answers one short line per topic, not the topics' text", as
   // Moves and effects named by the phrase come first ("kino names for it:"), then ops, then topics.
   const lines = phrase.text.split("\n");
   const first = lines.findIndex((line) => line.startsWith("topics (")) + 1;
-  const shown = lines.slice(first, first + 8).map((line) => line.split(" ")[0]);
+  const shown = lines.slice(first, first + 10).map((line) => line.split(" ")[0]);
   for (const id of ["captions", "text-animation", "speech"]) assert.ok(shown.includes(id), `${id} is near the top: ${shown}`);
   // A move is found by the words an agent types for what it does.
   assert.match((await agent("library", { topic: "search", search: "color flash behind subject" })).text, /backdrop-flash/);

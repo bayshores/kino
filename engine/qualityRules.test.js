@@ -12,7 +12,7 @@ import { defaultFonts } from "./fonts.js";
 import { createDocument, createLayer, createScene, parseDocument } from "./model.js";
 import { RULES, blocksFinal, ruleOf, runQuality, tasteNotes } from "./quality/index.js";
 import { kinoTimeline } from "./quality/kinoTimeline.js";
-import { haloOf, haloShadow } from "./quality/pixels.js";
+import { haloOf, haloShadow, turnedBox } from "./quality/pixels.js";
 import { cropCounts, cropLine, seenMark } from "./quality/rules/footage.js";
 import { burnedTextFacts, cropPast, subjectLost } from "./footage/burned.js";
 import { askLine } from "./quality/rules/ask.js";
@@ -2646,4 +2646,15 @@ test("reference_range: no clip speech before the loudest song change warns when 
   const result = await runQuality(modelOf(scene({ duration: 10, layers: [footage("clip", { duration: 10, mediaDuration: 10 })] })), { codes: ["reference_range"], pixels: true, context: { sceneName: "s1", renderFrames: flatFrames(52), rangeRefs: pending, cues } });
   assert.deepEqual(result.findings, []);
   assert.match(result.notes.join("\n"), /2 saved references are not measured yet for a voice before the loudest change/);
+});
+
+test("contrast reads a turned word inside its own turned rectangle, not the corners of its upright box", () => {
+  // A 400 x 100 word turned 10 degrees has an upright box of about 411.3 x 167.9.
+  const turn = (10 * Math.PI) / 180;
+  const [W, H] = [400 * Math.cos(turn) + 100 * Math.sin(turn), 400 * Math.sin(turn) + 100 * Math.cos(turn)];
+  const found = turnedBox({ x0: 100, y0: 200, x1: 100 + W, y1: 200 + H }, turn);
+  assert.deepEqual([Math.round(found.w), Math.round(found.h), Math.round(found.cx), Math.round(found.cy)], [400, 100, Math.round(100 + W / 2), Math.round(200 + H / 2)]);
+  // Upright text and a turn near 45 degrees (where the box no longer tells the size) keep the upright box.
+  assert.equal(turnedBox({ x0: 0, y0: 0, x1: 400, y1: 100 }, 0), null);
+  assert.equal(turnedBox({ x0: 0, y0: 0, x1: 300, y1: 300 }, Math.PI / 4), null);
 });

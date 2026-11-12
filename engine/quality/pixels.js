@@ -77,7 +77,22 @@ export function coverMask(dark, light) {
   return open ? mask : null;
 }
 
-function pixelsBehind(frame, box, modelWidth) {
+// The text's own turned rectangle inside its upright box (the box of a word turned by `turn` radians
+// also holds four corners the word is not in), or null when the text is upright or near 45 degrees.
+// From the upright box W x H of a w x h rectangle: W = w|cos| + h|sin|, H = w|sin| + h|cos|.
+export function turnedBox(box, turn) {
+  if (!Number.isFinite(turn) || Math.abs(Math.sin(turn)) < 0.02) return null;
+  const [cos, sin] = [Math.cos(turn), Math.sin(turn)];
+  const [c, s] = [Math.abs(cos), Math.abs(sin)];
+  const [W, H] = [box.x1 - box.x0, box.y1 - box.y0];
+  const d = c * c - s * s;
+  if (Math.abs(d) < 0.2) return null;
+  const [w, h] = [(W * c - H * s) / d, (H * c - W * s) / d];
+  if (!(w > 0) || !(h > 0)) return null;
+  return { cx: (box.x0 + box.x1) / 2, cy: (box.y0 + box.y1) / 2, w, h, cos, sin };
+}
+
+function pixelsBehind(frame, box, modelWidth, turned = null) {
   const k = frame.width / modelWidth;
   const x0 = Math.max(0, Math.floor(box.x0 * k));
   const y0 = Math.max(0, Math.floor(box.y0 * k));
@@ -92,6 +107,10 @@ function pixelsBehind(frame, box, modelWidth) {
   for (let y = y0; y < y1; y += step)
     for (let x = x0; x < x1; x += step) {
       if (cover && cover[y * frame.width + x] > COVERED) continue;
+      if (turned) {
+        const [dx, dy] = [x / k - turned.cx, y / k - turned.cy];
+        if (Math.abs(dx * turned.cos + dy * turned.sin) > turned.w / 2 || Math.abs(dy * turned.cos - dx * turned.sin) > turned.h / 2) continue;
+      }
       const at = (y * frame.width + x) * 4;
       found.push([frame.pixels[at], frame.pixels[at + 1], frame.pixels[at + 2]]);
     }
@@ -210,7 +229,8 @@ export function coveringItems(model, texts) {
 function contrastAt(model, item, index, frame) {
   const box = boxAt(item, index);
   if (!frame || insideShare(model, box) < 0.5) return null;
-  const behind = through(pixelsBehind(frame, box, model.width), haloOf(item, drawnSize(model, item)));
+  // A turned word is read inside its own turned rectangle, not in the corners of its upright box.
+  const behind = through(pixelsBehind(frame, box, model.width, turnedBox(box, item.samples.turn?.[index])), haloOf(item, drawnSize(model, item)));
   let worst = null;
   for (const color of fillColorsAt(item, index)) {
     const measured = contrastOver(color, item.samples.opacity[index], behind);

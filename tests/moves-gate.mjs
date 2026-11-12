@@ -184,6 +184,8 @@ const USES = {
   "backdrop-flash": ["shot-a"],
   "energy-aura": ["shot-a"],
   "light-shape": ["shot-a"],
+  "word-panel": [],
+  "impact-silhouette": ["shot-a"],
 };
 // screen-recording's clip carries a recording (as project record stop leaves one): a pointer
 // slide, a click in the middle of the frame, and the pointer moving on to the next control.
@@ -208,6 +210,7 @@ const EXTRA = {
   assemble: [HEADLINE_TEXT],
   "accent-hit": [HEADLINE_TEXT],
   "light-sweep": [HEADLINE_TEXT],
+  "word-panel": [HEADLINE_TEXT],
   carry: [APP_CARD],
   cursor: [APP_CARD],
   "draw-on": [{ op: "add_layer", layerType: "path", name: "underline", properties: { x: 560, y: 600, width: 800, height: 40, path: "M0 20 C260 0 540 40 800 20", fillEnabled: false, stroke: "#FFFFFF", strokeWidth: 8 } }],
