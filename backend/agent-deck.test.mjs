@@ -139,6 +139,13 @@ test("labels and footage facts: cards say where they came from, and a deal no ca
   assert.equal(dealDue({ ...old, lockedBy: "pick" }, inputs.basis), false);
   assert.equal(dealDue({ ...old, locked: true }, inputs.basis), true, "an older deck's lock only meant it read layers");
   assert.equal(cardCall("keep_line"), 'edit {ops:[{op:"keep_line", layer:"<clip>", line:"<its words>", duck:"<song>"}]}');
+  // The project's own names fill the call; "of your N references" counts every labeled one.
+  assert.equal(cardCall("keep_line", [], { clip: "face", lineClip: "talk", line: 'say "no"', song: "song" }), `edit {ops:[{op:"keep_line", layer:"talk", line:"say 'no'", duck:"song"}]}`);
+  assert.equal(cardCall("cut_out", [], { clip: "face" }), 'edit {ops:[{op:"cut_out", layer:"face", output:"outline"}]}');
+  const more = await deckInputs({}, document, { facts: { lines: 4 }, refs: [...refs, { id: "yt:c", seen: [{ at: 1, kinds: ["plain"], words: "" }] }], slots: { lineClip: "v", line: "hello" } });
+  const counted = newDeal({ projectId: "deck-evidence", inputs: more });
+  assert.equal(counted.facts.labeledRefs, 3);
+  assert.deepEqual(counted.facts.slots, { lineClip: "v", line: "hello" });
 });
 
 test("the material steers the deal: footage without words gets no type card (no default type look)", async () => {

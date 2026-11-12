@@ -80,17 +80,19 @@ export function labelEvidence(refs = []) {
  * facts: what kino measured in the footage ({faceClips, lines, darkClips}, materialOf); refs: the
  * labeled references (labelEvidence). Both optional: without them the deal is as before.
  */
-export async function deckInputs(state, document, { facts = {}, refs = [] } = {}) {
+export async function deckInputs(state, document, { facts = {}, refs = [], slots = null } = {}) {
   const style = styleContext(state?.brief?.style);
   const material = materialOf(document, { madeFrom: madeFromOf(state?.brief), facts });
   const moves = await loadMoves();
   const evidence = labelEvidence(refs);
+  // "seen in 1 of your 3 references" counts every labeled reference, not only those a card came from.
+  const labeledRefs = (refs ?? []).filter((ref) => ref?.seen?.length).length;
   const { fromLayers, ...kinds } = material;
   // A new signature (moments or signatures saved) deals again around it.
   const signature = style?.moments?.length ? style.moments[0].tag : style?.signatures?.length ? "set piece" : null;
   const basis = JSON.stringify({ kinds, backed: style?.backed ?? [], guessed: style?.guessed ?? [], avoids: style?.avoids ?? [], moves: moves.map((move) => move.name), ...(signature ? { signature } : {}),
     ...(evidence.length ? { seen: evidence.map((entry) => `${entry.name}:${entry.refs.length}`) } : {}) });
-  return { style, material, moves, evidence, basis, media: mediaKeys(document), story: storyOf(state?.brief) };
+  return { style, material, moves, evidence, labeledRefs, ...(slots ? { slots } : {}), basis, media: mediaKeys(document), story: storyOf(state?.brief) };
 }
 
 /** True when a card of the deck was used: check recorded it (deck.used) or the document holds it (`holds`: madeNamesIn names). */
@@ -120,13 +122,15 @@ export function newDeal({ projectId, reroll = 0, inputs, recent = [], now = Date
   const tags = [...new Set(away.flatMap((entry) => [...entry.cards, ...entry.used]))];
   const dealt = dealDeck({ projectId, reroll, style: inputs.style, material: inputs.material, recent: tags, moves: inputs.moves, evidence: inputs.evidence ?? [] });
   const { lines, subjectClips, dark } = inputs.material ?? {};
-  const seenRefs = new Set((inputs.evidence ?? []).flatMap((entry) => entry.refs)).size;
+  const seenRefs = Math.max(new Set((inputs.evidence ?? []).flatMap((entry) => entry.refs)).size, inputs.labeledRefs ?? 0);
+  // The real names a made card's call is filled with (cardCall), when the service found them.
+  const slots = inputs.slots && Object.keys(inputs.slots).length ? inputs.slots : null;
   return {
     ...dealt, swaps: [], basis: inputs.basis,
     material: materialWords(inputs.material), awayFrom: away.map((entry) => entry.projectId), dealtAt: new Date(now).toISOString(), used: [],
     media: own.media, story: own.story,
     // The facts and labels the deal read, for each card's why (cardWhy); absent when none.
-    ...(lines || subjectClips || dark || seenRefs ? { facts: { ...(lines ? { lines } : {}), ...(subjectClips ? { subjectClips } : {}), ...(dark ? { dark } : {}), ...(seenRefs ? { labeledRefs: seenRefs } : {}) } } : {}),
+    ...(lines || subjectClips || dark || seenRefs ? { facts: { ...(lines ? { lines } : {}), ...(subjectClips ? { subjectClips } : {}), ...(dark ? { dark } : {}), ...(seenRefs ? { labeledRefs: seenRefs } : {}), ...(slots ? { slots } : {}) } } : {}),
   };
 }
 
@@ -155,10 +159,23 @@ function deckWhyLine(deck) {
   return told.length ? `from: ${told.join(" · ")}` : "";
 }
 
-/** The ready call for a card: a made card's own op, a move's library entry, else the technique search. */
-export function cardCall(name, moves = []) {
+/**
+ * The ready call for a card: a made card's own op, a move's library entry, else the technique search.
+ * slots ({clip, lineClip, line, song}, deck.facts.slots) fill a made card's <clip>, <its words> and
+ * <song> with the project's own names, so the call works as sent (run 6 trace section 2: the lines were
+ * listed at import and never kept). A slot kino did not find stays a slot to fill.
+ */
+export function cardCall(name, moves = [], slots = null) {
   const made = madeCardOf(name);
-  if (made) return `edit {ops:[${made.call}]}`;
+  if (made) {
+    const quoted = (text) => String(text).replaceAll('"', "'");
+    let call = made.call;
+    if (name === "keep_line" && slots?.lineClip) call = call.replace('"<clip>"', `"${quoted(slots.lineClip)}"`);
+    if (name === "keep_line" && slots?.line) call = call.replace('"<its words>"', `"${quoted(slots.line)}"`);
+    if (slots?.song) call = call.replace('"<song>"', `"${quoted(slots.song)}"`);
+    if (slots?.clip) call = call.replace('"<clip>"', `"${quoted(slots.clip)}"`);
+    return `edit {ops:[${call}]}`;
+  }
   if (moves.some((move) => move.name === name)) return `library {topic:"moves", name:"${name}"}`;
   return `library {topic:"search", search:"${name.replace(/-/g, " ")}"}`;
 }
@@ -171,7 +188,7 @@ function cardText(card, moves, deck) {
   const entry = techniqueOf(name);
   if (entry) return `- ${name} (${entry.group}): ${entry.line}; fits ${entry.fits}${tail}`;
   const made = madeCardOf(name);
-  if (made) return `- ${name} (made, ${made.kind}): ${made.line}; ${cardCall(name, moves)}${tail}`;
+  if (made) return `- ${name} (made, ${made.kind}): ${made.line}; ${cardCall(name, moves, deck?.facts?.slots)}${tail}`;
   const move = moves.find((item) => item.name === name);
   return `- ${name} (set piece, move {name:"${name}"}): ${move?.fits ?? "a move"}`;
 }

@@ -36,6 +36,8 @@ const HEARD = 0.05;
 const FULL_SHARE = 0.9;
 const MARGIN = 1 / 6;
 const MIN_MOMENTS = 2;
+// Labeled moments a reference needs before its shares count (a guess: half of the 6 strip moments).
+const SHARE_MOMENTS = 3;
 const MIN_REFS = 2;
 // The share of references with a voice before their loudest change that counts as "they show spoken" (as reference_range).
 const VOICE_MAJORITY = 2 / 3;
@@ -259,6 +261,10 @@ const labelOf = (share, kind) => {
 export function referenceKinds(model, ctx) {
   const shares = referenceShares(ctx.seenRefs);
   if (!shares.length || !(model.duration > 0)) return [];
+  // The share warnings (less of a kind, more plain picture) compare percentages, so they read only
+  // references labeled at SHARE_MOMENTS moments or more: one labeled moment is a share of 0 or 100%.
+  // The missing-kind error needs MIN_MOMENTS moments showing it anyway.
+  const sized = shares.filter((share) => share.total >= SHARE_MOMENTS);
   const moments = onscreenKinds(model, ctx);
   if (!moments.length) return [];
   const scene = ctx.sceneName;
@@ -274,7 +280,7 @@ export function referenceKinds(model, ctx) {
   for (const kind of KINDS) {
     const have = mine(kind);
     const showers = shares.filter((share) => (share.count[kind] ?? 0) >= MIN_MOMENTS);
-    const lowest = Math.min(...shares.map((share) => (share.count[kind] ?? 0) / share.total));
+    const lowest = Math.min(...sized.map((share) => (share.count[kind] ?? 0) / share.total));
     // Spoken: the labels first; with fewer than 2 labeled, the measured voice (2 of 2 with a voice) counts, and
     // only while a clip says a line keep_line can keep (else nothing in the edit fixes it: reference_range's
     // advice row names the footage finder instead).
@@ -303,8 +309,8 @@ export function referenceKinds(model, ctx) {
         message: `reference_kinds: ${hidden || `your edit shows ${kind} at 0 of ${total} moments`}; your references show it at ${lines}.`,
         fix: { kind: "hint", text: `${ready ? `${ready.text}, or ${search.text}` : search.text}. ${own}`, call: (ready ?? search).call },
       });
-    } else if (have > 0 && have / total < lowest - MARGIN) {
-      const all = shares.map((share) => `${showing(share, kind)} (${share.id})`).join(" and ");
+    } else if (sized.length && have > 0 && have / total < lowest - MARGIN) {
+      const all = sized.map((share) => `${showing(share, kind)} (${share.id})`).join(" and ");
       findings.push({
         rule: "reference_kinds", severity: "warn",
         measured: `${kind} at ${have} of ${total} moments`,
@@ -316,14 +322,14 @@ export function referenceKinds(model, ctx) {
   }
   // Plain picture (nothing laid on the footage) in a larger share than any reference.
   const plainMine = moments.filter((moment) => moment.plain).length;
-  const plainMost = Math.max(...shares.map((share) => share.plain / share.total));
-  if (plainMine / total > plainMost + MARGIN) {
+  const plainMost = Math.max(...sized.map((share) => share.plain / share.total));
+  if (sized.length && plainMine / total > plainMost + MARGIN) {
     const best = shares.flatMap((share) => KINDS.filter((kind) => share.first[kind]).map((kind) => share.first[kind].words))[0];
     findings.push({
       rule: "reference_kinds", severity: "warn",
       measured: `plain picture at ${plainMine} of ${total} moments`,
       required: `plain picture at ${Math.round(plainMost * 100)}% of moments or less, as the most plain of your references`,
-      message: `reference_kinds: your edit is plain picture at ${plainMine} of ${total} moments; your references are plain at ${shares.map((share) => `${share.plain} of ${share.total} (${share.id})`).join(" and ")}.`,
+      message: `reference_kinds: your edit is plain picture at ${plainMine} of ${total} moments; your references are plain at ${sized.map((share) => `${share.plain} of ${share.total} (${share.id})`).join(" and ")}.`,
       fix: { kind: "hint", text: `${searchFor("overlay", best).text}. ${own}` },
     });
   }

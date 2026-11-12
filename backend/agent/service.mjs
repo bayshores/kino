@@ -2623,7 +2623,7 @@ export function createAgentService(deps) {
     const rules = input.rules == null || input.rules === true ? null : (Array.isArray(input.rules) ? input.rules : [input.rules]).map(String);
     const options = { codes, sceneId: scene?.id, pixels: input.pixels !== false, listen: input.listen !== false, rules, outputFps: input.fps == null ? 30 : readFps(input.fps, (message) => new AgentError("bad_input", message)) };
     // A settled brief has a deck by the time the video is checked (deck_unused counts it).
-    await deckFor(projectId, record.document);
+    const dealt = await deckFor(projectId, record.document);
     noteLive({ sceneId: scene?.id ?? null });
     let fonts = await fontsFor(record.document);
     let result = await findingsFor(record.document, { ...options, fonts });
@@ -2671,7 +2671,7 @@ export function createAgentService(deps) {
     // The deck's unused cards by name, with one ready call for the first (trace-code.md section 2:
     // the advice line named only the rule, so run 6 never saw which cards were left).
     const unusedDeck = result.findings.find((finding) => finding.rule === "deck_unused" && !finding.waived && finding.unused?.length);
-    if (unusedDeck && report.advice) lines.push(`deck unused: ${unusedDeck.unused.join(", ")}; first: ${cardCall(unusedDeck.unused[0], await loadMoves())}`);
+    if (unusedDeck && report.advice) lines.push(`deck unused: ${unusedDeck.unused.join(", ")}; first: ${cardCall(unusedDeck.unused[0], await loadMoves(), dealt?.deck?.facts?.slots)}`);
     if (!report.errors && !report.warnings) lines.push("Nothing to fix.");
     else if (!applied && report.autoFixes) lines.push(`check {fix:"auto"} applies the ${report.autoFixes} ${report.autoFixes === 1 ? "fix" : "fixes"} marked auto.`);
     // What the video uses (engine/quality/techniques.js), and whose style the style rules follow.
@@ -5815,7 +5815,9 @@ export function createAgentService(deps) {
     const adopt = picked && (picked.seed !== state.deck?.seed || picked.reroll !== state.deck?.reroll);
     // Labels or footage facts that arrive after the deal deal again by themselves while no card is used.
     const holds = document.scenes.flatMap((scene) => madeNamesIn(scene));
-    if (!reroll && !adopt && !dealDue(state.deck, inputs.basis, { holds })) return { deck: state.deck, basis: inputs.basis };
+    // The deck variant the person picked stays, also one saved before lockedBy existed (locked:true).
+    const chosen = Boolean(picked && !adopt && state.deck);
+    if (!reroll && !adopt && (chosen || !dealDue(state.deck, inputs.basis, { holds }))) return { deck: state.deck, basis: inputs.basis };
     const recent = await recentDecksOf(projectId);
     let deck;
     await agentState.update(projectId, (draft) => {
@@ -5833,18 +5835,33 @@ export function createAgentService(deps) {
   // and the project's labeled references. Each part that fails is left out.
   async function deckEvidence(document) {
     const scene = videoScene(document);
-    const srcs = [...new Set((scene?.layers ?? []).filter((layer) => layer.type === "video" && layer.src && layer.enabled !== false).map((layer) => layer.src))];
+    const clips = (scene?.layers ?? []).filter((layer) => layer.type === "video" && layer.src && layer.enabled !== false);
+    const srcs = [...new Set(clips.map((layer) => layer.src))];
+    // The layer a made card's call names (cardCall slots): one at speed 1 first, as keep_line needs it.
+    const layerOf = (src) => { const own = clips.filter((layer) => layer.src === src); return (own.find((layer) => !isRemapped(layer)) ?? own[0])?.name; };
+    const slots = {};
     let faceClips = 0;
     let lines = 0;
     for (const src of srcs) {
       try {
         const saved = await peopleCache.saved(mediaFileOf({ src }));
-        if ((saved?.samples ?? []).some((sample) => sample.faces?.length)) faceClips += 1;
+        if ((saved?.samples ?? []).some((sample) => sample.faces?.length)) { faceClips += 1; slots.clip ??= layerOf(src); }
       } catch { /* not measured: no face counted */ }
-      lines += (await savedLinesOf(src, document, Infinity)).length;
+      const heard = await savedLinesOf(src, document, Infinity);
+      lines += heard.length;
+      if (heard.length && !slots.line) { slots.lineClip = layerOf(src); slots.line = heard[0].text; }
     }
+    // Better: a whole line a layer plays at speed 1, so keep_line {line} finds it as sent (probe on
+    // run 6: the file's first line was not in the stretch its layer plays, and keep_line refused it).
+    const played = scene && lines ? (await sceneLines(scene, document)).find((line) => !line.slowed && !line.text.endsWith("…")) : null;
+    if (played) { slots.lineClip = clips.find((layer) => layer.id === played.layerId)?.name ?? played.layer; slots.line = played.text; }
+    // A clip with a box the agent marked is a subject too (engine/deck.js materialOf).
+    slots.clip ??= clips.find((layer) => layer.subjectBoxes?.src === layer.src && layer.subjectBoxes.boxes?.length)?.name;
+    const song = scene?.layers.find((layer) => !srcs.includes(layer.src) && isMusicLayer(layer, scene));
+    if (song) slots.song = song.name;
+    for (const key of Object.keys(slots)) if (!slots[key]) delete slots[key];
     const refs = (await deps.inspire?.savedFingerprints?.(document.id, { labeled: true }).catch(() => [])) ?? [];
-    return { facts: { faceClips, lines }, refs };
+    return { facts: { faceClips, lines }, refs, slots };
   }
 
   // The last projects' decks the deal reads (deck.mjs newDeal). A deck dealt before decks saved

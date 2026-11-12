@@ -92,8 +92,9 @@ Once a treatment is picked (or waived), kino deals a hand: one or two techniques
 - fits the material: no phone cards without a phone, no type cards without words;
 - steers away from the last 3 projects' decks; never deals plain cuts, plain text, beat kicks,
   or both type-pop and slow-push;
-- adds up to 2 made cards (cut_out, keep_line, rim-light, smear...) on a fact (a subject,
-  heard lines) or your labels (at most half, 2 per reference); each says why.
+- adds up to 2 made cards (cut_out, keep_line, smear...) on a fact (a subject,
+  heard lines) or your labels (at most half, 2 per reference); each says why, its call
+  names your clip and line.
 
 New labels or footage deal again until a card is used. Build cards; swap one with a reason or reroll.
 
