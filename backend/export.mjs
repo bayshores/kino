@@ -3019,16 +3019,20 @@ function audioCodecArgs(format, options) {
   return ["-c:a", "pcm_s16le"];
 }
 
+// "auto" without a measured reference says so, so the receipt shows where its target came from, and
+// names the one call that measures a saved reference kept without its loudness (`refs` [{id, lufs}]).
+function withoutReferences(lead, refs = []) {
+  const unmeasured = (refs ?? []).filter((ref) => !Number.isFinite(ref?.lufs)).map((ref) => ref.id);
+  const note = !unmeasured.length ? "no saved reference with measured loudness"
+    : `no saved reference with measured loudness (${unmeasured.length} saved without it; library {topic:"inspire", name:"measure ${unmeasured[0]}"} measures one)`;
+  return { ...lead, why: [lead.why, note].filter(Boolean).join("; ") };
+}
+
 /**
  * What loudness target "auto" means for these `clips` (audio-levels.mjs mixLead): each song file's
  * played seconds, loudest volume and own loudness over the stretches played (its saved .lufs curve;
  * fit_music pieces of one file count together), and the seconds of leveled speech.
  */
-// "auto" without a measured reference says so, so the receipt shows where its target came from.
-function withoutReferences(lead) {
-  return { ...lead, why: [lead.why, "no saved reference with measured loudness"].filter(Boolean).join("; ") };
-}
-
 async function autoLoudness(clips, duration, start, signal) {
   const files = new Map();
   let voiceSeconds = 0;
@@ -3073,7 +3077,7 @@ async function planMasterLimiter(audioInputs, duration, format, options, directo
   // (options.referenceLoudness, the service reads it), else a song-led mix keeps the song's own
   // level and anything else gets the web's (mixLead).
   const lead = typeof options.loudness === "number" ? askedLead(options.loudness)
-    : options.loudness === "auto" ? referenceLead(options.referenceLoudness) ?? withoutReferences(await autoLoudness(clips, duration, start, signal)) : null;
+    : options.loudness === "auto" ? referenceLead(options.referenceLoudness) ?? withoutReferences(await autoLoudness(clips, duration, start, signal), options.referenceLoudness) : null;
   const sound = await fitLoudness(inputs, graph, levels, lead ? lead.target : options.loudness, { codecArgs: audioCodecArgs(format, options), format, directory, signal }, lead ?? {});
   const { loudness } = sound;
   // A clip with a Volume animation is named with its volume at the loudest moment.

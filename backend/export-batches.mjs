@@ -101,9 +101,10 @@ function exportOptions(value = {}) {
     throw requestError("Draft width must be a whole number of pixels from 16 to 7680.");
   if (options.loudness !== undefined && !loudnessOption(options.loudness))
     throw requestError(`Loudness is a number of LUFS from ${LOUDNESS_RANGE[0]} to ${LOUDNESS_RANGE[1]} or one of ${LOUDNESS_OPTIONS.join(", ")} (auto: the median of the saved references' measured LUFS, else a song-led mix keeps the song's own level when over -14, otherwise web; web -14 LUFS, podcast -16, broadcast -23, off keeps the mix's own).`);
-  // Read by the service from the saved references (never typed by an agent): [{id, lufs}].
+  // Read by the service from the saved references (never typed by an agent): [{id, lufs}], lufs null
+  // for a reference measured before its loudness was kept.
   if (options.referenceLoudness !== undefined && (!Array.isArray(options.referenceLoudness) || options.referenceLoudness.length > 50
-    || options.referenceLoudness.some((ref) => typeof ref?.id !== "string" || !Number.isFinite(ref?.lufs))))
+    || options.referenceLoudness.some((ref) => typeof ref?.id !== "string" || !(ref.lufs === null || Number.isFinite(ref.lufs)))))
     throw requestError("referenceLoudness is a list of {id, lufs}.");
   if (options.imageDPIRatio !== undefined && options.format !== "lottie")
     throw requestError("Image resolution applies only to Lottie exports.");

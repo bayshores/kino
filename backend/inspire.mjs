@@ -1739,6 +1739,12 @@ export function createInspire(deps) {
     if (unmeasured(record)) {
       forced.add(id);
       enqueue(id, { first: true });
+    } else if (!isSound(record) && record.state === "measured" && !Number.isFinite(record.heard?.lufs) && heavy.heard && heavy.download && !heardOnly.has(id)) {
+      // Measured before its loudness was kept (heard.lufs, render loudness "auto"): only the listen
+      // runs again, on the same small copy, when the agent asks (library inspire "measure yt:…").
+      heardPending.add(id);
+      heardOnly.add(id);
+      enqueue(id, { first: true });
     }
     return summary(record);
   }
@@ -2093,14 +2099,17 @@ export function createInspire(deps) {
 
   /**
    * The integrated loudness (LUFS) of a project's saved references whose sound was measured with it
-   * (heard.lufs): [{id, lufs}]. A reference measured before kino kept it has none (never guessed).
+   * (heard.lufs): [{id, lufs}]. A measured video reference without it (measured before kino kept it)
+   * comes as {id, lufs: null} (never guessed), so the render receipt can name the call that measures it.
    */
   async function savedLoudness(projectId) {
     const state = { ...emptyProject(), ...(await projectState.read(projectId)) };
     const found = [];
     for (const id of state.saved) {
-      const lufs = (await load(id))?.heard?.lufs;
+      const record = await load(id);
+      const lufs = record?.heard?.lufs;
       if (Number.isFinite(lufs)) found.push({ id, lufs });
+      else if (record?.state === "measured" && !isSound(record)) found.push({ id, lufs: null });
     }
     return found;
   }
@@ -2243,7 +2252,7 @@ export async function inspireTools({ command } = {}) {
     stills: (file, seconds, folder, options) => makeStills(file, seconds, folder, options),
     // The loudest change (the song's section with the most weight, not the intro or outro) and the
     // voice spans (whisper, when a model is installed: by "none" says it was not heard).
-    async heard(file, { seconds, bpm } = {}) {
+    async heard(file, { seconds, bpm, signal } = {}) {
       const { songShape, songVoice, whisperModelReady } = await import("./song-shape.mjs");
       const { samples, sampleRate } = await decodeMono(file);
       const top = songShape(samples, sampleRate, { bpm }).sections.filter((part) => part.kind !== "intro" && part.kind !== "outro" && Number.isFinite(part.weight))
@@ -2252,7 +2261,7 @@ export async function inspireTools({ command } = {}) {
       let lines = [];
       if (whisperModelReady()) { try { ({ spans: voice, lines } = await songVoice(file, { seconds })); } catch { voice = null; } }
       // Its integrated loudness on the same copy (render loudness "auto" follows the saved references' median).
-      const lufs = await measureFileLevels(file).then((levels) => levels.integratedLufs, () => null);
+      const lufs = await measureFileLevels(file, signal).then((levels) => levels.integratedLufs, () => null);
       // The words whisper wrote for those spans stay too (no extra run): library inspire lists them.
       return { change: top ? { at: top.at, kind: top.kind } : null, voice, by: voice ? "whisper" : "none", ...(lines.length ? { lines: lines.slice(0, HEARD_LINES_KEPT) } : {}),
         ...(Number.isFinite(lufs) ? { lufs } : {}) };

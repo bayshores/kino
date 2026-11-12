@@ -1231,8 +1231,10 @@ How to read it:
   measures. `loudness` takes a number of LUFS (-30 to -6, target "asked"); auto follows the median of
   the saved references' measured LUFS (`heard.lufs`, read where a reference's sound is measured) and
   names them; check's mix line adds the level after the limiter (tones: 0.4 before, -3.1 after, file -3.1).
-  Evidence: `backend/audio-levels.test.mjs`. Gap: references measured before this keep no LUFS until
-  measured again; the encoder's ceiling fit is not simulated in check (a dense mix: -11.7 vs file -12.2).
+  A reference kept without LUFS is counted, and the receipt names `library inspire "measure yt:…"`,
+  which listens to it again only. Evidence: `backend/audio-levels.test.mjs`, `backend/inspire.test.mjs`.
+  Gap: that listen fetches the copy again; check does not simulate the encoder's ceiling fit (a dense
+  mix: -11.7 vs file -12.2; a +5.7 dBTP webm mix: -8.1 vs file -10.1).
 - **Limiter places fixed in one call**: Verified on generated audio. `check {fix:"auto"}` measures each
   layer at a shared place alone and turns down only the one that makes the peak, by its measured share
   of the peak (all of them by xN when none can clear it alone; a short clip whole, a long one over the

@@ -615,7 +615,8 @@ test("a measured reference keeps what was heard in it (loudest change, voice) an
     heard,
     fetchThumb: async () => Buffer.from("jpeg bytes"),
   });
-  const listen = make("heard", async (file, options) => { asked.push([options.seconds, options.bpm]); return { change: { at: 12, kind: "drop" }, voice: [[0, 2]], by: "whisper" }; });
+  // The second listen (measure again) also reads the copy's integrated loudness.
+  const listen = make("heard", async (file, options) => { asked.push([options.seconds, options.bpm]); return { change: { at: 12, kind: "drop" }, voice: [[0, 2]], by: "whisper", ...(asked.length > 1 ? { lufs: -11.3 } : {}) }; });
   const found = await listen.search("p1", "walking tour edit", { count: 1 });
   const id = found.results[0].id;
   assert.equal((await listen.reference(id, { wait: 3000 })).state, "measured");
@@ -623,8 +624,13 @@ test("a measured reference keeps what was heard in it (loudest change, voice) an
   const [saved] = await listen.savedFingerprints("p1");
   assert.deepEqual(saved.heard, { change: { at: 12, kind: "drop" }, voice: [[0, 2]], by: "whisper" });
   assert.deepEqual(asked, [[30, 6]]);
-  // No integrated loudness was measured with it, so render loudness "auto" has none to follow.
-  assert.deepEqual(await listen.savedLoudness("p1"), []);
+  // No integrated loudness was measured with it, so render loudness "auto" has none to follow: it
+  // comes as null (the receipt names the call), and measuring it again runs only the listen.
+  assert.deepEqual(await listen.savedLoudness("p1"), [{ id, lufs: null }]);
+  await listen.remeasure(id);
+  for (let tries = 0; tries < 100 && !(await listen.savedLoudness("p1"))[0].lufs; tries += 1) await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.deepEqual(await listen.savedLoudness("p1"), [{ id, lufs: -11.3 }]);
+  assert.deepEqual(asked, [[30, 6], [30, 6]], "one more listen");
   assert.deepEqual(saved.seen, [], "the on-screen labels (seen) travel with each saved fingerprint; none yet");
   // savedRhythms hands the pacing rules every cut and the flash count, not only the lent cuts.
   const [rhythm] = await listen.savedRhythms("p1");
@@ -846,6 +852,8 @@ test("a whole measure through a stub yt-dlp: the generated video's cuts and beat
     assert.ok(ref.print && ref.strips > 0, JSON.stringify(ref.print));
     const full = await inspire.reference(found.results[0].id, { full: true });
     assert.equal(full.fingerprint.shots.count, 5);
+    // The real listen also reads the copy's integrated loudness (render loudness "auto").
+    assert.ok(Number.isFinite(full.heard?.lufs) && full.heard.lufs < 0, JSON.stringify(full.heard));
     assert.deepEqual((await readdir(path.join(directory, "strips", found.results[0].id.slice(3)))).length, ref.strips);
     assert.deepEqual(await readdir(path.join(directory, "work")), [], "the downloaded copy is gone");
     // 10 stills at the copy's own size stay for judge rounds.

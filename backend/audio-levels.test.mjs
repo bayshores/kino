@@ -227,7 +227,7 @@ test("the meter reads loudness, true peak and the loudest moment from FFmpeg's p
   assert.deepEqual(mixLead({ duration: 20, voiceSeconds: 12 }), { target: "web", targetLufs: -14 });
   // "auto" with saved references that carry measured sound: their median, each named with its LUFS.
   assert.deepEqual(referenceLead([{ id: "yt:a", lufs: -8.8 }, { id: "yt:b", lufs: -12.9 }, { id: "yt:c", lufs: -10.1 }, { id: "yt:d" }]),
-    { target: "references", targetLufs: -10.1, why: "median of 3 saved references (yt:b -12.9, yt:c -10.1, yt:a -8.8)" });
+    { target: "references", targetLufs: -10.1, why: "median of 3 saved references (yt:b -12.9, yt:c -10.1, yt:a -8.8); 1 saved without measured loudness" });
   assert.equal(referenceLead([{ id: "yt:a", lufs: -9 }, { id: "yt:b", lufs: -12 }]).targetLufs, -10.5, "an even count takes the middle two");
   assert.match(referenceLead([{ id: "yt:a", lufs: -4.2 }]).why, /\(-4\.2 kept inside -30 to -6\)$/);
   assert.equal(referenceLead([{ id: "yt:a" }]), null, "no measured reference: auto stays as it was");
@@ -396,6 +396,10 @@ test("measuring the mix finds every limiter place, and the loudest matches the r
   assert.match(followed.loudness.why, /median of 3 saved references \(yt:b -22, yt:c -18, yt:a -17\)/);
   assert.ok(Math.abs(followedFile + 18) <= 0.5, `references -18, file ${followedFile}`);
   assert.match(leveled.loudness.why, /no saved reference with measured loudness/, "auto without references says so");
+  // A saved reference kept without its loudness: auto stays as before and names the call that measures it.
+  const unheard = await exportScene(scene, { profile: "mp4.alt", fps: 10, loudness: "auto", referenceLoudness: [{ id: "yt:z", lufs: null }] }, { mediaRoot, outputPath: join(root, "unheard.mp4") });
+  assert.equal(unheard.loudness.target, leveled.loudness.target);
+  assert.match(unheard.loudness.why, /no saved reference with measured loudness \(1 saved without it; library \{topic:"inspire", name:"measure yt:z"\} measures one\)$/);
   const withRefs = await measureMixPeaks(await sceneSoundClips(scene, { mediaRoot, directory, duration: 4 }), 4, undefined, { references });
   assert.deepEqual([withRefs.auto.target, withRefs.auto.targetLufs], ["references", -18], "check's auto reads the same references");
 });

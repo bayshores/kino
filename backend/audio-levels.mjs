@@ -169,7 +169,10 @@ export function referenceLead(refs = []) {
   const targetLufs = Math.min(LOUDNESS_RANGE[1], Math.max(LOUDNESS_RANGE[0], median));
   const named = measured.slice(0, 4).map((ref) => `${ref.id} ${ref.lufs}`).join(", ") + (measured.length > 4 ? `, ${measured.length - 4} more` : "");
   const kept = targetLufs === median ? "" : ` (${median} kept inside ${LOUDNESS_RANGE[0]} to ${LOUDNESS_RANGE[1]})`;
-  return { target: "references", targetLufs, why: `median of ${measured.length} saved ${measured.length === 1 ? "reference" : "references"} (${named})${kept}` };
+  // Saved ones kept without a loudness (measured before it was kept) are counted, never guessed.
+  const unmeasured = refs.length - measured.length;
+  const left = unmeasured ? `; ${unmeasured} saved without measured loudness` : "";
+  return { target: "references", targetLufs, why: `median of ${measured.length} saved ${measured.length === 1 ? "reference" : "references"} (${named})${kept}${left}` };
 }
 
 /** The lead for a render loudness given as a number in LUFS. */
