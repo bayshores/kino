@@ -175,11 +175,12 @@ export function planFollow({ ink, gaps = [], moments, bounds, gap, side }) {
  * time (the scene second the text is measured at: its place then, position keys included) and
  * moments ([{t, box}]: the subject's box at each sampled second the words are on screen; without
  * them `subject` stands for the whole hold) and follow. The text goes where the subject leaves
- * room for the whole hold (the boxes' union); with follow it follows the subject with position
- * keys instead (a "Follow" move between each two moments).
- * Returns {side, follow, keys, scale, before, after, room, sizes, splitId}: before and after are
- * the letters' share inside the subject box at the worst moment ({share, t}). Throws an Error
- * with the room when the side asked has none.
+ * room for the whole hold (the boxes' union); with follow it follows the subject instead, on a
+ * pin path (layer.pin, track "around": its spot at each moment, keys = the path's samples).
+ * Returns {side, follow, keys, whole, scale, before, after, room, sizes, splitId}: before and after
+ * are the letters' share inside the subject box at the worst moment ({share, t}); whole is false
+ * when no spot was clear for the whole hold (then it is placed clear of `subject`). Throws an
+ * Error with the room when the side asked has none, even at `subject`.
  */
 export function placeAroundSubject(scene, layers, subject, options) {
   const { fonts, scenes = [], gap, bounds, least = 1 } = options;
@@ -198,8 +199,8 @@ export function placeAroundSubject(scene, layers, subject, options) {
     const ink = union(lettersOf(list));
     for (const layer of list) move(layer, target.x0 - ink.x0, target.y0 - ink.y0);
   };
-  // Placed again: the keys of an earlier follow go, so the text is planned from its own place.
-  for (const layer of layers) if (layer.animations?.some(isFollowKey)) layer.animations = layer.animations.filter((animation) => !isFollowKey(animation));
+  // Placed again: the pin of an earlier follow goes, so the text is planned from its own place.
+  for (const layer of layers) if (layer.pin?.track === FOLLOW) delete layer.pin;
   const letters = lettersOf(layers);
   if (!letters.length) throw new Error(`${layers.map((layer) => layer.id).join(", ")} draws no letters to place.`);
   const before = worst(layers);
@@ -216,11 +217,19 @@ export function placeAroundSubject(scene, layers, subject, options) {
     }
   }
   if (options.side === "split" && !gaps.length) throw new Error(`side "split" needs one text layer with a word gap on one line; ${layers.map((layer) => layer.id).join(", ")} has none.`);
-  const { chosen: still, room } = planAround({ ink, gaps, subject: hold, bounds, gap, side: options.side });
+  let { chosen: still, room } = planAround({ ink, gaps, subject: hold, bounds, gap, side: options.side });
   // Each side's room clear of the whole hold is as large as that side's room at the tightest
   // moment, so following never keeps more size; it keeps the text a gap from the subject at
   // every moment instead of clear of the whole sweep, so it is asked for (follow: true).
   const moving = options.follow && moments.length > 1 ? planFollow({ ink, gaps, moments, bounds, gap, side: options.side }) : null;
+  // A subject that sweeps the frame leaves no spot clear for the whole hold: the text is placed
+  // clear of `subject` (its box at `time`) and the receipt's worst moment shows what it still covers.
+  let clearOf = hold, whole = true;
+  if (!moving && !still && moments.length > 1) {
+    ({ chosen: still, room } = planAround({ ink, gaps, subject, bounds, gap, side: options.side }));
+    clearOf = subject;
+    whole = false;
+  }
   const chosen = moving ?? still;
   if (!chosen) throw new Error(`No room ${options.side ?? "around the subject"} inside the safe area (room ${roomLine(room)}).`);
   // Shrink to the room, never under `least` (then the type is placed at that size and the receipt
@@ -240,21 +249,25 @@ export function placeAroundSubject(scene, layers, subject, options) {
       move(layer, center.x + (was.x - center.x) * scale - (now.x0 + now.x1) / 2, center.y + (was.y - center.y) * scale - (now.y0 + now.y1) / 2);
     }
   }
-  // Following: the text first moves to its spot at the first moment, then a "Follow" key a
-  // moment keeps each later moment's spot (targetOf(moment, ink then) gives the move it needs).
+  // Following: the text first moves to its spot at the first moment, then a pin path (pin.js, as
+  // the pin op writes: straight between samples, no eased keys for linear_motion to flag) holds
+  // each later moment's spot (targetOf(moment, ink then) gives the move it needs). `keys` counts
+  // the path's samples; a text already clear at every moment gets none.
   let keys = 0;
   const follow = (list, targetOf) => {
     const first = targetOf(moments[0], union(lettersOf(list, moments[0].t)));
     for (const layer of list) move(layer, first.dx, first.dy);
     const shifts = moments.map((moment) => targetOf(moment, union(lettersOf(list, moment.t))));
     for (const layer of list) {
-      const spots = moments.map((moment, index) => ({ t: moment.t, ...shiftAt(layer, scene.layers, shifts[index].dx, shifts[index].dy, (item) => evaluateLayer(item, moment.t)) }));
-      const steps = spots.slice(1).map((spot, index) => ({
-        id: `${layer.id}.around-${index + 1}`, name: FOLLOW, kind: "custom", start: round(spots[index].t), duration: round(spot.t - spots[index].t), easing: "linear",
-        unit: "layer", stagger: 0, order: "forward", from: { x: round(spots[index].x), y: round(spots[index].y) }, to: { x: round(spot.x), y: round(spot.y) },
-      }));
-      layer.animations = [...(layer.animations ?? []), ...steps];
-      keys += steps.length;
+      // The pin moves the layer's center from its own place, in its parent's space.
+      const path = moments.map((moment, index) => {
+        const now = evaluateLayer(layer, moment.t);
+        const spot = shiftAt(layer, scene.layers, shifts[index].dx, shifts[index].dy, (item) => evaluateLayer(item, moment.t));
+        return [round(moment.t), round(layer.x + layer.width / 2 + spot.x - now.x), round(layer.y + layer.height / 2 + spot.y - now.y), layer.width, layer.height, 1];
+      });
+      if (path.every((sample) => Math.abs(sample[1] - path[0][1]) < 0.5 && Math.abs(sample[2] - path[0][2]) < 0.5)) continue;
+      layer.pin = { track: FOLLOW, offset: [0, 0], scale: false, base: [layer.width, layer.height], path };
+      keys += path.length;
     }
   };
   let splitId = null, placed = layers;
@@ -279,8 +292,8 @@ export function placeAroundSubject(scene, layers, subject, options) {
       follow([only], (moment, now) => ({ dx: moment.box.x0 - gap - now.x1, dy: 0 }));
       follow([second], (moment, now) => ({ dx: moment.box.x1 + gap - now.x0, dy: 0 }));
     } else {
-      move(only, hold.x0 - gap - leftInk.x1, dy);
-      move(second, hold.x1 + gap - rightInk.x0, dy);
+      move(only, clearOf.x0 - gap - leftInk.x1, dy);
+      move(second, clearOf.x1 + gap - rightInk.x0, dy);
     }
     placed = [only, second];
   } else {
@@ -298,10 +311,9 @@ export function placeAroundSubject(scene, layers, subject, options) {
     } else moveTo(layers, spotIn(union(lettersOf(layers)), room[chosen.side]));
   }
   const after = worst(placed);
-  return { side: chosen.side, follow: Boolean(chosen.follow), keys, scale, before, after, room, sizes, splitId };
+  return { side: chosen.side, follow: Boolean(chosen.follow), keys, whole, scale, before, after, room, sizes, splitId };
 }
 
-const FOLLOW = "Follow";
+// The track name on a pin place {around, follow} wrote.
+const FOLLOW = "around";
 const round = (value) => Math.round(value * 1000) / 1000;
-// A key place {around} wrote to follow a subject (its id ends ".around-<n>").
-const isFollowKey = (animation) => animation?.name === FOLLOW && /\.around-\d+$/.test(animation.id ?? "");

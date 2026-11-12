@@ -69,13 +69,21 @@ test("place around a moving subject: clear of it for the whole hold, or followin
   const placed = placeAroundSubject(hold, [hold.layers[0]], moments[0].box, { gap: 24, bounds: BOUNDS, least: 36, time: 0, moments });
   assert.ok(placed.before.share > 0.2 && placed.after.share === 0 && placed.keys === 0, JSON.stringify(placed));
   assert.deepEqual(moments.map((moment) => at(hold, moment.t)), [0, 0, 0, 0, 0]);
-  // follow: position keys keep it a gap from the subject at every moment (it moves with it).
+  // follow: a pin path keeps it a gap from the subject at every moment (it moves with it), with
+  // no eased keys for linear_motion to flag.
   const follow = sceneOf(word("KILL", 160));
   const followed = placeAroundSubject(follow, [follow.layers[0]], moments[0].box, { gap: 24, bounds: BOUNDS, least: 36, time: 0, moments, follow: true, side: "right" });
-  assert.deepEqual([followed.follow, followed.keys, followed.after.share], [true, 4, 0]);
+  assert.deepEqual([followed.follow, followed.keys, followed.after.share, follow.layers[0].pin.path.length, follow.layers[0].animations.length], [true, 5, 0, 5, 0]);
   const left = (t) => Math.min(...letterBoxes(follow.layers[0], follow.layers, [], undefined, t).map((box) => box.x0));
   assert.deepEqual([Math.round(left(0)), Math.round(left(0.5) - left(0)), Math.round(left(1) - left(0))], [1124, 150, 300]);
   assert.deepEqual(moments.map((moment) => at(follow, moment.t)), [0, 0, 0, 0, 0]);
+  // A subject that sweeps the whole width from the top leaves no spot clear for the hold: the word
+  // is placed clear of its box at `time` (as for one moment) and the worst moment is measured.
+  const sweep = [0, 0.5, 1].map((t) => ({ t, box: { x0: 100 + 1200 * t, y0: 40, x1: 600 + 1200 * t, y1: 1080 } }));
+  const swept = sceneOf(word("KILL", 160));
+  const placedSwept = placeAroundSubject(swept, [swept.layers[0]], sweep[0].box, { gap: 24, bounds: BOUNDS, least: 36, time: 0, moments: sweep });
+  assert.deepEqual([placedSwept.whole, placedSwept.side, coveredShare(letterBoxes(swept.layers[0], swept.layers, [], undefined, 0), sweep[0].box)], [false, "right", 0]);
+  assert.ok(placedSwept.after.share > 0 && placedSwept.after.t > 0, JSON.stringify(placedSwept.after));
 
   // A word keyed over the subject is measured where its keys have it at `time`, not at rest.
   const keyed = sceneOf(word("KILL", 160));

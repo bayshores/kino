@@ -72,7 +72,16 @@ export function followClipTiming(scene, before, after) {
       continue;
     }
     // A copy that still had the clip's old timing takes the new one (one retimed on its own keeps its own).
-    if (PLAY_KEYS.every((key) => same(layer[key], before[key])))
+    if (PLAY_KEYS.every((key) => same(layer[key], before[key]))) {
       for (const key of PLAY_KEYS) if (after[key] !== undefined) layer[key] = structuredClone(after[key]);
+      // Its subject's path (scene seconds, place {around} reads it) moves to the times the clip
+      // now shows the same file moments; samples it no longer shows go.
+      if (Array.isArray(layer.subjectPath)) {
+        const path = layer.subjectPath.map(([time, ...box]) => [mediaSceneTime(after, mediaSoundTime(before, time)), ...box])
+          .filter(([time]) => time !== null).map(([time, ...box]) => [Math.round(time * 1000) / 1000, ...box]).sort((a, b) => a[0] - b[0]);
+        if (path.length) layer.subjectPath = path;
+        else delete layer.subjectPath;
+      }
+    }
   }
 }

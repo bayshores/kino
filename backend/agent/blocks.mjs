@@ -179,8 +179,8 @@ const OPERATIONS = {
   },
   pick_variant: { fields: ["sceneId"], rules: "pick_variant {scene}: marks this scene as the chosen one of its variant set (the others stay until you delete_scene them)." },
   place: {
-    fields: ["layerIds", "layerId", "sceneId", "below", "above", "left_of", "right_of", "gap", "align", "slot", "valign", "on", "of", "at", "offset", "around", "side"],
-    rules: "place {layers, below|above|left_of|right_of: <layer>, gap?, align?: start|center|end} moves layers (as one group) next to another layer; place {layers, slot, align?: left|center|right, valign?: top|middle|bottom} moves them into a slot (C2:E4, center, bottom, …); place {layers, on: mouth|eyes|between-eyes|face|above-head, of: <video layer>, at?, offset?: [x, y]} centers them on that part of the face the footage shows at at (default: the layers' first entrance): a mark_subject box with that part is exact, a head mark or a face kino found is an estimate from the box (look to confirm; offset moves it by % of the face box). place {layers, around: <video layer or cut-out>|\"subject\", side?: left|right|above|below|split, at?, gap?} sets text in the safe room beside, above, below or split at a word gap around the marked subject (a mark_subject box, or a cut_out copy's measured subject; \"subject\" finds the shot under the text), shrunk to that room when needed; the receipt prints the room on each side and the share of letter area inside the subject box before and after.",
+    fields: ["layerIds", "layerId", "sceneId", "below", "above", "left_of", "right_of", "gap", "align", "slot", "valign", "on", "of", "at", "offset", "around", "side", "follow"],
+    rules: "place {layers, below|above|left_of|right_of: <layer>, gap?, align?: start|center|end} moves layers (as one group) next to another layer; place {layers, slot, align?: left|center|right, valign?: top|middle|bottom} moves them into a slot (C2:E4, center, bottom, …); place {layers, on: mouth|eyes|between-eyes|face|above-head, of: <video layer>, at?, offset?: [x, y]} centers them on that part of the face the footage shows at at (default: the layers' first entrance): a mark_subject box with that part is exact, a head mark or a face kino found is an estimate from the box (look to confirm; offset moves it by % of the face box). place {layers, around: <video layer or cut-out>|\"subject\", side?: left|right|above|below|split, at?, gap?, follow?} sets text in the safe room beside, above, below or split at a word gap around the marked subject (a mark_subject box, or a cut_out copy's measured subject; \"subject\" finds the shot under the text), clear of it for the whole time the text shows (follow:true moves it with the subject instead), shrunk to that room when needed; the receipt prints the room on each side and the share of letter area inside the subject box before and after.",
   },
   align: {
     fields: ["layerIds", "layerId", "sceneId", "to", "within"],
@@ -2315,7 +2315,7 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
   // takes the topmost cut-out above the text, else the topmost marked shot showing then.
   // The subject is measured at each sampled second the text is on screen (its run of shown
   // frames around `time`), so a subject that moves is cleared for the whole hold: moments [{t, box}].
-  // Returns {box: {x0, y0, x1, y1} (at `time`), time (where the text is measured: at, else the end
+  // Returns {box: {x0, y0, x1, y1} (at `time`, boxTime rounded), time (where the text is measured: at, else the end
   // of its entrance), moments, hold: [start, end], name, behind, line}.
   async function subjectTarget(document, scene, operation, work, layers) {
     const fonts = await fontsOf(document, work);
@@ -2350,7 +2350,7 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
       const box = boxAt(time);
       if (!box) throw problem(`${name} has no size at ${t} s.`);
       const moments = hold.times.filter((at) => shows(pick, at)).map((at) => ({ t: at, box: boxAt(at) })).filter((moment) => moment.box);
-      return { box, time: settled, moments, hold: hold.range };
+      return { box, boxTime: t, time: settled, moments, hold: hold.range };
     };
     if (isCover(pick)) {
       // Shares of its box: the path cut_out measured (subjectPath, a box a sampled second), else the

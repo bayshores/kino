@@ -295,6 +295,16 @@ test("place {around} sets a word beside the marked subject of the shot under it 
     const [a, b] = [0.35 + 0.2 * (t - 1), 0.55 + 0.2 * (t - 1)].map((share) => share * 1920);
     assert.ok(ink(t)[1] < a || ink(t)[0] > b, `clear of the subject at ${t} s`);
   }
+  // follow:true through the tool: a pin path keeps the word right of the subject as it moves, and
+  // check finds no linear_motion on it.
+  const followed = await agent("around-moving", "edit", { ops: [
+    { op: "update_layer", layer: "word", properties: { x: 1100 } },
+    { op: "place", layers: ["word"], around: "clip-subject", side: "right", follow: true },
+  ] });
+  assert.match(followed.text, /: follows it on a pin path of 9 moments\): right · letters inside the subject box at the worst moment \d+% at 1\.\d+ s → 0%/);
+  assert.doesNotMatch(followed.text, /linear_motion word/);
+  const word3 = findLayer(await saved("around-moving"), "word");
+  for (const t of [1.1, 1.5, 1.9]) assert.ok(evaluateLayer(word3, t).x > (0.55 + 0.2 * (t - 1)) * 1920, `right of the subject at ${t} s`);
 });
 
 test("frame steps a camera group onto a region of a layer, then eases on, and check takes the cut as a cut", async () => {

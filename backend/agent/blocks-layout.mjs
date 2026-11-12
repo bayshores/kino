@@ -89,7 +89,7 @@ export function createLayoutOps({ fontsOf, problem, sceneOf, faceTarget = null, 
       const spread = moments.length > 1 ? Math.round(Math.max(...["x0", "x1", "y0", "y1"].map((edge) => Math.max(...moments.map((moment) => moment.box[edge])) - Math.min(...moments.map((moment) => moment.box[edge]))))) : 0;
       const at = (worst) => (spread > 0 && worst.share > 0 ? ` at ${worst.t} s` : "");
       const held = spread > 0
-        ? ` over the hold ${target.hold[0]}-${target.hold[1]} s (${moments.length} moments; the subject's box moves up to ${spread} px)${placed.follow ? `: follows it, ${placed.keys} Follow keys` : ""}`
+        ? ` over the hold ${target.hold[0]}-${target.hold[1]} s (${moments.length} moments; the subject's box moves up to ${spread} px)${placed.follow ? (placed.keys ? `: follows it on a pin path of ${placed.keys} moments` : ": already clear of it at every moment, so no pin") : ""}${placed.whole === false ? `; no spot is clear of it for the whole hold, so the text is clear of its box at ${target.boxTime} s` : ""}`
         : "";
       work.notes.push(`place ${names} around ${target.line}${target.behind ? ", behind it" : ", over it"} (subject box x ${Math.round(box.x0)}-${Math.round(box.x1)}, y ${Math.round(box.y0)}-${Math.round(box.y1)}${held}): ${how} · letters inside the subject box at the worst moment ${pct(placed.before.share)}${at(placed.before)} → ${pct(placed.after.share)}${at(placed.after)}${sized} · room ${roomLine(placed.room)}`);
       return;
