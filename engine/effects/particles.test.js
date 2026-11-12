@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { Resvg } from "@resvg/resvg-js";
-import { normalizeEffectAnimation, effectsAt } from "./animation.js";
+import { createEffectAnimation, normalizeEffectAnimation, effectsAt } from "./animation.js";
 import { EFFECT_GROUPS, effectDefaults, effectDefinition, effectDocumentation, normalizeEffectParameters } from "./catalog.js";
 import { PARTICLE_LOOKS, linkLines, particlesAt, renderParticles } from "./particles.js";
 import { exportFrameTime } from "../exportOptions.js";
@@ -51,6 +51,9 @@ test("variation spreads each particle's trail, brightness, glow and color by dep
   assert.ok(far.length > near.length * 3, `most streaks sit far back: ${far.length} far, ${near.length} near`);
   assert.equal(effectDefaults("streaks").variation, 0.8);
   assert.equal("variation" in effectDefaults("rain") || "haze" in effectDefaults("rain"), false);
+  // A new dot effect starts at 0.6 (run 8: embers at 0 read as one dot size); a saved one without it draws at 0.
+  assert.equal(createEffectAnimation("embers", { type: "rectangle" }, 0, { duration: 2 }, "e").to.variation, 0.6);
+  assert.equal(createEffectAnimation("fog", { type: "rectangle" }, 0, { duration: 2 }, "f").to.variation, undefined);
   // haze: the same particles once more, blurred, under the sharp ones; left out, rain draws as before.
   assert.match(svgAt("streaks", {}, 2), /<use href="#p-particles-field-\d+" filter="url\(#p-particles-haze-\d+\)"\/><use href="#p-particles-field-\d+"\/>/);
   assert.doesNotMatch(svgAt("rain", {}, 2), /particles-haze/);

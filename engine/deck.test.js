@@ -7,6 +7,7 @@ import { createDocument, createLayer, createScene, parseDocument } from "./model
 import { applySwap, cardNames, DECK_GROUPS, dealDeck, dealSeed, DEFAULT_SET, deckLine, deckUse, materialOf, projectSeed, SWAP_LIMIT, swapProblem } from "./deck.js";
 import { LOUD_TAGS, PLAIN_TAGS, techniqueOf } from "./techniques.js";
 import { styleContext } from "./styleSpec.js";
+import { askLine, askMatches } from "./askWords.js";
 
 const FOOTAGE = { known: true, fromLayers: true, video: true, pictures: true, pictureCount: 3, text: true, numbers: false, sound: true, device: false };
 const tags = (deck) => deck.cards.map((card) => card.tag);
@@ -172,6 +173,21 @@ test("moves join as one set piece when the library exists; techniques only befor
   assert.match(line, /^deck \(seed \d+\): [a-z-]+(, [a-z-]+)+, set piece: [a-z-]+; swaps left 2$/);
   // Without moves the set piece is split-screen at most.
   assert.ok(deals(60).every((deck) => !deck.setPiece || deck.setPiece.name === "split-screen"));
+  // A move the person's own words name is the set piece, with the word (askWords.js); three asks
+  // from different kinds of video find their move by its own text.
+  const library = [{ name: "energy-aura", about: "light rises from the subject's outline", fits: "a figure powering up, an aura" },
+    { name: "glitch", about: "the picture tears into offset blocks", fits: "a digital error" }, { name: "fog", about: "Fog" }, ...moves];
+  const entries = library.map((move) => ({ name: move.name, text: `${move.about ?? ""} ${move.fits ?? ""}` }));
+  assert.equal(askLine(askMatches("make an aura edit of the hooded guy, dark and menacing", entries)), 'for your words: "aura" -> energy-aura');
+  assert.equal(askLine(askMatches("a talking-head interview with a glitching intro", entries)), 'for your words: "glitching" -> glitch');
+  assert.equal(askLine(askMatches("a horror game trailer, fog everywhere", entries)), 'for your words: "fog" -> fog');
+  const asked = askMatches("an aura edit", entries);
+  assert.ok(deals(20, { moves: library, asked }).every((deck) => deck.setPiece.name === "energy-aura" && deck.setPiece.word === "aura"));
+  // A word only in a move's about or fits text ("digital" -> glitch) weighs it but does not force it.
+  const loose = askMatches("a digital look", entries);
+  assert.deepEqual(loose, [{ word: "digital", name: "glitch" }]);
+  const looseDeals = deals(40, { moves: library, asked: loose }).map((deck) => deck.setPiece?.name);
+  assert.ok(looseDeals.includes("glitch") && looseDeals.some((name) => name !== "glitch"), looseDeals.join(","));
 });
 
 test("swaps: at most 2 a deal, each with a reason, for a card in the hand, into a technique check can find or a move", () => {

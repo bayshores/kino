@@ -38,6 +38,11 @@ const lerp = (a, b, t) => a + (b - a) * t;
 // Where variation 1 takes a dot look's depth ranges unless the look sets its own `deep`.
 // shade: the power on depth that leans near particles to color2 (2: only the nearest).
 const DEEP_FIELD = Object.freeze({ speedJitter: 1.5, depth: [0.45, 1.7], parallax: [0.25, null], depthAlpha: 0.35, shade: 2 });
+// The variation a new dot effect starts with (one without its own default). Run 8's embers at 0
+// drew one dot size across the frame (.scratch/run8/trace/effects.md section 1); the human
+// edits' snow and sparks vary in size and depth (section 2). 0.6 is the run 8 design's value,
+// checked by the near/far size spread particlesAt gives (RESULT.md of the effect-defaults wave).
+export const NEW_VARIATION = 0.6;
 const smoothstep = (edge0, edge1, value) => {
   if (edge1 <= edge0) return value >= edge1 ? 1 : 0;
   const t = clamp((value - edge0) / (edge1 - edge0), 0, 1);
@@ -167,8 +172,9 @@ function lookParameters(look) {
       trail: number("Trail", d.trail, 0, 0.5, 0.005, "s"),
       // How far each particle's depth spreads its size, speed, trail length, brightness, glow and
       // color (color far, color2 near): 0 the look's own small jitter, 1 a deep field in one layer.
-      // Optional on looks without their own default, so saved effects draw as before.
-      variation: number("Variation", d.variation ?? 0, 0, 1, 0.01, "", d.variation === undefined ? { optional: true } : {}),
+      // Optional on looks without their own default, so saved effects draw as before (a missing
+      // value draws as 0, particlesAt). A new effect starts at NEW_VARIATION (`created`).
+      variation: number("Variation", d.variation ?? NEW_VARIATION, 0, 1, 0.01, "", d.variation === undefined ? { optional: true, created: true } : {}),
       // A soft blurred copy of the particles under them: the haze that blooms where streaks
       // cluster. Optional the same way.
       haze: number("Haze", d.haze ?? 0, 0, 1, 0.01, "", d.haze === undefined ? { optional: true } : {}),

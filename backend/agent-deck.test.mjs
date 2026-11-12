@@ -12,7 +12,7 @@ import { seededLook } from "../engine/blocks/looks.js";
 import { askText } from "./agent/stops.mjs";
 import { cleanTreatments, pickedEnding, pickedSignature, pickedType, pickLines, shownLines, treatmentsProblem, treatmentsText } from "./agent/treatments.mjs";
 import { briefChanges, lockCall } from "./agent/brief.mjs";
-import { cardCall, dealDue, deckInputs, deckText, labelEvidence, mediaKeys, newDeal } from "./agent/deck.mjs";
+import { cardCall, dealDue, deckInputs, deckStatusLine, deckText, labelEvidence, mediaKeys, newDeal } from "./agent/deck.mjs";
 import { startTestServer } from "./media.test.support.mjs";
 import { skipBoardOn } from "./stops.test.support.mjs";
 
@@ -146,6 +146,11 @@ test("labels and footage facts: cards say where they came from, and a deal no ca
   const counted = newDeal({ projectId: "deck-evidence", inputs: more });
   assert.equal(counted.facts.labeledRefs, 3);
   assert.deepEqual(counted.facts.slots, { lineClip: "v", line: "hello" });
+  // The stored ask's words: the move whose name holds a word is the set piece, and status says so.
+  const asked = await deckInputs({ brief: { fields: { ask: [{ text: "an aura edit, dark", at: 1 }] } } }, document);
+  const told = newDeal({ projectId: "deck-asked", inputs: asked });
+  assert.equal(told.setPiece.name, "energy-aura");
+  assert.match(deckStatusLine(told, asked.basis), /\nfor your words: "aura" -> energy-aura/);
 });
 
 test("the material steers the deal: footage without words gets no type card (no default type look)", async () => {
