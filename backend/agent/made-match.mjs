@@ -13,8 +13,10 @@
 // own (the median of their labels' made share) or no shot is left.
 // Values, each printed with where it came from: colors from the label's own color words, else the
 // reference's strip frame nearest the label's time, else the shot under the element (its main and
-// accent colors), else a starting guess; a splatter's size and place from the shot's marked subject
-// box (beside, above or below it, on the side with the most room, never over it); a duration from
+// accent colors), else a starting guess (particles keep their look's own); a splatter's size and
+// place beside the shot's marked subject box, else its saved footage-scan figure or people-scan body
+// or face, else the busiest part of its own small frame (on the side with the most room, never over
+// it), else a starting guess in a corner by the shot's order; a duration from
 // the shot's cut or the next song cue, whichever comes first. Overexposes stay a second apart (the
 // flashing check allows three flashes a second). A composite label puts a background under a cut-out
 // that already exists; with none, it is a ready call (cut_out takes up to a minute).
@@ -29,6 +31,7 @@ import { mainScene } from "../../engine/board.js";
 import { madeNamesIn } from "../../engine/deck.js";
 import { round } from "../../engine/numbers.js";
 import { mediaFrameState } from "../../engine/playback.js";
+import { subjectOnScene } from "../../engine/sourceView.js";
 import { seenNameList } from "./seen-names.mjs";
 
 export const MADE_PREFIX = "match-made-";
@@ -50,6 +53,8 @@ const RECOLOR = "recolor";
 const CUTOUT = new Set(["cut_out", "energy-aura", "rim-light", "backdrop-flash"]);
 // The placements check's made: measure counts (particles and a drawn graphic): the ones that raise the share.
 const COUNTED = new Set(["embers", "sparks", "bokeh", "dust", "snow", "rain", "fog", "streaks", "splatter"]);
+// Particle overlays: they take measured colors (color and color2) the way a splatter takes its fill.
+const PARTICLES = new Set(["embers", "sparks", "bokeh", "dust", "snow", "rain", "fog", "streaks"]);
 const placeable = (name) => EFFECTS.has(name) || MOVES.has(name) || LAYERS.has(name) || name === RECOLOR;
 
 // Color words a label may hold and the color each names (two-word names first, so "sky blue" is not "blue").
@@ -234,7 +239,7 @@ export function besideSubject(box, width, height) {
 async function colorsFor(technique, slot, count, { refColors, colorsAt, guess, main = false }) {
   // Hues before white and black when a label names enough of them ("white splat; pink and purple paint" recolors pink and purple).
   const all = technique.colors ?? [], hues = all.filter((entry) => !NEUTRAL.has(entry.hex));
-  const words = technique.name === "splatter" || main ? all : hues.length >= count ? hues : count > 1 ? all : hues;
+  const words = technique.name === "splatter" || PARTICLES.has(technique.name) || main ? all : hues.length >= count ? hues : count > 1 ? all : hues;
   if (words.length) {
     const picked = words.slice(0, count);
     return { hexes: picked.map((entry) => entry.hex), from: `the label's ${picked.map((entry) => `"${entry.word}"`).join(" and ")}` };
@@ -253,12 +258,67 @@ async function colorsFor(technique, slot, count, { refColors, colorsAt, guess, m
   return { hexes: guess.slice(0, count), from: "a starting guess" };
 }
 
+// A file box ([x, y, w, h] fractions of the source frame) drawn on the scene at `time`, in scene px, or null.
+function onScene(scene, layer, time, box, source) {
+  if (!layer || !Array.isArray(box) || box.length !== 4) return null;
+  const drawn = subjectOnScene(scene, layer, time, box.map((value) => value * 100), source ?? null);
+  if (!drawn) return null;
+  const x0 = Math.max(0, drawn.x0), y0 = Math.max(0, drawn.y0), x1 = Math.min(scene.width, drawn.x1), y1 = Math.min(scene.height, drawn.y1);
+  return x1 > x0 && y1 > y0 ? [Math.round(x0), Math.round(y0), Math.round(x1 - x0), Math.round(y1 - y0)] : null;
+}
+
+// A starting guess's corner by the shot's order (top left, bottom right, top right, bottom left), so
+// shots with nothing measured do not all take the same spot.
+const CORNERS = [["top left", 0.08, 0.1], ["bottom right", 0.92, 0.9], ["top right", 0.92, 0.1], ["bottom left", 0.08, 0.9]];
+
+/**
+ * Where a splatter goes on `slot`'s shot: {size, x, y, where}. Beside, above or below the first box
+ * found (on the side with the most room, never over it): the shot's marked subject (mark_subject),
+ * else `subjectAt(layerId, time)` (the footage scan's figure, else the people scan's body or face:
+ * {box fractions, by, source}), else `detailAt(layerId, time)` (the busiest part of the shot's own
+ * small frame); else a starting guess in a corner picked by the shot's order.
+ */
+export async function splatterSpot(scene, layer, slot, { subjectAt = null, detailAt = null } = {}, order = 0) {
+  const found = [];
+  const marked = subjectBoxAt(layer, slot.at);
+  if (marked) found.push({ box: marked, by: "the marked subject box" });
+  else {
+    const subject = subjectAt ? await subjectAt(slot.span.layerId, slot.at).catch(() => null) : null;
+    const box = subject ? onScene(scene, layer, slot.at, subject.box, subject.source) : null;
+    if (box) found.push({ box, by: subject.by });
+    const detail = !box && detailAt ? await detailAt(slot.span.layerId, slot.at).catch(() => null) : null;
+    const busy = detail ? onScene(scene, layer, slot.at, detail.box, detail.source) : null;
+    if (busy) found.push({ box: busy, by: `the busiest part of ${slot.span.name}'s own frame at ${slot.at} s` });
+  }
+  const size = Math.round(Math.min(scene.width, scene.height) / 3);
+  const [first] = found;
+  const spot = first ? besideSubject(first.box, scene.width, scene.height) : null;
+  // "right of the face ...", "below the face ..." (above and below take no "of").
+  const side = spot && (spot.side === "left" || spot.side === "right" ? `${spot.side} of` : spot.side);
+  if (spot) return { size: spot.size, x: spot.x, y: spot.y, where: `${side} ${first.by} ${first.box.join(",")}` };
+  const [corner, cx, cy] = CORNERS[order % CORNERS.length];
+  const x = Math.round(Math.min(Math.max(0, scene.width * cx - (cx > 0.5 ? size : 0)), scene.width - size));
+  const y = Math.round(Math.min(Math.max(0, scene.height * cy - (cy > 0.5 ? size : 0)), scene.height - size));
+  const why = first ? `no room beside ${first.by} ${first.box.join(",")}` : "no subject box (mark_subject sets one), figure, face or measured frame";
+  return { size, x, y, where: `a starting guess (${corner}, by shot order): ${why}` };
+}
+
 // The op that places `technique` at `slot` with id `id`, and its printed values: {op, note}.
-async function opFor(technique, slot, id, { scene, cues, measure }) {
+async function opFor(technique, slot, id, { scene, cues, measure, order = 0 }) {
   const name = technique.name;
   const stay = until(slot, cues);
   const duration = round(stay.end - slot.at);
   const timing = `at ${slot.at} s for ${duration} s (to ${stay.why})`;
+  if (PARTICLES.has(name)) {
+    // One color the way a splatter takes its fill (the label's first color word, else the accent of
+    // the reference's frame, else of the shot), its pale core 50% toward white; with none measured
+    // the look keeps its own colors.
+    const { hexes, from } = await colorsFor(technique, slot, 1, { ...measure, guess: [] });
+    if (!hexes.length) return { op: { op: "add_animation", layer: slot.span.name, id, effect: name, start: slot.at, duration }, note: `${name} (the look's own colors: no label color, reference frame or shot frame measured) on ${slot.span.name} ${timing} (${id})` };
+    const [color, color2] = [hexes[0], toward(hexes[0], 0.5, 255)];
+    return { op: { op: "add_animation", layer: slot.span.name, id, effect: name, start: slot.at, duration, parameters: { color, color2 } },
+      note: `${name} (color ${color} from ${from}, color2 ${color2} 50% toward white) on ${slot.span.name} ${timing} (${id})` };
+  }
   if (EFFECTS.has(name)) return { op: { op: "add_animation", layer: slot.span.name, id, effect: name, start: slot.at, duration }, note: `${name} on ${slot.span.name} ${timing} (${id})` };
   if (name === RECOLOR) {
     const { hexes, from } = await colorsFor(technique, slot, 2, { ...measure, guess: ["#1400FF", "#FFE4E4"] });
@@ -279,14 +339,10 @@ async function opFor(technique, slot, id, { scene, cues, measure }) {
     return { op: { op: "move", name, id, layer: slot.span.name, at: slot.at, dur, colors }, note: `split-fields on ${slot.span.name} at ${slot.at} s for ${dur} s, colors ${colors.join(", ")} (from ${from}) (${id})` };
   }
   if (MOVES.has(name)) return { op: { op: "move", name, id, layer: slot.span.name, at: slot.at }, note: `${name} on ${slot.span.name} at ${slot.at} s (${id})` };
-  // A splatter beside the marked subject, never over it.
+  // A splatter beside the subject, never over it.
   const { hexes, from } = await colorsFor(technique, slot, 1, { ...measure, guess: ["#FFFFFF"] });
   const layer = scene.layers.find((entry) => entry.id === slot.span.layerId);
-  const box = subjectBoxAt(layer, slot.at);
-  const spot = box ? besideSubject(box, scene.width, scene.height) : null;
-  const size = spot?.size ?? Math.round(Math.min(scene.width, scene.height) / 3);
-  const x = spot?.x ?? Math.round(scene.width * 0.08), y = spot?.y ?? Math.round(scene.height * 0.1);
-  const where = spot ? `${spot.side} of the subject box ${box.join(",")}` : box ? `a starting guess: no room beside the subject box ${box.join(",")}` : "a starting guess: no subject box (mark_subject sets one)";
+  const { size, x, y, where } = await splatterSpot(scene, layer, slot, measure, order);
   return { op: { op: "add_layer", layerType: "path", name: id, properties: { id, x, y, width: size, height: size, fill: hexes[0], splatter: { style: "splat", seed: Number(id.slice(MADE_PREFIX.length)) || 1 }, mediaStart: slot.at, mediaDuration: duration } },
     note: `${id} (splatter splat, fill ${hexes[0]} from ${from}, ${size}x${size} at ${x},${y}, ${where}) ${timing}`,
     span: [slot.at, stay.end] };
@@ -345,9 +401,10 @@ async function cutoutCall(technique, subject, context) {
  * with labels, `deck` the project's deck (used with no labeled reference), `names` the agent's own
  * list (made:[...]) in place of both, `faces` layer ids whose file has a face kino found,
  * `runOps(document, ops)` applies ops as an edit would; `colorsAt(layerId, time)` and
- * `refColors(refId, at)` measure a palette ([{hex, share}]) of a shot or a reference's frame.
+ * `refColors(refId, at)` measure a palette ([{hex, share}]) of a shot or a reference's frame;
+ * `subjectAt` and `detailAt` place a splatter where no subject is marked (splatterSpot).
  */
-export async function placeMade(document, { sceneId = null, refs = [], deck = null, names = null, faces = [], remove = false, fonts, runOps, colorsAt = null, refColors = null }) {
+export async function placeMade(document, { sceneId = null, refs = [], deck = null, names = null, faces = [], remove = false, fonts, runOps, colorsAt = null, refColors = null, subjectAt = null, detailAt = null }) {
   const scene = sceneId ? document.scenes.find((entry) => entry.id === sceneId) : mainScene(document);
   if (!scene) return { document, lines: [], placed: [] };
   const old = madeIds(scene);
@@ -369,14 +426,15 @@ export async function placeMade(document, { sceneId = null, refs = [], deck = nu
   const slots = madeSlots(base, baseScene, spans, { faces });
   const cuts = cutSlots(base, spans);
   const cues = songCues(base);
-  const theirs = referenceMade(labeled);
+  // A composite label is a cut-out, which counts as made in the edit's own share, so it counts in theirs too.
+  const theirs = referenceMade(labeled, { composite: true });
   // The aim: the references' own made share (the median of their labels'), only with labeled references.
   const aim = theirs.length && !Array.isArray(names) ? median(theirs.map((ref) => ref.made / Math.max(1, ref.total))) : null;
   const covered = [];
   const predicted = () => start.moments.filter((moment) => moment.made || covered.some(([a, b]) => moment.time >= a && moment.time <= b)).length;
   const taken = new Set(), cutTaken = new Set();
   const ops = [], placed = [], left = [];
-  const measure = { colorsAt, refColors };
+  const measure = { colorsAt, refColors, subjectAt, detailAt };
   // Overexposes stay a second or more apart, so they add at most one flash a second (the flashing
   // check allows three).
   const flashes = [];
@@ -402,7 +460,7 @@ export async function placeMade(document, { sceneId = null, refs = [], deck = nu
       taken.add(slot.span);
     }
     count += 1;
-    const made = await opFor(technique, slot, `${MADE_PREFIX}${count}`, { scene: baseScene, cues, measure });
+    const made = await opFor(technique, slot, `${MADE_PREFIX}${count}`, { scene: baseScene, cues, measure, order: Math.max(0, spans.indexOf(slot.span)) });
     if (COUNTED.has(technique.name)) covered.push(made.span ?? [slot.at, until(slot, cues).end]);
     ops.push(made.op);
     placed.push({ name: technique.name, op: made.op, note: made.note, why: slot.why, refs: technique.refs });

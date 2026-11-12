@@ -54,7 +54,7 @@ import { mediaAllowedIn } from "../media-use.mjs";
 import { assignCodes, closest, createResolver, documentObjects, nearMiss, ReferenceError } from "./refs.mjs";
 import { SAMPLE_FRAME, sampleOps } from "./library-catalog.mjs";
 import { pictureAlpha, seeThrough } from "./picture-alpha.mjs";
-import { filePalette, shotColor, shotPalette } from "./shot-color.mjs";
+import { filePalette, savedSize, shotColor, shotDetail, shotPalette } from "./shot-color.mjs";
 import { libraryMedia, stripPng } from "./library-media.mjs";
 import { currentTurn, turnOver } from "./state.mjs";
 import { editFocus } from "./dashboard.mjs";
@@ -7152,9 +7152,38 @@ export function createAgentService(deps) {
       const near = (kept?.strips ?? []).reduce((best, strip) => (!best || Math.abs(strip.at - at) < Math.abs(best.at - at) ? strip : best), null);
       return near ? filePalette(path.join(kept.folder, near.file)) : null;
     };
+    const subjectAt = (layerId, time) => savedSubjectAt(exposure.document, state, layerById(layerId), time);
+    const detailAt = (layerId, time) => shotDetail(deps.mediaRoot, layerById(layerId), time);
     const placed = await placeMade(exposure.document, { sceneId, remove, refs: labeled, deck: state?.deck ?? null, names: Array.isArray(made) ? made : null,
-      faces: await faceLayers(exposure.document, sceneId), fonts, runOps, colorsAt, refColors });
+      faces: await faceLayers(exposure.document, sceneId), fonts, runOps, colorsAt, refColors, subjectAt, detailAt });
     return { ...exposure, document: placed.document, lines: [...exposure.lines, ...placed.lines], made: placed.placed };
+  }
+
+  // Where a video layer's subject is at scene time `time`, from saved scans only (never a new scan):
+  // the footage scan's figure of the shot the clip was taken from (by body or mask), else the people
+  // scan's largest body, else its largest face, in the sample nearest that moment of the file (within
+  // 1 s). {box: [x, y, w, h] fractions of the file's frame, by, source} or null.
+  async function savedSubjectAt(document, state, layer, time) {
+    if (layer?.type !== "video" || !layer.src) return null;
+    let file;
+    try { file = mediaFileOf({ src: layer.src }); } catch { return null; }
+    const source = await savedSize(file);
+    const footage = ((await deps.listMedia?.().catch(() => [])) ?? []).find((item) => (item.src ?? `/api/media/${item.id}`) === layer.src)?.footage;
+    const candidate = footage && deps.footage?.readScan ? (state?.footage?.candidates ?? []).find((entry) => entry.id === footage.candidate) : null;
+    const scan = candidate ? await deps.footage.readScan(scanIdOf(candidate)).catch(() => null) : null;
+    const figure = scan?.shots?.find((shot) => shot.n === footage.shot)?.figure;
+    if (Array.isArray(figure?.box)) return { box: figure.box, by: `the footage scan's figure (by ${figure.by ?? "body"}) of ${candidate.code ?? candidate.id} shot ${footage.shot}`, source };
+    const saved = await peopleCache.saved(file).catch(() => null);
+    let at = time;
+    try { at = mediaFrameState(layer, time).sourceTime ?? time; } catch { /* scene time */ }
+    const near = (saved?.samples ?? []).filter((sample) => Math.abs(sample.t - at) <= 1 && (sample.people?.length || sample.faces?.length))
+      .sort((a, b) => Math.abs(a.t - at) - Math.abs(b.t - at))[0];
+    const largest = (boxes) => boxes.reduce((best, box) => (!best || box[2] * box[3] > best[2] * best[3] ? box : best), null);
+    const when = near ? Math.round(near.t * 100) / 100 : null;
+    const body = largest((near?.people ?? []).map((entry) => entry.box).filter(Array.isArray));
+    if (body) return { box: body, by: `the people scan's body at ${when} s of the file`, source };
+    const face = largest(near?.faces ?? []);
+    return face ? { box: face, by: `the people scan's face at ${when} s of the file`, source } : null;
   }
 
   // The video layers whose file has a face kino found (saved people scans only; never a new scan).

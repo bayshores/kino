@@ -55,10 +55,12 @@ export function madeMoments(model) {
 
 /**
  * The saved references' own measure of the same thing: each labeled moment that names "made" counts
- * (library inspire seen). Only references with labels are listed: [{id, made, total}].
+ * (library inspire seen). Only references with labels are listed: [{id, made, total}]. With
+ * `composite`, a moment labeled composite (a cut-out, which madeShare counts as made) counts too.
  */
-export function referenceMade(refs) {
-  return (refs ?? []).filter((ref) => Array.isArray(ref.seen) && ref.seen.length).map((ref) => ({ id: ref.id, made: ref.seen.filter((entry) => (entry.kinds ?? []).includes("made")).length, total: ref.seen.length }));
+export function referenceMade(refs, { composite = false } = {}) {
+  const counts = (entry) => (entry.kinds ?? []).includes("made") || (composite && (entry.kinds ?? []).includes("composite"));
+  return (refs ?? []).filter((ref) => Array.isArray(ref.seen) && ref.seen.length).map((ref) => ({ id: ref.id, made: ref.seen.filter(counts).length, total: ref.seen.length }));
 }
 
 const percent = (made, total) => (total ? Math.round((made / total) * 100) : 0);

@@ -2,7 +2,7 @@
 // (backdrop-flash): one small frame (48 px wide) decoded by FFmpeg, or the picture read as is,
 // then a 24-bin hue histogram weighted by saturation and brightness. Returns {h, s, l} of the
 // strongest bin (h in degrees, s and l 0 to 1), or null when the file cannot be read.
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createCanvas, loadImage } from "@napi-rs/canvas";
@@ -89,6 +89,18 @@ function imageData(image) {
   return canvas.getContext("2d").getImageData(0, 0, WIDTH, height).data;
 }
 
+/**
+ * The longest side, in pixels, of a video a small frame is decoded from. FFmpeg decodes a frame at
+ * the file's own size before it scales it down, so a larger file (4K) is never decoded here: its
+ * readers fall back to their next source.
+ */
+export const DECODE_MOST = 1920;
+
+/** The file's saved pixel size ({width, height}, the measurements kept beside it at import), or null when unknown. */
+export async function savedSize(file) {
+  try { const info = JSON.parse(await readFile(`${file}.json`, "utf8")); return info.width > 0 && info.height > 0 ? { width: info.width, height: info.height } : null; } catch { return null; }
+}
+
 // `layer`'s picture at scene time `time` as RGBA bytes WIDTH wide (one FFmpeg frame for a video), or null.
 async function frameData(mediaRoot, layer, time) {
   const id = /^\/api\/media\/([A-Za-z0-9._-]+)$/.exec(String(layer?.src ?? ""))?.[1];
@@ -97,6 +109,8 @@ async function frameData(mediaRoot, layer, time) {
   if (layer.type !== "video") {
     try { return imageData(await loadImage(file)); } catch { return null; }
   }
+  const size = await savedSize(file);
+  if (size && Math.max(size.width, size.height) > DECODE_MOST) return null;
   const folder = await mkdtemp(path.join(tmpdir(), "kino-hue-"));
   try {
     const at = Math.max(0, mediaFrameState(layer, time).sourceTime ?? 0);
@@ -117,6 +131,50 @@ export function palettePixels(data) {
 export async function shotPalette(mediaRoot, layer, time) {
   const data = await frameData(mediaRoot, layer, time);
   return data ? palettePixels(data) : null;
+}
+
+// Detail below this mean edge strength (0 to 255 per pixel) is a flat picture: no busy part.
+const FLAT = 2;
+// The busy part spans the middle of the picture's edge strength along each axis (15% to 85% of it).
+const EDGE_SHARE = 0.15;
+
+/**
+ * Where the detail of RGBA bytes `width` wide sits: [x, y, w, h] in fractions of the picture, the
+ * span holding the middle 70% of its edge strength (luma steps to the right and below) along each
+ * axis, or null for a flat picture. A splatter goes beside it, where the picture has room.
+ */
+export function detailBox(data, width) {
+  const height = Math.floor(data.length / 4 / width);
+  if (width < 2 || height < 2) return null;
+  const luma = new Float64Array(width * height);
+  for (let index = 0; index < luma.length; index += 1) luma[index] = 0.2126 * data[index * 4] + 0.7152 * data[index * 4 + 1] + 0.0722 * data[index * 4 + 2];
+  const columns = new Float64Array(width), rows = new Float64Array(height);
+  let total = 0;
+  for (let y = 0; y < height - 1; y += 1) {
+    for (let x = 0; x < width - 1; x += 1) {
+      const at = y * width + x, edge = Math.abs(luma[at + 1] - luma[at]) + Math.abs(luma[at + width] - luma[at]);
+      columns[x] += edge; rows[y] += edge; total += edge;
+    }
+  }
+  if (total / ((width - 1) * (height - 1)) < FLAT) return null;
+  const span = (sums) => {
+    let sum = 0, from = 0, to = sums.length - 1;
+    for (let index = 0; index < sums.length; index += 1) { sum += sums[index]; if (sum >= total * EDGE_SHARE) { from = index; break; } }
+    sum = 0;
+    for (let index = sums.length - 1; index >= 0; index -= 1) { sum += sums[index]; if (sum >= total * EDGE_SHARE) { to = index; break; } }
+    return [from / sums.length, (Math.max(from, to) + 1) / sums.length];
+  };
+  const [x0, x1] = span(columns), [y0, y1] = span(rows);
+  const three = (value) => Math.round(value * 1000) / 1000;
+  return [three(x0), three(y0), three(x1 - x0), three(y1 - y0)];
+}
+
+/** The busy part of `layer`'s picture at scene time `time` ({box: detailBox}, from one small frame), or null. */
+export async function shotDetail(mediaRoot, layer, time) {
+  const data = await frameData(mediaRoot, layer, time);
+  const box = data ? detailBox(data, WIDTH) : null;
+  // The small frame has the file's own shape: it places the box inside the layer as the renderer draws the picture.
+  return box ? { box, source: { width: WIDTH, height: Math.floor(data.length / 4 / WIDTH) } } : null;
 }
 
 /** The main colors of an image file (a saved reference's strip frame), or null. */

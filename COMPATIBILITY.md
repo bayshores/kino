@@ -1630,10 +1630,12 @@ How to read it:
   the made techniques the saved references' labels name (else the deck's unused cards) on song cues and subject shots, prints each
   value and the made share before and after; left out, the receipt only names what it would place. Overexpose and smear go on cuts,
   color labels recolor in their hues, split-fields and splatters take colors from the label's words, the reference's strip frame or the
-  shot (each source printed), a splatter sits beside, above or below the marked subject box, a composite gets a background behind
+  shot (each source printed; particles take the measured accent too), a splatter sits beside, above or below the marked subject box,
+  else the saved footage-scan figure or people-scan body or face, else the busiest part of the shot's small frame, else a corner
+  guess by shot order (receipt names which), a composite gets a background behind
   an existing cut-out (else a ready call), overexposes stay 1 s apart, and particles and splatters repeat toward the references' median
-  made share. A light-sweep halo is capped at the glow's largest radius (a 1174 px high clip was refused on a real project). Evidence: `backend/agent-core.test.mjs`, `engine/moves.test.js`. Gap: moves are
-  not run end to end through the edit tool in a test; with no subject box a splatter's size and place stay a printed starting guess.
+  made share (a composite label counts). Shot frames over 1920 px are not decoded. A light-sweep halo is capped at the glow's largest radius (a 1174 px high clip was refused on a real project). Evidence: `backend/agent-core.test.mjs`, `backend/agent-review.test.mjs` (edit tool: 4 moves land as animations, check flashing passes; face, figure and guess placements), `engine/moves.test.js`. Gap: the
+  flashing check ran on a still-card stub, not real footage; a 4K shot gets no measured color or busy part.
 - **Type by job** (`add_layer` text with `role`): Test-verified. Caption and label text get a subtitle treatment, headline, hero and
   cta a payoff one, from saved type labels when usable, else the scene's colors; a payoff's letters enter on a song cue. Evidence:
   `backend/agent-fonts.test.mjs`. A label counts only where a text reader reads its own words in a kept frame within 0.5 s;
