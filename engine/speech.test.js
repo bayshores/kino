@@ -417,22 +417,38 @@ test("keep_line over measured music levels the line against the music around it,
     const scene = parseDocument(applyOperations(document, [operation], { reports })).scenes[0];
     return { report: reports.get(operation), clip: scene.layers.find((layer) => layer.id === "clip"), music: scene.layers.find((layer) => layer.id === "music") };
   };
-  // Default: the line 6 LU over the dipped bed (voice_under_bed's 6), the two summing to the music around (-13).
+  // Default: the lift alone (+11 dB to the song's loudest moment) leaves the line at +0 LU over the
+  // steady song, so the shallowest dip that reaches 6 LU with the line lifted 12 dB: -5 dB.
   const plain = run({});
-  assert.equal(plain.clip.voiceLevel, -14, "the export levels the line to the music around minus 1 LU, not to -16");
-  assert.equal(Math.round(volumeAt(plain.music, 5) * 1000) / 1000, 0.447, "the dip puts the bed 6 LU under the line (-7 dB)");
-  assert.deepEqual(plain.report.mix, { line: -14, around: -13, under: -13, change: 0 });
-  assert.match(plain.report.summary, /mix under the line -13 vs -13 LUFS in the 2 s around \(\+0 LU\)/);
+  assert.equal(plain.clip.voiceLevel, -12, "the line lifted the most leveling allows");
+  assert.equal(Math.round(volumeAt(plain.music, 5) * 1000) / 1000, 0.562, "the shallowest dip that puts the bed 6 LU under the line (-5 dB)");
+  assert.deepEqual([plain.report.way, plain.report.mix], ["dip", { line: -12, around: -13, under: -11, change: 2 }]);
+  assert.equal(plain.report.ways, "song untouched, line x3.55 (+11 dB): +0 LU over it (6 LU short of +6), 0 dB under the song's loudest moment · dip 0.562 (-5 dB), line x3.98 (+12 dB): +6 LU, 1 dB under the song's loudest moment · music out: the line alone at -13 LUFS");
   assert.ok(plain.report.notes.some((note) => /comes back up on the beat at 6\.5 s/.test(note)), "the release ends on the next beat");
   assert.equal(volumeAt(plain.music, 6.5), 1);
   // The check hears the line where the export puts it: 6 LU over the dipped bed, no voice_under_bed.
   const words = [{ text: "a", start: 4.1, end: 4.9 }, { text: "b", start: 5, end: 5.9 }];
-  assert.equal(Math.round(voiceLines(levels.clip, plain.clip, mediaPlaybackRange(plain.clip, 12), words)[0].lufs), -14);
+  assert.equal(Math.round(voiceLines(levels.clip, plain.clip, mediaPlaybackRange(plain.clip, 12), words)[0].lufs), -12);
+  // lift:true keeps the song untouched and says what the line reaches and how far short it falls.
+  const lifted = run({ lift: true });
+  assert.deepEqual([volumeAt(lifted.music, 5), lifted.clip.voiceLevel, lifted.report.duck], [1, -13, "none"]);
+  assert.match(lifted.report.notes[0], /^song untouched: the line is lifted x3\.55 to -13 LUFS, \+0 LU over the song \(6 LU short of \+6\), 0 dB under the song's loudest moment$/);
+  assert.throws(() => run({ lift: true, dip: 0.5 }), /one of lift:true, dip or dropout:true/);
+  // A second line 2 s after the first: its own dip would turn the song 3 times in 10 s (volume_churn),
+  // so the default leaves the song untouched under it and lifts the line, and says so.
+  const first = { type: "keep_line", sceneId: "s", layerId: "clip", from: 4, to: 6, subtitle: false, levels, beats };
+  const second = { ...first, from: 8, to: 9 };
+  const reports = new Map();
+  const both = parseDocument(applyOperations(document, [first, second], { reports })).scenes[0];
+  const song = both.layers.find((layer) => layer.id === "music");
+  assert.deepEqual([5, 8.5].map((time) => Math.round(volumeAt(song, time) * 1000) / 1000), [0.562, 1]);
+  assert.equal(reports.get(second).way, "lift");
+  assert.match(reports.get(second).notes[0], /^a dip here would turn music's level 3 times in 4 s \(volume_churn\), so the song stays untouched: the line is lifted x3\.55/);
   // A given dip is kept; the receipt prints what it does to the mix (a fact, no refusal).
   assert.deepEqual(run({ dip: 0.35 }).report.mix, { line: -14, around: -13, under: -13.4, change: -0.4 });
-  // A quiet bed (a talk over music at -30): the line stays the -16 talking-head line, the mix rises.
+  // A quiet bed (a talk over music at -30): the lift alone reaches it, so the song is untouched (no dip).
   const quiet = run({ levels: { clip: flat(-24, 12), music: flat(-30, 30) } });
-  assert.equal(quiet.clip.voiceLevel, -16);
+  assert.deepEqual([quiet.clip.voiceLevel, quiet.report.way, volumeAt(quiet.music, 5), quiet.report.duck], [-16, "lift", 1, "none"]);
   assert.ok(quiet.report.mix.change > 10, "the receipt says the mix rises under the line");
   // dropout: the music is out under the line and, the downbeat (8 s) being past the default wait (half a bar, 1 s), hits back on the next beat (6.5 s).
   const out = run({ dropout: true });
@@ -443,11 +459,14 @@ test("keep_line over measured music levels the line against the music around it,
   const waited = run({ dropout: true, wait: 2 });
   assert.deepEqual([volumeAt(waited.music, 5), volumeAt(waited.music, 7.5), volumeAt(waited.music, 8.1)], [0, 0, 1]);
   assert.throws(() => run({ dropout: true, dip: 0.5 }), /dip or dropout/);
-  // A line 20 LU under the music cannot be lifted to it (+12 dB at most): with no dip or dropout given
-  // the music goes out under it, and the note gives the shortfall and the dip that would hold the mix.
-  const faint = run({ levels: { clip: flat(-33, 12), music: flat(-13, 30) } });
+  // A line 20 LU under the music, lifted 12 dB, needs a -14 dB dip: the shallowest that reaches 6 LU.
+  const dipped = run({ levels: { clip: flat(-33, 12), music: flat(-13, 30) } });
+  assert.deepEqual([Math.round(volumeAt(dipped.music, 5) * 1000) / 1000, dipped.clip.voiceLevel], [0.2, -21]);
+  // A line 30 LU under it: no dip down to -20 dB reaches, so the music goes out under it, and the
+  // note gives the shortfall and the dip that would hold the mix.
+  const faint = run({ levels: { clip: flat(-43, 12), music: flat(-13, 30) } });
   assert.deepEqual([volumeAt(faint.music, 5), volumeAt(faint.music, 8.1)], [0, 1], "music out under the line, back on the downbeat");
-  assert.ok(faint.report.notes.some((note) => /is 7(\.\d)? LU short of the music at the \+12 dB lift .*music goes out under it; dip:0\.\d+ keeps the music in and holds the mix/.test(note)), faint.report.notes.join(" | "));
+  assert.ok(faint.report.notes.some((note) => /is 17(\.\d)? LU short of the music at the \+12 dB lift .*music goes out under it; dip:0\.\d+ keeps the music in and holds the mix/.test(note)), faint.report.notes.join(" | "));
   // A given dip is kept as today (no music-out), and its mix change is printed.
   assert.equal(Math.round(volumeAt(run({ levels: { clip: flat(-33, 12), music: flat(-13, 30) }, dip: 0.35 }).music, 5) * 100) / 100, 0.35);
   // Unmeasured: the old 0.7 dip and no line level.

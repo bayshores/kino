@@ -516,7 +516,7 @@ export function volumeChurn(model, ctx) {
       message: `"${layer.name ?? layer.id}" changes direction ${worst.length} times in ${sec(worst.at(-1).time - worst[0].time)} s: the level churns.`,
       measured: `turns at ${path}`,
       required: `under ${CHURN_TURNS} turns in any ${CHURN_SECONDS} s (fades in and out aside)`,
-      fix: { kind: "hint", text: "Hold one level, and duck once under a whole spoken stretch instead of under each line." },
+      fix: { kind: "hint", text: "Hold one level: keep_line {lift:true} keeps the song untouched under a line and lifts the line (keep_line's default does this when its dip would churn), or duck_audio {replace:true, fadeUp:<the longest gap between the lines, s>} makes one dip under the whole spoken stretch." },
     });
   }
   return findings;

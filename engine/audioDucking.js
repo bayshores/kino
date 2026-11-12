@@ -57,7 +57,7 @@ import { effectiveMediaDuration, mediaPlaybackRange } from "./playback.js";
 import { audibleRanges } from "./videoSound.js";
 import { plainWord, speechWords } from "./speech.js";
 import { FIT_NAMES } from "./fitMusic.js";
-import { clearVolume, duckDepth, energyMean, heardLoudness, leveledLoudness, leveledVoice, loudnessOver, sectionCues, voiceLines, VOICE_OVER_BED, VOICE_OVER_MUSIC, VOICE_TARGET_LUFS } from "./mixLevels.js";
+import { clearVolume, duckDepth, energyMean, heardLoudness, leveledLoudness, leveledVoice, lineWays, loudestHeard, loudnessOver, sectionCues, voiceLines, waysText, VOICE_OVER_BED, VOICE_OVER_MUSIC, VOICE_TARGET_LUFS } from "./mixLevels.js";
 import { breakAfter, spokenWords, withPauses } from "./quality/rules/speech.js";
 import { round } from "./numbers.js";
 
@@ -485,6 +485,16 @@ export function applyDuckAudio(document, operation) {
       + (factor === null ? "" : `: volume ${round((span.layer.volume ?? 1) * factor, 2)} on ${name} (x${round(factor, 2)}) lifts it ${VOICE_OVER_BED} LU over`);
     if (!payoff.includes(text)) payoff.push(text);
   }
+  // Each line over the song each way kino can do it (mixLevels.js lineWays), measured with the song untouched.
+  const ceiling = own ? loudestHeard(songCurve, first, own) : null;
+  const ways = [];
+  // A line cut at the drop is measured over its whole length (the drop included): crossed spans first.
+  for (const span of [...crossed.map((item) => item.span), ...ducked].sort((a, b) => a.start - b.start)) {
+    if (!own || !Number.isFinite(span.lineLevel) || ways.some((way) => way.span.layer === span.layer && way.span.start === span.start)) continue;
+    const under = heardLoudness(songCurve, first, own, span.start, span.end);
+    const text = waysText(lineWays({ line: span.lineLevel, under, ceiling }), round(volumeAt(first, span.start)));
+    if (text) ways.push({ span, text: `${span.layer.name} ${seconds(span.start)}-${seconds(span.end)} s: ${text}` });
+  }
   const held = dips.filter((dip) => dip.held).length;
   const deeper = dips.filter((dip) => dip.deeper).length;
   // The receipt promises clear lines only when the music and every voice under the dips were measured.
@@ -509,6 +519,7 @@ export function applyDuckAudio(document, operation) {
     ...(deeper ? { deeper: `${plural(deeper, "dip")} ${deeper === 1 ? "goes" : "go"} deeper so each line in ${deeper === 1 ? "it" : "them"} is ${VOICE_OVER_BED} LU or more over the music (measured)` } : {}),
     ...(buried.length ? { quiet: `${buried.slice(0, 2).map(quoted).join(", ")}${buried.length > 2 ? ` +${buried.length - 2}` : ""} ${buried.length === 1 ? "stays" : "stay"} under ${VOICE_OVER_BED} LU over the music with the dip at its floor (${DIP_FLOOR} of the music's level): raise that voice's volume, or split the line into its own clip so the export levels it alone` } : {}),
     ...(payoff.length ? { payoff: payoff.slice(0, 2).join(" · ") } : {}),
+    ...(ways.length && !operation.ownLine ? { ways: [...ways.slice(0, 3).map((way) => way.text), ...(ways.length > 3 ? [`+${ways.length - 3} more`] : [])] } : {}),
     ...(apart.length ? { sections: `dips kept apart at the song's ${apart.slice(0, 3).map((cue) => `${cue.name} at ${seconds(cue.time)} s`).join(", ")}, so it is heard at full` } : {}),
     ...(covered.length ? { warning: `a dip covers the song's ${covered.slice(0, 3).map((cue) => `${cue.name} at ${seconds(cue.time)} s`).join(", ")}: the change is heard muffled under the voice; move the line off it, or end the line before it` } : {}),
     ...(untimed.length ? { note: `${untimed.slice(0, 3).join(", ")}: length unknown, so ducked to the scene's end; set mediaSourceDuration (the duration import answers) or mediaDuration, then run duck_audio again` } : {}),

@@ -1084,6 +1084,11 @@ How to read it:
   release ends on a beat; `dropout:true` takes the music out until the next downbeat within `wait` (default half a bar), else the next beat; the receipt's `mix` states the
   total under the line for any dip. Render: line span -13.9 vs -13.8 LUFS around, line 5.9 LU over the bed (old
   default 0.6); quiet bed: line at -16, as before. Evidence: `engine/speech.test.js`. Gap: no owner listening test.
+- **Line over an untouched song** (`keep_line {lift}`, receipt `ways`, duck_audio `ways`): Engine-tested on measured
+  curves, not rendered. Each line's level over the song is printed three ways (lifted with the song untouched and its
+  headroom to the song's loudest moment, the shallowest dip with the lift, music out); the default lifts alone when
+  that reaches 6 LU, else takes the shallowest dip, and lifts instead when a dip would churn (volume_churn).
+  Evidence: `engine/speech.test.js`, `engine/audioDucking.test.js`. Gap: the headroom is a loudness stand-in, not a measured peak.
 - **Clip sounds besides words** (import answer, look source, `keep_line {sound}`, board `sound {keep:"<sound>"}`):
   Test-verified on macOS 13+. The kino-measure helper's `--sounds` mode runs the macOS sound classifier on 1 s
   windows (`.sounds-v1` beside the file); the readout lists the 3 loudest events and the bed; keep_line {sound}

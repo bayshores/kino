@@ -103,6 +103,83 @@ export function lineOverMusic({ line, around, under }, { dropDb, dropout = false
   return result;
 }
 
+// The deepest dip lineWays tries (dB), the dip floor duck_audio uses (DIP_FLOOR 0.1).
+const WAY_DIP_FLOOR_DB = -20;
+// Over a quiet bed the ceiling is at least this (momentary LUFS): a line this loud with a bed under
+// it stays clear of the limiter at kino's loudness targets (-14 LUFS web). A guess, not measured on a render.
+export const LIFT_CEILING = -10;
+
+/**
+ * The three ways a line can be heard over a song, measured (LUFS as heard, the line's volume
+ * applied): `line` the line before leveling, `under` the song under it untouched, `ceiling` the
+ * song's own loudest moment in the scene (a finished song meets the master limiter there, so a mix
+ * louder than it makes the limiter work; a measured stand-in for peak headroom, as the curves hold
+ * no peaks). The line aims VOICE_OVER_BED LU over the song, never under VOICE_TARGET_LUFS, lifted at
+ * most MAX_LEVEL_DB; the ceiling never pushes it under where it already is. Returns null when a
+ * level is unknown, else
+ *   lift: the song untouched: {reach (LUFS), db (the line's change), factor, over (LU over the song),
+ *         headroom (dB from the mix to the ceiling, negative when over), short (LU under the aim)}
+ *   dip:  the shallowest dip that reaches the aim together with the lift: {db, reach, over, headroom},
+ *         or null when the -20 dB floor does not reach it
+ *   out:  the music out under the line: {reach} (the line alone, lifted toward the music's level)
+ */
+export function lineWays({ line, under, ceiling: loudest, around }) {
+  if (![line, under].every(Number.isFinite)) return null;
+  // A quiet bed's loudest moment is far from the limiter: the line may still reach LIFT_CEILING.
+  const ceiling = Number.isFinite(loudest) ? Math.max(loudest, LIFT_CEILING) : null;
+  const roof = (bed) => (Number.isFinite(ceiling) ? (ceiling > bed + 0.01 ? 10 * Math.log10(10 ** (ceiling / 10) - 10 ** (bed / 10)) : -Infinity) : Infinity);
+  const at = (dipDb) => {
+    const bed = under + dipDb;
+    const want = Math.max(VOICE_TARGET_LUFS, bed + VOICE_OVER_BED);
+    const reach = Math.min(want, line + MAX_LEVEL_DB, Math.max(roof(bed), Math.min(line, want)));
+    const total = 10 * Math.log10(10 ** (reach / 10) + 10 ** (bed / 10));
+    return { reach: round1(reach), db: round1(reach - line), over: round1(reach - bed), headroom: Number.isFinite(ceiling) ? round1(ceiling - total) : null };
+  };
+  const lift = at(0);
+  const short = round1(Math.max(0, VOICE_OVER_BED - lift.over));
+  let dip = null;
+  if (short > 0.05) {
+    for (let dipDb = -0.5; dipDb >= WAY_DIP_FLOOR_DB - 1e-9; dipDb -= 0.5) {
+      const way = at(dipDb);
+      if (way.over >= VOICE_OVER_BED - 0.05) { dip = { ...way, dipDb: round1(dipDb) }; break; }
+    }
+  }
+  const alone = Number.isFinite(around) ? Math.max(VOICE_TARGET_LUFS, around) : Math.max(VOICE_TARGET_LUFS, under);
+  return {
+    lift: { ...lift, factor: Math.round(10 ** (lift.db / 20) * 100) / 100, short },
+    dip,
+    out: { reach: round1(Math.min(alone, line + MAX_LEVEL_DB)) },
+  };
+}
+
+/** The ways of lineWays in a few words, `level` the music's volume (for a dip's volume). */
+export function waysText(ways, level = 1) {
+  if (!ways) return null;
+  const signed = (value) => `${value >= 0 ? "+" : ""}${value}`;
+  const { lift, dip, out } = ways;
+  const room = (way) => (way.headroom === null ? "" : `, ${way.headroom >= 0 ? `${way.headroom} dB under` : `${-way.headroom} dB over`} the song's loudest moment`);
+  const factor = (db) => `x${Math.round(10 ** (db / 20) * 100) / 100} (${signed(db)} dB)`;
+  return [
+    `song untouched, line ${factor(lift.db)}: ${signed(lift.over)} LU over it${lift.short > 0 ? ` (${lift.short} LU short of +${VOICE_OVER_BED})` : ""}${room(lift)}`,
+    dip ? `dip ${Math.round(level * 10 ** (dip.dipDb / 20) * 1000) / 1000} (${dip.dipDb} dB), line ${factor(dip.db)}: ${signed(dip.over)} LU${room(dip)}`
+      : lift.short > 0 ? `no dip down to ${WAY_DIP_FLOOR_DB} dB reaches +${VOICE_OVER_BED} LU` : "no dip needed",
+    `music out: the line alone at ${out.reach} LUFS`,
+  ].join(" · ");
+}
+
+/** The loudest a sound layer is heard (momentary LUFS, its volume and animations applied) over its Play `range`, or null. */
+export function loudestHeard(curve, layer, range) {
+  if (!Array.isArray(curve?.momentary) || !(curve.step > 0) || !range) return null;
+  let loudest = null;
+  for (let time = range.start; time < range.end; time += curve.step) {
+    const value = curve.momentary[Math.floor((range.offset + (time - range.start)) / curve.step)];
+    if (!Number.isFinite(value) || value <= SILENCE) continue;
+    const heard = value + db(volumeAt(layer, time + curve.step / 2));
+    if (loudest === null || heard > loudest) loudest = heard;
+  }
+  return loudest === null ? null : round1(loudest);
+}
+
 // A clip whose spoken lines need leveling gains more than this apart is leveled line by line.
 export const LINE_SPREAD_DB = 6;
 

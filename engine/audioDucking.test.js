@@ -5,8 +5,8 @@ import { createDocument, createLayer, createScene, parseDocument } from "./model
 import { applyOperations } from "./operations.js";
 import { volumeAt } from "./animation.js";
 import { duckStretches } from "./audioDucking.js";
-import { voiceUnderBed } from "./quality/rules/sound.js";
-import { levelAt, voiceLeveling, withOwnLevel } from "./mixLevels.js";
+import { voiceUnderBed, volumeChurn } from "./quality/rules/sound.js";
+import { levelAt, lineWays, voiceLeveling, withOwnLevel } from "./mixLevels.js";
 import { louderSound, soundPlacement, visibleActions } from "./soundActions.js";
 
 const sound = (id, values = {}) => createLayer("audio", { id, name: id, src: `/api/media/${id}.wav`, ...values });
@@ -252,6 +252,17 @@ test("each line gets its own dip at its own measured depth, the song comes back 
   // The receipt says the dip ended before the drop, with v3 measured over the song there and the volume that lifts it.
   assert.equal(report.payoff, "the dip under v3 ends by the song's drop at 7.9 s, so the drop plays at full; v3 is +0 LU over the song there (measured): volume 2 on v3 (x2) lifts it 6 LU over");
   assert.equal(report.warning, undefined);
+  // Each line over the song each way, measured with the song untouched: lifted alone, the shallowest
+  // dip with the lift, and the music out. The song's loudest moment (-8, the drop) is the headroom's ceiling.
+  assert.equal(report.ways.length, 3);
+  assert.match(report.ways[0], /^v1 0\.2-2\.6 s: song untouched, line x1\.93 \(\+5\.7 dB\): -2\.3 LU over it \(8\.3 LU short of \+6\), 0 dB under the song's loudest moment · dip 0\.562 \(-5 dB\), line x2\.82 \(\+9 dB\): \+6 LU/);
+  assert.match(report.ways[1], /^v2 4\.6-6\.4 s: .* · dip 0\.398 \(-8 dB\), line x3\.98 \(\+12 dB\): \+6 LU, 3 dB under .* · music out: the line alone at -12 LUFS$/);
+  assert.match(report.ways[2], /^v3 7\.4-9\.2 s: song untouched, line x1 \(\+0 dB\): \+0\.\d LU over it/);
+  // The volume_churn hint names the calls that keep the song's level (3 turns in 4.4 s here).
+  const churn = volumeChurn(null, { scene: { ...document.scenes[0], layers: [music] } });
+  assert.match(churn[0].fix.text, /keep_line \{lift:true\} keeps the song untouched.*duck_audio \{replace:true, fadeUp:/);
+  // Over a quiet bed the lift alone reaches the aim, so no dip is needed.
+  assert.deepEqual(lineWays({ line: -24, under: -30, ceiling: -30 }), { lift: { reach: -16, db: 8, over: 14, headroom: 5.8, factor: 2.51, short: 0 }, dip: null, out: { reach: -16 } });
   // A given `to` keeps its span through the drop, as asked.
   assert.deepEqual(duck(document, { under: ["v3"], levels, to: 0.3 }).report.times, [[7.25, 10]]);
 });
