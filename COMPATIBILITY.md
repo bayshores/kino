@@ -1630,6 +1630,7 @@ How to read it:
   cta a payoff one, from saved type labels when usable, else the scene's colors; a payoff's letters enter on a song cue. Evidence:
   `backend/agent-fonts.test.mjs`. A label counts only where a text reader reads its own words in a kept frame within 0.5 s;
   board shot text left without family, weight, size or fill takes the same treatment; fit widths come from the chosen face.
+  On a 9:16 video a subtitle's box ends where the phone app's captions start.
   Evidence: `backend/agent-fonts.test.mjs`, `backend/agent-board.test.mjs`. Gap: only 640 px stills and 240 px strip frames are kept,
   and on run b's 3 real labels the reader read none (all 3 left out); the reader is macOS only.
 - **Text around a moving subject** (`place {around, follow?}`): Verified on rendered frames of a generated clip. The subject is
