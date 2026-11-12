@@ -624,15 +624,20 @@ export async function fontsLikeText(input, { fonts, catalog, lookFamilies, refer
 /**
  * The saved type labels as measured type for the text defaults (engine/typeRoles.js):
  * [{ref, at, family, weight, share, fill}], the nearest installed face and the lettering's own fill and
- * height share. A label kino cannot measure is left out. Nothing is downloaded (deps without lookFamilies).
+ * height share. A label kino cannot measure is left out, and so is one whose frame shows no lettering
+ * box (the whole picture would be measured: on busy footage that read 85% and 100% of the height).
+ * Nothing is downloaded (deps without lookFamilies). `found.retry` is true when a label could not be
+ * read at all (its frames not kept yet), so a caller does not keep the answer.
  */
 export async function labelTypes(labels, deps) {
   const found = [];
+  found.retry = false;
   for (const label of (labels ?? []).slice(0, LABELS_MEASURED)) {
-    try {
-      const { fonts: ranked, look } = await fontsLikeText({ like: label.id, t: label.at, count: 1 }, { ...deps, lookFamilies: null });
-      if (ranked[0] && look) found.push({ ref: label.id, at: label.at, family: ranked[0].family, weight: ranked[0].weight, share: look.share, fill: look.fill });
-    } catch { /* a label with no measurable lettering gives no defaults */ }
+    let answer;
+    try { answer = await fontsLikeText({ like: label.id, t: label.at, count: 1 }, { ...deps, lookFamilies: null }); }
+    catch (error) { if (!/no lettering found/.test(error.message)) found.retry = true; continue; }
+    const { fonts: ranked, look, box } = answer;
+    if (ranked[0] && look && box?.found) found.push({ ref: label.id, at: label.at, family: ranked[0].family, weight: ranked[0].weight, share: look.share, fill: look.fill });
   }
   return found;
 }

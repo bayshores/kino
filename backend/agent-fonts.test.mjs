@@ -407,7 +407,7 @@ test("fonts like: no region measures the largest lettering box, names the others
 test("type by job: two measured type labels give a subtitle line and a payoff word their own face size, fill and entrance", async (t) => {
   const { createCanvas, GlobalFonts } = await import("@napi-rs/canvas");
   const { labelTypes } = await import("./font-like.mjs");
-  const { jobTreatment, payoffEntrance, textJob } = await import("../engine/typeRoles.js");
+  const { jobTreatment, labelsByJob, payoffEntrance, textJob } = await import("../engine/typeRoles.js");
   const folder = await mkdtemp(path.join(tmpdir(), "kino-jobs-"));
   t.after(() => rm(folder, { recursive: true, force: true }));
   GlobalFonts.registerFromPath(path.resolve("assets/fonts/NotoSerif-700.woff2"), "Like Serif");
@@ -445,6 +445,16 @@ test("type by job: two measured type labels give a subtitle line and a payoff wo
   assert.match(payoffEntrance(7.9, [{ name: "song-drop-1", time: 7.92, kind: "marker" }]).why, /slam in on cue:song-drop-1/);
   assert.match(payoffEntrance(3, [{ name: "song-build-1", time: 3, kind: "marker" }]).why, /rise in on cue:song-build-1/);
   assert.equal(payoffEntrance(3, []).animation.unit, "letters");
+  // Strip frames of busy footage measured the whole picture (letters 85% and 100% of the height):
+  // those labels give nothing. A 22.8% label on a 9:16 frame keeps "FIND YOU" inside its box, and a
+  // measured fill that would not read on the background gives way to the plain color.
+  assert.deepEqual(labelsByJob([{ ref: "a", family: "Inter", share: 1 }, { ref: "b", family: "Inter", share: 0.853 }]), {});
+  const tall = { ref: "c", at: 1, family: "Inter", weight: 900, share: 0.228, fill: "#3c3027" };
+  const vertical = jobTreatment("payoff", { scene: { width: 1080, height: 1920, background: "#000000", layers: [] }, labels: [tall], text: "FIND YOU" });
+  assert.ok(vertical.properties.fontSize * 8 * 0.62 <= vertical.properties.width, `${vertical.properties.fontSize} px in ${vertical.properties.width} px`);
+  assert.equal(vertical.properties.fill, "#ffffff");
+  assert.match(vertical.from, /size fit to 8 letters a line \(608 px wanted\); measured fill #3c3027 under 3:1 on #000000/);
+  console.log(`9:16 payoff: ${style(vertical.properties)} (${vertical.from})`);
 });
 
 test("agent service: an add_layer text with a role and no face or fill gets its job's fields and, as a payoff, a letter entrance by its cue", async (t) => {
@@ -455,10 +465,17 @@ test("agent service: an add_layer text with a role and no face or fill gets its 
     { op: "add_layer", layerType: "text", name: "line", properties: { text: "I will find you, I swear.", role: "caption" } },
     { op: "add_layer", layerType: "text", name: "word", properties: { text: "FIND YOU", role: "headline" }, animations: [{ kind: "show", start: 2 }] },
     { op: "add_layer", layerType: "text", name: "mine", properties: { text: "KEPT", role: "headline", fontFamily: "Inter", fill: "#123456" } },
+    // A fill at the top level or under another name (color) is the agent's too: no "given twice" refusal.
+    { op: "add_layer", layerType: "text", name: "top", properties: { text: "TOP", role: "headline" }, fill: "#00ff00" },
+    { op: "add_layer", layerType: "text", name: "alias", properties: { text: "ALIAS", role: "headline", color: "#ff00ff" } },
+    // Shown at 1 s by its mediaStart: the letter entrance starts there, not at 0.
+    { op: "add_layer", layerType: "text", name: "late", properties: { text: "LATE", role: "headline", mediaStart: 1 } },
   ] });
   assert.equal(added.isError, undefined, added.text);
   const notes = (added.data.notes ?? []).join("\n");
-  assert.match(notes, /type: line as subtitle from scene colors \(background #[0-9a-f]{6}; no measured type label\): weight 600, 32 px, fill #[0-9a-f]{6}, edge 2 px/);
+  assert.doesNotMatch(notes, /type: (top|alias) /);
+  assert.match(notes, /type: late as payoff[^\n]*letters rise in at 1 s/);
+  assert.match(notes, /type: line as subtitle from scene colors \(background #[0-9a-f]{6}; no measured type label for this job\): weight 600, 32 px, fill #[0-9a-f]{6}, edge 2 px/);
   assert.match(notes, /type: word as payoff from scene colors[^\n]*weight 900, 101 px[^\n]*; entrance: letters slam in on cue:song-drop-1 \(2 s\)/);
   assert.doesNotMatch(notes, /type: mine/, "a text that names its face and fill keeps them");
   const layers = (await (await server.api("/api/projects/jobs")).json()).document.scenes[0].layers;
@@ -466,6 +483,8 @@ test("agent service: an add_layer text with a role and no face or fill gets its 
   assert.equal(word.fontWeight, 900);
   assert.ok(word.animations.some((animation) => animation.preset?.id === "custom-text" && animation.start === 2 && animation.unit === "letters"), JSON.stringify(word.animations.map((a) => a.preset)));
   assert.equal(layers.find((layer) => layer.name === "mine").fontSize, 48);
+  assert.deepEqual(["top", "alias"].map((name) => layers.find((layer) => layer.name === name).fill), ["#00ff00", "#ff00ff"]);
+  assert.ok(layers.find((layer) => layer.name === "late").animations.some((animation) => animation.preset?.id === "custom-text" && animation.start === 1));
 });
 
 // Measured on the benchmark crops: a dotted lettering read dots 0.43 and lost to solid condensed faces,

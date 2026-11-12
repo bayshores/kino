@@ -62,7 +62,7 @@ import { knownAgent, touchedLayers } from "./live.mjs";
 import { AGENT_OPERATION_TYPES, createdIds, plainLayer, referencedIds, translateAll } from "./translate.mjs";
 import { exampleFor, moreExamplesFor, signatureFor } from "./op-examples.mjs";
 import { moveRetry } from "./move-retry.mjs";
-import { opFromWord, PRESET_LAYER, PRESET_SAMPLE_TO, PRESET_VALUE_KEYS } from "./common-mistakes.mjs";
+import { layerFieldAliases, layerFieldPair, opFromWord, PRESET_LAYER, PRESET_SAMPLE_TO, PRESET_VALUE_KEYS } from "./common-mistakes.mjs";
 import { animationSpan, isRandomId, layerAnimations, refName, sec } from "./describe.mjs";
 import { fontsLibraryText, missingCharactersHelp } from "./font-help.mjs";
 import { heldSoundFor, missingSoundText } from "./sound-find.mjs";
@@ -2989,13 +2989,30 @@ export function createAgentService(deps) {
   async function typeByJob(ops, document, projectId) {
     const list = (Array.isArray(ops) ? ops : [ops]).filter((op) => op && typeof op === "object" && (op.op ?? op.type) === "add_layer"
       && (op.layerType === "text" || (op.op === "add_layer" && op.type === "text")));
-    const open = list.filter((op) => { const p = op.properties ?? {}; return p.fontFamily === undefined && p.fill === undefined && textJob(p.text, p.role); });
+    // What the op says, at the top level or in properties, and every layer field it names under its
+    // own name or another (color → fill, font → fontFamily, size 90 → fontSize, font-size → fontSize):
+    // edit lifts and renames those later, so a field named any way is the agent's and is never filled.
+    const OWN = new Set(["op", "type", "layerType", "sceneId", "scene", "properties", "animations", "name"]);
+    const viewOf = (op) => ({ ...Object.fromEntries(Object.entries(op).filter(([key]) => !OWN.has(key))), ...(op.properties ?? {}) });
+    const namedFields = (view) => {
+      const fields = new Set();
+      for (const [raw, value] of Object.entries(view)) {
+        const key = /[-_]/.test(raw) ? raw.toLowerCase().replace(/[-_]+([a-z0-9])/g, (_, letter) => letter.toUpperCase()) : raw;
+        fields.add(key);
+        const pair = layerFieldPair(key, "text");
+        for (const field of pair && typeof value === "number" ? pair.number : layerFieldAliases(key, "text")) fields.add(field);
+      }
+      return fields;
+    };
+    const wordsOf = (view) => [view.text, view.content, view.value, view.label, view.string].find((value) => typeof value === "string");
+    const open = list.filter((op) => { const view = viewOf(op); const named = namedFields(view); return !named.has("fontFamily") && !named.has("fill") && textJob(wordsOf(view), view.role); });
     if (!open.length) return [];
     const labels = await deps.inspire?.typeLabels?.(projectId).catch(() => []) ?? [];
     // Without saved type labels only a text that names its role (its job) is filled; other text keeps the plain defaults.
-    const bare = labels.length ? open : open.filter((op) => op.properties?.role);
+    const bare = labels.length ? open : open.filter((op) => viewOf(op).role);
     if (!bare.length) return [];
     const key = JSON.stringify(labels.map((label) => [label.id, label.at]));
+    let measuredNow = [];
     if (labels.length && !labelTypeCache.has(key)) {
       const { labelTypes } = await import("../font-like.mjs");
       const { referenceStripFrame } = await import("../measure/strips.mjs");
@@ -3004,32 +3021,48 @@ export function createAgentService(deps) {
         if (!kept) throw new Error(`${id} has no frame strips`);
         return referenceStripFrame(kept.folder, kept.strips, Number.isFinite(t) ? t : kept.strips[0]?.at ?? 0);
       };
-      labelTypeCache.set(key, await labelTypes(labels, { fonts: await loadFonts(), catalog: fontCatalog, referenceFrame }).catch(() => []));
+      const found = await labelTypes(labels, { fonts: await loadFonts(), catalog: fontCatalog, referenceFrame }).catch(() => Object.assign([], { retry: true }));
+      // A label whose frames are not kept yet is read again on the next edit.
+      if (found.retry) measuredNow = found;
+      else labelTypeCache.set(key, found);
     }
-    const measured = labels.length ? labelTypeCache.get(key) : [];
+    const measured = labels.length ? labelTypeCache.get(key) ?? measuredNow : [];
     const lines = [];
+    // A show's time as seconds: a number, or "cue:<name>" read from the project's cues; else null.
+    const secondsOf = (value) => {
+      if (Number.isFinite(Number(value)) && value !== null && value !== "") return Number(value);
+      const cue = typeof value === "string" && /^cue:/.test(value) ? (document.cues ?? []).find((one) => one.name === value.slice(4)) : null;
+      return Number.isFinite(cue?.time) ? cue.time : null;
+    };
     for (const op of bare) {
-      const properties = op.properties ?? {};
-      const job = textJob(properties.text, properties.role);
+      const view = viewOf(op);
+      const named = namedFields(view);
+      const job = textJob(wordsOf(view), view.role);
       const scene = document.scenes.find((one) => one.id === op.sceneId || one.name === (op.scene ?? op.sceneId)) ?? document.scenes[0];
-      const { properties: chosen, from } = jobTreatment(job, { scene, labels: measured });
+      const { properties: chosen, from } = jobTreatment(job, { scene, labels: measured, text: wordsOf(view) });
       // Only fields the op left out are filled: every value the agent gave stays.
-      const filled = Object.fromEntries(Object.entries(chosen).filter(([field]) => properties[field] === undefined));
-      op.properties = { ...filled, ...properties };
-      const name = op.name ?? properties.name ?? properties.id ?? "text";
+      const filled = Object.fromEntries(Object.entries(chosen).filter(([field]) => !named.has(field)));
+      op.properties = { ...filled, ...(op.properties ?? {}) };
+      const name = op.name ?? view.name ?? view.id ?? "text";
       let entrance = "";
       if (job === "payoff") {
         const timed = Array.isArray(op.animations) ? op.animations : [];
-        const named = timed.some((entry) => !["show", "hide", "preset-show", "preset-hide"].includes(String(entry?.kind ?? entry?.preset?.id ?? entry?.preset ?? "")) && (entry?.preset?.mode ?? entry?.mode ?? "in") !== "out");
-        if (!named) {
-          const shows = timed.filter((entry) => String(entry?.kind ?? entry?.preset ?? "").includes("show")).map((entry) => Number(entry.start ?? entry.at)).filter(Number.isFinite);
-          const { animation, why } = payoffEntrance(shows.length ? Math.min(...shows) : 0, document.cues ?? []);
+        const isShow = (entry) => ["show", "hide", "preset-show", "preset-hide"].includes(String(entry?.kind ?? entry?.preset?.id ?? entry?.preset ?? ""));
+        const entranceNamed = timed.some((entry) => !isShow(entry) && (entry?.preset?.mode ?? entry?.mode ?? "in") !== "out");
+        // When it shows: its show animation, else its mediaStart (or startTime, playStart), else the scene's start.
+        const showStarts = timed.filter((entry) => /show/.test(String(entry?.kind ?? entry?.preset?.id ?? entry?.preset ?? ""))).map((entry) => secondsOf(entry.start ?? entry.at));
+        const windowStart = [view.mediaStart, view.startTime, view.playStart].find((value) => value !== undefined);
+        const starts = [...showStarts, ...(windowStart !== undefined ? [secondsOf(windowStart)] : [])];
+        // A show at a time kino cannot read here ("after:x") gets no entrance rather than one at the wrong time.
+        if (!entranceNamed && !starts.includes(null)) {
+          const { animation, why } = payoffEntrance(starts.length ? Math.min(...starts) : 0, document.cues ?? []);
           op.animations = [...timed, animation];
           entrance = `; entrance: ${why}`;
         }
       }
-      const face = op.properties.fontFamily ? `${op.properties.fontFamily} ${op.properties.fontWeight ?? 400}` : `weight ${op.properties.fontWeight ?? 400}`;
-      lines.push(`type: ${name} as ${job} from ${from}: ${face}, ${op.properties.fontSize} px, fill ${op.properties.fill}${op.properties.strokeWidth ? `, edge ${op.properties.strokeWidth} px` : ""}${entrance} (fields of the layer; update_layer changes any)`);
+      const shown = { ...filled, ...view };
+      const face = shown.fontFamily ? `${shown.fontFamily} ${shown.fontWeight ?? 400}` : `weight ${shown.fontWeight ?? 400}`;
+      lines.push(`type: ${name} as ${job} from ${from}: ${face}, ${shown.fontSize ?? filled.fontSize} px, fill ${filled.fill ?? shown.fill}${filled.strokeWidth ? `, edge ${filled.strokeWidth} px` : ""}${entrance} (fields of the layer; update_layer changes any)`);
     }
     return lines;
   }
