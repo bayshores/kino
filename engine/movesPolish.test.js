@@ -251,7 +251,7 @@ test("every move writes in a face that is loaded: a bundled family at a weight i
     for (const name of MOVE_NAMES.filter((key) => !MOVES[key].needsCue)) {
       const { at = 0.3, dur = null, ...fields } = MOVES[name].example;
       const definition = MOVES[name];
-      const made = runMove(definition, { id: name, input: readMoveInput(definition, fields), scene: scene(fields.layer === "prompt" ? [phone, ...PROMPT] : [phone, CARD]), style, fonts: defaultFonts, start: at, dur, media, logo: { media: PICTURES.logo } });
+      const made = runMove(definition, { id: name, input: readMoveInput(definition, fields), scene: scene([fields.layer, fields.textLayer].includes("prompt") ? [phone, ...PROMPT] : [phone, CARD]), style, fonts: defaultFonts, start: at, dur, media, logo: { media: PICTURES.logo } });
       for (const { layer } of made.added.filter((entry) => entry.layer.type === "text"))
         assert.ok(SHIPPED[layer.fontFamily]?.includes(layer.fontWeight), `${look} ${name}: ${layer.id} is ${layer.fontFamily} ${layer.fontWeight}`);
     }
