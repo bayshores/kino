@@ -148,6 +148,9 @@ const SEEN_AS = {
   // Type or a plate mixed into the picture (not an opacity fade): the blendMode of a layer.
   "blend mode": ["blend-mode"], "blend modes": ["blend-mode"], blend: ["blend-mode"], blending: ["blend-mode"], multiply: ["blend-mode"], "text blend": ["blend-mode"], "text fading": ["blend-mode"], "through the picture": ["blend-mode"], "through picture": ["blend-mode"],
   "darken blend": ["blend-mode"], "multiply blend": ["blend-mode"], "screen blend": ["blend-mode"], "add blend": ["blend-mode"], "mix with the picture": ["blend-mode"], "blend with the picture": ["blend-mode"],
+  // Words for seeing many frames at once (the look tool, not an effect); look-times is its topic.
+  "contact sheet": ["look-times"], "many frames": ["look-times"], "chosen times": ["look-times"], "every nth frame": ["look-times"], "frame strip": ["look-times"], "side by side frames": ["look-times"],
+  "several times": ["look-times"], "several frames": ["look-times"], "frames at once": ["look-times"], "before during after": ["look-times"],
 };
 // Looks kino has no maker for yet. Asked for alone, they print a line that says so (and what to do)
 // instead of a name that only sounds close.
@@ -194,7 +197,8 @@ const TOPICS = { "clip-speed": "layer properties mediaSpeed and speed animations
   tilt: "layer properties rotateX, rotateY (degrees) and perspective: a plate or screen lying in 3D, set with update_layer or animated",
   "blend-mode": "layer property blendMode: multiply and darken keep the darker of layer and picture (dark type sinks in, white drops out), screen and add keep the lighter, overlay and soft-light mix contrast",
   "preset-glitch": 'add_animation {layer, preset:"preset-glitch", parameters:{sliceSize:30}}: slices of the layer shift sideways with a color split',
-  "scene-background": 'the whole frame in one op: {op:"update_scene", properties:{finish:true, letterbox:2.35}} (grain, lifted blacks, halation, vignette, bars)' };
+  "scene-background": 'the whole frame in one op: {op:"update_scene", properties:{finish:true, letterbox:2.35}} (grain, lifted blacks, halation, vignette, bars)',
+  "look-times": 'the look tool, not an edit: look {mode:"frames", times:[0.5, 1, 1.2], layer?} draws up to 60 chosen times as labeled pages; every:4 thins a range' };
 const TOPIC_ID = { "layer-frame-rate": "clip-speed", "motion-blur": "blur", "blend-mode": "color", "preset-glitch": "effect-presets" };
 // One line of when each look fits, shown after its name (a name with none shows nothing more).
 // Written from each effect's catalog hint and the particles rules; a guide for the pick, not a rule.

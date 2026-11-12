@@ -97,6 +97,8 @@ test("a move animates your layers, is made again with the same id and taken away
   const first = await api.agent("again", "edit", { ops: [{ op: "set_cues", cues: [{ name: "zoom-through.hit", time: 1.2 }] }, example] });
   assert.equal(first.isError, undefined, first.text);
   assert.match(first.text, /move zoom-through: 1–1\.9 s/);
+  // The receipt names the start, middle and end as a ready look call (look frame times).
+  assert.match(first.text, /look \{\\"mode\\":\\"frame\\",\\"times\\":\[1,1\.45,1\.9\]\}/); // the receipt is JSON, so its quotes are escaped
   let scene = (await saved("again")).document.scenes[0];
   assert.deepEqual(scene.moves.map((entry) => [entry.id, entry.name]), [["zoom-through", "zoom-through"]]);
   const shotA = scene.layers.find((layer) => layer.name === "shot-a");

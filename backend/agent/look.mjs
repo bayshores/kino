@@ -4,7 +4,8 @@
 // version), in memory and on disk, so asking again costs milliseconds.
 //
 // Modes: frame (one frame), sheet (a contact sheet of one scene), zoom (a crop around a layer),
-// strip (6 tiles across one animation, or every frame), frames (every frame of a stretch), compare (an earlier revision beside the current one,
+// strip (6 tiles across one animation, or every frame), frames (every frame of a stretch, or up to
+// 60 chosen `times` as labeled pages, cropped to a `layer`; timesPlan lays them out), compare (an earlier revision beside the current one,
 // only where they differ), changed (only the frames that changed since the last look), source
 // (a video layer's whole source frame with a grid, its crop and subject boxes, beside the result),
 // board (the storyboard, a row per shot: backend/agent/board-look.mjs) and review (the moments
@@ -43,6 +44,17 @@ export const STRIP_TILES = 6;
 // call, 6 to a row (a row is 0.2 s).
 export const FRAME_RATE = 30;
 export const FRAMES_MOST = 36;
+// look frames with chosen times or every:<n> (GAPS friction 3: 28 to 57 one-frame looks a build):
+// up to TIMES_MOST times in one call, laid out as pages of labeled tiles. A page is at most
+// PAGE_WIDTH px wide (1,568 px is the edge Claude reads without scaling an image down) and
+// PAGE_PIXELS px in all (a guess: about 1,700 image tokens, near the board page's 1,521), and a
+// call draws at most PAGES_MOST pages, so the answer stays near 5,000 image tokens however many
+// times were asked; the times left over come back as a ready call.
+export const TIMES_MOST = 60;
+export const PAGE_WIDTH = 1568;
+export const PAGE_PIXELS = 1_300_000;
+export const PAGES_MOST = 3;
+const TILE_GAP = 4;
 // look review's seam strips: 5 frames across each cut (SEAM_OFFSETS seconds), SEAM_EDGE px each.
 export const SEAM_OFFSETS = [-0.2, -0.1, 0, 0.1, 0.2];
 export const SEAM_EDGE = 200;
@@ -210,6 +222,61 @@ export function everyFrame(start, end, most = FRAMES_MOST, fps = FRAME_RATE) {
   return { times, rest: count > most ? sec(((first + most) * den) / num) : null };
 }
 
+// Every `every`-th output frame from `start` to `end` (seconds), at most `most`; `rest` is the
+// time of the first frame left out (null when all fit). every 1 is everyFrame.
+export function everyNth(start, end, every, most = TIMES_MOST, rate = FRAME_RATE) {
+  const step = Math.max(1, Math.round(every));
+  const first = Math.floor(start * rate + 1e-6), last = Math.floor(end * rate + 1e-6);
+  const count = Math.max(1, Math.floor((last - first) / step) + 1);
+  const times = Array.from({ length: Math.min(count, most) }, (_, index) => (first + index * step) / rate);
+  return { times, rest: count > most ? sec((first + most * step) / rate) : null };
+}
+
+// How chosen times lay out as pages of `tile` sized tiles: { columns, perPage (tiles on the
+// fullest page), pages, shown (how many of `count` this call draws) }. Pages are balanced, so 40
+// tiles that fit 36 a page come as two of 20, not 36 and 4.
+export function timesPlan(count, tile, { pageWidth = PAGE_WIDTH, pagePixels = PAGE_PIXELS, pagesMost = PAGES_MOST } = {}) {
+  const fit = Math.max(1, Math.floor((pageWidth + TILE_GAP) / (tile.width + TILE_GAP)));
+  const width = fit * (tile.width + TILE_GAP) - TILE_GAP;
+  const rows = Math.max(1, Math.floor((pagePixels / width + TILE_GAP) / (tile.height + TILE_GAP)));
+  const shown = Math.max(0, Math.min(count, fit * rows * pagesMost));
+  const pages = Math.max(1, Math.ceil(shown / (fit * rows)));
+  const perPage = Math.max(1, Math.ceil(shown / pages));
+  // Rows evenly filled, as columnsFor spreads a sheet: 4 tiles that fit 3 a row come 2 and 2.
+  return { columns: Math.ceil(perPage / Math.ceil(perPage / fit)), perPage, pages, shown };
+}
+
+// The tile a times look draws for a scene (or a layer's `crop`): `width` px wide, else `longEdge`
+// on its long edge. A whole frame is drawn at most at the scene's size; a crop at most 2x (as zoom
+// draws it). Returns { tile, scale }.
+export function timesTile(scene, crop, { longEdge = TILE_LONG_EDGE, width } = {}) {
+  const box = crop ?? { width: scene.width, height: scene.height };
+  const wanted = width ? width / box.width : longEdge / Math.max(box.width, box.height);
+  const scale = Math.min(wanted, crop ? 2 : 1, 4096 / Math.max(scene.width, scene.height));
+  return { tile: { width: Math.max(2, Math.round(box.width * scale)), height: Math.max(2, Math.round(box.height * scale)) }, scale };
+}
+
+// The default long edge of a times look's tiles when no width is asked: the largest of 480 down
+// to 240 px (in 40 px steps) that still draws all `count` times on one page. A 1920 px frame's 60
+// px headline is 7.5 px tall in a 240 px tile, too small to read letters (seen on the product-film
+// proof sheet, 2026-11-11), so a few times get bigger tiles; 25 or more of a 16:9 frame stay at
+// 240 (the frames look's tile). The steps are a guess.
+export function timesEdge(count, scene, crop = null) {
+  for (let edge = 480; edge > TILE_LONG_EDGE; edge -= 40) {
+    const plan = timesPlan(count, timesTile(scene, crop, { longEdge: edge }).tile);
+    if (plan.pages === 1 && plan.shown >= count) return edge;
+  }
+  return TILE_LONG_EDGE;
+}
+
+// The largest label of a times page, in px. Measured on a review sheet (2026-11-11): a title
+// cropped to a 475x480 tile got a 43 px label whose 65 px bar hid the bottom of its last line,
+// while the crop's own margin (24 scene px) was 31 px there. So a label is at most 18 px (a
+// guess that still reads at full size) and, on a crop, its bar fits inside the margin.
+export function timesLabel(scale, cropped) {
+  return cropped ? Math.max(10, Math.min(18, Math.floor((24 * scale) / 1.5))) : 18;
+}
+
 // Sheet times: evenly spread, but never exactly at the end (the last frame is just before it).
 export function sheetTimes(duration, count = SHEET_FRAMES) {
   const last = Math.max(0, duration - Math.min(0.05, duration / 100));
@@ -364,6 +431,38 @@ function seamTimes(prepared, cuts) {
   return { times, labels };
 }
 
+// The part of a layer that is on screen at `time` (after its own and its groups' move, scale and
+// rotation), 24 px of margin around it, clipped to the scene: { left, top, right, bottom } (empty
+// when right - left < 1), `at` (the layer's state then) and the corner points `xs`, `ys` before
+// clipping. A text layer's part is its box and its letters, which can be drawn past the box (the
+// quality model measures text by its letters too). look zoom and look frames with a layer use it.
+export function layerBounds(prepared, layer, time) {
+  const scene = prepared.scene;
+  const evaluate = (item) => evaluateLayer(item, time);
+  let at = evaluate(layer);
+  let matrix = worldMatrix(layer, scene.layers, evaluate);
+  let local = { x0: 0, y0: 0, x1: at.width ?? 0, y1: at.height ?? 0 };
+  if (layer.type === "text") {
+    try {
+      // As the quality model and the renderer lay it out: the text shown then, resized.
+      let state = evaluateLayer(layer, time, { unitIndex: 0, unitCount: 1, fonts: prepared.fonts });
+      if (hasTextChanges(layer)) state = { ...state, text: shownTextAt(layer, time, prepared.fonts) };
+      state = resizeTextLayer(state, prepared.fonts);
+      const ink = inkBox(state, prepared.fonts);
+      at = state;
+      matrix = multiply(parentMatrix(layer, scene.layers, evaluate), layerMatrix(state));
+      local = { x0: 0, y0: 0, x1: state.width ?? 0, y1: state.height ?? 0 };
+      if (ink) local = { x0: Math.min(local.x0, ink.x0), y0: Math.min(local.y0, ink.y0), x1: Math.max(local.x1, ink.x1), y1: Math.max(local.y1, ink.y1) };
+    } catch { /* the layer's box */ }
+  }
+  const corners = [[local.x0, local.y0], [local.x1, local.y0], [local.x0, local.y1], [local.x1, local.y1]].map(([x, y]) => point(matrix, x, y));
+  const pad = 24;
+  const xs = corners.map((corner) => corner.x);
+  const ys = corners.map((corner) => corner.y);
+  const box = { left: Math.min(...xs) - pad, top: Math.min(...ys) - pad, right: Math.max(...xs) + pad, bottom: Math.max(...ys) + pad };
+  return { at, xs, ys, left: Math.max(0, box.left), top: Math.max(0, box.top), right: Math.min(scene.width, box.right), bottom: Math.min(scene.height, box.bottom) };
+}
+
 export function createLook({ cache, outDirectory, mediaRoot, renderSettings }) {
   // One frame at `width` pixels wide, from cache when possible. Returns { key, png }.
   // `height` too lets a frame be drawn larger than the scene (zoom draws small layers at 2×);
@@ -398,22 +497,23 @@ export function createLook({ cache, outDirectory, mediaRoot, renderSettings }) {
   // The frames at several times of one scene, as frame() draws them, in order. The ones not in
   // the cache are drawn together (renderStills): one FFmpeg run per video stretch and one
   // Chromium for all of them, instead of one export each.
-  async function frames(prepared, times, width) {
+  // `height` (optional) draws the frames larger than the scene, as zoom does (a layer's crop).
+  async function frames(prepared, times, width, height) {
     const render = renderSettings?.() ?? {};
     const found = [];
     const missing = new Map();
     for (const time of times) {
-      const { options, key } = await frameKey(prepared, time, width, undefined, render);
+      const { options, key } = await frameKey(prepared, time, width, height, render);
       const png = missing.has(key) ? null : await cache.get(key);
       found.push({ key, png, cached: Boolean(png), time: options.time });
       if (!png && !missing.has(key)) missing.set(key, options.time);
     }
     if (missing.size === 1) {
       const [[key, time]] = missing;
-      const drawn = await frame(prepared, time, width);
+      const drawn = await frame(prepared, time, width, height);
       for (const entry of found) if (entry.key === key) entry.png = drawn.png;
     } else if (missing.size) {
-      const stills = await renderStills(prepared.scene, [...missing.values()], { width, mediaRoot, fonts: prepared.fonts, render, previewBlur: true, shutter: sceneShutterOptions(prepared.scene) });
+      const stills = await renderStills(prepared.scene, [...missing.values()], { width, ...(height ? { height } : {}), mediaRoot, fonts: prepared.fonts, render, previewBlur: true, shutter: sceneShutterOptions(prepared.scene) });
       const keys = [...missing.keys()];
       for (const [index, still] of stills.entries()) {
         await cache.set(keys[index], still.buffer);
@@ -432,7 +532,8 @@ export function createLook({ cache, outDirectory, mediaRoot, renderSettings }) {
   }
 
   // Lays tiles out in a grid with a number and time drawn on each.
-  async function sheet(tiles, { columns, tile }) {
+  // `labelMost` caps the label's size in px (times pages: timesLabel).
+  async function sheet(tiles, { columns, tile, labelMost = Infinity }) {
     ensureLabelFont();
     const gap = 4;
     const rows = Math.ceil(tiles.length / columns);
@@ -440,13 +541,17 @@ export function createLook({ cache, outDirectory, mediaRoot, renderSettings }) {
     const context = canvas.getContext("2d");
     context.fillStyle = "#101114";
     context.fillRect(0, 0, canvas.width, canvas.height);
-    const labelSize = Math.max(10, Math.round(Math.min(tile.width, tile.height) / 11));
+    const labelSize = Math.max(10, Math.min(labelMost, Math.round(Math.min(tile.width, tile.height) / 11)));
     context.font = `${labelSize}px kino-label, sans-serif`;
     for (const [index, entry] of tiles.entries()) {
       const x = (index % columns) * (tile.width + gap);
       const y = Math.floor(index / columns) * (tile.height + gap);
       const image = await loadImage(entry.png);
-      context.drawImage(image, x, y, tile.width, tile.height);
+      // `crop` ({x, y, width, height} in scene px) shows only that part of the frame (one layer).
+      if (entry.crop) {
+        const k = image.width / entry.crop.sceneWidth;
+        context.drawImage(image, entry.crop.x * k, entry.crop.y * k, entry.crop.width * k, entry.crop.height * k, x, y, tile.width, tile.height);
+      } else context.drawImage(image, x, y, tile.width, tile.height);
       const label = entry.label;
       const width = context.measureText(label).width + labelSize * 0.8;
       context.fillStyle = "rgba(0,0,0,0.72)";
@@ -479,6 +584,46 @@ export function createLook({ cache, outDirectory, mediaRoot, renderSettings }) {
       const tiles = times.map((time, index) => ({ ...drawn[index], time, label: labels?.[index] ?? `${index + 1} · ${time}s` }));
       const png = await sheet(tiles, { columns: columns ?? columnsFor(tiles.length, tile), tile });
       return { png, frames: tiles.map(({ time, key }) => ({ time, key, width: tile.width })), tile };
+    },
+
+    // look frames with `times` (or every:<n>): the frames at those times as pages of labeled tiles
+    // (timesPlan says how many fit a page and how many pages one call draws). `width` is the
+    // tile's width in px, else `longEdge` its long edge (default timesEdge); a `crop` ({x, y, width, height,
+    // sceneWidth}: layerCrop) shows only that part of each frame, in tiles of its shape. Returns
+    // { pages: [{png, frames}], tile, plan }; plan.shown of the times were drawn, in order.
+    async timesImages(prepared, times, { longEdge, width, crop = null, labels } = {}) {
+      const scene = prepared.scene;
+      const edge = width || longEdge ? longEdge : timesEdge(times.length, scene, crop);
+      const { tile, scale } = timesTile(scene, crop, { longEdge: edge, width });
+      const plan = timesPlan(times.length, tile);
+      const chosen = times.slice(0, plan.shown);
+      const renderWidth = Math.max(2, Math.round(scene.width * scale));
+      const renderHeight = crop ? Math.max(2, Math.round(scene.height * scale)) : undefined;
+      const labelMost = timesLabel(scale, Boolean(crop));
+      const drawn = await frames(prepared, chosen, renderWidth, renderHeight);
+      const tiles = chosen.map((time, index) => ({ ...drawn[index], time, label: labels?.[index] ?? `${time}s`, ...(crop ? { crop } : {}) }));
+      const pages = [];
+      for (let first = 0; first < tiles.length; first += plan.perPage) {
+        const chunk = tiles.slice(first, first + plan.perPage);
+        const png = await sheet(chunk, { columns: Math.min(plan.columns, chunk.length), tile, labelMost });
+        // A cropped frame keeps its crop, so look changed redraws the same part (changedImage).
+        pages.push({ png, frames: chunk.map(({ time, key, label }) => ({ time, key, width: renderWidth, label, ...(crop ? { height: renderHeight, crop, tile, labelMost } : {}) })) });
+      }
+      return { pages, tile, plan };
+    },
+
+    // The part of `layer` on screen at any of `times` (layerBounds, joined), as the crop
+    // timesImages takes; throws when the layer is off screen at all of them.
+    layerCrop(prepared, layer, times) {
+      let box = null;
+      for (const time of times) {
+        const bounds = layerBounds(prepared, layer, time);
+        if (!(bounds.right - bounds.left >= 1 && bounds.bottom - bounds.top >= 1)) continue;
+        box = box ? { left: Math.min(box.left, bounds.left), top: Math.min(box.top, bounds.top), right: Math.max(box.right, bounds.right), bottom: Math.max(box.bottom, bounds.bottom) } : bounds;
+      }
+      if (!box) throw new Error(`Layer ${layer.id} is outside the scene at every one of those times, so there is nothing to crop to. Look at the frames without layer.`);
+      const x = Math.floor(box.left), y = Math.floor(box.top);
+      return { x, y, width: Math.max(1, Math.ceil(box.right) - x), height: Math.max(1, Math.ceil(box.bottom) - y), sceneWidth: prepared.scene.width };
     },
 
     // sheetImage's grid for stills already drawn ([{png, label}], all `tile` big): a found
@@ -560,32 +705,7 @@ export function createLook({ cache, outDirectory, mediaRoot, renderSettings }) {
     // scene); the image is at most `maxEdge` px on its long side.
     async zoomImage(prepared, { layer, time, size = ZOOM_EDGE, frameWidth = 480, maxEdge = 1280 }) {
       const scene = prepared.scene;
-      const evaluate = (item) => evaluateLayer(item, time);
-      let at = evaluate(layer);
-      let matrix = worldMatrix(layer, scene.layers, evaluate);
-      let local = { x0: 0, y0: 0, x1: at.width ?? 0, y1: at.height ?? 0 };
-      if (layer.type === "text") {
-        try {
-          // As the quality model and the renderer lay it out: the text shown then, resized.
-          let state = evaluateLayer(layer, time, { unitIndex: 0, unitCount: 1, fonts: prepared.fonts });
-          if (hasTextChanges(layer)) state = { ...state, text: shownTextAt(layer, time, prepared.fonts) };
-          state = resizeTextLayer(state, prepared.fonts);
-          const ink = inkBox(state, prepared.fonts);
-          at = state;
-          matrix = multiply(parentMatrix(layer, scene.layers, evaluate), layerMatrix(state));
-          local = { x0: 0, y0: 0, x1: state.width ?? 0, y1: state.height ?? 0 };
-          if (ink) local = { x0: Math.min(local.x0, ink.x0), y0: Math.min(local.y0, ink.y0), x1: Math.max(local.x1, ink.x1), y1: Math.max(local.y1, ink.y1) };
-        } catch { /* the layer's box */ }
-      }
-      const corners = [[local.x0, local.y0], [local.x1, local.y0], [local.x0, local.y1], [local.x1, local.y1]].map(([x, y]) => point(matrix, x, y));
-      const pad = 24;
-      const xs = corners.map((corner) => corner.x);
-      const ys = corners.map((corner) => corner.y);
-      const box = { left: Math.min(...xs) - pad, top: Math.min(...ys) - pad, right: Math.max(...xs) + pad, bottom: Math.max(...ys) + pad };
-      const left = Math.max(0, box.left);
-      const top = Math.max(0, box.top);
-      const right = Math.min(scene.width, box.right);
-      const bottom = Math.min(scene.height, box.bottom);
+      const { at, xs, ys, left, top, right, bottom } = layerBounds(prepared, layer, time);
       if (!(right - left >= 1 && bottom - top >= 1)) throw new Error(`Layer ${layer.id} is outside the scene at ${time}s, so there is nothing to zoom into. Look at a frame instead.`);
       const longEdge = Math.max(right - left, bottom - top);
       const detail = Math.max(size / longEdge, Math.min(frameWidth, scene.width) / scene.width);
@@ -890,16 +1010,17 @@ export function createLook({ cache, outDirectory, mediaRoot, renderSettings }) {
       for (const entry of previous.frames) {
         const current = await preparedFor(entry);
         if (!current) continue;
-        tile ??= tileSize(current.scene, TILE_LONG_EDGE);
-        const rendered = await frame(current, entry.time, entry.width);
+        // A layer-cropped look (look frames with layer) keeps its crop and tile shape.
+        tile ??= entry.tile ?? tileSize(current.scene, TILE_LONG_EDGE);
+        const rendered = await frame(current, entry.time, entry.width, entry.height);
         const old = rendered.key === entry.key ? null : await cache.get(entry.key);
         if (rendered.key === entry.key || (old && (await changedPixels(old, rendered.png)) < CHANGED_PIXELS)) { frames.push(entry); continue; }
         const label = entry.label ?? `${entry.time}s`;
-        changed.push({ ...rendered, time: entry.time, width: entry.width, label });
+        changed.push({ ...rendered, time: entry.time, width: entry.width, label, ...(entry.crop ? { crop: entry.crop } : {}) });
         frames.push({ ...entry, key: rendered.key });
       }
       if (!changed.length) return { png: null, changed: [], labels: [], frames };
-      const png = await sheet(changed, { columns: columnsFor(changed.length, tile), tile });
+      const png = await sheet(changed, { columns: columnsFor(changed.length, tile), tile, labelMost: previous.frames[0]?.labelMost });
       return { png, changed: changed.map((entry) => entry.time), labels: changed.map((entry) => entry.label), frames };
     },
 

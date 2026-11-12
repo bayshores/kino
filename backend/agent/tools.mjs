@@ -124,14 +124,15 @@ export const AGENT_TOOLS = withSaid([
     title: "See frames",
     hints: READS, // renders the saved project to images; changes nothing
     alwaysLoad: true,
-    // source times:[s] is not listed (the tool list's budget): keepUnknownKeys passes it on.
+    // times:[s] (source, frame, frames) and every (true: a strip's every frame; a number: frames
+    // every nth frame) are not listed (the tool list's budget): keepUnknownKeys passes them on.
     keepUnknownKeys: true,
     description: [
       "See the saved animation. Modes:",
       "sheet (default): 12 frames a scene, by shot; from/to a stretch.",
       "review: each moment that matters, findings, seams; again: what changed. Final needs it.",
-      "frame: one at t, up to 1280 px.",
-      "frames: every frame (30 fps) from/to, 36 max.",
+      "frame: at t, 1280 px max; times:[2-4] side by side.",
+      "frames: from/to (every:n), or times:[60]; layer crops.",
       "motion: graph + trace of pushes, movers, cover, slivers, cuts.",
       "zoom: one layer close up.",
       "strip: 6 frames of one animation (anim); every:true all.",
@@ -153,7 +154,6 @@ export const AGENT_TOOLS = withSaid([
       to: z.number().min(0).optional(),
       layer: z.string().optional(),
       anim: z.string().optional(),
-      every: z.boolean().optional(),
       ref: z.string().optional(),
       rev: z.number().int().min(1).optional(),
       width: z.number().int().min(64).max(1920).optional(),
