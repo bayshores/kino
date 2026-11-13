@@ -18,6 +18,7 @@
   --fg2: #85827b;       /* faint text: 4.5:1 on the page (--bg0) */
   --yellow: #f7d417;    /* kino's one color: the agent's line, where it works, what waits for you */
   --on-yellow: #121212; /* text on the yellow */
+  --on-who: #121212;    /* text on an agent's color: dark in both themes (the colors are bright) */
   --accent: #f7d417;    /* accent text and lines: the focus ring, the playhead, what is on */
   --on-accent: #121212; /* text on an accent fill */
   --voice: #f7d417;     /* the agent's line: yellow words in dark, black on a yellow box in light */
