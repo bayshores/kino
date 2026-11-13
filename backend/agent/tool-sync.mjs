@@ -19,6 +19,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { compactToolList, registerAgentTools, runAgentTool, schemaRefusal } from "./tools.mjs";
+import { PREVIEW_TOOL } from "./chat-preview.mjs";
 
 export const RELOADED_LINE = "kino was updated: its tools were reloaded, so new modes and actions work now.";
 export const RECONNECT_LINE = "kino was updated; reconnect the kino MCP server (/mcp in Claude Code) to get the new tools. Until then the kino command takes the same call (kino look mode=critique).";
@@ -91,11 +92,15 @@ export function followServerTools(server, client) {
 
   const setRequestHandler = lowLevel.setRequestHandler.bind(lowLevel);
   lowLevel.setRequestHandler = (schema, handler) => {
+    // kino's newer list, plus this process's app-only tools (the chat preview's video helper,
+    // which only a chat app with MCP Apps has): the newer list does not know them.
+    const appOnly = (tool) => tool._meta?.ui?.visibility?.length === 1 && tool._meta.ui.visibility[0] === "app";
     if (schema === ListToolsRequestSchema)
-      return setRequestHandler(schema, async (request, extra) => (live ? { tools: live.tools } : handler(request, extra)));
+      return setRequestHandler(schema, async (request, extra) => (live
+        ? { tools: [...live.tools, ...(await handler(request, extra)).tools.filter(appOnly)] } : handler(request, extra)));
     if (schema !== CallToolRequestSchema) return setRequestHandler(schema, handler);
     const answer = async (request, extra) => {
-      const result = live ? await callLive(request, extra) : await handler(request, extra);
+      const result = live && request.params.name !== PREVIEW_TOOL ? await callLive(request, extra) : await handler(request, extra);
       // A value this process's old schema refused: ask kino whether its tools changed.
       let hash = client.toolsHash;
       if (!live && refusedBySchema(result) && typeof client.tools === "function")

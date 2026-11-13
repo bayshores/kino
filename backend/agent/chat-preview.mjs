@@ -1,12 +1,15 @@
 // The render preview chat apps can show beside a tool answer (MCP Apps). The render tool names a
 // ui:// page (PREVIEW_URI); a chat app that supports MCP Apps loads that page in a sandboxed
-// frame and hands it the tool's answer. The agent's text stays the same: the video rides in the
-// answer's _meta, which the model is not shown. Chat apps without MCP Apps (and command-line
-// agents) ignore both, and kino skips the encode for them.
+// frame and hands it the tool's answer. The agent's text stays the same: the answer's _meta gets
+// only a few facts and a preview id. The page then calls the app-only tool PREVIEW_TOOL with
+// that id for the video (the MCP Apps guidance: heavy assets go through a tool the page calls,
+// not the result). Chat apps without MCP Apps (and command-line agents) get neither.
 //
-// The page cannot reach the network or this computer, so every byte it plays arrives in the
-// answer: a small copy of the render (320 px, at most PREVIEW_MAX_CHARS as base64), never the file.
+// The page cannot reach the network or this computer, so every byte it plays arrives through
+// that tool: a small copy of the render (320 px, at most PREVIEW_MAX_CHARS as base64), never the file.
+import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { z } from "zod";
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -20,12 +23,11 @@ export const PREVIEW_META_KEY = "kino/preview";
 /** Bare kino link: brings the kino app forward (desktop/main.mjs), with no file access. */
 export const APP_LINK = "kino://open";
 /**
- * The most the preview may add to an answer, in characters. Chat apps cut a tool answer at
+ * The most the preview video's answer may be, in characters. Chat apps cut a tool answer at
  * about 150,000 characters; the MCP Apps guidance says to stay near 130,000.
  */
 export const PREVIEW_MAX_CHARS = 130_000;
-// What the video may take of that: base64 makes 3 bytes into 4 characters, and the name, link
-// and numbers beside it take well under 2,000.
+// What the video may take of that: base64 makes 3 bytes into 4 characters, with room to spare.
 const VIDEO_MAX_BYTES = Math.floor(((PREVIEW_MAX_CHARS - 2_000) * 3) / 4);
 const VIDEO_KINDS = { ".mp4": true, ".mov": true, ".webm": true, ".gif": true };
 
@@ -61,30 +63,81 @@ export function clientShowsApps(server) {
 }
 
 /**
- * Adds the preview to a finished render's answer when the chat app shows MCP Apps pages.
- * The answer's content (what the agent reads) is never changed. A preview that cannot be made
- * (no file, no FFmpeg, too big) is left out.
+ * Adds the preview's facts to a finished render's answer when the chat app shows MCP Apps
+ * pages: { name, duration, bytes, link, id }, a few hundred characters. The video itself is not
+ * in the answer: the page asks PREVIEW_TOOL for it by id. The answer's content (what the agent
+ * reads) is never changed. A render with no video file is left as it is.
  */
-export async function withRenderPreview(server, reply, result, { encode = encodePreview } = {}) {
+export async function withRenderPreview(server, reply, result) {
   if (result.isError || !clientShowsApps(server)) return result;
-  const preview = await renderPreview(reply?.data, { encode }).catch(() => null);
+  const preview = await renderPreview(reply?.data).catch(() => null);
   return preview ? { ...result, _meta: { ...result._meta, [PREVIEW_META_KEY]: preview } } : result;
 }
 
-/** { name, duration, bytes, link, video } for a done render's first video file, or null. */
-export async function renderPreview(data, { encode = encodePreview } = {}) {
+// The renders this process finished and told a chat app about, by preview id. An id is a random
+// word kino made, never a path: PREVIEW_TOOL refuses any other. The oldest is forgotten first.
+const PREVIEWS_KEPT = 20;
+const previews = new Map();
+
+/** { name, duration, bytes, link, id } for a done render's first video file, or null. */
+export async function renderPreview(data) {
   if (data?.status !== "done") return null;
   const file = data.path ?? data.files?.[0]?.path;
   if (typeof file !== "string" || !VIDEO_KINDS[path.extname(file).toLowerCase()]) return null;
   const { probeMedia } = await import("../media-probe.mjs");
   const facts = await probeMedia(file);
   if (!facts.hasVideo || !(facts.duration > 0)) return null;
-  const video = await encode(file, { duration: facts.duration, hasAudio: facts.hasAudio, maxBytes: VIDEO_MAX_BYTES });
-  if (!video || video.length > VIDEO_MAX_BYTES) return null;
+  const id = randomBytes(6).toString("hex");
+  previews.set(id, { file, duration: facts.duration, hasAudio: facts.hasAudio, video: null });
+  if (previews.size > PREVIEWS_KEPT) previews.delete(previews.keys().next().value);
   const bytes = data.size ?? data.files?.[0]?.size ?? (await stat(file)).size;
-  const preview = { name: path.basename(file), duration: Math.round(facts.duration * 100) / 100, bytes, link: APP_LINK,
-    video: `data:video/mp4;base64,${video.toString("base64")}` };
-  return JSON.stringify(preview).length <= PREVIEW_MAX_CHARS ? preview : null;
+  return { name: path.basename(file), duration: Math.round(facts.duration * 100) / 100, bytes, link: APP_LINK, id };
+}
+
+/**
+ * The small copy for a preview id, as a data: address of at most PREVIEW_MAX_CHARS, made the
+ * first time it is asked for and kept for the next. Throws for an id kino did not give out.
+ */
+export async function previewVideo(id, { encode = encodePreview } = {}) {
+  const entry = typeof id === "string" ? previews.get(id) : undefined;
+  if (!entry) throw new Error("Unknown preview id: ask for the preview of a render this kino finished.");
+  entry.video ??= encode(entry.file, { duration: entry.duration, hasAudio: entry.hasAudio, maxBytes: VIDEO_MAX_BYTES })
+    .then((video) => (video && video.length <= VIDEO_MAX_BYTES ? `data:video/mp4;base64,${video.toString("base64")}` : null));
+  const video = await entry.video.catch(() => null);
+  if (!video) { entry.video = null; throw new Error("The preview copy could not be made."); }
+  return video;
+}
+
+/** The helper tool the preview page calls for the video; the model never sees it. */
+export const PREVIEW_TOOL = "render_preview";
+
+/**
+ * Registers PREVIEW_TOOL once the client has said what it can do, and only for a chat app that
+ * shows MCP Apps pages (the MCP Apps library's own pattern: register in oninitialized). Every
+ * other client keeps the ten tools, byte for byte, and a call to it answers "not found".
+ * Registering after the start sends tools/list_changed (McpServer.registerTool).
+ */
+export function registerPreviewTool(server) {
+  const before = server.server.oninitialized;
+  let registered = false;
+  server.server.oninitialized = () => {
+    before?.();
+    if (registered || !clientShowsApps(server)) return;
+    registered = true;
+    server.registerTool(PREVIEW_TOOL, {
+      title: "Preview video",
+      description: "The kino preview page's video for a render, by preview id.",
+      inputSchema: { id: z.string().max(32) },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      _meta: { ui: { resourceUri: PREVIEW_URI, visibility: ["app"] } },
+    }, async ({ id }) => {
+      try {
+        return { content: [{ type: "text", text: await previewVideo(id) }] };
+      } catch (error) {
+        return { content: [{ type: "text", text: error.message }], isError: true };
+      }
+    });
+  };
 }
 
 /**

@@ -18,7 +18,9 @@
   html, body { margin: 0; background: transparent; color: var(--fg0); font: 12px/1.4 var(--mono); }
   main { padding: calc(8px + var(--safe-top)) calc(8px + var(--safe-right)) calc(8px + var(--safe-bottom)) calc(8px + var(--safe-left)); }
   video { display: block; width: 100%; max-height: 70vh; background: #000; border: 1px solid var(--line); }
-  .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; }
+  video[hidden] { display: none; }
+  .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  video:not([hidden]) + .row { margin-top: 6px; }
   .chip { border: 1px solid var(--line); padding: 1px 1ch; color: var(--fg1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
   .chip.name { color: var(--fg0); }
   button { margin-left: auto; font: inherit; color: var(--fg0); background: var(--bg1); border: 1px solid var(--line); border-radius: 0; padding: 2px 2ch; cursor: pointer; }
@@ -28,7 +30,7 @@
 </head>
 <body>
 <main id="preview" hidden>
-  <video id="video" controls muted loop playsinline preload="auto" aria-label="Rendered video, muted"></video>
+  <video id="video" hidden controls muted loop playsinline preload="auto" aria-label="Rendered video, muted"></video>
   <div class="row">
     <span class="chip name" id="name"></span>
     <span class="chip" id="length"></span>
@@ -72,21 +74,30 @@ video.addEventListener("error", () => {
   video.src = URL.createObjectURL(new Blob([bytes], { type: head.slice(5).split(";")[0] }));
 });
 
-function show(preview) {
-  if (!preview?.video) return;
+// The facts show at once; the video comes from kino's app-only tool by preview id. If it does
+// not come, the facts and the button stay and no player is shown.
+async function show(preview) {
+  if (!preview?.id) return;
   chip("name", preview.name, "File");
   chip("length", seconds(preview.duration), "Length");
   chip("size", size(preview.bytes), "Size");
   if (typeof preview.link === "string" && preview.link.startsWith("kino:")) link = preview.link;
   main.hidden = false;
+  let src = "";
+  try {
+    const answer = await app.callServerTool({ name: "render_preview", arguments: { id: preview.id } });
+    src = answer?.isError ? "" : answer?.content?.[0]?.text ?? "";
+  } catch {}
+  if (!src.startsWith("data:video/")) return;
   video.muted = true;
-  video.src = preview.video;
+  video.src = src;
+  video.hidden = false;
   // Muted, and only when the person has not asked for less motion.
   if (!calm.matches) video.play().catch(() => {});
 }
 
 const app = new App({ name: "kino preview", version: "1.0.0" }, {}, { autoResize: true });
-app.ontoolresult = (result) => show(result?._meta?.[KEY]);
+app.ontoolresult = (result) => { show(result?._meta?.[KEY]); };
 app.onhostcontextchanged = applyHost;
 document.getElementById("open").addEventListener("click", () => app.openLink({ url: link }));
 (async () => {
