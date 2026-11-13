@@ -88,7 +88,7 @@ export function SeenDrawer({ data, still, playing = false }) {
       <header className="live-head">
         <span className="live-dot" aria-hidden="true" />
         <span className="who">{view.agent?.name ?? "agent"}</span>
-        <span className="dim">{view.running ? "is looking" : "looked"}{view.label ? ` · ${String(view.label).replace(/^look\s+/, "")}` : ""}</span>
+        <span className="dim">{view.running ? "is looking" : "looked"}{view.label ? `, ${String(view.label).replace(/^look\s+/, "")}` : ""}</span>
         <span className="grow" />
         {files.length ? <span className="faint">{files.length} frame{files.length === 1 ? "" : "s"}</span> : null}
         <button type="button" className={`tb icon-button live-pin${pinned ? " on" : ""}`} aria-pressed={pinned} onClick={() => setPinned((value) => !value)}
@@ -150,7 +150,7 @@ export function RenderDock({ data, still, onCancel }) {
   if (!dock) return null;
   const { job, agent, total, done, fraction, left } = dock;
   const filled = Math.round(fraction * CELLS);
-  const size = Number.isFinite(job.height) && Number.isFinite(job.width) ? ` · ${Math.min(job.width, job.height)}p` : "";
+  const size = Number.isFinite(job.height) && Number.isFinite(job.width) ? ` ${Math.min(job.width, job.height)}p` : "";
   return (
     <aside className={`live-dock in${folded ? " folded" : ""}${still ? " still" : ""}`} style={{ "--who": agent?.color ?? "var(--accent)" }} aria-label={`${agent?.name ?? "A"} render ${job.id}, ${Math.round(fraction * 100)}%`}>
       <header className="live-head">
@@ -163,7 +163,7 @@ export function RenderDock({ data, still, onCancel }) {
         {total ? (
           <div className="live-cells" aria-hidden="true">{Array.from({ length: CELLS }, (_, index) => <span key={index} className={index < filled ? "on" : ""} />)}</div>
         ) : <div className="live-bar" aria-hidden="true"><span style={{ width: `${fraction * 100}%` }} /></div>}
-        <p className="live-facts"><span>{total ? `${done.toLocaleString("en-US")} of ${total.toLocaleString("en-US")} frames · ` : ""}{Math.round(fraction * 100)}%</span><span className="faint">{left != null ? `${leftWords(left)} left` : ""}</span></p>
+        <p className="live-facts"><span>{total ? `${done.toLocaleString("en-US")} of ${total.toLocaleString("en-US")} frames, ` : ""}{Math.round(fraction * 100)}%</span><span className="faint">{left != null ? `${leftWords(left)} left` : ""}</span></p>
         <div className="live-actions">
           <button type="button" className={`tb tb-box grow${openWhenDone === job.id ? " on" : ""}`} aria-pressed={openWhenDone === job.id} onClick={() => setOpenWhenDone((value) => (value === job.id ? null : job.id))}>
             <Glyph name="eye" /> open when done</button>

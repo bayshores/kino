@@ -18,7 +18,7 @@ export function BriefLines({ rows }) {
           {rows.lines.map((line) => (
             <li key={line.name}>
               <span aria-hidden="true">
-                <span className="brief-label">{line.label}</span><span className="dim"> · </span>
+                <span className="brief-label">{line.label}</span>{" "}
                 {line.by === "you"
                   ? <><span className="brief-said">you said</span> <span className="brief-quote">"{line.quote}"</span><span className="brief-text block">→ {line.text}</span></>
                   : <><span className="brief-guessed">guessed:</span> <span className="brief-text">{line.text}</span></>}

@@ -382,7 +382,7 @@ test("the top bar's agent chips, idle line, running render and its agent, and th
   };
   // One chip per agent at work, its label cut to three words; Juno is idle and has none.
   assert.deepEqual(agentChips(data, now).map((chip) => [chip.name, chip.doing]), [["Nova", "editing arrival title"]]);
-  assert.equal(idleLine(data, now), "all idle · last edit 33 min ago");
+  assert.equal(idleLine(data, now), "all idle, last edit 33 min ago");
   assert.equal(idleLine({ agents: [], calls: [] }, now), null);
   // The running render, and the agent whose render call started it (within 15 s); none for yours.
   assert.equal(runningRender(data).id, "R26");

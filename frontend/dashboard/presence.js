@@ -71,7 +71,7 @@ export function isShown(presence, now) {
  */
 export function outcomeText(presence) {
   if (presence?.phase !== "done") return "";
-  return presence.held ? " · held" : presence.refused ? " · refused" : presence.approval ? " · waits for you" : presence.isError ? " · failed" : "";
+  return presence.held ? ", held" : presence.refused ? ", refused" : presence.approval ? ", waits for you" : presence.isError ? ", failed" : "";
 }
 
 /** The markers shown at `now`, newest first, 8 at most. */
@@ -164,9 +164,9 @@ export function tagPlaces(presences, { sceneId, width, height, boxOf, sceneName 
     const name = presence.agent?.name || "agent";
     const spot = spotOf(presence);
     if (spot?.sceneId && spot.sceneId !== sceneId) {
-      return { presence, text: `${name} · in ${sceneName(spot.sceneId) || spot.sceneName || spot.sceneId}`, x: width, y: 0, box: null, edge: true };
+      return { presence, text: `${name} in ${sceneName(spot.sceneId) || spot.sceneName || spot.sceneId}`, x: width, y: 0, box: null, edge: true };
     }
-    const text = `${name} · ${presence.label || presence.verb || ""}${outcomeText(presence)}`;
+    const text = `${name}: ${presence.label || presence.verb || ""}${outcomeText(presence)}`;
     const box = spot?.layerIds.length ? boxOf(spot.layerIds) : null;
     if (box) return { presence, text, x: box.left, y: Math.max(0, box.top - TAG_PX), box, edge: false };
     return { presence, text, x: 0, y: 0, box: null, edge: false };

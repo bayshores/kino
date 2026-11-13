@@ -1056,7 +1056,7 @@ export function StagePane({ data, scene, time, rev, checkpoint, full, playing, f
                 {draftDot ? <div className="note-pin drafting" style={dotStyle(draftDot)} /> : null}
                 {drag ? <div className="drag-box" style={boxStyle({ x: Math.min(drag.from.x, drag.to.x), y: Math.min(drag.from.y, drag.to.y), width: Math.abs(drag.to.x - drag.from.x), height: Math.abs(drag.to.y - drag.from.y) })} /> : null}
               </div>
-              {!playing && wanted && wanted !== shown && !failed ? <span className="rendering" role="status">rendering…</span> : null}
+              {!playing && wanted && wanted !== shown && !failed ? <span className="rendering" role="status">Rendering</span> : null}
             </div>
           )}
           <div ref={labelRef}>
@@ -1280,7 +1280,7 @@ export function SeenPane({ data, cursor, enlarged, onEnlarge, onSelect, still, b
   }, [ends]);
   const facts = selected ? (
     <>
-      <span className="facts-text">{describe(selected.file)} · {selected.call.verb} {ago(selected.call.at)} ago</span>
+      <span className="facts-text">{describe(selected.file)}, {selected.call.verb} {ago(selected.call.at)} ago</span>
       <button type="button" className="tb tb-box" aria-pressed={enlarged === selected.file} onClick={() => onEnlarge(enlarged === selected.file ? null : selected.file)}
         title="Show the selected picture at full size (Enter)">full size</button>
     </>
@@ -1398,7 +1398,7 @@ function CheckList({ checks }) {
     <>
       {checks.error ? null : (
         <p className="check-summary">
-          {data?.rev != null ? `rev ${data.rev} · ` : ""}{errors} {errors === 1 ? "error" : "errors"} · {warnings} {warnings === 1 ? "warning" : "warnings"}{data?.waived ? ` · ${data.waived} waived` : ""}
+          {data?.rev != null ? `Rev ${data.rev}: ` : ""}{errors} {errors === 1 ? "error" : "errors"}, {warnings} {warnings === 1 ? "warning" : "warnings"}{data?.waived ? `, ${data.waived} waived` : ""}
         </p>
       )}
       {waivedTop.length ? (
@@ -1691,7 +1691,7 @@ export function LogPane({ data, tab, onTab, cursor, expanded, onToggle, onTurn, 
         </div>
       ) : tab === "checks" ? (
         <div role="tabpanel" id="panel-checks" aria-labelledby="tab-checks">
-          {!checks ? <p className="faint">checking…</p> : <CheckList checks={checks} />}
+          {!checks ? <p className="faint">Checking</p> : <CheckList checks={checks} />}
         </div>
       ) : (
         <div role="tabpanel" id="panel-notes" aria-labelledby="tab-notes">
