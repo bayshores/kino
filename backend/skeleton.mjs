@@ -130,9 +130,9 @@ export function skeletonLine(skeleton) {
   const fastRuns = sections.slice(1).filter((section) => section.kind === "fast");
   const holds = sections.slice(1).filter((section) => section.kind === "hold");
   for (const section of fastRuns.slice(0, 2)) parts.push(describe(section));
-  if (fastRuns.length > 2) parts.push(`${fastRuns.length - 2} more fast runs`);
+  if (fastRuns.length > 2) parts.push(`${plural(fastRuns.length - 2, "more fast run")}`);
   for (const section of holds.slice(0, 2)) parts.push(describe(section));
-  if (holds.length > 2) parts.push(`${holds.length - 2} more holds`);
+  if (holds.length > 2) parts.push(`${plural(holds.length - 2, "more hold")}`);
   const change = skeleton.change;
   if (change) parts.push(change.hold ? `hold at the ${change.kind} ${s(change.at)} s` : change.cut ? `cut on the ${change.kind} ${s(change.at)} s` : `${change.kind} ${s(change.at)} s inside a ${s(shots[change.shot].len)} s shot`);
   const text = skeleton.text;
