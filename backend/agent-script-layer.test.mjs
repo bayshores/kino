@@ -35,7 +35,8 @@ const scriptOp = (name, marker, extra = {}) => ({ op: "add_layer", layerType: "s
 const fakeFrames = (scene, times, { width }) => times.map((time) => ({ width, height: Math.round(width * 9 / 16), pixels: new Uint8ClampedArray(width * Math.round(width * 9 / 16) * 4).fill(100),
   scriptIssues: scene.layers.filter((layer) => layer.type === "script").flatMap((layer) => {
     if (layer.script.includes("THROW") && time > 1) return [{ layerId: layer.id, kind: "error", message: `script layer "${layer.name}": ReferenceError: x is not defined at ${time.toFixed(2)} s (draw)` }];
-    return layer.script.includes("EMPTY") ? [{ layerId: layer.id, kind: "empty" }] : [];
+    // LATE: a reveal that draws nothing at the very start and something after.
+    return layer.script.includes("EMPTY") || (layer.script.includes("LATE") && time === 0) ? [{ layerId: layer.id, kind: "empty" }] : [];
   }) }));
 
 async function service(t, renderer = fakeRenderer(), { realChecks = false } = {}) {
@@ -151,7 +152,7 @@ test("a test draw that has not answered in time is skipped with one line, and a 
 
 test("check: a failing script layer is an error with the update_layer fix, an empty one a warning, and a waiver quiets the error", async (t) => {
   const { agent, edit } = await service(t, fakeRenderer(), { realChecks: true });
-  const added = await edit([scriptOp("bad", "THROW"), scriptOp("blank", "EMPTY")]);
+  const added = await edit([scriptOp("bad", "THROW"), scriptOp("blank", "EMPTY"), scriptOp("reveal", "LATE")]);
   assert.equal(added.isError, undefined, added.text);
   const failing = await agent.call("check", { project: "p", rules: ["script_layer_error"] });
   assert.match(failing.text, /script_layer_error/, failing.text);
@@ -162,6 +163,7 @@ test("check: a failing script layer is an error with the update_layer fix, an em
   const empty = await agent.call("check", { project: "p", rules: ["script_layer_empty"] });
   assert.match(empty.text, /blank/, empty.text);
   assert.match(empty.text, /drew nothing at 0 s, /);
+  assert.doesNotMatch(empty.text, /reveal/, "a layer that is empty only at its start is not warned about");
   // An error blocks a final render even in a draft-quality project (blocksFinal, the function the render asks); a warning only in a real edit.
   assert.equal(blocksFinal({ rule: "script_layer_error", severity: "error" }, false), true);
   assert.equal(blocksFinal({ rule: "script_layer_empty", severity: "warn" }, false), false);
