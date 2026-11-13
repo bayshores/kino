@@ -27,8 +27,8 @@ export default function setup(layer) {           // runs once; may be async
   since the layer showed, `duration` how long it shows, `progress` is `time / duration` (0 to 1).
 - With a 2D context the canvas is cleared and scaled by `pixelRatio` before every draw: draw one
   whole frame in layer pixels. With WebGL the canvas is only sized.
-- One module, at most 65,536 characters, with `export default`. No `import`: put everything
-  in this module. A syntax error is refused at save with its line and column.
+- One module, at most 65,536 characters, with `export default`. The only imports are the 3D
+  library and its model loader (the script-3d reference). A syntax error is refused at save.
 
 ## Inputs
 
@@ -44,6 +44,7 @@ export default function setup(layer) {           // runs once; may be async
 | `boolean` | `true` or `false` | a boolean | no |
 | `select` | one of `options` (2 to 24 texts) | text | no |
 | `image` | an imported picture's `src`, or `""` | a bitmap, or `null` | no |
+| `model` | an imported `.glb` file's `src`, or `""` | an `ArrayBuffer`, or `null` | no |
 
 ```text
 update_layer {layer:"bars", properties:{values:{reveal:0.5}}}    merges into values
@@ -60,8 +61,8 @@ that animation's name. Only number and color inputs animate.
 - The same frame gives the same pixels, in any order: seeking backward is normal. Work from
   `frame.time` and `frame.values`, never from what the last draw left.
 - `Math.random` is seeded again before every draw, and `Date.now` and `performance.now`
-  give `frame.time * 1000`. No network, storage or app access; timers end with the draw.
-- Limits: setup 5 s, one draw 2 s.
+  give `frame.time * 1000`. No network, storage, app access or `requestAnimationFrame`; timers
+  end with the draw. Limits: setup 5 s, one draw 2 s.
 
 ## What you hear when it fails
 

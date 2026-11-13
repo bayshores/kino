@@ -87,10 +87,10 @@ fill `<angle brackets>` with your words. A new video, idea first:
 - [captions-beats-sequences](references/captions-beats-sequences.md): captions, beats, cues.
 - [media](references/media.md): imports, cuts, speed, B-roll; [recording](references/recording.md): sync.
 - [framing](references/framing.md): crops; [screens](references/screens.md): UI; [tilt](references/tilt.md): 3D; [behaviors](references/behaviors.md).
-- [storyboard](references/storyboard.md): `look board`.
+- [storyboard](references/storyboard.md).
 - [sound](references/sound.md): ducking, voiceover; [library](references/sound-library.md): SFX, music; [lines](references/lines.md).
 - [color](references/color.md): grades; [cutout](references/cutout.md): cut-outs, track, pin.
-- [blur](references/blur.md), [light](references/light.md), [particles](references/particles.md): glow, fog; [code](references/script-layers.md): drawing.
+- [blur](references/blur.md), [light](references/light.md), [particles](references/particles.md); [code](references/script-layers.md), [3D](references/script-3d.md).
 - [check-and-look](references/check-and-look.md): findings; [motion](references/motion.md).
 - [ideas](references/ideas.md): story; [spine](references/spine.md): idea and lock.
 - [taste](references/taste.md): readability; [lettering](references/lettering.md).

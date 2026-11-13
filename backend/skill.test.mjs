@@ -138,6 +138,7 @@ const MEDIA_TESTS = {
   "Clip speed: slow motion, reverse, choppy": "backend/agent-volume.test.mjs",
   "Cutting and skipping inside a clip": "backend/agent-volume.test.mjs",
   "Color grading": "backend/agent-color.test.mjs",
+  "Example: a model that turns once": "backend/script-layer-export.test.mjs",
   "Subject cut-out": "backend/agent-cutout.test.mjs",
   "Follow an object": "backend/agent-cutout.test.mjs",
   "Steady shaky footage": "backend/agent-cutout.test.mjs",
