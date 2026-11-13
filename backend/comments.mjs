@@ -376,13 +376,35 @@ export function removeComment(comments, commentId, { actor = LOCAL_OWNER } = {})
 // layer, time or range, or the whole video), the first words, and how to answer it.
 export function commentInboxLine(comment, { document, comments = [] } = {}) {
   const root = comment.parentId ? comments.find((entry) => entry.id === comment.parentId) ?? { id: comment.parentId } : comment;
-  const scene = root.sceneId ? document?.scenes?.find((item) => item?.id === root.sceneId) : null;
+  return `${comment.parentId ? "reply" : "comment"} from ${comment.author} on ${commentWhere(root, document)} "${firstWords(comment.text)}" (answer: manage comments add {parentId:"${root.id}", text})`;
+}
+
+// Where a thread sits, in words: "Intro Logo @0.5-1.25", or "whole video".
+export function commentWhere(root, document) {
+  if (!root.sceneId) return "whole video";
+  const scene = document?.scenes?.find((item) => item?.id === root.sceneId);
   const layer = root.layerId ? scene?.layers?.find((item) => item?.id === root.layerId) : null;
   const when = root.time === undefined ? "" : `@${root.time}${root.timeEnd === undefined ? "" : `-${root.timeEnd}`}`;
-  const where = root.sceneId ? [scene?.name ?? root.sceneId, root.layerId ? layer?.name ?? root.layerId : "", when].filter(Boolean).join(" ") : "whole video";
-  const flat = comment.text.replace(/\s+/g, " ");
-  const words = flat.length > 80 ? `${flat.slice(0, 80).trimEnd()}...` : flat;
-  return `${comment.parentId ? "reply" : "comment"} from ${comment.author} on ${where} "${words}" (answer: manage comments add {parentId:"${root.id}", text})`;
+  return [scene?.name ?? root.sceneId, root.layerId ? layer?.name ?? root.layerId : "", when].filter(Boolean).join(" ");
+}
+
+function firstWords(text, limit = 80) {
+  const flat = String(text).replace(/\s+/g, " ");
+  return flat.length > limit ? `${flat.slice(0, limit).trimEnd()}...` : flat;
+}
+
+// The agent's comment list as short lines: each thread (id, open or resolved, who, where, first
+// words), its replies indented under it. The full records stay in the answer's data.
+export function commentListText(comments, document) {
+  const roots = comments.filter((comment) => !comment.parentId);
+  if (!roots.length) return "no comments";
+  const open = roots.filter((comment) => !comment.resolved).length;
+  const lines = [`${open} open, ${roots.length - open} resolved`];
+  for (const root of roots) {
+    lines.push(`${root.id}${root.resolved ? " resolved" : ""} ${root.author} on ${commentWhere(root, document)}: "${firstWords(root.text)}"`);
+    for (const reply of comments.filter((comment) => comment.parentId === root.id)) lines.push(`  ${reply.author}: "${firstWords(reply.text)}"`);
+  }
+  return lines.join("\n");
 }
 
 function optional(value, check) {
