@@ -17,6 +17,20 @@
 .panes.screening.list-open {
   grid-template-rows: [frame-start] minmax(120px, 0.9fr) [frame-end list-start] minmax(0, 1fr) [list-end voice-start] auto [voice-end controls-start] 40px [controls-end strip-start] auto [strip-end];
 }
+/* A wide window (Dashboard.jsx, WIDE_QUERY): the history is a column right of the frame, which
+   keeps its height. The side gutters narrow so the frame loses little width. The column takes the
+   width the frame cannot use (a tall frame leaves more), between 420 and 520 px. The frame's row
+   is as tall as the frame at that width, so the frame and the history start on one line and the
+   strip and the history end on one line; height left over is under both. --chrome: the top line, the agent's line, the controls, the strip. */
+.panes.screening.side {
+  --gutter: clamp(24px, 3vw, 48px);
+  --side-gap: 32px;
+  --chrome: 260px;
+  --side: clamp(420px, calc(100vw - 2 * var(--gutter) - var(--side-gap) - (100vh - var(--chrome)) * var(--stage-aspect, 1.7778)), 520px);
+  grid-template-columns: [full-start] var(--gutter) [center-start] minmax(0, 1fr) [center-end] var(--side-gap) [side-start] var(--side) [side-end] var(--gutter) [full-end];
+  grid-template-rows: [frame-start] minmax(0, calc((100vw - 2 * var(--gutter) - var(--side-gap) - var(--side)) / var(--stage-aspect, 1.7778))) [frame-end list-start list-end voice-start] auto [voice-end controls-start] 40px [controls-end strip-start] auto [strip-end] minmax(0, 1fr) [page-end];
+}
+.panes.screening.side.strip-open { --chrome: calc(208px + clamp(170px, 25vh, 320px)); }
 .panes.screening > .pane { border: 0; }
 /* A pane's title and facts are for screen readers here: the page shows no pane boxes. */
 .panes.screening > .pane > h2 {
@@ -215,35 +229,48 @@
 .screening.strip-open > .p-timeline > .pane-facts { display: flex; position: absolute; right: 0; bottom: 100%; margin: 0; height: 22px; background: none; }
 .screening.strip-open .scrub { display: none; }
 
-/* ---- the earlier lines: the agent pane as a list under the stepped-back frame ---- */
+/* ---- the history: the agent pane as a list, right of the frame on a wide window (.side) or
+   under the stepped-back frame (.list-open). Its tabs, rows and note box keep its two edges. ---- */
 .screening > .p-agent {
-  grid-row: list-start / list-end; grid-column: center; justify-self: center; width: min(100%, 620px); min-height: 0; margin-top: 10px;
+  grid-row: list-start / list-end; grid-column: center; width: 100%; min-width: 0; min-height: 0; margin-top: 10px;
   display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr);
   animation: list-in var(--panel) var(--ease-in) both;
 }
 @keyframes list-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+/* contain: a long view (the session) would otherwise make the rows it spans taller. */
+.panes.screening.side > .p-agent { grid-row: frame-start / strip-end; grid-column: side; margin-top: 0; contain: size; animation-name: side-in; }
+/* The session has no named place in this grid (dashboard.css gives it one in the old layout). */
+.screening .view-body > .p-session { grid-area: auto; }
+@keyframes side-in { from { opacity: 0; transform: translateX(12px); } to { opacity: 1; transform: none; } }
 .screening > .p-agent > .pane-facts { display: none; }
 .screening > .p-agent > .pane-body { grid-column: 1; padding: 0; overflow: hidden; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
 /* The views are chips on one row, the close button at its right end. */
-.screening .view-tabs { display: flex; align-items: center; gap: 2px; padding: 0; margin: 0 0 10px; border: 0; background: none; height: 32px; }
-.screening .view-tabs .view-tab {
-  height: 28px; font-size: 13px; padding: 0 12px; border: 0; border-radius: 0; color: var(--fg1); font-weight: 500; text-transform: none;
+.screening > .p-agent.live-pane .view-tabs { display: flex; align-items: center; gap: 2px; padding: 0; margin: 0 0 10px; border: 0; background: none; height: 32px; }
+.screening > .p-agent.live-pane .view-tabs .view-tab {
+  height: 28px; font-size: 13px; padding: 0 10px; border: 0; border-radius: 0; color: var(--fg1); font-weight: 500; text-transform: none;
   display: inline-flex; align-items: center; gap: 6px; transition: color var(--quick) var(--ease-in), background-color var(--quick) var(--ease-in);
 }
-.screening .view-tabs .view-tab:hover { color: var(--fg0); background: var(--bg1); }
-.screening .view-tabs .view-tab[aria-selected="true"] { background: var(--solid); color: var(--on-solid); font-weight: 700; box-shadow: none; }
+.screening > .p-agent.live-pane .view-tabs .view-tab:hover { color: var(--fg0); background: var(--bg1); }
+.screening > .p-agent.live-pane .view-tabs .view-tab[aria-selected="true"] { background: var(--solid); color: var(--on-solid); font-weight: 700; box-shadow: none; }
 .screening .view-tab .tab-count { min-width: 16px; height: 16px; padding: 0 4px; display: inline-grid; place-items: center; background: var(--yellow); color: var(--on-yellow); font-family: var(--mono-ui); font-size: 10px; }
-.screening .view-close { margin-left: auto; width: 28px; height: 28px; color: var(--fg1); }
+.screening .view-close { flex: none; margin-left: auto; width: 28px; height: 28px; color: var(--fg1); }
 .screening .view-close:hover { color: var(--fg0); background: var(--bg1); }
 .screening .view-body { min-height: 0; overflow: auto; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
 /* A call: the time (mono), the tool, the words; the row under the pointer is filled. */
 .screening .agent-view { padding: 0; grid-template-rows: auto minmax(0, 1fr) auto; height: 100%; }
 .screening .agent-head { display: none; }
 .screening .agent-log { overflow: auto; }
-.screening .agent-call { padding: 0 10px; }
+/* The words start under the tabs' words; the button at the right end sits under the close button. */
+.screening .agent-call { padding: 0 2px 0 10px; }
 .screening .agent-call:hover, .screening .agent-call.current { background: var(--bg2); }
-.screening .call-line { min-height: 38px; align-items: center; grid-template-columns: 7ch 16px minmax(0, 1fr) 5ch 24px; column-gap: 12px; }
-.screening .agent-log.has-spans .call-line { grid-template-columns: 13ch 16px minmax(0, 1fr) 5ch 24px; }
+/* The tool, the words, then at the right end the result, the time and the button that opens the
+   call's facts. The time is as wide as it reads ("22:27" or "22:27–22:30"), so no row has a gap. */
+.screening .call-line { min-height: 38px; align-items: center; grid-template-columns: 16px minmax(0, 1fr) auto auto 24px; column-gap: 10px; }
+.screening .agent-log.has-spans .call-line { grid-template-columns: 16px minmax(0, 1fr) auto auto 24px; }
+.screening .call-line > * { grid-row: 1; }
+.screening .call-line > .call-verb { grid-column: 1; }
+.screening .call-line > .call-text { grid-column: 2; }
+.screening .call-line > .call-time { grid-column: 4; }
 .screening .agent-call.has-more .call-line { cursor: pointer; }
 .screening .call-time { font-family: var(--mono-ui); font-size: 12px; color: var(--fg2); }
 .screening .call-verb { display: inline-grid; place-items: center; color: var(--fg1); }
@@ -263,10 +290,11 @@
 .screening .agent-why { display: none; }
 .screening .call-verb.v-write { color: var(--fg0); font-weight: 600; }
 .screening .call-result { font-family: var(--mono-ui); font-size: 12px; color: var(--fg1); }
-.screening .call-details { font-family: var(--mono-ui); font-size: 11px; color: var(--fg1); padding: 0 0 10px calc(7ch + 40px); }
+.screening .call-details, .screening .agent-log.has-spans .call-details { font-family: var(--mono-ui); font-size: 11px; color: var(--fg1); padding: 0 0 10px 26px; }
 .screening .agent-why { padding: 8px 10px; color: var(--fg1); }
 /* The note box at the list's foot. */
-.screening .note-box { margin-top: 10px; background: var(--well); border: 0; box-shadow: inset 0 0 0 1px var(--line); }
+.screening .note-box { margin: 10px 0 0; background: var(--well); border: 0; box-shadow: inset 0 0 0 1px var(--line); }
+.screening.list-open .note-box { margin-bottom: 10px; }
 
 @media (max-width: 1339px) {
   .panes.screening { --gutter: 56px; }
@@ -398,9 +426,7 @@
 .dash .check-ask { margin: 2px 10px 12px calc(9ch + 50px); min-height: 32px; }
 .dash .check-none, .dash .check-note { padding: 0 10px; overflow-wrap: anywhere; }
 
-/* ---- the looks: the pictures the agent saw as a grid the width of the frame ---- */
-.screening > .p-agent:has(.p-seen) { width: 100%; }
-.screening > .p-agent .view-tabs, .screening > .p-agent .note-box { width: min(100%, 620px); margin-inline: auto; box-sizing: border-box; }
+/* ---- the looks: the pictures the agent saw as a grid the width of the history ---- */
 /* A picture brought into view (Tab, the arrow keys) stops under the facts line, which stays at the top. */
 .screening .p-seen.view-panel { padding: 0; scroll-padding: 40px 0 6px; }
 .screening .seen-facts { position: sticky; top: 0; z-index: 1; background: var(--bg0); padding: 0 2px 8px; align-items: center; gap: 12px; margin: 0; font-family: var(--mono-ui); font-size: 11px; color: var(--fg2); }
@@ -428,7 +454,7 @@
 .screening .seen-none { margin: 24px 0; text-align: center; color: var(--fg1); }
 /* Words on the frame's own controls start with a capital. */
 .screening .transport-view .tb, .screening #stage-zoom { text-transform: capitalize; }
-.screening .call-line > .call-result { grid-column: 4; }
+.screening .call-line > .call-result { grid-column: 3; }
 .screening .call-line > .call-more { grid-column: 5; }
 /* A finished render is said on the line under the frame, so its chip on the frame is not shown too. */
 .screening .live-dock.done { display: none; }
@@ -455,6 +481,7 @@
 .panes.screening.zoomed > .p-stage.is-zoomed { grid-area: frame-start / full-start / strip-end / full-end; }
 .panes.screening.zoomed > .p-agent.is-zoomed { grid-area: frame-start / center-start / list-end / center-end; width: 100%; }
 .panes.screening.zoomed > .p-timeline.is-zoomed { grid-area: frame-start / center-start / list-end / center-end; height: auto; margin-top: 0; }
+.panes.screening.side.zoomed > .p-agent.is-zoomed { grid-area: frame-start / center-start / page-end / side-end; }
 
 /* The session list's one button (open or close every section) sits at its top right. */
 .dash .screening .p-session .session-facts { display: block; position: relative; z-index: 1; height: 0; padding: 0; margin: 0; }
@@ -465,6 +492,8 @@
 /* ---- a look at full size: the looks take the frame's room too. The picture fills it, and the
    pictures are one row under it. ---- */
 .panes.screening.seen-open > .p-agent { grid-row: frame-start / list-end; z-index: 5; margin-top: 0; background: var(--bg0); }
+/* Beside the frame, an enlarged look takes the frame's place too. */
+.panes.screening.side.seen-open > .p-agent { grid-area: frame-start / center-start / page-end / side-end; }
 .screening.seen-open .seen-full { margin: 0 0 10px; animation: fade-in var(--panel) var(--ease-out) both; }
 .screening.seen-open .seen-full img { object-position: center; }
 .screening.seen-open .seen-full figcaption { padding-top: 6px; text-align: center; font-family: var(--mono-ui); font-size: 11px; color: var(--fg1); }

@@ -195,13 +195,28 @@ after(async () => {
 
 test("the dashboard is the default view at /, with real frames from the export renderer", async () => {
   await open();
-  // One column: the stage and the timeline strip are the two panes; the list of calls (the agent
-  // pane) is closed until opened. One pane has the focus frame.
-  const titles = await browser.evaluate(paneTitles);
-  assert.equal(titles.length, 2, JSON.stringify(titles));
+  // A wide window: the stage, the history (the agent pane) right of the frame, and the timeline
+  // strip. One pane has the focus frame.
+  let titles = await browser.evaluate(paneTitles);
+  assert.equal(titles.length, 3, JSON.stringify(titles));
   assert.equal(titles.filter((title) => title.focused).length, 1, JSON.stringify(titles));
   assert.match(titles[0].text, /^stage/);
-  assert.match(titles[1].text, /^timeline/);
+  assert.match(titles[2].text, /^timeline/);
+  // The history starts on the frame's top line, right of it, and ends on the strip's bottom line.
+  const box = (selector) => `(() => { const at = ${q(selector)}.getBoundingClientRect(); return { left: at.left, right: at.right, top: at.top, bottom: at.bottom }; })()`;
+  await browser.waitFor(`${q(".screening .stage")}?.getBoundingClientRect().width > 0`, { what: "the frame drawn" });
+  const [frameAt, historyAt, stripAt] = [await browser.evaluate(box(".screening .stage")), await browser.evaluate(box(".p-agent")), await browser.evaluate(box(".p-timeline"))];
+  assert.ok(historyAt.left > frameAt.right, `the history is right of the frame: ${JSON.stringify({ frameAt, historyAt })}`);
+  assert.ok(Math.abs(historyAt.top - frameAt.top) < 1.5 && Math.abs(historyAt.bottom - stripAt.bottom) < 1.5, `the history keeps the frame's top and the strip's bottom: ${JSON.stringify({ frameAt, historyAt, stripAt })}`);
+  // Its close button is the one control that closes it; closed, "History" beside the agent's line opens it.
+  assert.equal(await browser.evaluate(`!!${q('button[aria-label="Earlier lines"]')}`), false, "no second button while the history is open");
+  await browser.click(q(".p-agent .view-close"));
+  await browser.waitFor(`!document.querySelector("#tab-agent") && !!${q('button[aria-label="Earlier lines"]')}`, { what: "the history closed" });
+  titles = await browser.evaluate(paneTitles);
+  assert.equal(titles.length, 2, JSON.stringify(titles));
+  // Closed stays closed after a reload (kept in this browser).
+  await open();
+  await browser.waitFor(`!!${q('button[aria-label="Earlier lines"]')}`, { what: "the history still closed" });
   assert.equal(await browser.evaluate(`!!document.querySelector("#tab-agent")`), false, "the list is closed");
   // Under the frame: the agent's line, in a sentence.
   assert.ok(await browser.evaluate(textOf(".voice-line")).then((text) => text.trim().length > 0), "the agent's line says something");
@@ -1128,8 +1143,7 @@ test("stage zoom: the zoom menu draws the frame at 200% in a box that scrolls, a
 
 test("the status line's check counts are a button that opens the checks view", async () => {
   await open();
-  // The list is closed until it is opened: the clock button beside the agent's line opens it.
-  await browser.click(q('button[aria-label="Earlier lines"]'));
+  // On a wide window the history is open, on the activity view.
   await browser.waitFor(`${q("#tab-agent")}?.getAttribute("aria-selected") === "true"`, { what: "the activity view" });
   const counts = q(".statusline .s-checks");
   await browser.waitFor(`/^Checks: \\d+ errors?, \\d+ warnings?$/.test(${counts}?.innerText.trim() ?? "")`, { what: "the check counts" });
@@ -1231,6 +1245,8 @@ test("the film strip: the pictures are a grid that scrolls down, and a picture p
     await browser.send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: false });
     await browser.waitFor(`innerWidth === ${width}`);
     await sleep(300);
+    // A window too narrow for the history beside the frame closes it; opened again, it is under the frame.
+    if (!(await browser.evaluate(`!!${strip}`))) await showView("seen", { focus: false });
     const grid = await browser.evaluate(layout);
     assert.ok(grid.widthSpread < 1.5 && grid.heightSpread < 1.5, `one card size in a ${width}-wide window: ${JSON.stringify(grid)}`);
     assert.ok(grid.perRow >= 2 && grid.rows >= 2, `rows of at least two cards, more than one row: ${JSON.stringify(grid)}`);
@@ -2425,9 +2441,9 @@ test("a video under an effect plays with a new captured picture about every fram
 test("at 1100×760 and 1280×800 the log ends on a whole row, shows its scroll bar and keeps the newest turn in view; j and k keep the picked turn in view; the stage's facts keep the rev number", async () => {
   const made = await agent("project", { action: "create", id: "turns", name: "Turns", width: 1920, height: 1080, duration: 4 });
   assert.equal(made.isError, undefined, made.text);
-  // 24 turns (a row is about 20 px and the log about 370 px tall at 800 px, so some 19 rows show):
-  // a note between two edits starts a new turn.
-  for (let index = 1; index <= 24; index++) {
+  // 30 turns (a row is about 20 px and the log, right of the frame at 1280×800, about 490 px tall,
+  // so some 24 rows show): a note between two edits starts a new turn.
+  for (let index = 1; index <= 30; index++) {
     const edited = await agent("edit", { project: "turns", ops: [{ op: "add_layer", layerType: "rectangle", name: `box ${index}`, properties: { x: 20 * index, y: 20 * index, width: 100, height: 60, fill: "#336699", radius: 0 } }] });
     assert.equal(edited.isError, undefined, edited.text);
     const noted = await agent("notes", { project: "turns", action: "add", text: `turn ${index} done` });
@@ -2459,7 +2475,7 @@ test("at 1100×760 and 1280×800 the log ends on a whole row, shows its scroll b
       // The stage has the focus (as after a load), so the log is not the list j and k move in.
       await browser.key("1");
       await browser.waitFor(`document.activeElement?.dataset?.pane === "1"`, { what: "pane 1" });
-      await browser.waitFor(`${onProject("turns")} && document.querySelectorAll("#panel-log .log-row").length >= 24`, { what: `the turns project's log at ${width}×${height}` });
+      await browser.waitFor(`${onProject("turns")} && document.querySelectorAll("#panel-log .log-row").length >= 30`, { what: `the turns project's log at ${width}×${height}` });
       const shown = await browser.evaluate(log);
       assert.ok(shown.scroll > shown.client + 19, `more rows than fit at ${width}×${height}: ${JSON.stringify(shown)}`);
       assert.equal(shown.cut, 0, `no row cut in half at ${width}×${height}: ${JSON.stringify(shown)}`);
@@ -2555,7 +2571,9 @@ test("at 1100×760 and 1280×800 the log ends on a whole row, shows its scroll b
     await wheel(3000);
     const following = await newTurnInLog();
     assert.ok(following.atEnd, `at its end, the log follows a new turn: ${JSON.stringify(following)}`);
-    assert.ok((await browser.evaluate(newest)).inView, "the newest turn is in view");
+    // Waited for, as above: the wheel's own scrolling may still be settling when the turn comes.
+    const lastNow = await browser.waitFor(`(() => { const now = ${newest}; return now.inView ? now : null; })()`, { what: "the newest turn in view after the wheel" });
+    assert.ok(lastNow.inView, JSON.stringify(lastNow));
   } finally {
     await browser.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
     await agent("project", { action: "open", id: "orbit" });
