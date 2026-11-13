@@ -7,6 +7,7 @@ import { agentSession } from "./agent/agent-session.mjs";
 import { connectAgentClient, createAgentClient, DEFAULT_URL } from "./agent/client.mjs";
 import { AGENT_INSTRUCTIONS, compactToolList, registerAgentTools } from "./agent/tools.mjs";
 import { followServerTools } from "./agent/tool-sync.mjs";
+import { registerPreviewResource } from "./agent/chat-preview.mjs";
 
 // MOTION_API_URL points the tools at another kino server (tests, a second copy).
 const apiUrl = new URL(process.env.MOTION_API_URL || "http://127.0.0.1:4781");
@@ -35,6 +36,8 @@ export function createKinoMcpServer({ client, channels = false } = {}) {
   // After kino is updated, this process reloads the newer tools (agent/tool-sync.mjs).
   followServerTools(server, agent);
   registerAgentTools(server, agent);
+  // The page chat apps with MCP Apps show beside a render answer (agent/chat-preview.mjs).
+  registerPreviewResource(server);
   return server;
 }
 

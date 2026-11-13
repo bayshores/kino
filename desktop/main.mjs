@@ -99,7 +99,8 @@ if (!app.requestSingleInstanceLock()) {
     return true;
   }
   // macOS can deliver a cold-start URL before ready or any async initialization.
-  app.on("open-url", (event, value) => { event.preventDefault(); queueLink(value); });
+  // A bare kino://open (the chat preview's button) carries no file: it only brings kino forward.
+  app.on("open-url", (event, value) => { event.preventDefault(); if (!queueLink(value) && value === "kino://open") bringForward(); });
   for (const value of process.argv) if (value.startsWith("kino:")) queueLink(value);
 
   function trustedSender(event) {
@@ -478,10 +479,14 @@ if (!app.requestSingleInstanceLock()) {
   app.on("second-instance", (_event, argv) => {
     const link = argv.find((value) => value.startsWith("kino:"));
     if (link && queueLink(link)) return;
+    bringForward();
+  });
+  // Shows the first window, or opens the editor once the service is ready (as the Dock icon does).
+  function bringForward() {
     const window = [...windows][0];
     if (window) { if (window.isMinimized()) window.restore(); window.show(); window.focus(); }
     else if (origin && serviceStatus === "ready") openEditor();
-  });
+  }
   app.on("activate", () => { if (!windows.size && origin && serviceStatus === "ready") openEditor(); });
   app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
   app.on("before-quit", (event) => {

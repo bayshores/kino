@@ -11,6 +11,7 @@ import { importedText } from "./client.mjs";
 import { closest } from "./refs.mjs";
 import { call, callText, missingFieldCall } from "./next-call.mjs";
 import { LIBRARY_TOPICS, NOTES_ACTIONS, SEARCH_KINDS } from "./actions.mjs";
+import { PREVIEW_URI, withRenderPreview } from "./chat-preview.mjs";
 
 /**
  * The most the ten tool definitions may cost an agent, in estimated Claude tokens: the JSON of
@@ -70,7 +71,7 @@ export const AGENT_TOOLS = withSaid([
     alwaysLoad: true,
     description: "Read the open motion project as an outline: one line per layer: name, code (L1), type, position, size, look, animations (A1 in fade 0.2–0.8); layers already read are only counted. Also: direction, step and deck (trust them over memory), the plan, check counts, the person's notes (inbox). No project open: lists projects.",
     input: {
-      project: z.string().optional().describe("Project id or name; default: the open project"),
+      project: z.string().optional().describe("Id or name; default: the open one"),
       scene,
       page: z.number().int().min(1).optional(),
       full: z.boolean().optional().describe("Repeat unchanged layers"),
@@ -85,7 +86,7 @@ export const AGENT_TOOLS = withSaid([
     // by the SDK, the edit had no ops at all.
     keepUnknownKeys: true,
     description: [
-      "Change the motion project (layers, animations, scenes) with a list of operations, saved as one revision. The receipt: new names, codes, changes, check counts.",
+      "Change the motion project (layers, animations, scenes) with a list of ops, saved as one revision. The receipt: new names, codes, changes, check counts.",
       "Each op is {op, ...fields}; refer to things by name, code (L3, s1, A2) or layer.kind (title.in); one scene needs no sceneId.",
       "Common ops: add_layer {layerType:rectangle|ellipse|text|image|video|audio|group|script, name, properties:{x,y,width,height,fill,text,fontSize}} · update_layer {layer, properties} · delete_layer · add_animation {layer, preset, start, duration} (preset-fade, move, …) · set_font {layers, family, weight}",
       "library {topic:\"op\", name} gives exact fields. A refused edit saves nothing; resend it fixed: {retry:\"E1\", fix:{\"3\":{fields}}}.",
@@ -94,7 +95,7 @@ export const AGENT_TOOLS = withSaid([
       ops: z.array(z.record(z.string(), z.any())).min(1).max(200).optional().describe("add_layer may hold animations:[{preset, start, duration}]. compose {format, look, duration, beats:[{recipe, text}]} builds a scene, format {name, slots} a whole video; recipe, move, place/align/stack/fit, set_brand, set_cue, variants, templates, retime: library blocks. at: seconds, \"after:x\", \"with:x+0.1\", \"cue:x\", \"auto\"."),
       retry: z.string().max(16).optional().describe("A refused edit's code: send its ops again"),
       fix: z.record(z.string(), z.any()).optional().describe("With retry: op number → fields to change (null removes one), a whole op, or null to drop it"),
-      rev: z.number().int().min(1).optional().describe("The rev you read: the edit is rebased, or refused if it no longer applies"),
+      rev: z.number().int().min(1).optional().describe("The rev you read: rebased, or refused if it no longer applies"),
       project,
       dry_run: z.boolean().optional().describe("Plan: the receipt, nothing saved"),
       request_id: z.string().max(128).optional().describe("Repeat-safe: the same id is saved once"),
@@ -116,7 +117,7 @@ export const AGENT_TOOLS = withSaid([
       fix: z.literal("auto").optional(),
       rules: z.union([z.literal(true), z.array(z.string()).max(40)]).optional(),
       pixels: z.boolean().optional(),
-      fps: fps.optional().describe("Output frame rate to judge judder at (default 30)"),
+      fps: fps.optional().describe("Frame rate to judge judder at (default 30)"),
     },
   },
   {
@@ -175,6 +176,8 @@ export const AGENT_TOOLS = withSaid([
     // A draft's width, height or size given beside quality (not in options) is not listed (the tool
     // list's budget): keepUnknownKeys passes it to the service, which reads it as options.
     keepUnknownKeys: true,
+    // Chat apps with MCP Apps show the finished video beside the answer (chat-preview.mjs).
+    preview: true,
     description: "Export: start, wait (checked, 55s), status, queue, cancel. draft: half size/30fps; preview:fast: 640px/15fps. from/to: draft excerpt. final: full size, gated. awaiting_approval: wait {job:id}. More: library rules render.",
     input: {
       action: z.enum(["start", "wait", "status", "cancel", "queue"]).optional(),
@@ -189,7 +192,7 @@ export const AGENT_TOOLS = withSaid([
       scene,
       fps: fps.optional(),
       job: z.string().optional(),
-      wait: z.boolean().optional().describe("start: answer once files are checked"),
+      wait: z.boolean().optional().describe("start: answer with checked files"),
       out: z.string().optional().describe("Absolute folder"),
       project,
     },
@@ -230,7 +233,7 @@ export const AGENT_TOOLS = withSaid([
     // A key the schema does not name still reaches the service, which refuses it for brief: a
     // typo such as "field" must not turn a save into a read (the SDK drops unknown keys otherwise).
     keepUnknownKeys: true,
-    description: "Plan and notes the person sees. set_plan {steps}, then {done:[2]}; list; reply {id, text}; resolve {id}; add {text}; keep {id, layers} ties layers to a note; brief {fields?, log?, no_playback?}; deck {reroll|swap}; checkpoint {id} asks a stop; answer {id, rev, words, read_as, rejected?}; helper {text}; release; judge: blind picks vs references or videos:[[a,b]]. intents {beats:[{from,to,intent}]}; viewer {rev, report, matches, bugs}; critique {rev, lines, +matches, bugs if carried}; verdict {of, rev, words, best}: their verdict, best = bar; needs {items:[{what,why,ask,options}]} or {id, answer|status}: missing material.",
+    description: "Plan and notes the person sees. set_plan {steps}, then {done:[2]}; list; reply {id, text}; resolve {id}; add {text}; keep {id, layers} ties layers to a note; brief {fields?, log?, no_playback?}; deck {reroll|swap}; checkpoint {id} asks a stop; answer {id, rev, words, read_as, rejected?}; helper {text}; release; judge: blind picks vs references or videos:[[a,b]]. intents {beats:[{from,to,intent}]}; viewer {rev, report, matches, bugs}; critique {rev, lines, +matches, bugs if carried}; verdict {of, rev, words, best}: theirs, best = bar; needs {items:[{what,why,ask,options}]} or {id, answer|status}: missing material.",
     input: {
       // helper's may ("all" or "look") is not listed: keepUnknownKeys passes it to the service.
       action: z.enum(NOTES_ACTIONS).optional(),
@@ -430,7 +433,8 @@ export async function runAgentTool(server, client, name, input, context) {
       const media = await client.importFile(input.file, { signal: context?.signal, client: clientName, input });
       return toolResult(media.refused ?? media.reply ?? { text: importedText(media) });
     }
-    return toolResult(await client.call(name, withHomeFolders(name, input), { signal: context?.signal, client: clientName }));
+    const reply = await client.call(name, withHomeFolders(name, input), { signal: context?.signal, client: clientName });
+    return name === "render" ? await withRenderPreview(server, reply, toolResult(reply)) : toolResult(reply);
   } catch (error) {
     return toolResult({ isError: true, text: error instanceof Error ? error.message : String(error) });
   }
@@ -444,8 +448,12 @@ export function registerAgentTools(server, client) {
       description: tool.description,
       inputSchema: tool.keepUnknownKeys ? z.looseObject(tool.input) : tool.input,
       annotations: tool.hints,
-      // Claude Code loads these four up front instead of behind tool search.
-      ...(tool.alwaysLoad ? { _meta: { "anthropic/alwaysLoad": true } } : {}),
+      // Claude Code loads these four up front instead of behind tool search. A tool with a
+      // preview names its MCP Apps page (only the newer ui.resourceUri key: the list's budget).
+      ...(tool.alwaysLoad || tool.preview ? { _meta: {
+        ...(tool.alwaysLoad ? { "anthropic/alwaysLoad": true } : {}),
+        ...(tool.preview ? { ui: { resourceUri: PREVIEW_URI } } : {}),
+      } } : {}),
     }, (input, context) => runAgentTool(server, client, tool.name, input, context));
   }
 }
