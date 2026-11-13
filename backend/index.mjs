@@ -1088,7 +1088,7 @@ function projectUnavailable(id, state) {
 async function commentToAgent(projectId, comment) {
   const { document, comments } = await store.getProject(projectId);
   const text = commentInboxLine(comment, { document, comments });
-  await agentState.update(projectId, (state) => { state.inbox.push({ kind: "comment", commentId: comment.id, text }); });
+  await agentState.update(projectId, (state) => { state.inbox.push({ kind: "comment", commentId: comment.id, threadId: comment.parentId ?? comment.id, text }); });
   dashboard.publish({ type: "comment", projectId, comment: { id: comment.id, parentId: comment.parentId, text } });
 }
 

@@ -1191,8 +1191,9 @@ export function Dashboard() {
     const where = [scene ? `on ${scene}` : null, comment.time != null ? `at ${clock(comment.time)}` : null].filter(Boolean).join(" ");
     const thread = [`${comment.author || "Guest"}: ${comment.text}`, ...replies.map((reply) => `${reply.author || "Guest"}: ${reply.text}`)].join("\n");
     try {
+      // comment: the note replaces the thread's comment lines still waiting in the agent's inbox.
       const note = await sendNote(`A comment from a share link${where ? ` ${where}` : ""}:\n${thread}`.slice(0, 2000), {
-        ...(comment.sceneId && scene ? { scene: comment.sceneId } : {}), ...(comment.time != null && scene ? { t: comment.time } : {}),
+        comment: comment.id, ...(comment.sceneId && scene ? { scene: comment.sceneId } : {}), ...(comment.time != null && scene ? { t: comment.time } : {}),
       });
       say(`${note?.id ?? "Note"}: sent ${comment.author || "Guest"}'s comment to the agent.`);
     } catch (cause) { fail(cause); }

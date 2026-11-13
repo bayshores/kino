@@ -7152,6 +7152,10 @@ export function createAgentService(deps) {
           ...(sceneId ? { sceneId } : {}), ...(area ? { area } : {}), ...(urgent ? { urgent } : {}) };
         state.notes.push(note);
         state.turnBreak = true;
+        // A share-link comment the person sends on as a note (the dashboard's "send to agent",
+        // comment: its thread's id): the note's line takes the place of the thread's waiting
+        // comment lines (commentToAgent in index.mjs), so one comment is one line.
+        if (typeof input.comment === "string") state.inbox = state.inbox.filter((item) => item.kind !== "comment" || item.threadId !== input.comment);
         state.inbox.push({ kind: "note", noteId: note.id, text: `${note.id} note${where} "${text}"${replyHint(note.id)}` });
         return note;
       });
