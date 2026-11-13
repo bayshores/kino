@@ -371,6 +371,11 @@ export async function launchApp({ dataDir, logFile, hidden = false }) {
   return { pid: child.pid, profileDir, runtimeFile, hidden: false, close: async () => { try { process.kill(child.pid, "SIGTERM"); } catch { /* gone */ } } };
 }
 
+/** Whether the process `pid` is gone (the person quit the app, or it crashed). `signal` is injectable for tests. */
+export function processGone(pid, signal = (id) => process.kill(id, 0)) {
+  try { signal(pid); return false; } catch (error) { return error?.code !== "EPERM"; }
+}
+
 // Where the app's kino server is now, from the runtime file the app writes (origin and owner
 // token). Read again each time: a restarted service has a new port and token. null: not there.
 export async function appConnection(runtimeFile) {
@@ -653,7 +658,7 @@ async function main() {
   await mkdir(looksDir, { recursive: true });
   const calls = [];
   const stops = [];
-  let sessionId = null, message = prompt, made = null, openStop = null, snapshotFailures = 0;
+  let sessionId = null, message = prompt, made = null, openStop = null, snapshotFailures = 0, appClosed = false;
   // Person mode: every wait for the person (run.json person.waits), and whether the watch happened.
   const waits = [];
   let watchStarted = false, watchEnded = false, personReplies = 0;
@@ -676,6 +681,8 @@ async function main() {
       console.log(`  turn ${calls.length}: ${call.turns} steps, $${call.cost.toFixed(2)}, ${made ? `mp4 ${made.final ? "final" : "draft"}` : "no mp4"}; ${call.finalMessage.replace(/\s+/g, " ").slice(0, 160)}`);
       if ((!person && made?.final) || call.timedOut || Date.now() >= deadline || !sessionId) break;
       if (calls.length > replyLimit) break;
+      // The app was quit (or crashed): no one can pick or watch, and "your call" would let the agent go on without it.
+      if (app && !app.hidden && processGone(app.pid)) { appClosed = true; console.log("  the kino app was closed: the run ends here"); break; }
       // A stop kino holds for the person gets a person's reply; every other turn end is "your call".
       const turnEnd = Date.now();
       const snapshot = await readSnapshot(await connection());
@@ -741,7 +748,7 @@ async function main() {
     // In person mode a pick or watch the person answered is a reply too (person.waits), and not "your call".
     finalMessage: last.finalMessage ?? "", replies: calls.length - 1, replyText: REPLY, yourCallReplies: calls.length - 1 - stops.length - personReplies, stops, snapshotFailures,
     // The person's time, measured: each wait for a pick or a watch, its seconds, and whether it ran out.
-    person: person ? { mode: true, waits } : { mode: false },
+    person: person ? { mode: true, waits, ...(appClosed ? { appClosed: true } : {}) } : { mode: false },
     // A resumed session's total_cost_usd is the whole session's so far, so the run's cost is the largest.
     costUsd: Math.round(Math.max(0, ...calls.map((call) => call.cost ?? 0)) * 100) / 100,
     check, calls, sessionId, transcript: path.join(runDir, "transcript.jsonl"), serverLog: path.join(runDir, person ? "app.log" : "server.log"),
@@ -749,6 +756,7 @@ async function main() {
   await writeFile(path.join(runDir, "run.json"), JSON.stringify(result, null, 2) + "\n");
   console.log(`${path.join(runDir, "run.json")}\n  mp4: ${result.mp4 ?? "none"} (${result.mp4Final ? "final" : "not final"}), ${seconds} s, $${result.costUsd}, ${result.replies} replies (${stops.length} to stops, ${result.yourCallReplies} "${REPLY}"${person ? `, ${personReplies} to your picks and watch` : ""})`);
   if (app?.hidden) { await app.close(); console.log("  the hidden test app is closed."); }
+  else if (app && processGone(app.pid)) console.log("  the kino app is closed.");
   else if (app) console.log(`  the kino app stays open (pid ${app.pid}), in case you are still watching. Close it with Cmd+Q in the app, or: kill ${app.pid}\n  Its temporary profile (${app.profileDir}) is removed when it exits.`);
 }
 
