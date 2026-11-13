@@ -270,7 +270,7 @@ test("a first pass gives its agent kino's MCP server like `kino setup` (private 
 
 test("person mode starts the kino app from this checkout on the run's data folder, with a profile of its own", () => {
   const spec = appCommand({ repoRoot: "/repo", dataDir: "/runs/a/data", profileDir: "/tmp/profile-1", electronPath: "/repo/node_modules/electron/dist/Electron" });
-  assert.deepEqual(spec, { command: "/repo/node_modules/electron/dist/Electron", args: ["/repo", "--user-data-dir=/tmp/profile-1"], env: { MOTION_DATA_DIR: "/runs/a/data" } });
+  assert.deepEqual(spec, { command: "/repo/node_modules/electron/dist/Electron", args: ["/repo", "--user-data-dir=/tmp/profile-1"], env: { MOTION_DATA_DIR: "/runs/a/data", KINO_CONTINUE: "0" } });
   assert.equal(agentStateFile("/runs/a/data", "kino fp9"), path.join("/runs/a/data", "agent", "projects", "kino%20fp9.json"), "the project's agent state, where the app keeps the person's reactions");
 });
 

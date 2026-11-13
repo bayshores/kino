@@ -117,7 +117,8 @@ export function createResumer({ agentState, directory, publish = () => {}, proje
   /** {possible, run}: whether Continue can start the project's agent here, and its last run. */
   async function view(projectId) {
     const session = PROJECT.test(projectId ?? "") ? await stored(projectId) : null;
-    const possible = Boolean(session && isFolder(session.folder) && findProgram(session.app, env));
+    // KINO_CONTINUE=0 turns Continue off (a test run whose own runner answers the agent).
+    const possible = Boolean(env.KINO_CONTINUE !== "0" && session && isFolder(session.folder) && findProgram(session.app, env));
     return { possible, run: shown(runs.get(projectId)) };
   }
 
@@ -165,7 +166,7 @@ export function createResumer({ agentState, directory, publish = () => {}, proje
   async function start(projectId) {
     if (!PROJECT.test(projectId ?? "")) throw new Error("Continue needs a project id.");
     if (alive(runs.get(projectId))) return view(projectId);
-    const session = await stored(projectId);
+    const session = env.KINO_CONTINUE === "0" ? null : await stored(projectId);
     if (!session) return failed(projectId, "kino does not know your agent's chat for this project.");
     const program = findProgram(session.app, env);
     if (!program) return failed(projectId, `The ${APPS[session.app].command} command was not found on this computer.`);

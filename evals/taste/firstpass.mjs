@@ -264,9 +264,12 @@ export async function pollUntil(check, { limitMs, everyMs = POLL_MS, now = Date.
 /** One line of run.json's person.waits. */
 export const waitEntry = (kind, wait) => ({ kind, seconds: wait.seconds, timedOut: wait.timedOut });
 
-/** What the app is started with: the electron program, its arguments and the one env var it needs. */
+/**
+ * What the app is started with: the electron program, its arguments, its data folder, and Continue
+ * turned off (this runner answers the agent; the app must not start the agent's chat a second time).
+ */
 export function appCommand({ repoRoot, dataDir, profileDir, electronPath }) {
-  return { command: electronPath, args: [repoRoot, `--user-data-dir=${profileDir}`], env: { MOTION_DATA_DIR: dataDir } };
+  return { command: electronPath, args: [repoRoot, `--user-data-dir=${profileDir}`], env: { MOTION_DATA_DIR: dataDir, KINO_CONTINUE: "0" } };
 }
 
 /** The file the app keeps a project's agent state in (backend/agent/state.mjs). */

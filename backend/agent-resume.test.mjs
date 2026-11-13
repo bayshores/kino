@@ -20,8 +20,8 @@ async function setup() {
   await chmod(stub, 0o755);
   const agentState = createAgentStateStore(path.join(root, "data"));
   const events = [];
-  const make = (claude, chatOpen = () => false) => createResumer({ agentState, directory: path.join(root, "data", "agent", "resume"), publish: (event) => events.push(event),
-    projectName: async () => "Promo", env: { PATH: root, HOME: path.join(root, "home"), KINO_CLAUDE: claude }, chatOpen });
+  const make = (claude, chatOpen = () => false, more = {}) => createResumer({ agentState, directory: path.join(root, "data", "agent", "resume"), publish: (event) => events.push(event),
+    projectName: async () => "Promo", env: { PATH: root, HOME: path.join(root, "home"), KINO_CLAUDE: claude, ...more }, chatOpen });
   return { root, stub, events, make, folder: await realpath(root) };
 }
 
@@ -36,6 +36,7 @@ test("Continue runs claude --resume in the session's folder with only kino's too
     const resumer = make(stub);
     await resumer.remember("p1", session, "agent-42");
     assert.equal((await resumer.view("p1")).possible, true);
+    assert.equal((await make(stub, undefined, { KINO_CONTINUE: "0" }).view("p1")).possible, false, "KINO_CONTINUE=0 turns it off");
     assert.equal((await resumer.start("p1")).run.state, "starting");
     await until(async () => (await resumer.view("p1")).run.state !== "starting");
     const called = JSON.parse(await readFile(path.join(root, "called.json"), "utf8"));
