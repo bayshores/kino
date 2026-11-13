@@ -122,6 +122,8 @@ is; `later` lists the topics you plan next). Each option's ops are checked on a 
 renders the 2 s around `at` once per option; the person picks on the dashboard and your inbox
 gets the picked option's ops to apply (or none of these, or skip). One question a round.
 `from`, `to` instead of `at` make a sketch round with sound (direction guide).
+None of these on a sketch round of treatments means other treatments: `status` `next:` saves 5
+new ones, then you sketch those (never pick one of the rejected ones).
 
 ```json
 {"tool":"edit","ops":[{"op":"add_layer","layerType":"rectangle","name":"card","properties":{"x":0,"y":0,"width":400,"height":300,"fill":"#C8935A"}}]}

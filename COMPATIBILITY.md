@@ -189,8 +189,8 @@ How to read it:
   `review_needed` until all are reviewed. Evidence: `backend/agent-review.test.mjs`,
   `backend/agent-client-reconnect.test.mjs`, `backend/agent-mcp.test.mjs` (tool list reload).
 - **Continue**: Verified on a real server; the app screens were checked by hand with a real agent.
-  When Claude Code last worked on a project, Continue (and a note sent while no agent has called
-  for 90 s) runs `claude -p "<continue sentence>" --resume <session>` in its folder with only
+  When Claude Code last worked on a project, Continue (and a note, a sketch answer, an approval or a material answer left
+  while no agent has called for 90 s; the wait for those 90 s is a unit test only) runs `claude -p "<continue sentence>" --resume <session>` in its folder with only
   kino's tools allowed; an open chat is continued as a copy. Stop ends it, its last words become
   the line with Reply, and it stays the same agent. Codex is not supported (no session id).
   Evidence: `backend/agent-resume.test.mjs` (stand-in claude), `frontend/dashboardAgentView.test.js`;
