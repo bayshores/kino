@@ -53,6 +53,7 @@ import { createAgentService } from "./agent/service.mjs";
 import { agentToolList } from "./agent/tool-sync.mjs";
 import { createDashboard, editFocus } from "./agent/dashboard.mjs";
 import { cleanKind, createLiveAgents, validSession } from "./agent/live.mjs";
+import { createResumer, readAppHeader } from "./agent/resume.mjs";
 import { createDashboardRoutes } from "./dashboard-routes.mjs";
 import { createPreviewCache } from "./preview-segments.mjs";
 import { previewCacheOn } from "./preview-scheduler.mjs";
@@ -170,7 +171,10 @@ crew = await createCrew({
 });
 // An approval asked or answered can change an agent's state ("needs you").
 dashboard.onEvent((event) => { if (event.type === "approval") crew.changed(); });
-process.on("exit", () => { crewLauncher.stopAll(); stopChildren(); });
+// Continue (agent/resume.mjs): the dashboard starts the person's agent again in its last chat.
+const resumer = createResumer({ agentState, directory: path.join(agentDirectory, "resume"), publish: (event) => dashboard.publish(event),
+  projectName: async (id) => (await store.getProject(id))?.document?.name ?? "" });
+process.on("exit", () => { crewLauncher.stopAll(); resumer.stopAll(); stopChildren(); });
 const frameCache = createFrameCache(path.join(agentDirectory, "frames"));
 await frameCache.limit(dashboard.settings().compute.frameCacheMegabytes * 1024 * 1024).catch(() => {});
 // The render cache size from your settings (512 MB unless you changed it); it trims at once.
@@ -275,6 +279,7 @@ const agentService = createAgentService({
   tasteDirectory: path.join(dataRoot, "taste"),
   mediaRoot,
   live: liveAgents,
+  resume: resumer,
   crew,
   // isolate_voice: stems are cached in <data>/voice and become library media; the DPDFNet model
   // is kept in <data>/models. KINO_VOICE_DOWNLOAD=0 stops its one-time download.
@@ -442,7 +447,7 @@ const agentService = createAgentService({
   },
 });
 const dashboardRoutes = createDashboardRoutes({
-  store, agentService, agentState, dashboard, live: liveAgents, crew, launcher: crewLauncher, look: agentLook, frameCache, inspire, soundtrack, recorder, renderCache: exportBatches.renderCache, fontCatalog, agentDirectory, dataDirectory: dataRoot, mediaRoot,
+  store, agentService, agentState, dashboard, live: liveAgents, resume: resumer, crew, launcher: crewLauncher, look: agentLook, frameCache, inspire, soundtrack, recorder, renderCache: exportBatches.renderCache, fontCatalog, agentDirectory, dataDirectory: dataRoot, mediaRoot,
   lastRender: () => lastRender,
   loadFonts: () => loadProjectFonts({ catalog: fontCatalog, mediaRoot }),
   json, body, sendFile, attachmentName,
@@ -1345,6 +1350,7 @@ const server = http.createServer(async (req, res) => {
         return json(res, 200, await agentService.call(parts[2], input, {
           by: by === "you" ? "you" : undefined, client: typeof client === "string" ? cleanKind(client) : null,
           session: validSession(req.headers["x-kino-session"]),
+          app: readAppHeader(req.headers["x-kino-app"]),
         }));
       }
       if (parts[1] === "text-effects") {
@@ -2053,6 +2059,7 @@ process.on("SIGTERM", async () => {
   stopChildren();
   // The agents kino started end with it (their crew rows read "kino restarted" next time).
   crewLauncher.stopAll();
+  resumer.stopAll();
   await crew.flush().catch(() => {});
   for (const controller of activeExports) controller.abort();
   exportProgress.clear();

@@ -225,6 +225,12 @@ test("the line under the frame: the call as a sentence, the line before it, and 
   // Its session ended: that nothing is lost, and how to go on.
   const away = voiceLine({ ...alone, agents: [] }, alone.agents[0], NOW);
   assert.deepEqual([away.state, away.text, away.facts], ["away", "Your agent last worked on this just now. Everything is saved.", []]);
+  // Continue started it again: "Starting your agent." until it calls; a run that ended first says why.
+  const run = (fields) => voiceLine({ ...alone, agents: [], resume: { possible: true, run: { called: false, stopped: false, error: null, ...fields } } }, alone.agents[0], NOW);
+  assert.deepEqual([run({ state: "starting" }).state, run({ state: "starting" }).text], ["starting", "Starting your agent."]);
+  assert.deepEqual([run({ state: "ended" }).text, run({ state: "ended" }).failed], ["Your agent stopped before it reached kino.", true]);
+  assert.equal(run({ state: "failed", error: "Your agent is not signed in. Open it once to sign in." }).text, "Your agent is not signed in. Open it once to sign in.");
+  assert.equal(run({ state: "ended", stopped: true }).text, away.text, "after your Stop, the plain away line");
   const two = withAgentLabels(data());
   // Juno was seen first (its last call at 09:00), so Nova is Agent 2.
   assert.equal(voiceLine({ ...two, agents: [] }, two.agents[0], NOW).text, "Agent 2 last worked on this just now. Everything is saved.");

@@ -3,8 +3,9 @@
 // and its answers sit beside it; on hold it is "On hold" and Release; while a render runs it is
 // the frame count and Cancel. The words are plain functions in agentView.js (voiceLine).
 import React, { useState } from "react";
-import { voiceLine } from "./agentView.js";
-import { frameUrl, renderFileUrl } from "./api.js";
+import { continuing, voiceLine } from "./agentView.js";
+import { continueAgent, frameUrl, renderFileUrl, stopContinued } from "./api.js";
+import { continuePrompt } from "../../engine/continuePrompt.js";
 import { clock } from "./format.js";
 import { MaterialChoices } from "./live.jsx";
 
@@ -64,8 +65,11 @@ export function Voice({ data, agent, now, scene, time, still, listOpen = false, 
   // The line a person pastes into their agent's chat to bring it back to this project.
   const [copied, setCopied] = useState(false);
   const projectName = data.record?.document?.name ?? data.projects?.find((entry) => entry.id === data.projectId)?.name ?? "";
-  const reconnect = `Continue the kino project ${projectName ? `"${projectName}" (${data.projectId})` : data.projectId}: call kino status first.`;
+  const reconnect = continuePrompt(projectName, data.projectId);
   const copyReconnect = async () => { try { await navigator.clipboard.writeText(reconnect); setCopied(true); } catch { setCopied(false); } };
+  // Continue and its Stop: the run's state comes back as "resume" events (backend/agent/resume.mjs).
+  const startAgain = () => { continueAgent(data.projectId).catch(() => {}); };
+  const stopAgain = () => { stopContinued(data.projectId).catch(() => {}); };
   // A question of the dashboard's own ("Undo this turn?") takes the line until it is answered
   // (`ask`: {text, yes, no, facts, from, to, onYes, onNo}; y and n answer it too).
   const line = ask ? { state: "ask", verb: "undo", text: ask.text, facts: ask.facts ?? [], before: live.before } : live;
@@ -114,10 +118,17 @@ export function Voice({ data, agent, now, scene, time, still, listOpen = false, 
         ) : null}
         {line.state === "recording" ? <span className="voice-answers"><button type="button" className="voice-button rec" onClick={onStopRecording} title="Stop recording (the recording so far is kept)">Stop</button></span> : null}
         {line.state === "render" ? <span className="voice-answers"><button type="button" className="voice-button" onClick={onCancelRender}>Cancel</button></span> : null}
+        {/* Away: Continue when kino can start the agent's last chat itself, else the prompt to copy. */}
         {line.state === "away" && data.projectId ? (
           <span className="voice-answers">
-            <button type="button" className="voice-button" onClick={copyReconnect} title={reconnect}><ToolIcon name={copied ? "done" : "copy"} />{copied ? "Copied. Paste it in your agent's chat" : "Copy prompt for your agent"}</button>
+            {data.resume?.possible && !line.failed
+              ? <button type="button" className="voice-button primary" onClick={startAgain} title="Start your agent again in its last chat">Continue</button>
+              : <button type="button" className="voice-button" onClick={copyReconnect} title={reconnect}><ToolIcon name={copied ? "done" : "copy"} />{copied ? "Copied. Paste it in your agent's chat" : "Copy prompt for your agent"}</button>}
           </span>
+        ) : null}
+        {/* An agent Continue started has no chat window to stop it in: Stop stays on its line. */}
+        {line.state === "starting" || (continuing(data) && (line.state === "working" || line.state === "idle")) ? (
+          <span className="voice-answers"><button type="button" className="voice-button" onClick={stopAgain} title="Stop your agent">Stop</button></span>
         ) : null}
         {line.state === "ready" ? (
           <span className="voice-answers">

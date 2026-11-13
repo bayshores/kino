@@ -33,6 +33,7 @@
 //   POST undo {project, turn}     revert a turn and every later turn, newest first
 //   POST approvals/<id>           {decision: allow|deny, always?, note?}
 //   POST hold {on, note?}         pause or resume agent writes
+//   POST resume {project} · POST resume/stop {project}   Continue: start or stop your agent again
 //   POST stops {project, action, …}   a stop: answer {id, rev, read_as, words?} a waiting one,
 //                                 reopen {id} an answer, keep_asking (undo "stop asking")
 //   GET/PUT settings              your settings
@@ -304,6 +305,8 @@ export function createDashboardRoutes(deps) {
       picks: agentService.picks ? await agentService.picks.view() : null,
       // A screen recording an agent is making (backend/recorder); "recording" events replace it.
       recording: deps.recorder?.active() ?? null,
+      // Continue (agent/resume.mjs): {possible, run} for this project; "resume" events replace it.
+      resume: chosen && deps.resume ? await deps.resume.view(chosen) : null,
     };
   }
 
@@ -860,6 +863,14 @@ export function createDashboardRoutes(deps) {
       const hold = await dashboard.setHold(input?.on === true, input?.note);
       if (was !== hold.on) crew?.holdAll(hold.on);
       return json(res, 200, { hold });
+    }
+    // POST resume {project}: Continue, the project's agent starts again in its last chat
+    // (agent/resume.mjs). POST resume/stop {project}: ends that run.
+    if ((route === "resume" || route === "resume/stop") && method === "POST" && deps.resume) {
+      const input = (await body(req, 4 * 1024)) ?? {};
+      const record = await projectRecord(input.project);
+      const id = record.document.id;
+      return json(res, 200, { resume: route === "resume" ? await deps.resume.start(id) : await deps.resume.stop(id) });
     }
     if (parts[2] === "crew") return crewRoute(req, res, parts.slice(2).join("/"), method);
     if (route === "settings" && method === "PUT") {

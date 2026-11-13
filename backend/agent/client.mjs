@@ -20,6 +20,7 @@ import { readExplicitMediaFile } from "../media-file.mjs";
 import { makeWorkingCopy } from "../media-working-copy.mjs";
 import { MAX_UPLOAD_BYTES } from "../../engine/schema.js";
 import { inlineCaptionFiles } from "./caption-file.mjs";
+import { appHeader } from "./resume.mjs";
 import { shotsLine } from "../shot-detection.mjs";
 
 export const DEFAULT_URL = "http://127.0.0.1:4781";
@@ -105,8 +106,11 @@ function request(url, { method = "GET", headers = {}, body, signal } = {}) {
 // connection file (`runtimeFile`) is noticed before the next call. So the agent never has to
 // restart its MCP server after the app restarts.
 // maxUploadBytes: the upload limit (kino's server takes MAX_UPLOAD_BYTES; tests set it lower).
-export function createAgentClient(connection, { name = "mcp", session, reconnect, runtimeFile, maxUploadBytes = MAX_UPLOAD_BYTES } = {}) {
+// `app` (optional) is the agent app's own chat session, {app, session, folder} (agent/resume.mjs
+// appSession): sent as x-kino-app so the dashboard's Continue can start that chat again.
+export function createAgentClient(connection, { name = "mcp", session, app = null, reconnect, runtimeFile, maxUploadBytes = MAX_UPLOAD_BYTES } = {}) {
   const sessionId = session ?? randomUUID().replace(/-/g, "").slice(0, 16);
+  const appHeaders = app ? { "x-kino-app": appHeader(app) } : {};
   let current = connection;
   // The hash of kino's tool list from its last agent answer (x-kino-tools; agent/tool-sync.mjs).
   let toolsHash = null;
@@ -171,7 +175,7 @@ export function createAgentClient(connection, { name = "mcp", session, reconnect
     }
     const response = await send(`/api/agent/${encodeURIComponent(verb)}`, {
       method: "POST",
-      headers: { "content-type": "application/json", "x-kino-session": sessionId },
+      headers: { "content-type": "application/json", "x-kino-session": sessionId, ...appHeaders },
       body: JSON.stringify({ ...input, client: client || name, ...(by ? { by } : {}) }),
       signal,
     });

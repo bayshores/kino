@@ -5,6 +5,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { meterTools } from "./meter.mjs";
 import { agentSession } from "./agent/agent-session.mjs";
 import { connectAgentClient, createAgentClient, DEFAULT_URL } from "./agent/client.mjs";
+import { appSession } from "./agent/resume.mjs";
 import { AGENT_INSTRUCTIONS, compactToolList, registerAgentTools } from "./agent/tools.mjs";
 import { followServerTools } from "./agent/tool-sync.mjs";
 import { registerPreviewResource, registerPreviewTool } from "./agent/chat-preview.mjs";
@@ -95,8 +96,11 @@ export async function startKinoMcp() {
   // that crew member's; any other MCP server names the agent that started it, as the kino command
   // does, so one agent's MCP and CLI calls are one crew member (made up when `ps` cannot tell).
   const session = agentSession();
+  // The agent app's own chat (Claude Code's session id and folder), so the dashboard's Continue
+  // can start it again (agent/resume.mjs). None for an agent kino started itself.
+  const app = process.env.KINO_AGENT_SESSION ? null : appSession(process.env, process.cwd());
   // It follows the app: after the app restarts (new port and token) the next call reconnects.
-  const client = await connectAgentClient(process.env, { name: "mcp", session });
+  const client = await connectAgentClient(process.env, { name: "mcp", session, app });
   const channels = await client.read("settings").then((value) => value?.settings?.channels === true, () => false);
   const server = createKinoMcpServer({ client, channels });
   await server.connect(new StdioServerTransport());

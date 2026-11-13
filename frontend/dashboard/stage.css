@@ -143,9 +143,9 @@
 .voice.is-idle .voice-line, .voice.is-empty .voice-line { color: var(--fg-mid); background: none; padding-inline: 0; }
 /* Nothing is happening (the agent rests, or left): the sentence is said quietly, at the size of the
    words around it, and its button is as quiet. */
-.voice.is-idle .voice-line, .voice.is-empty .voice-line, .voice.is-away .voice-line { font-size: 16px; font-weight: 400; line-height: 24px; letter-spacing: 0; }
-.voice.is-idle .voice-line .tool-icon, .voice.is-empty .voice-line .tool-icon, .voice.is-away .voice-line .tool-icon { width: 18px; height: 18px; }
-.voice.is-away .voice-button { height: 32px; padding: 0 12px; font-size: 14px; font-weight: 500; }
+.voice.is-idle .voice-line, .voice.is-empty .voice-line, .voice:is(.is-away, .is-starting) .voice-line { font-size: 16px; font-weight: 400; line-height: 24px; letter-spacing: 0; }
+.voice.is-idle .voice-line .tool-icon, .voice.is-empty .voice-line .tool-icon, .voice:is(.is-away, .is-starting) .voice-line .tool-icon { width: 18px; height: 18px; }
+.voice:is(.is-away, .is-starting) .voice-button { height: 32px; padding: 0 12px; font-size: 14px; font-weight: 500; }
 .voice-pair { display: flex; align-items: center; gap: 10px; flex: none; color: var(--fg2); }
 .voice-pair img { display: block; width: 80px; height: 45px; object-fit: cover; background: var(--bg1); }
 .voice-answers { display: flex; align-items: center; gap: 8px; flex: none; }
@@ -434,7 +434,7 @@
 .screening .live-dock.done { display: none; }
 .voice a.voice-button { text-decoration: none; display: inline-flex; align-items: center; }
 /* Not connected: the sentence is plain, not the agent's yellow; the button has an icon. */
-.voice.is-away .voice-line { color: var(--fg-mid); background: none; padding-inline: 0; }
+.voice:is(.is-away, .is-starting) .voice-line { color: var(--fg-mid); background: none; padding-inline: 0; }
 .voice .voice-button { display: inline-flex; align-items: center; gap: 8px; }
 .voice .voice-button .tool-icon { width: 14px; height: 14px; }
 /* Reveals: an opened row's facts, the looks, and the lines of an opened check (none under reduced
