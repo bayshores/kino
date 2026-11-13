@@ -2078,6 +2078,9 @@ test("a view link draws a script layer live: the module runs in a sandboxed fram
   await browser.evaluate(`${q(".viewer-scrubber")}.focus()`);
   await browser.keys("End", "PageDown");
   assert.equal(await browser.waitFor(`${pixel} === "0,0,255,255" && ${pixel}`, { what: "the script's blue picture past the middle" }), "0,0,255,255");
+  // The tests after this one work on orbit: it is the open project again.
+  const back = await agent("project", { action: "open", id: "orbit" });
+  assert.equal(back.isError, undefined, back.text);
 });
 
 test("the shares screen makes a link and revokes it, and the revoked link stops working", async () => {
