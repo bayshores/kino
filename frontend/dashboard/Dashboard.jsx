@@ -41,7 +41,7 @@ import { Icon, LogPane, lookMoment, Menu, SeenPane, SessionPane, StagePane, Stat
 import { agentChips, idleLine, renderAgent, runningRender } from "./topbar.js";
 import { usePreviewList } from "./previewCache.jsx";
 import { AgentPane } from "./agentPane.jsx";
-import { agentOfCalls, needWords, shownAgent } from "./agentView.js";
+import { agentOfCalls, canWake, needWords, shownAgent } from "./agentView.js";
 import { theAgent, withAgentLabels } from "./agentLabels.js";
 import { noteCursorRows, noteGroups, noteReader, readerLine } from "./noteSpot.js";
 import { Bot } from "./bot.jsx";
@@ -818,6 +818,15 @@ export function Dashboard() {
     } catch (cause) { fail(cause); }
   }, [projectId, say, fail]);
 
+  // A note typed while no agent is working starts your agent in the background, when kino can
+  // continue its chat (agentView.js canWake, backend/agent/resume.mjs). Says what happens next.
+  const noteSent = useCallback((note) => {
+    const id = note?.id ?? "Note";
+    if (!canWake(data)) { say(`${id} queued: the agent gets it with its next call.`); return; }
+    server.continueAgent(projectId).catch(() => {});
+    say(`${id} sent. Starting your agent.`);
+  }, [data, projectId, say]);
+
   // `urgent`: ⌘Enter, or "urgent" in the bubble: the agent's inbox marks it URGENT.
   const submitDraft = useCallback(async (urgent = false) => {
     if (!draft?.text.trim()) { say("A note needs text.", true); return; }
@@ -826,9 +835,9 @@ export function Dashboard() {
         t: draft.time, scene: draft.sceneId, ...(draft.area ? { area: draft.area } : {}), ...(draft.layer ? { layer: draft.layer } : {}), ...(urgent || draft.urgent ? { urgent: true } : {}),
       });
       setDraft(null);
-      say(`${note?.id ?? "Note"} queued: the agent gets it with its next call.`);
+      noteSent(note);
     } catch (cause) { fail(cause); }
-  }, [draft, sendNote, say, fail]);
+  }, [draft, sendNote, noteSent, fail]);
 
   const sendMessage = useCallback(async (urgent = false) => {
     const text = messageText.trim();
@@ -836,9 +845,9 @@ export function Dashboard() {
     try {
       const note = await sendNote(text, urgent ? { urgent: true } : {});
       setMessageText("");
-      say(`${note?.id ?? "Note"} queued: the agent gets it with its next call.`);
+      noteSent(note);
     } catch (cause) { fail(cause); }
-  }, [messageText, sendNote, say, fail]);
+  }, [messageText, sendNote, noteSent, fail]);
 
   const answer = useCallback(async (id, decision, always = false) => {
     try {

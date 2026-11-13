@@ -87,7 +87,7 @@ export function Voice({ data, agent, now, scene, time, still, listOpen = false, 
       <div className="voice-row">
         {edit ? <BeforeAfter data={data} scene={scene} time={time} before={edit.before} after={edit.after} /> : ask?.to != null ? <BeforeAfter data={data} scene={scene} time={time} before={ask.from} after={ask.to} /> : null}
         {/* The sentence is announced when it changes (politely; a question at once). */}
-        <p className="voice-line" role="status" aria-live={need || ask ? "assertive" : "polite"} key={line.text}>
+        <p className="voice-line" role="status" aria-live={need || ask ? "assertive" : "polite"} key={line.text} title={line.full}>
           <ToolIcon name={line.verb} /><span>{line.text}</span>
         </p>
         {line.state === "render" || line.facts.length || need?.more ? (
@@ -126,6 +126,8 @@ export function Voice({ data, agent, now, scene, time, still, listOpen = false, 
               : <button type="button" className="voice-button" onClick={copyReconnect} title={reconnect}><ToolIcon name={copied ? "done" : "copy"} />{copied ? "Copied. Paste it in your agent's chat" : "Copy prompt for your agent"}</button>}
           </span>
         ) : null}
+        {/* What a background run said at the end: Reply opens the note box, and the note starts it again. */}
+        {line.state === "said" ? <span className="voice-answers"><button type="button" className="voice-button primary" onClick={() => onRun("note")} title="Answer with a note (c)">Reply</button></span> : null}
         {/* An agent Continue started has no chat window to stop it in: Stop stays on its line. */}
         {line.state === "starting" || (continuing(data) && (line.state === "working" || line.state === "idle")) ? (
           <span className="voice-answers"><button type="button" className="voice-button" onClick={stopAgain} title="Stop your agent">Stop</button></span>

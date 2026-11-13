@@ -14,10 +14,16 @@
 //   person's environment (the app's own login; kino reads no token or credential). Only kino's
 //   tools are allowed without asking, as an MCP server or as the plugin; anything else that would
 //   need a permission is refused, since nobody can answer in print mode.
+// - A chat that is still open (its kino MCP server, `pid`, is alive) is not written to from two
+//   places: the run continues a copy of it (--fork-session --session-id <new id>), and that copy
+//   is the chat kino continues next time.
+// - What the agent said at the end (print mode prints only that) is kept as the run's `reply`,
+//   so the dashboard can show it: nobody reads a log file.
 // - One run per project: starting (started, kino not called yet), running (it called kino),
 //   ended, failed (with one plain sentence why). Stop ends its process group; so does kino quitting.
 // - What it printed goes to <data>/agent/resume/<project>.log.
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { closeSync, openSync, statSync } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
@@ -26,6 +32,7 @@ import { agentEnvironment, findProgram } from "./launcher.mjs";
 
 const SESSION = /^[A-Za-z0-9][A-Za-z0-9-]{7,63}$/;
 const PROJECT = /^[A-Za-z0-9_-]{1,128}$/;
+const AGENT = /^[A-Za-z0-9_-]{3,32}$/;
 const APPS = Object.freeze({ "claude-code": { command: "claude" } });
 const STOP_GRACE_MS = 3000;
 // A parent Claude Code's own variables (when kino itself was started from one) describe that
@@ -39,15 +46,21 @@ const PARENT_SESSION = ["CLAUDECODE", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_ENT
 export function appSession(env = process.env, cwd = process.cwd()) {
   const session = env.CLAUDE_CODE_SESSION_ID;
   if (!session) return null;
-  return checkedSession({ app: "claude-code", session, folder: env.CLAUDE_PROJECT_DIR || cwd });
+  return checkedSession({ app: "claude-code", session, folder: env.CLAUDE_PROJECT_DIR || cwd, pid: process.pid });
 }
 
-/** `value` when it is a valid {app, session, folder} (a known app, an id, an absolute folder), else null. */
+/**
+ * `value` when it is a valid {app, session, folder, pid?} (a known app, an id, an absolute folder,
+ * the process id of the chat's kino MCP server), else null.
+ */
 export function checkedSession(value) {
   if (!value || typeof value !== "object" || !APPS[value.app]) return null;
   if (typeof value.session !== "string" || !SESSION.test(value.session)) return null;
   if (typeof value.folder !== "string" || !path.isAbsolute(value.folder) || value.folder.length > 1024 || /[\0\n\r]/.test(value.folder)) return null;
-  return { app: value.app, session: value.session, folder: value.folder };
+  const pid = Number.isInteger(value.pid) && value.pid > 1 && value.pid < 2 ** 31 ? { pid: value.pid } : {};
+  // `agent`: the kino session (x-kino-session) of that chat, added by the server (remember).
+  const agent = typeof value.agent === "string" && AGENT.test(value.agent) ? { agent: value.agent } : {};
+  return { app: value.app, session: value.session, folder: value.folder, ...pid, ...agent };
 }
 
 /** The x-kino-app header's value (URI-encoded JSON, so any folder name fits in a header). */
@@ -59,9 +72,20 @@ export function readAppHeader(value) {
   try { return checkedSession(JSON.parse(decodeURIComponent(value))); } catch { return null; }
 }
 
-/** The command line that continues `session` with `prompt`. */
-export function resumeArgs(session, prompt) {
-  return ["-p", prompt, "--resume", session.session, "--allowedTools", "mcp__kino,mcp__plugin_kino_kino"];
+/** The command line that continues `session` with `prompt`; `copy` is the new id of a copy of an open chat. */
+export function resumeArgs(session, prompt, copy = null) {
+  return ["-p", prompt, "--resume", session.session, ...(copy ? ["--fork-session", "--session-id", copy] : []), "--allowedTools", "mcp__kino,mcp__plugin_kino_kino"];
+}
+
+// True while process `pid` runs (the chat's kino MCP server: the chat is open in the agent app).
+function isRunning(pid) {
+  if (!pid) return false;
+  try { process.kill(pid, 0); return true; } catch (cause) { return cause?.code === "EPERM"; }
+}
+
+// What the agent said at the end, as plain text (no markdown marks), 1,200 characters at most.
+function replyWords(output) {
+  return String(output ?? "").replace(/[*_`#>]+/g, "").replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim().slice(-1200);
 }
 
 const isFolder = (folder) => { try { return statSync(folder).isDirectory(); } catch { return false; } };
@@ -79,11 +103,11 @@ function failureWords(output, code) {
  * The runs. `agentState` is the per-project agent state store, `directory` <data>/agent/resume,
  * `publish(event)` the dashboard's stream, `projectName(id)` a project's name.
  */
-export function createResumer({ agentState, directory, publish = () => {}, projectName = async () => "", env = process.env, spawnProcess = spawn, now = Date.now }) {
+export function createResumer({ agentState, directory, publish = () => {}, projectName = async () => "", env = process.env, spawnProcess = spawn, now = Date.now, chatOpen = isRunning }) {
   const runs = new Map();
   const iso = () => new Date(now()).toISOString();
   const alive = (run) => run?.state === "starting" || run?.state === "running";
-  const shown = (run) => (run ? { state: run.state, called: run.called, stopped: run.stopped, error: run.error, startedAt: run.startedAt, endedAt: run.endedAt } : null);
+  const shown = (run) => (run ? { state: run.state, called: run.called, stopped: run.stopped, error: run.error, reply: run.reply ?? null, startedAt: run.startedAt, endedAt: run.endedAt } : null);
 
   async function stored(projectId) {
     const state = await agentState.read(projectId).catch(() => null);
@@ -104,11 +128,12 @@ export function createResumer({ agentState, directory, publish = () => {}, proje
   /**
    * An agent called kino about `projectId` (not the person, not the kino command line). `session`
    * is its {app, session, folder}, or null when its app gives none: then it is the agent that last
-   * worked here and kino cannot continue it.
+   * worked here and kino cannot continue it. `agent` is its kino session (x-kino-session): a run
+   * kino starts keeps it, so the continued chat is the same agent on the dashboard, not a new one.
    */
-  async function remember(projectId, session) {
+  async function remember(projectId, session, agent = null) {
     if (!PROJECT.test(projectId ?? "")) return;
-    const next = checkedSession(session);
+    const next = checkedSession(session ? { ...session, agent } : null);
     const run = runs.get(projectId);
     let changed = false;
     if (alive(run) && next?.session === run.session && !run.called) {
@@ -117,7 +142,7 @@ export function createResumer({ agentState, directory, publish = () => {}, proje
       changed = true;
     }
     const before = await stored(projectId);
-    if (before?.session !== next?.session || before?.folder !== next?.folder) {
+    if (["session", "folder", "pid", "agent"].some((key) => before?.[key] !== next?.[key])) {
       await agentState.update(projectId, (state) => { state.appSession = next ? { ...next, at: iso() } : null; });
       changed = true;
     }
@@ -150,12 +175,16 @@ export function createResumer({ agentState, directory, publish = () => {}, proje
     const prompt = continuePrompt(await projectName(projectId).catch(() => ""), projectId);
     const childEnv = agentEnvironment(env);
     for (const name of PARENT_SESSION) delete childEnv[name];
+    // The chat's kino MCP server keeps the agent's kino session (backend/mcp.mjs reads both).
+    if (session.agent) Object.assign(childEnv, { KINO_AGENT_SESSION: session.agent, KINO_CONTINUED: "1" });
     const out = openSync(log, "w", 0o600);
     let child;
+    // An open chat is continued as a copy with an id chosen here, so its first call is known.
+    const copy = chatOpen(session.pid) ? randomUUID() : null;
     try {
-      child = spawnProcess(program, resumeArgs(session, prompt), { cwd: session.folder, env: childEnv, detached: true, stdio: ["ignore", out, out] });
+      child = spawnProcess(program, resumeArgs(session, prompt, copy), { cwd: session.folder, env: childEnv, detached: true, stdio: ["ignore", out, out] });
     } finally { closeSync(out); }
-    const run = { state: "starting", called: false, stopped: false, error: null, startedAt: iso(), endedAt: null, session: session.session, child };
+    const run = { state: "starting", called: false, stopped: false, error: null, reply: null, startedAt: iso(), endedAt: null, session: copy ?? session.session, child };
     runs.set(projectId, run);
     child.once("error", async () => {
       if (runs.get(projectId) !== run || !alive(run)) return;
@@ -168,7 +197,9 @@ export function createResumer({ agentState, directory, publish = () => {}, proje
       // Marked at once (stop waits for this exit), then the log says why when it failed.
       const ok = run.stopped || code === 0;
       Object.assign(run, { state: ok ? "ended" : "failed", error: ok ? null : `Your agent stopped (exit code ${code}).`, endedAt: iso() });
-      if (!ok) run.error = failureWords(await readFile(log, "utf8").catch(() => ""), code);
+      const output = await readFile(log, "utf8").catch(() => "");
+      if (!ok) run.error = failureWords(output, code);
+      else if (run.called && !run.stopped) run.reply = replyWords(output) || null;
       await tell(projectId);
     });
     await tell(projectId);

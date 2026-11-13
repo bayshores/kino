@@ -434,14 +434,35 @@ export function asAsk(text) {
 /** True while an agent that Continue started in the background runs (it has no chat window to stop it in). */
 export const continuing = (data) => ["starting", "running"].includes(data?.resume?.run?.state);
 
+// A typed note starts the agent only when no agent called kino this recently (it is mid-turn and
+// gets the note with its next call).
+export const WAKE_AFTER_MS = 90_000;
+
+/**
+ * True when a note you just sent should start your agent in the background: kino can continue its
+ * chat, no such run is alive, the project is not on hold and no agent called in the last
+ * WAKE_AFTER_MS.
+ */
+export function canWake(data, now = Date.now()) {
+  if (!data?.resume?.possible || continuing(data) || data?.hold?.on) return false;
+  return !(data.agents ?? []).some((agent) => data.live?.latest?.[agent.id]?.phase === "start" || (agent.lastAt && now - Date.parse(agent.lastAt) < WAKE_AFTER_MS));
+}
+
+// The last paragraph of what the agent said (its question or its summary), as one line.
+function lastWords(reply) {
+  const text = String(reply).split(/\n\s*\n/).map((part) => part.replace(/\s+/g, " ").trim()).filter(Boolean).at(-1) ?? "";
+  return text.length > 220 ? `${text.slice(0, 219).trimEnd()}…` : text;
+}
+
 /**
  * The line under the frame: what the shown agent does now, as one sentence, and the line before it.
  *   {state, verb, text, facts: [words], before: {verb, text, rev} | null}
  * `state` is "need" (something waits for you; `need` holds its words and row), "hold" (your hold
  * is on), "recording" (an agent records the screen), "render" (a render runs; `render` holds renderDock's facts), "working" (a call runs or
  * ended a moment ago), "idle" (its last call, in the past), "ready" (a render just ended), "away"
- * (the agent of the saved calls is not connected now), "starting" (Continue started it again and
- * it has not called yet) or "empty" (no agent has called yet).
+ * (the agent of the saved calls is not connected now), "starting" (kino started it again and it
+ * has not called yet), "said" (a run kino started ended with words for you) or "empty" (no agent
+ * has called yet).
  */
 export function voiceLine(data, agent, now = Date.now(), nameOf = () => null) {
   const rows = agent ? agentLog(data, agent, 12) : [];
@@ -473,19 +494,25 @@ export function voiceLine(data, agent, now = Date.now(), nameOf = () => null) {
   const ready = last?.current ? null : renderReady(data, now);
   if (ready) return { state: "ready", verb: "check", text: `The ${ready.job.quality === "final" ? "final" : "draft"} is ready.`, facts: ready.facts, before: before(false), ready };
   if (!agent || !last) return { state: "empty", verb: "plug", text: "Waiting for an agent.", facts: [], before: null };
+  // A run kino started in the background (Continue, or a note you sent: backend/agent/resume.mjs).
+  // Until it calls: "Starting your agent." What it showed last counts until the agent calls again.
+  const run = data?.resume?.run;
+  if (run?.state === "starting") return { state: "starting", verb: "plug", text: "Starting your agent.", facts: [], before: before(false) };
+  const working = isWorking(data, agent, now);
+  const newest = !run?.endedAt || !agent.lastAt || Date.parse(agent.lastAt) <= Date.parse(run.endedAt) + 2000;
+  const here = (data?.agents ?? []).some((entry) => entry.id === agent.id);
+  if (run && newest && !(here && working) && !last.current && !run.stopped && (run.state === "failed" || run.state === "ended")) {
+    // It failed, or ended before it reached kino: one sentence why, and the prompt to copy.
+    if (!run.called) return { state: "away", verb: "plug", text: run.error || "Your agent stopped before it reached kino.", facts: [], before: before(false), failed: true };
+    // It ended with words for you (often a question): nobody reads a log file, so they are the line.
+    if (run.reply) return { state: "said", verb: "notes", text: lastWords(run.reply), full: run.reply, facts: [], before: before(false) };
+  }
   // The agent of the saved calls is not connected now (kino restarted, or its session ended): say
   // so in plain words ("Nova is not connected" told a person nothing: who Nova is, or what to do),
   // that nothing is lost, and how to go on. The line before stays its last call.
-  if (!(data?.agents ?? []).some((entry) => entry.id === agent.id) && !last.current) {
-    // Continue started the agent again (backend/agent/resume.mjs) and it has not called yet; or
-    // that run failed or ended before it reached kino, said in one sentence (`failed`).
-    const run = data?.resume?.run;
-    if (continuing(data)) return { state: "starting", verb: "plug", text: "Starting your agent.", facts: [], before: before(false) };
-    if (run && !run.called && !run.stopped && (run.state === "failed" || run.state === "ended"))
-      return { state: "away", verb: "plug", text: run.error || "Your agent stopped before it reached kino.", facts: [], before: before(false), failed: true };
+  if (!here && !last.current) {
     const who = !agent.name || agent.name === ONE_AGENT ? "Your agent" : agent.name;
     return { state: "away", verb: "plug", text: `${agent.lastAt ? `${who} last worked on this ${agoWords(agent.lastAt, now)}.` : `${who} is not working on this right now.`} Everything is saved.`, facts: [], before: before(false) };
   }
-  const working = isWorking(data, agent, now);
   return { state: working ? "working" : "idle", verb: last.verb, kind: last.kind, text: line(last, Boolean(last.current)), facts: [], before: before(true) };
 }

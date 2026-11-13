@@ -10139,7 +10139,7 @@ export function createAgentService(deps) {
       const projectId = document?.id ?? null;
       // The agent app's chat this call came from, for the dashboard's Continue (resume.mjs). Your own
       // calls and the kino command line leave it as it is.
-      if (projectId && !replay && meta.by !== "you" && meta.client !== "cli") deps.resume?.remember(projectId, meta.app ?? null).catch(() => {});
+      if (projectId && !replay && meta.by !== "you" && meta.client !== "cli") deps.resume?.remember(projectId, meta.app ?? null, meta.session ?? null).catch(() => {});
       // This call starts a new turn (finishCall): the last turn's marks go before it is shown.
       const newTurn = Boolean(state && turnOver(state, now()));
       if (newTurn) deps.live.endTurn(projectId);

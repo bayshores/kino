@@ -188,10 +188,13 @@ How to read it:
   risk (about 6,600 image tokens a call), then only what changed; a final render answers
   `review_needed` until all are reviewed. Evidence: `backend/agent-review.test.mjs`,
   `backend/agent-client-reconnect.test.mjs`, `backend/agent-mcp.test.mjs` (tool list reload).
-- **Continue**: Partial. When Claude Code last worked on a project, the away line's Continue runs
-  `claude -p "<continue sentence>" --resume <session>` in its folder, with only kino's tools
-  allowed, and Stop ends it. Codex is not supported (no session id). Evidence:
-  `backend/agent-resume.test.mjs` (stub claude), `frontend/dashboardAgentView.test.js`; no browser test yet.
+- **Continue**: Verified on a real server; the app screens were checked by hand with a real agent.
+  When Claude Code last worked on a project, Continue (and a note sent while no agent has called
+  for 90 s) runs `claude -p "<continue sentence>" --resume <session>` in its folder with only
+  kino's tools allowed; an open chat is continued as a copy. Stop ends it, its last words become
+  the line with Reply, and it stays the same agent. Codex is not supported (no session id).
+  Evidence: `backend/agent-resume.test.mjs` (stand-in claude), `frontend/dashboardAgentView.test.js`;
+  no browser test (the away line needs a restart of the test server).
 - **Next call**: Verified. Every answer ends with one runnable `next` call; a refused edit's resends it
   fixed and unfilled `<slots>` are refused. Evidence: `backend/next-call.test.mjs`,
   `backend/agent-edit-repair.test.mjs`.

@@ -97,8 +97,9 @@ export async function startKinoMcp() {
   // does, so one agent's MCP and CLI calls are one crew member (made up when `ps` cannot tell).
   const session = agentSession();
   // The agent app's own chat (Claude Code's session id and folder), so the dashboard's Continue
-  // can start it again (agent/resume.mjs). None for an agent kino started itself.
-  const app = process.env.KINO_AGENT_SESSION ? null : appSession(process.env, process.cwd());
+  // can start it again (agent/resume.mjs). None for an agent kino started itself, except a chat
+  // that Continue started again (KINO_CONTINUED), which keeps its agent's kino session.
+  const app = process.env.KINO_AGENT_SESSION && !process.env.KINO_CONTINUED ? null : appSession(process.env, process.cwd());
   // It follows the app: after the app restarts (new port and token) the next call reconnects.
   const client = await connectAgentClient(process.env, { name: "mcp", session, app });
   const channels = await client.read("settings").then((value) => value?.settings?.channels === true, () => false);
