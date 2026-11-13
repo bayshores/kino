@@ -44,9 +44,9 @@ const app = await electron.launch({
 });
 try {
   const window = await app.firstWindow();
-  // A test window never takes the person's typing or shows on their screen (--hold is for looking by eye).
+  // A test window never takes the person's typing or clicks or shows on their screen (--hold is for looking by eye).
   if (!settings.hold) await app.evaluate(({ BrowserWindow }) => {
-    for (const each of BrowserWindow.getAllWindows()) { each.setFocusable(false); each.blur(); each.setOpacity(0); each.webContents.setAudioMuted(true); }
+    for (const each of BrowserWindow.getAllWindows()) { each.setFocusable(false); each.blur(); each.setOpacity(0); each.setIgnoreMouseEvents(true); each.webContents.setAudioMuted(true); }
   });
   await app.evaluate(({ BrowserWindow }, size) => {
     for (const each of BrowserWindow.getAllWindows()) each.setContentSize(size.width, size.height);

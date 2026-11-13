@@ -326,7 +326,7 @@ export async function readSnapshot(where) {
  * { pid, profileDir, runtimeFile, close() }. Visible: a plain detached process that outlives the
  * runner; a small shell watches it and removes the profile when it exits. Hidden (test-only,
  * KINO_FIRSTPASS_PERSON_HIDDEN=1): started through Playwright like scripts/desktop-shot.mjs, every
- * window invisible, muted and unfocusable; close() quits it and removes the profile.
+ * window invisible, muted, unfocusable and passing mouse clicks through (an invisible window still took a click on its Hold button); close() quits it and removes the profile.
  */
 export async function launchApp({ dataDir, logFile, hidden = false }) {
   const electronPath = createRequire(import.meta.url)("electron");
@@ -341,7 +341,7 @@ export async function launchApp({ dataDir, logFile, hidden = false }) {
     hiddenApp = app;
     await app.firstWindow();
     await app.evaluate(({ BrowserWindow }) => {
-      for (const each of BrowserWindow.getAllWindows()) { each.setFocusable(false); each.blur(); each.setOpacity(0); each.webContents.setAudioMuted(true); }
+      for (const each of BrowserWindow.getAllWindows()) { each.setFocusable(false); each.blur(); each.setOpacity(0); each.setIgnoreMouseEvents(true); each.webContents.setAudioMuted(true); }
     });
     return { pid: app.process().pid, profileDir, runtimeFile, hidden: true, close: async () => { hiddenApp = null; await app.close().catch(() => {}); await rm(profileDir, { recursive: true, force: true }); } };
   }
