@@ -56,6 +56,7 @@ import { groupLayers } from "../../engine/grouping.js";
 import { geometryOf } from "../../engine/arrange.js";
 import { splitImage } from "../../engine/splitImage.js";
 import { evaluateLayer } from "../../engine/animation.js";
+import { cutsOnMarks } from "../skeleton.mjs";
 import { BOARD_LIMITS, boardCoverage, boardSpan, FOLLOW, holdEnd, keepShotIds, mainScene, moveProblems, NONE, PLANNED_MOVES, normalizeBoard, ONE_FRAME, PACING, SHOT_LAYERS, WHOLE } from "../../engine/board.js";
 import { PRESET_DEFINITIONS } from "../../engine/presetCatalog.js";
 import { shotRoles } from "../../engine/movePicks.js";
@@ -2735,7 +2736,7 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
   // board call (a move past the tolerances lapses an approval, and the answer says so).
   async function snapBoard(document, operation, work) {
     // true and "beat" are the words an agent guesses first: they mean the same as "beats".
-    if (![true, "beat", "beats"].includes(operation.snap)) throw boardProblem("bad_shot", 'snap is "beats": board {snap:"beats"} moves the cuts after the song\'s turn onto its measured beats.');
+    if (![true, "beat", "beats", "rhythm"].includes(operation.snap)) throw boardProblem("bad_shot", 'snap is "beats" or "rhythm": board {snap:"beats"} moves the cuts after the song\'s turn onto its measured beats; board {snap:"rhythm"} moves them onto the rhythm-N marks borrow_rhythm lent.');
     // Sent with a whole board: that board is saved first, then its cuts are snapped (one call).
     if (operation.shots !== undefined) {
       const { snap: _snap, ...whole } = operation;
@@ -2743,6 +2744,7 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     }
     const old = document.board;
     if (!old?.shots?.length) throw boardProblem("bad_shot", 'There is no storyboard to snap: save one first, edit {ops:[{op:"board", music, shots}]}.');
+    if (operation.snap === "rhythm") return snapBoardToRhythm(document, old, work);
     const facts = await boardPace?.(document);
     if (!facts?.times?.length) {
       const why = !facts?.turn ? "the music has no measured drop inside the board; fit_music measures its sections" : "the music has no measured beats; detect_beats measures them";
@@ -2771,6 +2773,28 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     work.notes.push(`board r${document.board.rev}: ${shots.length} shots, cut times only`);
     const most = Math.max(...moved.map((entry) => Math.abs(entry.to - entry.from)));
     work.notes.push(`snap: ${moved.length} cut${moved.length === 1 ? "" : "s"} after the ${facts.turn.kind} at ${sec(facts.turn.at)} s moved onto the beat (every ${facts.beats === 1 ? "beat" : `${facts.beats} beats`}; most ${sec(most)} s): ${moved.map((entry) => `${sec(entry.from)}→${sec(entry.to)}`).join(", ")}${stayed}`);
+  }
+
+  // board {snap:"rhythm"}: the saved board's cuts move onto the rhythm-N marks borrow_rhythm lent
+  // (backend/skeleton.mjs cutsOnMarks), so borrow then board is two calls.
+  async function snapBoardToRhythm(document, old, work) {
+    const marks = (document.cues ?? []).filter((cue) => cue.kind === "marker" && /^rhythm-\d+$/.test(String(cue.name)) && Number.isFinite(cue.time)).map((cue) => cue.time);
+    if (!marks.length) { work.notes.push(`board r${old.rev}: no change (no rhythm-N marks: edit {ops:[{op:"borrow_rhythm", ref:"yt:<id>"}]} lends them)`); return; }
+    const files = await boardMedia(document, work);
+    const fits = (shot, dur) => {
+      if (dur <= shot.dur || typeof shot.media !== "string" || shot.media === NONE || typeof shot.in !== "number") return true;
+      const file = files(shot.media, ["video"]);
+      return !(file.duration > 0 && shot.in + dur * (shot.speed ?? 1) > file.duration + ONE_FRAME);
+    };
+    const { shots, moved, kept } = cutsOnMarks(old.shots, marks, { fits, gap: ONE_FRAME * 3 });
+    if (!moved.length) { work.notes.push(`board r${old.rev}: no change (no rhythm mark between its neighbors for any cut${kept.length ? `; ${kept.length} would run a shot past its clip file` : ""})`); return; }
+    const board = { ...old, shots };
+    const gap = boardCoverage(board, boardSpan(document, board));
+    if (gap) throw boardProblem(gap.code, gap.message);
+    document.board = normalizeBoard({ board: { ...board, rev: old.rev + 1 } }).board;
+    const most = Math.max(...moved.map((entry) => Math.abs(entry.to - entry.from)));
+    work.notes.push(`board r${document.board.rev}: ${shots.length} shots, cut times only`);
+    work.notes.push(`snap rhythm: ${moved.length} of ${shots.length - 1} cuts moved onto the ${marks.length} rhythm marks (most ${sec(most)} s): ${moved.slice(0, 12).map((entry) => `${sec(entry.from)}→${sec(entry.to)}`).join(", ")}${moved.length > 12 ? ", …" : ""} · shot lengths now ${shots.map((shot) => sec(shot.dur)).join(" ")}${kept.length ? ` · ${kept.length} stayed (a shot would run past its clip file)` : ""}`);
   }
 
   // The library's videos, pictures and sounds, found by a layer (its src), id, src or name.

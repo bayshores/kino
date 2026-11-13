@@ -88,12 +88,12 @@ test("an agent searches YouTube, reads one reference's cuts and borrows its rhyt
   const record = await (await server.api("/api/projects/insp")).json();
   const cues = record.document.cues.filter((cue) => cue.name.startsWith("rhythm-"));
   assert.deepEqual(cues.map((cue) => cue.kind), ["marker", "marker", "marker", "marker"]);
-  // The 6 s measured fit the 3 s scene: its shot lengths at half, in a new order (never its cut times).
-  assert.deepEqual(cues.map((cue) => Math.round(cue.time * 8) / 8), [0.75, 1.375, 1.875, 2.5]);
-  // Borrowing again (as measured, no fit) replaces them: only the cuts inside the 3 s scene stay.
-  await agent("edit", { project: "insp", ops: [{ op: "borrow_rhythm", ref: FIRST }] });
+  // The 6 s measured fit the 3 s scene: its shot lengths at half, in a new order seeded by the project (never its cut times).
+  assert.deepEqual(cues.map((cue) => Math.round(cue.time * 8) / 8), [0.5, 1, 1.75, 2.375]);
+  // Borrowing again (as measured, fit:false) replaces them: only the cuts inside the 3 s scene stay.
+  await agent("edit", { project: "insp", ops: [{ op: "borrow_rhythm", ref: FIRST, fit: false }] });
   const again = (await (await server.api("/api/projects/insp")).json()).document.cues.filter((cue) => cue.name.startsWith("rhythm-"));
-  assert.deepEqual(again.map((cue) => cue.time), [1.48, 2.76]);
+  assert.deepEqual(again.map((cue) => cue.time), [1, 2]);
   // The borrowed reference is saved in the project; nothing of the video is in it.
   const listed = await agent("library", { topic: "inspire", project: "insp" });
   assert.match(listed.text, /inspire searches \(name:"forget <n>" removes one\): 1\) "fast cut walking edit" 6 found · by agent/);
@@ -106,7 +106,7 @@ test("an agent searches YouTube, reads one reference's cuts and borrows its rhyt
   const copied = await agent("library", { topic: "inspire", project: "insp-copy", name: "copy insp" });
   assert.match(copied.text, /^Copied 1 saved reference from insp to insp-copy \(1 saved\): yt:OAH0MoAv2CI\. Say what this edit takes from yt:OAH0MoAv2CI: library \{topic:"inspire", name:"save yt:OAH0MoAv2CI", take:"</, "a copied reference with no take in its source names the call that adds one");
   const help = await agent("library", { topic: "op", name: "borrow_rhythm" });
-  assert.match(help.text, /^borrow_rhythm \{ref, fit\?, at\?, scene\?\}/);
+  assert.match(help.text, /^borrow_rhythm \{ref, fit\?, at\?, scene\?, seed\?, order\?\}/);
 });
 
 test("for a briefed video the search drops results far longer than it and says which; an unbriefed project drops none", { skip: skipWithoutMediaTools }, async () => {
