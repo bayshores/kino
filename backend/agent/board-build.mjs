@@ -232,18 +232,24 @@ function shownAt(layer) {
 
 /**
  * Whether the board is already on the timeline: at least half of its shots are there (built by
- * compose from:"board" or by hand). A footage shot is there when a layer of the same file comes
+ * compose from:"board" or by hand). A shot is there when the layer the build named for it
+ * (board-<id>) is; else a footage shot is there when a layer of the same file comes
  * on screen within a frame of its cue; a text-only shot when a text layer holds its words. Pictures
  * count by their show time, so a board of screenshots is seen as built too (a picture has no
  * mediaStart: matching on it alone named the build again after every build). A guess at "half":
  * a hand build that kept most shots counts as built.
  */
 export function boardBuilt(document) {
-  const shots = (document?.board?.shots ?? []).filter((shot) => shot.media !== NONE || shot.text?.text);
+  const all = document?.board?.shots ?? [];
+  const shots = all.filter((shot) => shot.media !== NONE || shot.text?.text);
   if (!shots.length) return true;
   const layers = mainScene(document)?.layers ?? [];
+  // A layer the build named for the shot (board-<id>) stays that shot's after a retime or new
+  // words: next: named the build again over a cut the agent had retimed by hand.
+  const names = new Set(layers.map((layer) => layer.name));
+  const named = (shot) => names.has(`${BUILT_PREFIX}${shot.id ?? all.indexOf(shot) + 1}`);
   const there = (shot) => (shot.media !== NONE
     ? layers.some((layer) => (layer.type === "video" || layer.type === "image") && layer.src === shot.media && Math.abs(shownAt(layer) - shot.cue) <= ONE_FRAME)
     : layers.some((layer) => layer.type === "text" && layer.text === shot.text.text));
-  return shots.filter(there).length * 2 >= shots.length;
+  return shots.filter((shot) => named(shot) || there(shot)).length * 2 >= shots.length;
 }

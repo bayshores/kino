@@ -513,4 +513,6 @@ test("a board counts as built by its shots' show times, pictures and text cards 
   assert.equal(boardBuilt(document([])), false);
   assert.equal(boardBuilt(document([{ type: "image", src: picture, animations: shown(2) }, { type: "text", text: "Orbit", animations: shown(0) }])), true);
   assert.equal(boardBuilt(document([{ type: "image", src: picture, animations: shown(4) }])), false, "a picture shown at another time is not the shot");
+  // A retimed, reworded cut keeps the layers the build named: it is still built.
+  assert.equal(boardBuilt(document([{ type: "image", name: "board-S2", src: picture, animations: shown(4) }, { type: "text", name: "board-S1", text: "Orbit, now", animations: shown(1) }])), true);
 });
