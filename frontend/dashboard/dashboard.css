@@ -644,6 +644,9 @@
 /* The story row (18 px) sits between the ruler and the agent row. */
 .tl-scroll.has-story { --tl-head: 76px; }
 .tl-scroll.has-story .tl-content { grid-template-rows: 36px 18px 22px; }
+/* Only a zoomed timeline scrolls sideways: at 100% a stray pixel of width must not draw a bar,
+   which takes 8 px of height the whole-lane rounding above did not count (a lane cut in half). */
+.tl-scroll:not(.wide) { overflow-x: hidden; }
 .tl-scroll.wide { --tl-bar: 8px; }
 .tl-scroll, .p-log .pane-body > [role="tabpanel"] { scrollbar-color: auto; scrollbar-width: auto; }
 .tl-scroll::-webkit-scrollbar, .p-log [role="tabpanel"]::-webkit-scrollbar { width: 8px; height: 8px; }

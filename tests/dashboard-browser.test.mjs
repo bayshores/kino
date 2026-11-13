@@ -355,6 +355,8 @@ test("a note goes queued, working, fixed; Looks good folds it into done with the
   await browser.type("Make the card bigger");
   await browser.key("Enter");
   const note = await noteNamed("Make the card bigger");
+  // The note box closes when the server has answered: a key pressed before that is typed into it.
+  await browser.waitFor(`!document.querySelector("#note-text")`, { what: "the note box closed" });
   // The note line is under every view of the agent pane; the notes view lists the notes.
   await showView("notes", { focus: false });
   const card = `[...document.querySelectorAll("#panel-notes .note-card, #panel-notes .note-line")].find((element) => element.innerText.includes("Make the card bigger"))`;
