@@ -64,7 +64,8 @@ test("the crew page shows the real crew: the agents, their lanes, what is held, 
   // Nova is picked first: her row has her facts, her hold and her buttons (Hold icon, Watch, Stop), and her lane.
   assert.match(await browser.evaluate(textOf(".crew-card[aria-selected=true]")), /Nova[\s\S]*Lead[\s\S]*May do everything[\s\S]*hero-5 caption[\s\S]*Watch\s+Stop/);
   assert.equal(await browser.evaluate(`${q(".crew-card[aria-selected=true] .crew-card-keys button")}.getAttribute("aria-label")`), "Hold Nova");
-  assert.equal(await browser.evaluate(`${q(".crew-more-keys")}.innerText.includes("References")`), true);
+  // No References button: the top line's Inspire tab (F3) opens the same page.
+  assert.equal(await browser.evaluate(`${q(".crew-more-keys")}.innerText.includes("References")`), false);
   assert.match(await browser.evaluate(textOf(".crew-lanes .sr-only")), /^Last 10 minutes\. Nova: 1 edit run/);
   assert.equal(await browser.evaluate(`document.querySelectorAll(".crew-lanes .lane-block.k-edit").length > 0`), true);
   assert.equal(await browser.evaluate(`${q(".crew-lanes [aria-hidden=true]")} !== null`), true, "the lanes are hidden from screen readers");

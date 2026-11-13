@@ -15,7 +15,7 @@ import { isTyping } from "./keys.js";
 import { fpsLabel } from "../../engine/frameRate.js";
 import { notificationsAllowed } from "./notify.js";
 import { agentRows } from "./state.js";
-import { Back, Screen } from "./screens.jsx";
+import { Screen } from "./screens.jsx";
 import { Btn, Icon, Switch } from "./controls.jsx";
 import { APPROVAL_KINDS, APPROVAL_WORDS, DRAFT_WIDTHS, EXPORT_FORMATS, EXPORT_FPS, FRAMES_AT_ONCE, VIDEO_ENCODER_WORDS, VIDEO_QUALITY_WORDS } from "./words.js";
 
@@ -50,10 +50,9 @@ export function SettingsPane({ number, name, note, children }) {
 
 /**
  * The section names. A click scrolls to that section; the one at the top of the page (or the one
- * clicked, while it is in view, as the last ones cannot reach the top) is bold. Under them: back,
- * and "Saved".
+ * clicked, while it is in view, as the last ones cannot reach the top) is bold. Under them: "Saved".
  */
-function SectionNav({ onBack, saved }) {
+function SectionNav({ saved }) {
   const ref = useRef(null);
   const picked = useRef(null);
   const [current, setCurrent] = useState(SECTIONS[0][0]);
@@ -98,7 +97,6 @@ function SectionNav({ onBack, saved }) {
         <button key={number} type="button" className="set-nav-item" aria-current={current === number ? "true" : undefined} onClick={() => go(number)}>{name}</button>
       ))}
       <span className="set-nav-foot">
-        <Back onBack={onBack}>Back</Back>
         <span className="set-saved" role="status">{saved ? <><Icon name="check" />Saved<span className="sr-only">: agents read it on their next call</span></> : ""}</span>
       </span>
     </nav>
@@ -273,7 +271,7 @@ const encoderWarns = (devices, setting) => {
 const shortEncoder = (label) => label.replace(/\s*\(.*\)$/, "");
 
 // `stops` is the stops pane (StopSettings in stops.jsx), pane 2.
-export function SettingsScreen({ data, onSave: saveTo, onClearCache, onClearRenderCache, onBack, notificationState, onAskNotifications, now, stops = null }) {
+export function SettingsScreen({ data, onSave: saveTo, onClearCache, onClearRenderCache, notificationState, onAskNotifications, now, stops = null }) {
   const settings = data.settings;
   // "saved" shows under the panes for a few seconds after each change made here.
   const [savedAt, setSaved] = useState(0);
@@ -320,7 +318,7 @@ export function SettingsScreen({ data, onSave: saveTo, onClearCache, onClearRend
     return () => clearTimeout(timer);
   }, [copied]);
 
-  if (!settings) return <Screen title="settings" className="settings" actions={<Back onBack={onBack}>Back</Back>}><p className="faint">Loading…</p></Screen>;
+  if (!settings) return <Screen title="settings" className="settings"><p className="faint">Loading…</p></Screen>;
   const agents = agentRows(data, now);
   const copy = async (name, text) => {
     try { await navigator.clipboard.writeText(text); setCopied(name); } catch { setCopied(""); }
@@ -354,7 +352,7 @@ export function SettingsScreen({ data, onSave: saveTo, onClearCache, onClearRend
 
   return (
     <Screen title="settings" className="settings" onKeyDown={settingsKeys}>
-      <SectionNav onBack={onBack} saved={Boolean(savedAt)} />
+      <SectionNav saved={Boolean(savedAt)} />
       <div className="settings-grid">
         <SettingsPane number="1" name="agents">
           {agents.length === 0 ? <p className="faint set-line">No agent has called kino yet</p> : agents.map((agent) => (

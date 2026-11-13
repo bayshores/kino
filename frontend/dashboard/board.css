@@ -4,13 +4,10 @@
    A shot's box opens under the grid when its still is clicked. Colors come from .dash; black only
    behind video, and white or black chips over video. */
 
-/* ---- the screen: no visible title; Back sits in the left margin on a wide window ---- */
+/* ---- the screen: no visible title (the heading is for screen readers) ---- */
 .dash .screen-wrap > .screen.stop-screen { position: relative; overflow: visible; }
 .dash .screen.stop-screen > h2 { position: absolute; top: 20px; left: 24px; z-index: 3; margin: 0; }
 .dash .screen.stop-screen > h2 > #screen-title { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-.dash .screen.stop-screen > h2 .ui-btn { border-color: transparent; color: var(--fg1); }
-.dash .screen.stop-screen > h2 .ui-btn:hover { color: var(--fg0); }
-@media (max-width: 899px) { .dash .screen.stop-screen > h2 { position: static; margin: 0 0 12px; } }
 /* Something scrolled into view is never left under the pinned answers. */
 .screen-wrap.is-stop:has(.stop-answer) { scroll-padding-bottom: 180px; }
 
