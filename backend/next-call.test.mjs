@@ -114,7 +114,8 @@ test("the pick: someone at the app gets a filled sketch round (also under just s
   assert.deepEqual(statusMove({ brief: sound }, { ...video, songNeeded: true }).call.input, { topic: "soundtrack", search: "slow piano" });
   assert.notEqual(statusMove({ brief: picked }, video).call?.input?.topic, "soundtrack", "a song chosen: no song step");
   // The picked sketch's font fills the fonts step (lockCall).
-  const font = lockCall({ brief: picked, tries: [{ ...round("picked"), pick: "A", options: [{ letter: "A", treatment: "A", font: "Space Mono", song: "song.m4a" }] }] }).input.fields.style.fonts;
+  const withSketch = { ...picked, treatments: { ...picked.treatments, picked: { ...picked.treatments.picked, sketch: { round: "T1", letter: "A", song: "/api/media/song.m4a", font: "Space Mono", line: null } } } };
+  const font = lockCall({ brief: withSketch }).input.fields.style.fonts;
   assert.equal(font?.display?.family, "Space Mono");
   assert.deepEqual([fromAppWindow({ headers: { "sec-fetch-site": "same-origin" } }), fromAppWindow({ headers: {} })], [true, false], "agent calls (Node fetch) are not the app");
 });
