@@ -801,7 +801,7 @@ test("a real edit (a brief, over 30 layers) is offered one critic round; the fin
   // A real edit's open warnings hold its final render too, one line a rule; this card's are on purpose.
   const warned = await final();
   assert.equal(warned.data.error, "check_failed", warned.text);
-  assert.match(warned.data.reason, /block a final render \(fix each or waive it with a reason\):\n {2}[a-z_]+/);
+  assert.match(warned.data.reason, /block a final render \(fix each\):\n {2}[a-z_]+/);
   await agent("edit", { project: id, ops: [...["no_music", "static_scene", "default_font", "page_chrome", "seen_before"].map((code) => ({ op: "waive_check", code, target: "*", reason: "a gate test card" })), { op: "waive_check", code: "type_seen", target: "*", reason: "set like the title in yt:dQw4w9WgXcQ" }] });
   await reviewAll(id);
   const cancel = async (reply) => { if (reply.data?.job) await agent("render", { project: id, action: "cancel", job: reply.data.job }); };

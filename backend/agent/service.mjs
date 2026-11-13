@@ -4948,10 +4948,10 @@ export function createAgentService(deps) {
     if (!needed) return;
     const name = refName(needed.scene.id, codes);
     const sceneField = record.document.scenes.length > 1 ? { scene: name } : {};
-    const skip = `A deliberate skip: edit waive_check {code:"viewer", target:"${name}", reason}. A draft render is allowed now.`;
+    const skip = "A draft render is allowed now.";
     if (needed.gap.spoiler) {
       const caption = refName(needed.gap.bugs[0].layer, codes);
-      throw Object.assign(new AgentError("viewer_needed", `${name}: ${needed.gap.why}. Fix the caption (show it, or leave out the ending's words); the check runs again on the next render.`, { next: `edit ${caption} at ${needed.gap.bugs[0].at} s. A false hit: edit waive_check {code:"spoiler", target:"${caption}", reason}.` }),
+      throw Object.assign(new AgentError("viewer_needed", `${name}: ${needed.gap.why}. Fix the caption (show it, or leave out the ending's words); the check runs again on the next render.`, { next: `edit ${caption} at ${needed.gap.bugs[0].at} s.` }),
         { nextCall: viewerFixCall(needed.gap) });
     }
     if (needed.gap.fix) throw Object.assign(new AgentError("viewer_needed", `${name}: ${needed.gap.why}. Fix them first; ${needed.gap.last ? `that was viewer round ${VIEWER_ROUNDS}, so after the edit nothing waits on them` : "a new viewer watches the changed cut"}.`, { next: `edit the cut at those times${needed.gap.last ? "" : ', then look {mode:"viewer"}'}. ${skip}` }),
@@ -5310,7 +5310,7 @@ export function createAgentService(deps) {
     const head = `critique round ${number} of ${CRITIQUE_ROUNDS} saved for ${sceneName} rev ${rev}: P0 ${count("P0")} · P1 ${count("P1")} · P2 ${count("P2")}${count("UP") ? ` · UP ${count("UP")}` : ""}`;
     const after = number >= CRITIQUE_ROUNDS
       ? "That was the critic round. Make the changes you agree with (P1 too when cheap), keeping what each says stays; then render final: it does not wait on these lines, and its receipt lists the ones still open."
-      : "Make each P0's exact change (P1 too when cheap), keeping what it says stays; then look {mode:\"critique\"} for a fresh critic to re-read. A deliberate choice: edit waive_check {code:\"critique\", target, reason}.";
+      : "Make each P0's exact change (P1 too when cheap), keeping what it says stays; then look {mode:\"critique\"} for a fresh critic to re-read.";
     const listedLines = [...p0, ...parsed.filter((line) => line.level === "P1" && !line.ask).slice(0, 5)].map((line) => `  ${lineText(line)}`);
     const asked = asks.length ? `\n${asks.length} ${asks.length === 1 ? "line would" : "lines would"} cut or flatten a designed moment (a transition, flash, freeze, typed text, set piece, signature, reveal or payoff): not yours to change; ask the person, notes {action:"checkpoint", id:"critique"}:\n${asks.map((line) => `  ${lineText(line)}`).join("\n")}` : "";
     // The elevation pass: suggestions that raise the edit, never a gate. They stay in the round's
@@ -5408,14 +5408,14 @@ export function createAgentService(deps) {
       if (!open && critiqueWanted(scene, critiqueOf(state, scene.id)) && realEdit(state, videoFacts(record.document))) {
         const name = refName(scene.id, codes);
         throw Object.assign(new AgentError("critique_needed", `${name} has had no critic round: a fresh critic reads it before the final render.`, {
-          next: `look {mode:"critique"${record.document.scenes.length > 1 ? `, scene:"${name}"` : ""}}, give its packet to a fresh subagent (the critique reference), then notes critique; or edit waive_check {code:"critique", target:"${name}", reason}. A draft render is allowed now.`,
+          next: `look {mode:"critique"${record.document.scenes.length > 1 ? `, scene:"${name}"` : ""}}, give its packet to a fresh subagent (the critique reference), then notes critique. A draft render is allowed now.`,
         }), { nextCall: critiqueCall(record.document.scenes.length > 1 ? { scene: name } : {}) });
       }
       const below = !open && barGap(critiqueOf(state, scene.id), barOf(state.verdicts));
       if (below) {
         const name = refName(scene.id, codes);
         throw Object.assign(new AgentError("bar_needed", `${name}: ${below.why}.`, {
-          next: `look {mode:"critique"} shows it beside the bar for a fresh critic; or edit waive_check {code:"critique", target:"${name}", reason}. A draft render is allowed now.`,
+          next: `look {mode:"critique"} shows it beside the bar for a fresh critic. A draft render is allowed now.`,
         }), { nextCall: critiqueCall(record.document.scenes.length > 1 ? { scene: name } : {}) });
       }
       if (!open) continue;
@@ -5423,7 +5423,7 @@ export function createAgentService(deps) {
       const last = open.rounds >= CRITIQUE_ROUNDS;
       const next = open.call ? `The person asked for the fix (${open.call.id}): make it, then render.`
         : last ? 'Both critic rounds are used, so a fix alone does not clear them: ask the person, notes {action:"checkpoint", id:"critique"}.'
-          : `Make the change: ${open.lines[0].change}; then look {mode:"critique"} for a fresh critic to re-read, or edit waive_check {code:"critique", target:"${name}", reason}.`;
+          : `Make the change: ${open.lines[0].change}; then look {mode:"critique"} for a fresh critic to re-read.`;
       throw Object.assign(new AgentError("critique_open", `${name}: rev ${open.rev}'s critic found ${plural(open.lines.length, "P0 line")}: ${open.lines.slice(0, 3).map(lineText).join(" | ")}${open.lines.length > 3 ? " | ..." : ""}`, {
         next: `${next} A draft render is allowed now.`,
       }), { nextCall: open.call ? nextOf("edit", { ops: [`<the edit for: ${open.lines[0].change}>`] }) : last ? critiqueStopCall() : critiqueCall(record.document.scenes.length > 1 ? { scene: name } : {}) });
@@ -5518,7 +5518,7 @@ export function createAgentService(deps) {
     if ((record.document.checkWaivers ?? []).some((waiver) => waiver.code === NEEDS_WAIVER && (waiver.target === "*" || whole.some((scene) => scene.id === waiver.target)))) return;
     const state = await agentState.read(record.document.id);
     const open = openNeeds(state.needs);
-    const skip = 'A deliberate skip: edit waive_check {code:"needs", target:"*", reason}. A draft render is allowed now.';
+    const skip = "A draft render is allowed now.";
     if (open.length)
       throw Object.assign(new AgentError("needs_open", `Not finished: ${open.map((need) => `${need.id} ${needState(need)} (${need.what})`).join("; ")}.`, {
         next: `Unanswered: ask the person its question and options, then save their answer (answer, by:"you", quote). Waiting: status "sent" with media once they give it. Planned: make the option, then status "made" with layers. ${skip}`,
@@ -8230,8 +8230,8 @@ export function createAgentService(deps) {
           const { findings } = await findingsFor(record.document, { fonts, codes, sceneId: scene.id, pixels: true, outputFps: fps });
           const blocking = findings.filter((finding) => blocksFinal(finding, real));
           if (blocking.length)
-            throw new AgentError("check_failed", `${plural(blocking.length, "open finding")} in ${refName(scene.id, codes)} block a final render (fix each or waive it with a reason):\n${openFindingLines(blocking).map((line) => `  ${line}`).join("\n")}`, {
-              next: 'check {fix:"auto"} applies the safe fixes; fix the rest with edit, or waive_check {code, target, reason} for a deliberate exception. A draft render is allowed now.',
+            throw new AgentError("check_failed", `${plural(blocking.length, "open finding")} in ${refName(scene.id, codes)} block a final render (fix each):\n${openFindingLines(blocking).map((line) => `  ${line}`).join("\n")}`, {
+              next: 'check {fix:"auto"} applies the safe fixes; fix the rest with edit. A draft render is allowed now.',
             });
           const taste = tasteNotes(findings);
           if (taste) openNotes.push(`taste: ${taste}`);
