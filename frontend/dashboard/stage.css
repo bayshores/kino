@@ -433,3 +433,6 @@
 .screening .agent-call.open > .call-details, .dash .check-list li.open .check-what, .dash .check-list li.open .check-fix, .dash .check-list li.open .check-ask { animation: voice-in var(--quick) var(--ease-out) both; }
 .screening .seen-strip > li { animation: fade-in var(--panel) var(--ease-out) both; }
 .screening .seen-strip > li:nth-last-child(-n + 12) { animation-delay: calc(var(--quick) / 2); }
+/* Faint text on a filled row would be under 4.5:1: it takes the quiet text color there. */
+.screening .agent-call:hover .call-time, .screening .agent-call.current .call-time, .screening .agent-call.open .call-time,
+.dash .check-list > li:hover .check-at, .dash .check-list > li.open .check-at { color: var(--fg1); }
