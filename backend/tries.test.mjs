@@ -145,7 +145,7 @@ test("a built sketch's line: on for about 2.5 s between beats; a busy picture be
   const ops = sketchOps({ frame: line.scene, seconds: 6, clips: [{ src: "a.mp4", type: "video", width: 1920, height: 1080, duration: 9 }], line: "who made this", coverBox, calm: { blur: 28, dim: 0.5 } });
   assert.deepEqual(ops.map((op) => [op.name, op.animations?.map((animation) => [animation.kind ?? "in", animation.start, Object.keys(animation.to ?? {})[0] ?? animation.preset])]), [
     ["sketch-clip-1", [["in", 0.5, "blur"], ["custom", 3, "blur"]]], ["sketch-dim", [["in", 0.5, "opacity"], ["custom", 3, "opacity"]]],
-    ["sketch-line", [["in", 0.5, "preset-mask"], ["out", 3, "preset-mask"]]]]);
+    ["sketch-line", [["in", 0.5, "preset-mask"], ["out", 3, "preset-mask"], ["custom", 3.3, "opacity"]]]]);
   // Calm but low contrast: the scrim order stays.
   assert.equal((await legibleFix({ ...line, frames: [frame(() => 200)] })).fix.kind, "scrim");
 });

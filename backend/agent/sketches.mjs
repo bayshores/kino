@@ -164,7 +164,9 @@ export function sketchOps({ frame, seconds, clips = [], song = null, line = "", 
         fontSize: size, fill: "#ffffff", textAlign: "center", verticalAlign: "middle" },
       // By word: the text mask's own letter stagger (0.15 s a letter) took 4 s to show a 27-letter line.
       animations: [{ preset: "preset-mask", start, duration: 0.5, unit: "words", stagger: 0.06 },
-        { preset: "preset-mask", kind: "out", start: leave, duration: sec(Math.max(0.15, LINE_EXIT - 0.03 * (words - 1))), unit: "words", stagger: 0.03 }] });
+        { preset: "preset-mask", kind: "out", start: leave, duration: sec(Math.max(0.15, LINE_EXIT - 0.03 * (words - 1))), unit: "words", stagger: 0.03 },
+        // Gone after its exit, so the lettering share counts only the time it was on.
+        { kind: "custom", name: "Line gone", start: sec(leave + LINE_EXIT), duration: 0.03, from: { opacity: 1 }, to: { opacity: 0 } }] });
     if (font) ops.push({ op: "set_font", layers: ["sketch-line"], family: font });
   }
   return ops;
@@ -201,7 +203,7 @@ export function lineFixOps(fix, { box, size, start, frame, lineY = 0 }) {
 export function lineFixText(legible) {
   if (!legible?.fix) return null;
   const { fix, before, required } = legible;
-  const why = before.busy >= BUSY_SHARE ? `busy picture (${Math.round(before.busy * 100)}% edge pixels)` : "low contrast picture";
+  const why = before.busy >= (fix.kind === "picture" ? BUSY_SHARE / 2 : BUSY_SHARE) ? `busy picture (${Math.round(before.busy * 100)}% edge pixels)` : "low contrast picture";
   if (fix.kind === "picture")
     return `line over ${why}: picture blurred ${fix.blur} px and dimmed ${Math.round(fix.dim * 100)}% while the line is on (to ${Math.round(fix.after.busy * 100)}%; contrast ${before.contrast}:1 to ${fix.after.contrast}:1${fix.short ? `; the strongest step, short of under ${Math.round(BUSY_SHARE * 50)}% edge pixels and ${required}:1` : ""})`;
   const what = fix.kind === "scrim" ? `scrim ${Math.round(fix.alpha * 100)}%` : fix.kind === "halo" ? "halo shadow"

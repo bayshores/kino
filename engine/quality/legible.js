@@ -23,7 +23,7 @@ export const CALM_SHARE = BUSY_SHARE / 2;
 /**
  * Measures a text over `frames` ([{pixels, width, height}], rendered without it) and answers
  * {required, before: {contrast, busy}, fix} where fix is null (it passes as it is) or the first
- * that passes. Over busy detail (BUSY_SHARE or more edge pixels) with `renderCalm({blur, dim})`
+ * that passes. Over busy detail with `renderCalm({blur, dim})` (CALM_SHARE or more edge pixels)
  * (the same frames rendered with the picture blurred and dimmed): {kind: "picture", blur, dim,
  * short?} from CALM_STEPS (short: none passed, the last). Else, in contrastFixes' order:
  * {kind: "scrim", alpha} | {kind: "halo", shadow} | {kind: "place", dy} | {kind: "size", fontSize}
@@ -43,11 +43,14 @@ export async function legibleFix({ frames, box, scene, color, size, fontSize = s
     }
     return { contrast: round2(contrast), busy: round2(busy) };
   };
-  const passes = (measured, need = required) => measured.contrast >= need && measured.busy < BUSY_SHARE;
+  // Where the picture can be treated (renderCalm), the bar that starts the treatment is the bar its
+  // result must meet: a line just under the checker's bar still sat on lettering in real sketches.
+  const busyBar = renderCalm ? CALM_SHARE : BUSY_SHARE;
+  const passes = (measured, need = required) => measured.contrast >= need && measured.busy < busyBar;
   const before = measure(frames);
   const answer = (fix) => ({ required, before, fix });
   if (!frames.length || passes(before)) return answer(null);
-  if (before.busy >= BUSY_SHARE && renderCalm) {
+  if (before.busy >= busyBar && renderCalm) {
     let after = null, step = null;
     for (const rung of CALM_STEPS) {
       step = { blur: Math.round(rung.blur * (scene.height / 1080)), dim: rung.dim };
