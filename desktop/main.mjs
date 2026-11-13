@@ -12,6 +12,7 @@ import { desktopLinkUrl, parseDesktopLink } from "../engine/shareUrls.js";
 import { createRestartPolicy, ownerSessionCookie, restartPort, relocatedEditorUrl } from "./service-restart.mjs";
 import { askAfterServiceStopped, askWhenWindowDoesNotAnswer } from "./dialogs.mjs";
 import { appMenuTemplate } from "./menu.mjs";
+import { mcpLaunch } from "./mcp-launch.mjs";
 import rasterWorker from "./raster-worker.cjs";
 
 // A packaged executable also hosts isolated export workers. Dispatch before the
@@ -411,7 +412,7 @@ if (!app.requestSingleInstanceLock()) {
     const measureHelper = [process.env.KINO_MEASURE_HELPER, path.join(process.resourcesPath, "bin", "kino-measure")]
       .find((candidate) => candidate && existsSync(candidate));
     ownerToken = randomBytes(32).toString("hex");
-    const mcpArgs = [path.join(root, "desktop/mcp.mjs")];
+    const mcp = mcpLaunch({ execPath: process.execPath, root, runtimeFile });
     serviceEnvironment = { ...process.env, MOTION_HOST: "127.0.0.1", MOTION_DATA_DIR: dataRoot,
       KINO_PUBLIC_URL: "", KINO_OWNER_TOKEN: ownerToken, KINO_DESKTOP: "1",
       KINO_FFMPEG: executable("ffmpeg"), KINO_FFPROBE: executable("ffprobe"), KINO_GIFSKI: executable("gifski"),
@@ -419,8 +420,7 @@ if (!app.requestSingleInstanceLock()) {
       ...(cutoutHelper ? { KINO_CUTOUT_HELPER: cutoutHelper } : {}),
       ...(measureHelper ? { KINO_MEASURE_HELPER: measureHelper } : {}),
       KINO_ELECTRON_EXECUTABLE: app.getPath("exe"), KINO_ELECTRON_PACKAGED: app.isPackaged ? "1" : "0",
-      KINO_MCP_COMMAND: process.execPath, KINO_MCP_ARGS: JSON.stringify(mcpArgs),
-      KINO_MCP_ENV: JSON.stringify({ ELECTRON_RUN_AS_NODE: "1", KINO_RUNTIME_FILE: runtimeFile }),
+      KINO_MCP_COMMAND: mcp.command, KINO_MCP_ARGS: JSON.stringify(mcp.args), KINO_MCP_ENV: JSON.stringify(mcp.env),
     };
     desktopSession = session.fromPartition(`kino-${instanceId}`);
     desktopSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));

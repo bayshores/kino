@@ -18,6 +18,7 @@
     "skill:fields": "node scripts/field-sheet.mjs",
     "eval": "node evals/run.mjs",
     "desktop": "npm run build && node scripts/dev-app-name.mjs && electron .",
+    "mcpb:pack": "node scripts/mcpb-pack.mjs",
     "desktop:tools": "nice -n 10 node scripts/build-macos-tools.mjs --build",
     "desktop:cutout": "mkdir -p .local/macos-tools/helpers && xcrun swiftc -O -o .local/macos-tools/helpers/kino-cutout backend/cutout/kino-cutout.swift",
     "desktop:pack": "node scripts/build-macos-tools.mjs --verify && npm run build && electron-builder --mac --dir"
