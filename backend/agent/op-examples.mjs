@@ -45,8 +45,10 @@ const promo = { op: "compose", id: "promo", type: "promo", duration: 15, beats: 
 export const OP_EXAMPLES = {
   rename_project: { op: { op: "rename_project", name: "Spring launch" } },
   update_project: { op: { op: "update_project", properties: { videoType: "promo" } } },
-  waive_check: { op: { op: "waive_check", code: "default_font", target: "*", reason: "brand font" } },
-  unwaive_check: { op: { op: "unwaive_check", code: "default_font", target: "*" }, setup: [{ op: "waive_check", code: "default_font", target: "*", reason: "brand font" }] },
+  // A deliberate freeze frame (skills/kino/references names it): never a font waiver, which an
+  // agent copied as the way past default_font instead of choosing a font.
+  waive_check: { op: { op: "waive_check", code: "frozen_picture", target: "card", reason: "drawn hold" } },
+  unwaive_check: { op: { op: "unwaive_check", code: "frozen_picture", target: "card" }, setup: [{ op: "waive_check", code: "frozen_picture", target: "card", reason: "drawn hold" }] },
   add_scene: { op: ctaScene },
   update_scene: { op: { op: "update_scene", properties: { duration: 8, background: "#0b1020" } } },
   duplicate_scene: { op: { op: "duplicate_scene", scene: "s1" } },

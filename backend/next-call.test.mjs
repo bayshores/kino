@@ -13,6 +13,8 @@ import { openStore } from "./store.mjs";
 import { createDocument, createScene } from "../engine/model.js";
 import { answerText, callText, missingFieldCall, opWithName, originFootage, originFootageNext, unfilledSlot, withSuggestion } from "./agent/next-call.mjs";
 import { originReferenceLine } from "./agent/seen-names.mjs";
+import { lockCall } from "./agent/brief.mjs";
+import { fromAppWindow } from "./dashboard-routes.mjs";
 import { statusMove } from "./stops.test.support.mjs";
 import { withAsk } from "./agent-ask.test.support.mjs";
 
@@ -85,6 +87,36 @@ test("the direction's calls: a new video's brief with every line at once, the pl
   assert.deepEqual([footage.step, footage.call.input], ["ask board, then build on; play the brief back then", { action: "checkpoint", id: "board" }]);
   const waiting = statusMove({ brief, stops: [{ id: "C1", kind: "rough", rev: 4, status: "waiting", askedAt: "2026-10-26T14:00:00.000Z" }] }, video);
   assert.deepEqual(waiting.call, { tool: "notes", input: { action: "answer", id: "C1", rev: 4, words: "<their reply, word for word>", read_as: "approve" } });
+});
+
+test("the pick: someone at the app gets a filled sketch round (also under just start), asked once; the song and the picked font follow", () => {
+  const line = (text) => ({ text, by: "guessed" });
+  const list = ["a door opens", "a city wakes", "a phone lights the room up at night", "one long breath", "the last bus"].map((idea, index) => ({ idea, move: `move ${index}`, p: 0.1 * index, source: index === 3 ? "street.mp4 at 2.5 s" : "the screen" }));
+  const treatments = { list, dropped: 2, shown: [3, 0, 1], picked: null };
+  const brief = { rev: 1, fields: withAsk({ about: line("a"), message: line("m"), plays_on: line("p"), made_from: line("f"), look_sound: line(""), never: line("n") }), log: [], noPlayback: { reason: "just start", rev: 1 }, treatments };
+  const video = { seconds: 40, layers: 0, width: 1920, height: 1080, files: ["street.mp4", "desk.mp4"] };
+  assert.equal(statusMove({ brief }, video).step, "pick a treatment, with why", "no one at the app: the own pick, as before");
+  const shown = statusMove({ brief }, { ...video, appSeen: true });
+  assert.match(shown.step, /^show sketches: their pick in the app; songs: library \{topic:"soundtrack"/);
+  assert.deepEqual(shown.call.input.options.map((option) => [option.treatment, option.clips[0].file, option.clips[0].in, option.line, option.song, option.font]), [
+    ["A", "street.mp4", 2.5, "one long breath", "<title> by <artist>", "<family>"], ["B", "desk.mp4", 0, "a door opens", "<title> by <artist>", "<family>"], ["C", "street.mp4", 0, "a city wakes", "<title> by <artist>", "<family>"]]);
+  assert.deepEqual([shown.call.input.action, shown.call.input.seconds], ["try", 6]);
+  const round = (status) => ({ id: "T1", sketch: true, status, options: [{ letter: "A", treatment: "A", idea: "one long breath" }, { letter: "B", treatment: "B", idea: "a door opens" }] });
+  assert.match(statusMove({ brief, tries: [round("waiting")] }, { ...video, appSeen: true }).step, /their sketch pick in the app \(T1\)/);
+  for (const status of ["skipped", "none", "failed"]) assert.equal(statusMove({ brief, tries: [round(status)] }, { ...video, appSeen: true }).step, "pick a treatment, with why", `${status}: never a second round`);
+  assert.equal(statusMove({ brief, tries: [round("waiting")] }, video).step, "pick a treatment, with why", "the app went away");
+  const yourCall = { ...brief, log: [{ q: "Which treatment (A, B or C)?", a: "your call" }] };
+  assert.equal(statusMove({ brief: yourCall }, { ...video, appSeen: true }).step, "pick a treatment, with why");
+  // Picked, no song anywhere: the real-song finder before the plan, from the brief's sound line.
+  const picked = { ...brief, treatments: { ...treatments, picked: { index: 3, label: "A", by: "you" } }, style: { idea: "x", signatures: [{ beat: 0 }], spine: ["problem", "turn", "payoff"].map((role) => ({ role, purpose: role })) } };
+  assert.deepEqual(statusMove({ brief: picked }, { ...video, songNeeded: true }).call.input, { topic: "soundtrack", explore: true });
+  const sound = { ...picked, fields: { ...picked.fields, look_sound: line("slow piano") } };
+  assert.deepEqual(statusMove({ brief: sound }, { ...video, songNeeded: true }).call.input, { topic: "soundtrack", search: "slow piano" });
+  assert.notEqual(statusMove({ brief: picked }, video).call?.input?.topic, "soundtrack", "a song chosen: no song step");
+  // The picked sketch's font fills the fonts step (lockCall).
+  const font = lockCall({ brief: picked, tries: [{ ...round("picked"), pick: "A", options: [{ letter: "A", treatment: "A", font: "Space Mono", song: "song.m4a" }] }] }).input.fields.style.fonts;
+  assert.equal(font?.display?.family, "Space Mono");
+  assert.deepEqual([fromAppWindow({ headers: { "sec-fetch-site": "same-origin" } }), fromAppWindow({ headers: {} })], [true, false], "agent calls (Node fetch) are not the app");
 });
 
 test("origin word, no person footage: next is the footage search for the quote and the word, then a scan wanting it; with person footage or a titled find: unchanged", () => {

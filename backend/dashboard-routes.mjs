@@ -95,6 +95,9 @@ const PREPARED_KEPT = 24;
 const MIX_BYTES_KEPT = 256 * 1024 * 1024;
 const MIX_KEYS_KEPT = 64;
 const HEARTBEAT_MS = 15_000;
+// A read by the app's window: a same-origin browser request (as review keys are given). The MCP
+// server and the kino command read with fetch from Node, which sends no Sec-Fetch-Site.
+export const fromAppWindow = (req) => req.headers["sec-fetch-site"] === "same-origin";
 const REVIEW_HEADER = "x-kino-review";
 // POST stops: the refusals that are not 409 (the stop no longer waits, or is not answered).
 const STOP_REFUSALS = { bad_input: 400, nothing_to_undo: 400, not_found: 404 };
@@ -373,9 +376,12 @@ export function createDashboardRoutes(deps) {
       }
     }
     const stop = dashboard.onEvent(send);
-    const heartbeat = setInterval(() => res.write(": ping\n\n"), HEARTBEAT_MS);
+    // The app's own window counts as someone at the app; the MCP server's stream does not.
+    const app = fromAppWindow(req);
+    if (app) agentService.appSeen?.(1);
+    const heartbeat = setInterval(() => { res.write(": ping\n\n"); if (app) agentService.appSeen?.(); }, HEARTBEAT_MS);
     heartbeat.unref?.();
-    req.on("close", () => { stop(); clearInterval(heartbeat); });
+    req.on("close", () => { stop(); clearInterval(heartbeat); if (app) agentService.appSeen?.(-1); });
   }
 
   // The stage's frames come first. A frame asked for with low=1 (the timeline's shot thumbnails)
@@ -711,7 +717,10 @@ export function createDashboardRoutes(deps) {
   async function handle(req, res, url, parts) {
     const method = req.method;
     const route = parts.slice(2).join("/");
-    if (route === "snapshot" && method === "GET") return json(res, 200, await snapshot(url.searchParams.get("project")));
+    if (route === "snapshot" && method === "GET") {
+      if (fromAppWindow(req)) agentService.appSeen?.();
+      return json(res, 200, await snapshot(url.searchParams.get("project")));
+    }
     if (route === "stream" && method === "GET") return stream(req, res, url);
     if (route === "frame" && ["GET", "HEAD"].includes(method)) return frame(req, res, url);
     if (route === "mix" && ["GET", "HEAD"].includes(method)) return mix(req, res, url);

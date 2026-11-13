@@ -32,7 +32,9 @@ import { needsCall } from "./needs.mjs";
 import { closest } from "./refs.mjs";
 import { IDEA_SPINE, STYLE_LIMITS, addRejected, cleanStyle, mergeStyle, styleProblem } from "./style.mjs";
 import { leavesItToYou } from "./board.mjs";
-import { OWN_PICK_CALL, PICK_QUESTION, cleanTreatments, originLine, pickedIdea, pickedSignature, pickedType, treatmentsProblem, treatmentsText, wordsOnly } from "./treatments.mjs";
+import { pickStep } from "./sketch-step.mjs";
+import { pickedSketch } from "./sketches.mjs";
+import { PICK_QUESTION, cleanTreatments, originLine, pickedIdea, pickedSignature, pickedType, treatmentsProblem, treatmentsText, wordsOnly } from "./treatments.mjs";
 import { directionLock, styleContext, styleLine } from "../../engine/styleSpec.js";
 import { deckLine } from "../../engine/deck.js";
 import { majorityShape, namedShape, sizeLikeFootage } from "../../engine/quality/rules/shape.js";
@@ -714,6 +716,9 @@ export function nextMove(state, video = {}, stop = null) {
   // The call is drafted from the pick (needs.mjs needsCall): footage of its who, for its tension;
   // with video.needs.search (web search on) finding that footage is one of its options.
   if (video.needs && !video.needs.checked) return { step: "check material: notes needs", call: needsCall(brief.treatments, { search: video.needs.search === true, subject: isSubjectEdit(state, video) }) };
+  // No song chosen (none in the project, named or in a picked sketch: the service's songNeeded):
+  // the real-song finder, from the brief's sound line, before the plan. library {topic:"music"} stays.
+  if (video.songNeeded && !planned && !isBuilt(state, video)) return { step: "choose the song (real songs first)", call: songCall(brief) };
   if (stop === "board") {
     const askBoard = { tool: "notes", input: { action: "checkpoint", id: "board" } };
     if (planned) return { step: "ask board, then follow the plan", call: askBoard };
@@ -727,6 +732,12 @@ export function nextMove(state, video = {}, stop = null) {
   if (!settled) return { step: `out of replies: set_plan, build${then}`, call: PLAN_CALL(stop) };
   return { step: stop ? `notes set_plan, build, then ask ${stop}` : "notes set_plan, then build", call: PLAN_CALL(stop) };
 }
+
+// The real-song finder's call: the brief's sound line as its search, else explore (read from the brief).
+const songCall = (brief) => {
+  const words = String(brief?.fields?.look_sound?.text ?? "").replace(/\s+/g, " ").trim().slice(0, 80);
+  return { tool: "library", input: { topic: "soundtrack", ...(words ? { search: words } : { explore: true }) } };
+};
 
 // The waiver that skips the treatments step (waive_check {code:"treatments", target:"*", reason}),
 // as waive_check {code:"reference"} skips the references step. The person sees both.
@@ -985,8 +996,14 @@ function openParts(state, video) {
   // Under "just start" the pick is the agent's own, with why (treatmentsText says what to pick).
   // So is a pick the person left to the agent ("your call" recorded by notes answer).
   const leftToAgent = (brief.log ?? []).some((entry) => entry?.q === PICK_QUESTION && leavesItToYou(String(entry.a ?? "")));
-  if (!picked && (leftToAgent || /just start/i.test(brief.noPlayback?.reason ?? ""))) return [...open, { step: "pick a treatment, with why", call: briefCall({ treatments: { ...OWN_PICK_CALL } }) }];
-  if (!picked) return [...open, { step: "ask their treatment pick", call: briefCall({ treatments: { pick: "<A, B or C>", quote: "<their words>" } }) }];
+  // Someone at the app (video.appSeen) picks from sketches first, also under "just start": a
+  // click in the app is not a question (sketch-step.mjs). One round per set of treatments.
+  if (!picked) {
+    const own = leftToAgent || /just start/i.test(brief.noPlayback?.reason ?? "");
+    const step = pickStep(state, treatments, { appSeen: video.appSeen === true, own, files: video.files ?? [], leftToAgent });
+    if (step) return [...open, step];
+    return [...open, { step: "ask their treatment pick", call: briefCall({ treatments: { pick: "<A, B or C>", quote: "<their words>" } }) }];
+  }
   // The pick's idea is copied into style.idea when it is saved (briefChanges); its move and
   // material are offered as the first signature. A pick that carries its story (tension and
   // turn) also drafts the spine in the same call: the build waits until the spine has the
@@ -1151,7 +1168,8 @@ export function lockCall(state, { approve = false, video = null } = {}) {
   }
   // The picked treatment's type direction says what the fonts are for (the spec's type, else the pick's).
   const type = saved.type ?? pickedType(state?.brief?.treatments);
-  const family = type ? `<font for: ${type}>` : "<font>";
+  // The font of the sketch they picked in the app is the first offer.
+  const family = pickedSketch(state)?.font ?? (type ? `<font for: ${type}>` : "<font>");
   const fonts = { caption: { family, size: "<px>" }, display: { family, size: "<px>" } };
   // No drafted avoids: a ban is the person's words (a guessed one only warns, and the board
   // stop asks about it). Saved avoids are kept as they are.
