@@ -9,6 +9,11 @@ import { TOOL_LIST_TOKEN_BUDGET } from "./agent/tools.mjs";
 import { NOTES_ACTIONS } from "./agent/actions.mjs";
 import { agentToolList, RECONNECT_LINE, RELOADED_LINE, toolsHash } from "./agent/tool-sync.mjs";
 import { ToolListChangedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { PREVIEW_MAX_CHARS, PREVIEW_META_KEY, PREVIEW_MIME, PREVIEW_TOOL, PREVIEW_URI, renderPreview } from "./agent/chat-preview.mjs";
+import { runMediaTool } from "./media-probe.mjs";
 
 const AGENT_TOOL_NAMES = ["status", "edit", "check", "look", "inspect", "render", "library", "history", "notes", "project"];
 // A real 1×1 PNG, so the image content is valid base64.
@@ -35,10 +40,11 @@ function fakeClient(replies = {}) {
 }
 
 // Connects an MCP client to a fresh kino MCP server in memory (no network, no child process).
-async function connect(options) {
+// capabilities: what the client says it can do (a chat app with MCP Apps names the extension).
+async function connect(options, capabilities = {}) {
   const server = createKinoMcpServer(options);
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
-  const client = new Client({ name: "agent-mcp-test", version: "1.0.0" });
+  const client = new Client({ name: "agent-mcp-test", version: "1.0.0" }, { capabilities });
   await Promise.all([server.connect(serverSide), client.connect(clientSide)]);
   return { client, server, close: async () => { await client.close(); await server.close(); } };
 }
@@ -292,5 +298,102 @@ test("an output folder starting with ~ is sent as an absolute folder in the home
     await close();
     if (homeBefore === undefined) delete process.env.HOME;
     else process.env.HOME = homeBefore;
+  }
+});
+
+// ---- the render preview chat apps with MCP Apps show (agent/chat-preview.mjs) ----------------
+
+const APPS = { extensions: { "io.modelcontextprotocol/ui": { mimeTypes: [PREVIEW_MIME] } } };
+
+// A 12 s noisy test video with sound (hard to squeeze), made once with FFmpeg in a temporary folder.
+let testVideo = null;
+function makeTestVideo() {
+  testVideo ??= (async () => {
+    const folder = await mkdtemp(path.join(os.tmpdir(), "kino-preview-test-"));
+    const file = path.join(folder, "Launch draft.mp4");
+    await runMediaTool("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=30:duration=12",
+      "-f", "lavfi", "-i", "sine=frequency=440:duration=12", "-vf", "noise=alls=40:allf=t",
+      "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", file]);
+    return { folder, file };
+  })();
+  return testVideo;
+}
+test.after(async () => { if (testVideo) await rm((await testVideo).folder, { recursive: true, force: true }); });
+
+test("only a chat app with MCP Apps gets the eleventh, app-only tool; the ten the model sees stay in budget", async () => {
+  const plain = await connect({ client: fakeClient() });
+  const apps = await connect({ client: fakeClient() }, APPS);
+  try {
+    const plainTools = (await plain.client.listTools()).tools;
+    const appsTools = (await apps.client.listTools()).tools;
+    assert.deepEqual(plainTools.map((tool) => tool.name), AGENT_TOOL_NAMES);
+    assert.deepEqual(appsTools.map((tool) => tool.name), [...AGENT_TOOL_NAMES, PREVIEW_TOOL]);
+    assert.deepEqual(appsTools.at(-1)._meta.ui, { resourceUri: PREVIEW_URI, visibility: ["app"] });
+    // The ten are the same for both, so the budget the first test checks holds for both.
+    assert.deepEqual(appsTools.slice(0, 10), plainTools);
+    // Any other client cannot call it: the server has no such tool.
+    const refused = await plain.client.callTool({ name: PREVIEW_TOOL, arguments: { id: "abc" } }).catch((error) => ({ isError: true, content: [{ text: error.message }] }));
+    assert.equal(refused.isError, true);
+    assert.match(refused.content[0].text, /not found/);
+  } finally {
+    await plain.close();
+    await apps.close();
+  }
+});
+
+test("render names the MCP Apps page, served with its type, the library inlined and nothing from the network", async () => {
+  const { client, close } = await connect({ client: fakeClient() });
+  try {
+    const { tools } = await client.listTools();
+    assert.deepEqual(tools.filter((tool) => tool._meta?.ui).map((tool) => [tool.name, tool._meta.ui.resourceUri]), [["render", PREVIEW_URI]]);
+    const { contents: [page] } = await client.readResource({ uri: PREVIEW_URI });
+    assert.equal(page.mimeType, "text/html;profile=mcp-app");
+    assert.match(page.text, /globalThis\.ExtApps=\{[^}]*App:/);
+    assert.ok(!page.text.includes("__EXT_APPS_BUNDLE__"));
+    // Nothing the page loads comes from elsewhere: no script or link sources, no imports, no CSS url().
+    assert.doesNotMatch(page.text, /<script[^>]+src=|<link\b|@import|url\(\s*["']?https?:|import\s*\(\s*["']https?:|from\s*["']https?:/i);
+  } finally {
+    await close();
+  }
+});
+
+test("a finished render's answer carries a few facts and a preview id; the page's tool answers the video within the limit", async () => {
+  const { file } = await makeTestVideo();
+  const reply = { text: "r1 done: final mp4 1920×1080 · Launch draft.mp4", data: { job: "r1", status: "done", path: file, size: 4_200_000 } };
+  const apps = await connect({ client: fakeClient({ render: reply }) }, APPS);
+  const plain = await connect({ client: fakeClient({ render: reply }) });
+  try {
+    const shown = await apps.client.callTool({ name: "render", arguments: { action: "wait", job: "r1" } });
+    const textOnly = await plain.client.callTool({ name: "render", arguments: { action: "wait", job: "r1" } });
+    assert.deepEqual(shown.content, [{ type: "text", text: reply.text }]);
+    assert.deepEqual(textOnly, { content: [{ type: "text", text: reply.text }] });
+    assert.ok(JSON.stringify(shown._meta).length < 300, `_meta is ${JSON.stringify(shown._meta).length} characters`);
+    const preview = shown._meta[PREVIEW_META_KEY];
+    assert.deepEqual({ ...preview, duration: Math.round(preview.duration), id: typeof preview.id },
+      { name: "Launch draft.mp4", duration: 12, bytes: 4_200_000, link: "kino://open", id: "string" });
+    // The video, made on the first call and kept for the next: a 12 s noisy video still fits.
+    const first = await apps.client.callTool({ name: PREVIEW_TOOL, arguments: { id: preview.id } });
+    const again = await apps.client.callTool({ name: PREVIEW_TOOL, arguments: { id: preview.id } });
+    assert.match(first.content[0].text, /^data:video\/mp4;base64,[A-Za-z0-9+/]+=*$/);
+    assert.ok(JSON.stringify(first).length <= PREVIEW_MAX_CHARS, `video answer is ${JSON.stringify(first).length} characters`);
+    assert.equal(again.content[0].text, first.content[0].text);
+    // A queued render has no file yet: no preview.
+    assert.equal(await renderPreview({ job: "r2", status: "queued" }), null);
+  } finally {
+    await apps.close();
+    await plain.close();
+  }
+});
+
+test("the page's tool refuses a made-up id and a path; it never reads a file it was not given by kino", async () => {
+  const apps = await connect({ client: fakeClient() }, APPS);
+  try {
+    for (const id of ["0123456789ab", "/etc/hosts", "../Launch draft.mp4"]) {
+      const answer = await apps.client.callTool({ name: PREVIEW_TOOL, arguments: { id } });
+      assert.equal(answer.isError, true, id);
+      assert.match(answer.content[0].text, /^Unknown preview id/, id);
+    }
+  } finally {
+    await apps.close();
   }
 });

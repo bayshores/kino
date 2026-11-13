@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>kino preview</title>
+<style>
+  /* kino's colors (frontend/base.css), dark first; the chat app's theme picks one. */
+  :root {
+    --bg1: #17171a; --line: #2a2a2f; --fg0: #e6e6e8; --fg1: #85858f; --accent: #ff6b4a;
+    --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+    --safe-top: 0px; --safe-right: 0px; --safe-bottom: 0px; --safe-left: 0px;
+    color-scheme: dark;
+  }
+  :root[data-theme="light"] { --bg1: #e6e3da; --line: #c4c0b5; --fg0: #121212; --fg1: #55524b; --accent: #121212; color-scheme: light; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: transparent; color: var(--fg0); font: 12px/1.4 var(--mono); }
+  main { padding: calc(8px + var(--safe-top)) calc(8px + var(--safe-right)) calc(8px + var(--safe-bottom)) calc(8px + var(--safe-left)); }
+  video { display: block; width: 100%; max-height: 70vh; background: #000; border: 1px solid var(--line); }
+  video[hidden] { display: none; }
+  .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  video:not([hidden]) + .row { margin-top: 6px; }
+  .chip { border: 1px solid var(--line); padding: 1px 1ch; color: var(--fg1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  .chip.name { color: var(--fg0); }
+  button { margin-left: auto; font: inherit; color: var(--fg0); background: var(--bg1); border: 1px solid var(--line); border-radius: 0; padding: 2px 2ch; cursor: pointer; }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+  :focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+</style>
+</head>
+<body>
+<main id="preview" hidden>
+  <video id="video" hidden controls muted loop playsinline preload="auto" aria-label="Rendered video, muted"></video>
+  <div class="row">
+    <span class="chip name" id="name"></span>
+    <span class="chip" id="length"></span>
+    <span class="chip" id="size"></span>
+    <button id="open" type="button">Open in kino</button>
+  </div>
+</main>
+<script type="module">
+/*__EXT_APPS_BUNDLE__*/
+const { App } = globalThis.ExtApps;
+const KEY = "kino/preview";
+const root = document.documentElement;
+const main = document.getElementById("preview");
+const video = document.getElementById("video");
+const calm = matchMedia("(prefers-reduced-motion: reduce)");
+let link = "kino://open";
+
+const seconds = (s) => (s >= 60 ? `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}` : `${s.toFixed(1)} s`);
+const size = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1e3))} KB`);
+function chip(id, text, label) {
+  const el = document.getElementById(id);
+  el.textContent = text;
+  el.title = text;
+  el.setAttribute("aria-label", `${label} ${text}`);
+}
+
+// The chat app's theme and the edges it keeps clear (a notch, the message box).
+function applyHost(context) {
+  if (!context) return;
+  if (context.theme) root.dataset.theme = context.theme;
+  const insets = context.safeAreaInsets;
+  if (insets) for (const side of ["top", "right", "bottom", "left"]) root.style.setProperty(`--safe-${side}`, `${Number(insets[side]) || 0}px`);
+}
+
+// A data: video the frame's rules refuse is tried once more as a blob: address.
+video.addEventListener("error", () => {
+  const src = video.getAttribute("src") ?? "";
+  if (!src.startsWith("data:")) return;
+  const [head, body] = src.split(",");
+  const bytes = Uint8Array.from(atob(body), (c) => c.charCodeAt(0));
+  video.src = URL.createObjectURL(new Blob([bytes], { type: head.slice(5).split(";")[0] }));
+});
+
+// The facts show at once; the video comes from kino's app-only tool by preview id. If it does
+// not come, the facts and the button stay and no player is shown.
+async function show(preview) {
+  if (!preview?.id) return;
+  chip("name", preview.name, "File");
+  chip("length", seconds(preview.duration), "Length");
+  chip("size", size(preview.bytes), "Size");
+  if (typeof preview.link === "string" && preview.link.startsWith("kino:")) link = preview.link;
+  main.hidden = false;
+  let src = "";
+  try {
+    const answer = await app.callServerTool({ name: "render_preview", arguments: { id: preview.id } });
+    src = answer?.isError ? "" : answer?.content?.[0]?.text ?? "";
+  } catch {}
+  if (!src.startsWith("data:video/")) return;
+  video.muted = true;
+  video.src = src;
+  video.hidden = false;
+  // Muted, and only when the person has not asked for less motion.
+  if (!calm.matches) video.play().catch(() => {});
+}
+
+const app = new App({ name: "kino preview", version: "1.0.0" }, {}, { autoResize: true });
+app.ontoolresult = (result) => { show(result?._meta?.[KEY]); };
+app.onhostcontextchanged = applyHost;
+document.getElementById("open").addEventListener("click", () => app.openLink({ url: link }));
+(async () => {
+  await app.connect();
+  applyHost(app.getHostContext());
+})();
+</script>
+</body>
+</html>
