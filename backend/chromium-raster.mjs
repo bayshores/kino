@@ -137,7 +137,8 @@ function validateFrame(svg, width, height) {
   }
 }
 
-function resolveExecutable(env, dependencies) {
+// Also used by backend/script-frames.mjs, which starts its own Electron worker the same way.
+export function resolveExecutable(env, dependencies) {
   const configured = dependencies.electronExecutable ?? env.KINO_ELECTRON_EXECUTABLE;
   let installed = configured;
   if (installed == null) {

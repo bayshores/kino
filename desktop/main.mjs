@@ -15,6 +15,7 @@ import { askAfterServiceStopped, askWhenWindowDoesNotAnswer } from "./dialogs.mj
 import { appMenuTemplate } from "./menu.mjs";
 import { mcpLaunch } from "./mcp-launch.mjs";
 import rasterWorker from "./raster-worker.cjs";
+import scriptWorker from "./script-worker.cjs";
 
 // A packaged executable also hosts isolated export workers. Dispatch before the
 // editor's single-instance lock and standard user-data settings are touched.
@@ -23,6 +24,12 @@ if (process.argv.includes("--kino-raster-worker")) {
   // worker here would wait on app.whenReady() while preventing that event.
   void rasterWorker.runRasterWorker().catch(error => {
     process.stderr.write(`kino export worker: ${String(error.message).slice(0, 500)}\n`);
+    app.exit(1);
+  });
+} else if (process.argv.includes("--kino-script-worker")) {
+  // The same for the worker that runs script layers' drawing modules (backend/script-frames.mjs).
+  void scriptWorker.runScriptWorker().catch(error => {
+    process.stderr.write(`kino script worker: ${String(error.message).slice(0, 500)}\n`);
     app.exit(1);
   });
 } else {
