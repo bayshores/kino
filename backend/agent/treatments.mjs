@@ -337,6 +337,10 @@ export function pickLines(brief, origin = null) {
 // Where the agent learns of sketch rounds (sketches.mjs): one line under the shown treatments.
 export const SKETCH_LINE = 'To let them watch and hear these first: notes {action:"try", from, to, options:[{treatment:"A", ops}, ...]} renders 2 to 10 s sketches with sound; their pick saves itself (library {topic:"rules", name:"sketches"}).';
 
+// With someone at the kino app (sketch-step.mjs): the sketch round is the pick, said where the pick text was.
+export const SKETCH_FIRST = "Their pick is the sketch round in next: give each sketch a real song its story calls for, a font and a short line; kino builds them and the app shows them.";
+export const SKETCH_WAIT = "The sketches are in the app: their pick saves itself. End your turn.";
+
 // What the agent's own pick is for, and the call that saves it ("just start").
 export const OWN_PICK = "pick the one a viewer would retell tomorrow that this material can carry; say why";
 export const OWN_PICK_CALL = Object.freeze({ pick: "<A, B or C>", why: "<why a viewer would retell it>" });
@@ -349,7 +353,7 @@ export const PICK_QUESTION = "Which treatment (A, B or C)?";
  * the pick does with the origin word, and the dropped one as a labeled line when the ask is known
  * for it (knownLine). `subject` (subject-edit.mjs isSubjectEdit) words the picture line for footage.
  */
-export function treatmentsText(brief, origin = null, { subject = false } = {}) {
+export function treatmentsText(brief, origin = null, { subject = false, sketch = null } = {}) {
   const treatments = brief?.treatments;
   if (!treatments?.list) return "";
   const dropped = treatments.list[treatments.dropped];
@@ -363,9 +367,9 @@ export function treatmentsText(brief, origin = null, { subject = false } = {}) {
   const own = /just start/i.test(brief.noPlayback?.reason ?? "");
   const known = knownLine(treatments, origin, askTexts(brief));
   return [
-    `treatments: dropped the most typical (p ${dropped.p}: ${dropped.idea}); ${own ? "they said just start, so pick one yourself" : `the next stop's ask shows these ${known ? SHOWN_COUNT + 1 : SHOWN_COUNT} to pick`}:`,
+    `treatments: dropped the most typical (p ${dropped.p}: ${dropped.idea}); ${sketch ? "someone is at the kino app, so they pick from sketches" : own ? "they said just start, so pick one yourself" : `the next stop's ask shows these ${known ? SHOWN_COUNT + 1 : SHOWN_COUNT} to pick`}:`,
     ...shownLines(treatments), ...(known ? [known] : []),
-    SKETCH_LINE,
-    own ? `${OWN_PICK}: fields:{treatments:{pick:"A", why:"<why>"}}.` : 'Their pick: fields:{treatments:{pick:"B", quote:"<their words>"}}. With no stop ahead, ask in one message.',
+    ...(sketch === "show" ? [SKETCH_FIRST] : sketch === "wait" ? [SKETCH_WAIT] : [SKETCH_LINE,
+    own ? `${OWN_PICK}: fields:{treatments:{pick:"A", why:"<why>"}}.` : 'Their pick: fields:{treatments:{pick:"B", quote:"<their words>"}}. With no stop ahead, ask in one message.']),
   ].join("\n");
 }

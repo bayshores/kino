@@ -13,7 +13,7 @@ import { openStore } from "./store.mjs";
 import { createDocument, createScene } from "../engine/model.js";
 import { answerText, callText, missingFieldCall, opWithName, originFootage, originFootageNext, unfilledSlot, withSuggestion } from "./agent/next-call.mjs";
 import { originReferenceLine } from "./agent/seen-names.mjs";
-import { lockCall } from "./agent/brief.mjs";
+import { briefText, lockCall } from "./agent/brief.mjs";
 import { fromAppWindow } from "./dashboard-routes.mjs";
 import { statusMove } from "./stops.test.support.mjs";
 import { withAsk } from "./agent-ask.test.support.mjs";
@@ -99,8 +99,13 @@ test("the pick: someone at the app gets a filled sketch round (also under just s
   const shown = statusMove({ brief }, { ...video, appSeen: true });
   assert.match(shown.step, /^show sketches: their pick in the app; songs: library \{topic:"soundtrack"/);
   assert.deepEqual(shown.call.input.options.map((option) => [option.treatment, option.clips[0].file, option.clips[0].in, option.line, option.song, option.font]), [
-    ["A", "street.mp4", 2.5, "one long breath", "<title> by <artist>", "<family>"], ["B", "desk.mp4", 0, "a door opens", "<title> by <artist>", "<family>"], ["C", "street.mp4", 0, "a city wakes", "<title> by <artist>", "<family>"]]);
+    ["A", "street.mp4", 2.5, "<the words on screen>", "<title> by <artist>", "<family>"], ["B", "desk.mp4", 0, "<the words on screen>", "<title> by <artist>", "<family>"], ["C", "street.mp4", 0, "<the words on screen>", "<title> by <artist>", "<family>"]]);
   assert.deepEqual([shown.call.input.action, shown.call.input.seconds], ["try", 6]);
+  // The reply's words say the same as its step (an agent that reads "pick one yourself" skips the round).
+  const said = briefText({ brief }, { ...video, appSeen: true });
+  assert.match(said, /they pick from sketches[\s\S]*\nstep: show sketches/);
+  assert.doesNotMatch(said, /pick one yourself|pick:"A"/);
+  assert.match(briefText({ brief }, video), /pick one yourself[\s\S]*\nstep: pick a treatment, with why/, "no one at the app: as before");
   const round = (status) => ({ id: "T1", sketch: true, status, options: [{ letter: "A", treatment: "A", idea: "one long breath" }, { letter: "B", treatment: "B", idea: "a door opens" }] });
   assert.match(statusMove({ brief, tries: [round("waiting")] }, { ...video, appSeen: true }).step, /their sketch pick in the app \(T1\)/);
   for (const status of ["skipped", "none", "failed"]) assert.equal(statusMove({ brief, tries: [round(status)] }, { ...video, appSeen: true }).step, "pick a treatment, with why", `${status}: never a second round`);

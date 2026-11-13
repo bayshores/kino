@@ -6,8 +6,8 @@ import { LABELS, PICK_QUESTION, OWN_PICK_CALL } from "./treatments.mjs";
 
 // Seconds each sketch lasts.
 export const SKETCH_SECONDS = 6;
-// Words of a treatment's idea used as its sketch's starting line (when it has no quote).
-const LINE_WORDS = 6;
+// A sketch's line when its treatment has no quote: the agent writes it (a cut-off idea is not a line).
+const LINE_PLACEHOLDER = "<the words on screen>";
 
 export const SKETCH_STEP = "show sketches: their pick in the app";
 // Where the song and font candidates come from (the real-song finder and the font ranking).
@@ -21,12 +21,11 @@ export function sketchRoundFor(state, treatments) {
 }
 
 const shownEntries = (treatments) => (treatments?.shown ?? []).map((index, position) => ({ letter: LABELS[position], entry: treatments.list[index] })).filter((one) => one.entry);
-const firstWords = (text, count) => String(text ?? "").replace(/\s+/g, " ").trim().split(" ").slice(0, count).join(" ");
 
 /**
  * The filled sketch-round call: one option per shown treatment, its clip the project file its
  * source names (at the seconds the source names, else 0), else the project's clips in turn; its
- * line the treatment's quote, else the first words of its idea. Song and font stay placeholders.
+ * line the treatment's quote, else a placeholder. Song and font stay placeholders.
  * `files` are the project's clip and picture names.
  */
 export function sketchCall(treatments, files = []) {
@@ -35,7 +34,7 @@ export function sketchCall(treatments, files = []) {
     const named = files.find((name) => source.toLowerCase().includes(String(name).toLowerCase()));
     const at = named ? Number(/(\d+(?:\.\d+)?)\s*s\b/.exec(source.slice(source.toLowerCase().indexOf(named.toLowerCase()) + named.length))?.[1] ?? 0) : 0;
     const file = named ?? (files.length ? files[index % files.length] : "<project file>");
-    return { treatment: letter, song: "<title> by <artist>", font: "<family>", line: entry.quote || firstWords(entry.idea, LINE_WORDS), clips: [{ file, in: at }] };
+    return { treatment: letter, song: "<title> by <artist>", font: "<family>", line: entry.quote || LINE_PLACEHOLDER, clips: [{ file, in: at }] };
   });
   return { tool: "notes", input: { action: "try", options, seconds: SKETCH_SECONDS } };
 }
@@ -58,4 +57,15 @@ export function pickStep(state, treatments, { appSeen = false, own = false, file
   }
   if (appSeen) return { step: `${SKETCH_STEP}; ${SKETCH_HINT}`, call: sketchCall(treatments, files) };
   return own ? ownPick : null;
+}
+
+/**
+ * Where the sketch round stands for the saved treatments: "show" (the next step shows sketches),
+ * "wait" (their pick is waiting in the app) or null (no round: the pick is asked or the agent's own).
+ * The treatments text (treatments.mjs treatmentsText) says the same thing as the step.
+ */
+export function sketchPhase(state, treatments, { appSeen = false, leftToAgent = false } = {}) {
+  if (!treatments?.list || treatments.picked) return null;
+  const step = pickStep(state, treatments, { appSeen, own: true, leftToAgent })?.step ?? "";
+  return step.startsWith(SKETCH_STEP) ? "show" : step.startsWith("their sketch pick") ? "wait" : null;
 }

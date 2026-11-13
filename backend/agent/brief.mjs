@@ -32,7 +32,7 @@ import { needsCall } from "./needs.mjs";
 import { closest } from "./refs.mjs";
 import { IDEA_SPINE, STYLE_LIMITS, addRejected, cleanStyle, mergeStyle, styleProblem } from "./style.mjs";
 import { leavesItToYou } from "./board.mjs";
-import { pickStep } from "./sketch-step.mjs";
+import { pickStep, sketchPhase } from "./sketch-step.mjs";
 import { pickedSketch } from "./sketches.mjs";
 import { PICK_QUESTION, cleanTreatments, originLine, pickedIdea, pickedSignature, pickedType, treatmentsProblem, treatmentsText, wordsOnly } from "./treatments.mjs";
 import { directionLock, styleContext, styleLine } from "../../engine/styleSpec.js";
@@ -617,6 +617,11 @@ function questionLimit(state, video) {
   return chosen && seconds < SHORT_VIDEO_SECONDS ? 1 : QUESTION_LIMIT;
 }
 
+// The person left the treatment pick to the agent ("your call" recorded by notes answer).
+const pickLeftToAgent = (brief) => (brief?.log ?? []).some((entry) => entry?.q === PICK_QUESTION && leavesItToYou(String(entry.a ?? "")));
+// Where the sketch round stands (sketch-step.mjs sketchPhase), for the treatments text.
+const sketchPhaseOf = (state, video) => sketchPhase(state, state?.brief?.treatments, { appSeen: video?.appSeen === true, leftToAgent: pickLeftToAgent(state?.brief) });
+
 /**
  * The person's replies as the agent logged them: { count, limit, questions, playbacks, stops }.
  * stops: the stops they answered (stops.mjs), in the chat or on the dashboard.
@@ -995,7 +1000,7 @@ function openParts(state, video) {
   const picked = treatments.picked;
   // Under "just start" the pick is the agent's own, with why (treatmentsText says what to pick).
   // So is a pick the person left to the agent ("your call" recorded by notes answer).
-  const leftToAgent = (brief.log ?? []).some((entry) => entry?.q === PICK_QUESTION && leavesItToYou(String(entry.a ?? "")));
+  const leftToAgent = pickLeftToAgent(brief);
   // Someone at the app (video.appSeen) picks from sketches first, also under "just start": a
   // click in the app is not a question (sketch-step.mjs). One round per set of treatments.
   if (!picked) {
@@ -1339,7 +1344,7 @@ export function briefText(state, video = {}) {
     originLine(state.origin),
     brief.style ? styleLine(brief.style) : "",
     lengthTarget(brief) ? lengthLine(lengthTarget(brief)) : "",
-    treatmentsText(brief, state.origin, { subject: isSubjectEdit(state, video) }),
+    treatmentsText(brief, state.origin, { subject: isSubjectEdit(state, video), sketch: sketchPhaseOf(state, video) }),
     state.deck ? deckLine(state.deck) : "",
     ...(state.deck?.swaps ?? []).map((swap) => `deck swap: ${swap.out} → ${swap.in} (${swap.why})`),
     brief.noPlayback ? `no playback: ${brief.noPlayback.reason}` : "",
@@ -1373,7 +1378,7 @@ export function savedText(state, changes, video = {}) {
     head,
     changes.style ? styleLine(brief.style) : "",
     changes.length ? `${lengthLine(lengthTarget(brief))}; check holds the video to it` : "",
-    changes.treatments ? [originLine(state.origin), treatmentsText(brief, state.origin, { subject: isSubjectEdit(state, video) })].filter(Boolean).join("\n") : "",
+    changes.treatments ? [originLine(state.origin), treatmentsText(brief, state.origin, { subject: isSubjectEdit(state, video), sketch: sketchPhaseOf(state, video) })].filter(Boolean).join("\n") : "",
     // The receipt of a controls save: what they are now, and each step they pass without the person.
     changes.controls !== undefined ? (controlsLine(brief.controls) ?? "controls removed: the person's settings ask every stop again") : "",
     changes.controls ? skippedLine(brief.controls, video?.seconds ?? 0) ?? "" : "",

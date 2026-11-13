@@ -1332,7 +1332,7 @@ export function createAgentService(deps) {
     const brief = (await agentState.read(document.id)).brief;
     if (brief?.treatments?.picked && !brief.style?.signatures?.length) facts.picture = await productPicture(document.id);
     // The pick: someone at the app picks from sketches of the project's own clips (sketch-step.mjs).
-    if (brief?.treatments?.list && !brief.treatments.picked) {
+    if (!brief?.treatments?.picked) {
       facts.appSeen = appSeenWithin();
       if (facts.appSeen) facts.files = ((await deps.listMedia?.().catch(() => [])) ?? [])
         .filter((item) => mediaAllowedIn(item, document.id) && /^(video|image)\//.test(item.mime ?? "") && typeof item.name === "string").map((item) => item.name);
