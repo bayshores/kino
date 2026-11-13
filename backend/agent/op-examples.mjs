@@ -180,6 +180,32 @@ export function exampleFor(type, layer, moveName = null) {
   return example;
 }
 
+/**
+ * True when `operation` is about a script layer: it adds one, sets a script, inputs or values on a
+ * layer, or animates `values`. Used to answer a refusal with a script example.
+ */
+export function isScriptOp(type, operation) {
+  if (!operation || typeof operation !== "object") return false;
+  const properties = operation.properties && typeof operation.properties === "object" ? operation.properties : {};
+  if (type === "add_layer") return operation.layerType === "script";
+  if (type === "update_layer") return ["script", "inputs", "values"].some((key) => Object.hasOwn(properties, key));
+  if (type === "add_animation") return Boolean(operation.animation?.from?.values || operation.animation?.to?.values || operation.from?.values || operation.to?.values);
+  return false;
+}
+
+/**
+ * The retry example for a refused script op: the same kind of op with a script layer in it (the
+ * "bars" example from add_layer; `layer` is the layer the agent named).
+ */
+export function scriptExampleFor(type, layer) {
+  const bars = structuredClone(OP_EXAMPLES.add_layer.more[0].op);
+  const name = typeof layer === "string" && layer ? layer : bars.name;
+  if (type === "update_layer") return { op: "update_layer", layer: name, properties: { script: bars.properties.script } };
+  if (type === "add_animation")
+    return { op: "add_animation", layer: name, animation: { kind: "custom", start: 0, duration: 1.2, easing: "ease-out", from: { values: { reveal: 0 } }, to: { values: { reveal: 1 } } } };
+  return bars;
+}
+
 /** The other examples of a type, as [{label, op}] (copies); none for most ops. */
 export function moreExamplesFor(type) {
   return (OP_EXAMPLES[type]?.more ?? []).map(({ label, op }) => ({ label, op: structuredClone(op) }));

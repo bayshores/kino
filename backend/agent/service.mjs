@@ -65,7 +65,7 @@ import { editFocus } from "./dashboard.mjs";
 import { callLabel, callTarget, pointingText } from "./labels.mjs";
 import { knownAgent, touchedLayers } from "./live.mjs";
 import { AGENT_OPERATION_TYPES, createdIds, plainLayer, referencedIds, translateAll } from "./translate.mjs";
-import { exampleFor, moreExamplesFor, signatureFor } from "./op-examples.mjs";
+import { exampleFor, isScriptOp, moreExamplesFor, scriptExampleFor, signatureFor } from "./op-examples.mjs";
 import { moveRetry } from "./move-retry.mjs";
 import { layerFieldAliases, layerFieldPair, opFromWord, PRESET_LAYER, PRESET_SAMPLE_TO, PRESET_VALUE_KEYS } from "./common-mistakes.mjs";
 import { animationSpan, isRandomId, layerAnimations, refName, sec } from "./describe.mjs";
@@ -3087,7 +3087,10 @@ export function createAgentService(deps) {
     // An op that works once one field is added (move_layers mask:true): that op is the example.
     // A refused move: the agent's own op with the failing field fixed or named (move-retry.mjs).
     const ownMove = type === "move" && !error?.example && !error?.noExample && !error?.retryWith ? moveRetry(operation, reason, error?.suggestions) : null;
-    const example = index == null ? undefined : soundFade ?? ownMove ?? (error?.retryWith && operation && typeof operation === "object" ? { ...operation, ...error.retryWith }
+    // A refused script layer edit ends with a script layer example, not the usual rectangle one.
+    const scriptRetry = index != null && !error?.example && !error?.noExample && !error?.retryWith && isScriptOp(type, operation)
+      ? scriptExampleFor(type, typeof operation?.layer === "string" ? operation.layer : undefined) : null;
+    const example = index == null ? undefined : soundFade ?? ownMove ?? scriptRetry ?? (error?.retryWith && operation && typeof operation === "object" ? { ...operation, ...error.retryWith }
       : (!error?.example && !error?.noExample && effectSettingRetry(type, operation, error))
         || exampleOf(type, error, typeof operation?.layer === "string" ? operation.layer : undefined, operation?.name));
     if (example) details.example = example;

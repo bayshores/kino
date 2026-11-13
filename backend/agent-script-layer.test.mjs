@@ -61,6 +61,21 @@ test("an agent adds a script layer, changes and animates its inputs, and reads t
   assert.match(broken.text, /syntax error at line 3/);
 });
 
+test("a refused script layer edit ends with a script layer example to send again", async (t) => {
+  const { edit } = await service(t);
+  const [bars] = await referenceExamples();
+  const refused = await edit([{ ...bars, properties: { ...bars.properties, script: "export default function setup() {\n  return (\n}" } }]);
+  assert.equal(refused.isError, true);
+  assert.match(refused.text, /syntax error at line 3/);
+  // The reply's `next` is `edit {retry, fix: {<op number>: <the op to send instead>}}`.
+  const nextOf = (reply) => JSON.stringify(JSON.parse(JSON.parse(reply.text).next.replace(/^edit /, "")).fix);
+  assert.match(nextOf(refused), /"layerType":"script"[\s\S]*getContext/);
+  await edit([bars]);
+  const animation = await edit([{ op: "add_animation", layer: "bars", animation: { kind: "custom", start: 0, duration: 1, from: { values: { nope: 0 } }, to: { values: { nope: 1 } } } }]);
+  assert.equal(animation.isError, true, animation.text);
+  assert.match(nextOf(animation), /"values":\{"reveal":1\}/);
+});
+
 test("every example in the script layer reference is a valid add_layer", async (t) => {
   const { edit, layer } = await service(t);
   const examples = await referenceExamples();
