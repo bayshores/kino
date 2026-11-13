@@ -17,7 +17,7 @@ import React, { useEffect, useId, useMemo, useRef, useState } from "react";
 import { boardData, boardShotUrl } from "./api.js";
 import { timeOfDay } from "./format.js";
 import { Btn, Icon } from "./controls.jsx";
-import { Back, Screen } from "./screens.jsx";
+import { Screen } from "./screens.jsx";
 import {
   changeLines, clockWords, directedShots, footageBox, hasDirection, headChips, LENGTH_LIMITS, OPTION_LETTERS, overlayBoxes, seconds, shotIndexAt, shotLines, shotSentence, shotTags,
   statusWords, steppedLength, styleFrameView,
@@ -599,9 +599,9 @@ function Overlay({ boxes }) {
  * The storyboard screen ({name:"board"}, `:board` when no board stop was asked yet): the board now,
  * read only, "Not asked yet"; "No storyboard yet." when the video has none.
  */
-export function BoardScreen({ projectId, document, revision, onBack }) {
+export function BoardScreen({ projectId, document, revision }) {
   return (
-    <Screen title="Storyboard" className="stop-screen" actions={<Back onBack={onBack}>Back</Back>}>
+    <Screen title="Storyboard" className="stop-screen">
       {document?.board?.shots?.length ? <BoardView projectId={projectId} rev={revision} version={revision} readOnly level={3} />
         : <p className="board-empty">No storyboard yet. The agent writes one with edit {"{op:\"board\"}"} and shows it to you at the storyboard stop.</p>}
     </Screen>

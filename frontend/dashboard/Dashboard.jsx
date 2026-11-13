@@ -1802,17 +1802,17 @@ export function Dashboard() {
     const screens = {
       projects: () => <ProjectsScreen data={data} cursor={cursors.projects} onCursor={(index) => setCursors((value) => ({ ...value, projects: index }))} onOpen={openProject}
         onDuplicate={(id) => projectAction("duplicate", id)} onArchive={archive} onRestore={restore} onBack={back} />,
-      settings: () => <SettingsScreen data={data} now={now} onBack={back} notificationState={notificationState}
+      settings: () => <SettingsScreen data={data} now={now} notificationState={notificationState}
         onAskNotifications={async () => setNotificationState(await askForNotifications())}
         onSave={saveSettings} stops={<StopSettings settings={data.settings} onSave={saveSettings} />}
         onClearCache={async () => { try { const value = await server.clearCache(); say("Frame cache cleared."); return value; } catch (cause) { fail(cause); return null; } }}
         onClearRenderCache={async () => { try { const value = await server.clearRenderCache(); say(value.inUse ? `Render cache cleared; ${value.inUse} in use now stayed.` : "Render cache cleared."); return value; } catch (cause) { fail(cause); return null; } }} />,
-      turn: () => <TurnScreen data={data} turnId={screen.turn} time={time} onUndo={undo} onBack={back} />,
+      turn: () => <TurnScreen data={data} turnId={screen.turn} time={time} onUndo={undo} />,
       variants: () => <VariantsScreen data={data} choices={choices} time={time} cursor={cursors.variants} onCursor={(index) => setCursors((value) => ({ ...value, variants: index }))}
-        onPick={pickVariant} rejecting={rejecting} onReject={rejectVariants} onBack={back} />,
-      approval: () => <ApprovalScreen approval={data.approvals.find((entry) => entry.id === screen.id)} onBack={back} now={now} onAnswer={answer}
+        onPick={pickVariant} rejecting={rejecting} onReject={rejectVariants} />,
+      approval: () => <ApprovalScreen approval={data.approvals.find((entry) => entry.id === screen.id)} now={now} onAnswer={answer}
         note={approvalNotes[screen.id] ?? ""} onNote={(text) => setApprovalNotes((value) => ({ ...value, [screen.id]: text }))} noteRef={approvalNoteRef} />,
-      stop: () => <StopScreen id={screen.id} row={stopLines.find((row) => row.key === screen.id) ?? null} onBack={back} onReopen={reopenStop} onKeepAsking={keepAsking}
+      stop: () => <StopScreen id={screen.id} row={stopLines.find((row) => row.key === screen.id) ?? null} onReopen={reopenStop} onKeepAsking={keepAsking}
         {...(waitingStop?.id === screen.id ? { ...stopCard(waitingStop), focusNote: Boolean(screen.mode) } : { round: null, projectId })} />,
       // Enter on an agent: back to the stage, at the place its newest call is about, with follow on.
       crew: () => <CrewScreen data={data} now={now} hold={Boolean(data.hold?.on)} still={still} onHold={() => toggleHold()} onBack={back} onHelp={() => setScreen({ name: "help" })}
@@ -1824,16 +1824,16 @@ export function Dashboard() {
         say(shown ? `Follow agent on, showing where ${agent.name} works.` : "Follow agent on.");
         focusPane(1);
       }} />,
-      board: () => <BoardScreen projectId={projectId} document={doc} revision={revision} onBack={back} />,
+      board: () => <BoardScreen projectId={projectId} document={doc} revision={revision} />,
       try: () => <TryScreen projectId={projectId} tries={data.agent?.tries ?? null} shots={doc?.board?.shots ?? []} onBack={back}
         onAnswer={(round, pick) => server.act("notes", { action: "try", project: projectId, round: round.id, pick }).then((reply) => { if (reply.isError) say(reply.text, true); }, fail)} />,
-      library: () => <LibraryScreen document={doc} shots={doc?.board?.shots ?? []} onBack={back}
+      library: () => <LibraryScreen document={doc} shots={doc?.board?.shots ?? []}
         onSend={async (text) => { try { await sendNote(text); say("Sent to the agent."); } catch (cause) { fail(cause); throw cause; } }} />,
       inspire: () => <InspireScreen data={data} projectId={projectId} now={now} onBack={back} say={say} keysRef={inspireKeys} still={still} />,
       brief: () => <BriefScreen data={data} brief={brief} document={doc} onNote={() => startNote()} onAddFiles={dropFiles} onReopen={reopenStop} onKeepAsking={keepAsking}
         onExport={() => exportScene()} onCancelRender={cancelRender} />,
-      help: () => <HelpScreen onBack={back} />,
-      transcript: () => <TranscriptScreen data={data} onBack={back} />,
+      help: () => <HelpScreen />,
+      transcript: () => <TranscriptScreen data={data} />,
     };
     body = <main className={`screen-wrap is-${screen.name}`} style={{ minHeight: 0, overflow: "auto" }} inert={waiting}>{(screens[screen.name] ?? screens.help)()}</main>;
   }

@@ -13,7 +13,7 @@ import { ScenePreview } from "../components/ScenePreview.jsx";
 import { loadBrowserFonts } from "../browserFonts.js";
 import { libraryCatalog, librarySample, libraryStillUrl } from "./api.js";
 import { askNote, shotWords, shotsUsing, shownEntries, usedIn, withAsk } from "./libraryRows.js";
-import { Back, Screen } from "./screens.jsx";
+import { Screen } from "./screens.jsx";
 import { Btn, Icon } from "./controls.jsx";
 import "./library.css";
 
@@ -129,7 +129,7 @@ function Detail({ entry, used, shots, onAsk }) {
   );
 }
 
-export function LibraryScreen({ document, shots = [], onSend, onBack }) {
+export function LibraryScreen({ document, shots = [], onSend }) {
   const [catalog, setCatalog] = useState(null);
   const [error, setError] = useState(null);
   const [view, setView] = useState({ group: "transition" });
@@ -162,7 +162,6 @@ export function LibraryScreen({ document, shots = [], onSend, onBack }) {
           <button type="button" aria-pressed={!onlyUsed} onClick={() => setOnlyUsed(false)}>All <span className="lib-n">{catalog?.total ?? ""}</span></button>
           <button type="button" aria-pressed={onlyUsed} onClick={() => setOnlyUsed(true)}>In this video <span className="lib-n">{used.size}</span></button>
         </span>
-        <Back onBack={onBack}>Back</Back>
       </div>
       {error ? <p className="err">The library could not be read: {error}</p> : !catalog ? <p className="muted">Reading the library…</p> : (
         <>

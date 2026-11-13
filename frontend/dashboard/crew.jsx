@@ -370,7 +370,6 @@ export function CrewScreen({ data, now, hold, still = false, onHold, onWatch, on
           ) : null}
           <span className="crew-more-keys">
             {rules ? <Btn kind="quiet" icon="timer" keys="t" onClick={() => setForm("timer")}>Add a timer</Btn> : null}
-            <Btn kind="quiet" icon="compass" keys="i" onClick={() => runKey("inspire")}>References</Btn>
           </span>
         </div>
       </div>

@@ -182,7 +182,6 @@ function WatchView({ data, ref_: ref, live, onBack, onFull, still }) {
       </div>
       <nav className="insp-keyline" aria-label="Inspire views">
         <button type="button" className="insp-btn" onClick={onFull}>All found</button>
-        <button type="button" className="insp-btn" onClick={onBack}>Back to stage</button>
       </nav>
     </section>
   );
@@ -328,7 +327,6 @@ function IdeasView({ data, ideas, projectId, onBack, onFull, say, keysRef }) {
       </div>
       <nav className="insp-keyline" aria-label="Inspire views">
         <button type="button" className="insp-btn" onClick={onFull}>All found</button>
-        <button type="button" className="insp-btn" onClick={onBack}>Back to stage</button>
       </nav>
     </section>
   );

@@ -301,13 +301,14 @@ test("approvals by mouse: deny in the session pane; note, always allow, allow on
   assert.equal((await approval(id)).note, "from the mouse");
   assert.equal((await settings()).approvals["share-link"], "allow");
   await asDashboard("settings", { approvals: { "share-link": "ask" } }, "PUT");
-  await browser.click(button("Back", ".screen"));
+  // The top line's Stage tab goes back from the approval screen.
+  await browser.click(q('.topline .tab[data-view="main"]'));
 
   id = await share();
   await browser.click(`document.querySelector('[aria-label^="Approval ${id}:"]')`);
   await browser.click(q('.screen button[aria-label="Allow once"]'));
   await until(async () => (await approval(id))?.status === "allowed", "allow once by click");
-  await browser.click(button("Back", ".screen"));
+  await browser.click(q('.topline .tab[data-view="main"]'));
 
   id = await share();
   await browser.click(`document.querySelector('[aria-label^="Approval ${id}:"]')`);
@@ -1052,13 +1053,14 @@ test("panes, zoom, filter, help, transcript, full frames, follow and the command
   await browser.click(q("#tab-checks"));
   await browser.waitFor(`${q("#tab-checks")}.getAttribute("aria-selected") === "true" && !!document.querySelector("#panel-checks") && ${q('section[data-pane="2"]')}.dataset.focused === "true"`);
   // The key line has no keys button now (each key is in its button's tooltip): the command
-  // list (⌘K or ":") opens the keys screen, and its back button closes it by mouse.
+  // list (⌘K or ":") opens the keys screen, and the top line's Stage tab closes it by mouse.
   await browser.key(":");
   await browser.waitFor(`document.activeElement?.id === "command-input"`);
   await browser.type("help");
   await browser.key("Enter");
   await browser.waitFor(`${textOf("#screen-title")} === "Keys"`);
-  await browser.click(button("Back", ".screen"));
+  await browser.click(q('.topline .tab[data-view="main"]'));
+  await browser.waitFor(`!document.querySelector(".help-screen")`, { what: "keys screen closed by the Stage tab" });
   await browser.key("f");
   await browser.click(button("follow off", ".topline"));
   await browser.waitFor(`!document.querySelector(".topline .follow")`, { what: "follow on by mouse" });

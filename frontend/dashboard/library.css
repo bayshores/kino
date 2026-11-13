@@ -25,8 +25,6 @@
 .lib-scope button:hover { color: var(--fg0); }
 .lib-scope button[aria-pressed="true"] { background: var(--solid); color: var(--on-solid); font-weight: 700; }
 .lib-scope button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.dash .lib-top > .ui-btn { min-height: 32px; padding: 0 4px; border-color: transparent; color: var(--fg1); font-weight: 500; }
-.dash .lib-top > .ui-btn:hover:not(:disabled) { background: none; border-color: transparent; color: var(--fg0); }
 
 /* ---- the lists: by what it does, then by kind ---- */
 .lib-nav { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 28px; margin: 14px 0 19px; }

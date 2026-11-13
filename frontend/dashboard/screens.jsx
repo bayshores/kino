@@ -1,8 +1,9 @@
 // The dashboard's full screens (plan §5.3 "other screens"): projects (with Trash), share links,
 // turn review, variants, the approval card, help and the raw transcript. Plus the command line and the
 // confirm box. Every key action here is also a button. The stop screen (stops.jsx) and the settings
-// screen (settings.jsx) build on Screen and Back from here. The projects and share screens follow
-// the mouse-first design, with controls from controls.jsx.
+// screen (settings.jsx) build on Screen from here. The projects and share screens follow
+// the mouse-first design, with controls from controls.jsx. No screen has a Back button: the top
+// line's Stage tab (F1) and Esc go back to the stage.
 import React, { useEffect, useRef, useState } from "react";
 import { act, frameUrl, listTrash, turnReview } from "./api.js";
 import { ago, callSummary, clock, cut, tokens } from "./format.js";
@@ -34,9 +35,6 @@ export function Screen({ title, children, actions, labelId = "screen-title", cla
     </section>
   );
 }
-
-/** "Back": Esc does the same. */
-export const Back = ({ onBack, children = "Back" }) => <Btn icon="back" keys="Esc" onClick={onBack}>{children}</Btn>;
 
 // ---- projects ----------------------------------------------------------------------------------
 
@@ -136,7 +134,7 @@ export function ProjectsScreen({ data, cursor, onCursor, onOpen, onDuplicate, on
 
 // ---- turn review ----------------------------------------------------------------------------
 
-export function TurnScreen({ data, turnId, time, onUndo, onBack }) {
+export function TurnScreen({ data, turnId, time, onUndo }) {
   const [review, setReview] = useState(null);
   const [error, setError] = useState("");
   const turn = data.agent?.turns.find((entry) => entry.id === turnId);
@@ -156,10 +154,9 @@ export function TurnScreen({ data, turnId, time, onUndo, onBack }) {
   const changes = review?.changes;
   const plain = changes?.keptBefore ? [words(changes.created, "Added"), words(changes.changed, "Changed"), words(changes.removed, "Removed")].filter(Boolean) : [];
   return (
-    <Screen title={`Turn ${turnId}`} className="turn-screen" actions={<>
-      {turn && turn.edits.length && !turn.reverted ? <Btn icon="undo" keys="u" onClick={() => onUndo(turnId)}>Revert this turn</Btn> : null}
-      <Back onBack={onBack} />
-    </>}>
+    <Screen title={`Turn ${turnId}`} className="turn-screen" actions={
+      turn && turn.edits.length && !turn.reverted ? <Btn icon="undo" keys="u" onClick={() => onUndo(turnId)}>Revert this turn</Btn> : null
+    }>
       {error ? <p className="err" role="alert">{error}</p> : !review ? <p className="faint">Loading…</p> : <>
         <p className="page-facts">
           {review.turn.reverted ? <span className="ui-chip">Undone at rev {review.turn.reverted.rev}</span> : null}
@@ -190,16 +187,15 @@ export function TurnScreen({ data, turnId, time, onUndo, onBack }) {
 
 // ---- variants --------------------------------------------------------------------------------
 
-export function VariantsScreen({ data, choices, time, cursor, onCursor, onPick, rejecting, onReject, onBack }) {
+export function VariantsScreen({ data, choices, time, cursor, onCursor, onPick, rejecting, onReject }) {
   const { set, scenes } = choices;
   const [reason, setReason] = useState("");
   const inputRef = useRef(null);
   useEffect(() => { if (rejecting) inputRef.current?.focus(); }, [rejecting]);
   return (
-    <Screen title="Variants" className="variants-screen" actions={<>
-      {scenes.length > 1 ? <Btn icon="x" keys="r" onClick={() => onReject(null)}>None of these</Btn> : null}
-      <Back onBack={onBack} />
-    </>}>
+    <Screen title="Variants" className="variants-screen" actions={
+      scenes.length > 1 ? <Btn icon="x" keys="r" onClick={() => onReject(null)}>None of these</Btn> : null
+    }>
       {scenes.length > 1 ? <p className="dim">{set ? "Pick one. Your agent gets the pick as a note." : "No variant set yet, so these are this project's scenes. Your agent gets a pick as a note."}</p> : null}
       {rejecting ? (
         <form className="page-ask" onSubmit={(event) => { event.preventDefault(); onReject(reason); setReason(""); }}>
@@ -274,9 +270,9 @@ export function ApprovalCard({ approval, onAnswer, note, onNote, noteRef, compac
   );
 }
 
-export function ApprovalScreen({ approval, onBack, ...card }) {
+export function ApprovalScreen({ approval, ...card }) {
   return (
-    <Screen title="Approval" className="approval-screen" actions={<Back onBack={onBack} />}>
+    <Screen title="Approval" className="approval-screen">
       {approval ? <ApprovalCard approval={approval} {...card} /> : <p className="faint">That approval is gone.</p>}
     </Screen>
   );
@@ -288,9 +284,9 @@ const COMMANDS = ["agent", "session", "log", "checks", "notes", "seen", "project
   "render", "turn T3", "note <text>", "hold [note]", "release", "open <project>", "follow", "safe", "grid", "boxes", "findings", "marks", "mark seen",
   "export [draft|final] [mp4|webm|mov|gif]"];
 
-export function HelpScreen({ onBack }) {
+export function HelpScreen() {
   return (
-    <Screen title="Keys" className="help-screen" actions={<Back onBack={onBack} />}>
+    <Screen title="Keys" className="help-screen">
       <p className="dim">Every key is also a button.</p>
       <dl className="help-grid">
         {KEY_HELP.map(([key, word]) => (
@@ -303,10 +299,10 @@ export function HelpScreen({ onBack }) {
   );
 }
 
-export function TranscriptScreen({ data, onBack }) {
+export function TranscriptScreen({ data }) {
   const calls = [...(data.calls ?? [])].reverse();
   return (
-    <Screen title={<>Transcript <span className="screen-count">{calls.length} calls</span></>} className="transcript-screen" actions={<Back onBack={onBack} />}>
+    <Screen title={<>Transcript <span className="screen-count">{calls.length} calls</span></>} className="transcript-screen">
       <ol className="transcript" aria-label="Transcript">
         {calls.map((call, index) => (
           <li key={index} className={`transcript-line${call.isError ? " failed" : ""}`}>

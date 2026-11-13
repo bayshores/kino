@@ -19,7 +19,7 @@ import { directionChips, withoutDirection } from "./boardRows.js";
 import { Btn, Icon } from "./controls.jsx";
 import { timeOfDay } from "./format.js";
 import { offerWords, stopFootnote, typedSeconds } from "./state.js";
-import { Back, Screen } from "./screens.jsx";
+import { Screen } from "./screens.jsx";
 import { Choice, POLICY_COLORS, SettingRow, SettingsPane } from "./settings.jsx";
 import { ToolIcon } from "./voice.jsx";
 import { STOP_DEFAULT_SKIP, STOP_KINDS, STOP_SKIP_FIELDS, STOP_WORDS } from "./words.js";
@@ -163,11 +163,11 @@ function StopAnswer({ round, board, question, note, onNote, onPress, noteRef, fo
  * or in the chat) or has closed, how it was answered with Reopen and Keep asking when it has
  * them, and a storyboard's board read only (no answers, no notes).
  */
-export function StopScreen({ id, round, row, onBack, onReopen, onKeepAsking, ...card }) {
+export function StopScreen({ id, round, row, onReopen, onKeepAsking, ...card }) {
   const kind = round?.kind ?? row?.kind;
   const word = STOP_WORDS[kind] ?? kind ?? "stop";
   return (
-    <Screen title={`${capital(word)}, ${id}`} className="stop-screen" actions={<Back onBack={onBack}>Back</Back>}>
+    <Screen title={`${capital(word)}, ${id}`} className="stop-screen">
       {round ? <StopCard round={round} {...card} />
         : row ? (
           row.kind === "board"
