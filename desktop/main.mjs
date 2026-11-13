@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, session, shell, utilityProcess } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, session, shell, utilityProcess } from "electron";
 import { randomBytes, randomUUID } from "node:crypto";
 import { mkdir, rename, writeFile } from "node:fs/promises";
 import { existsSync, readFileSync, unlinkSync } from "node:fs";
@@ -52,6 +52,11 @@ if (!app.requestSingleInstanceLock()) {
   // On a Mac, kino's top line is the title bar: no system title, the traffic lights sit on the
   // left of the top line (the page keeps room for them and makes the line drag the window).
   const macTitleBar = process.platform === "darwin" ? { titleBarStyle: "hidden", trafficLightPosition: { x: 18, y: 19 } } : {};
+  // A window's color before its page has drawn: the page color of the kept theme (dashboard.css
+  // --bg0), else of the system's, so a light window does not open dark for a moment.
+  const PAGE_COLORS = { dark: "#0a0a0a", light: "#f4f2ec" };
+  let keptTheme = () => null;
+  const pageColor = () => PAGE_COLORS[keptTheme()] ?? (nativeTheme.shouldUseDarkColors ? PAGE_COLORS.dark : PAGE_COLORS.light);
   const pendingLinks = [];
   let linksReady = false, openingLink = Promise.resolve();
 
@@ -221,7 +226,7 @@ if (!app.requestSingleInstanceLock()) {
     window.webContents.setWindowOpenHandler(({ url }) => {
       if (!isEditorUrl(url, origin)) return { action: "deny" };
       return { action: "allow", overrideBrowserWindowOptions: {
-        width: 1280, height: 840, backgroundColor: "#111113", ...macTitleBar,
+        width: 1280, height: 840, backgroundColor: pageColor(), ...macTitleBar,
         webPreferences: { session: desktopSession, preload, nodeIntegration: false, contextIsolation: true, sandbox: true },
       } };
     });
@@ -231,7 +236,7 @@ if (!app.requestSingleInstanceLock()) {
   function openEditor(destination = origin) {
     const window = new BrowserWindow({
       title: "kino", width: 1440, height: 960, minWidth: 760, minHeight: 560,
-      show: false, backgroundColor: "#111113", ...macTitleBar,
+      show: false, backgroundColor: pageColor(), ...macTitleBar,
       webPreferences: { session: desktopSession, preload, nodeIntegration: false, contextIsolation: true, sandbox: true },
     });
     protectWindow(window);
@@ -370,6 +375,7 @@ if (!app.requestSingleInstanceLock()) {
     await mkdir(support, { recursive: true, mode: 0o700 });
     const dataRoot = process.env.MOTION_DATA_DIR || path.join(support, "data");
     const settings = createDesktopSettings(path.join(support, "settings"));
+    keptTheme = () => { try { return settings.getItem("kino-dashboard.theme"); } catch { return null; } };
     ipcMain.on("kino:setting", (event, request) => {
       // No filesystem paths, owner credential, or general-purpose IPC are exposed
       // to the renderer. Child frames and other origins cannot access this store.
@@ -377,7 +383,11 @@ if (!app.requestSingleInstanceLock()) {
       try {
         let value;
         if (request?.action === "get") value = settings.getItem(request.key);
-        else if (request?.action === "set") settings.setItem(request.key, request.value);
+        else if (request?.action === "set") {
+          settings.setItem(request.key, request.value);
+          // The theme changed: every window's own color follows (seen while a page loads or resizes).
+          if (request.key === "kino-dashboard.theme") for (const window of BrowserWindow.getAllWindows()) window.setBackgroundColor(pageColor());
+        }
         else if (request?.action === "remove") settings.removeItem(request.key);
         else if (request?.action === "keys") value = settings.keys(request.key);
         else throw new Error("Unsupported operation.");
