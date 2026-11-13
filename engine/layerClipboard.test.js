@@ -317,7 +317,9 @@ test("hostile clipboard layers are rejected without changing the document or any
   const cases = [
     [polluted, /unsafe field name/],
     [hostile([rectangle({ id: "a", src: "javascript:alert(1)" })]), /can't be pasted/],
-    [hostile([{ ...rectangle({ id: "a" }), type: "script" }]), /unsupported layer type/],
+    [hostile([{ ...rectangle({ id: "a" }), type: "macro" }]), /unsupported layer type/],
+    // A script layer is a real type, and its module is checked like any field.
+    [hostile([{ ...rectangle({ id: "a" }), type: "script" }]), /script: is empty/],
     [hostile([rectangle({ id: "a" }), rectangle({ id: "a" })]), /duplicate layer ID/],
     [hostile([rectangle({ id: "a", parentId: "b", type: "group" }), rectangle({ id: "b", parentId: "a", type: "group" })]), /cycle/],
     [hostile([rectangle({ id: "a", parentId: "r" }), rectangle({ id: "r" })]), /must reference a group layer/],

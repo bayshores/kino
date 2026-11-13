@@ -2372,6 +2372,9 @@ function assertLottieFeatures(scene, media = {}) {
         throw new Error(`Lottie export cannot render stacked strokes (strokes) on layer “${layer.name ?? layer.id}”. Use PNG, video, or GIF export, or keep one stroke (stroke) for Lottie.`);
       if (hasMaterial(layer))
         throw new Error(`Lottie export cannot render a text material (material) on layer “${layer.name ?? layer.id}”. Use PNG, video, or GIF export, or set material to null for Lottie.`);
+      // A script layer's picture comes from running its code each frame, which a Lottie file can't hold.
+      if (layer.type === "script")
+        throw new Error(`Lottie export cannot hold script layer “${layer.name ?? layer.id}”: its picture is drawn by code each frame. Use PNG, video, or GIF export, or hide the layer for Lottie.`);
       if (["video", "audio"].includes(layer.type))
         throw new Error(
           `Lottie export does not support ${layer.type} layer “${layer.name ?? layer.id}”.`,
