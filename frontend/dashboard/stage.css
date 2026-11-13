@@ -230,13 +230,28 @@
 .screening .agent-log { overflow: auto; }
 .screening .agent-call { padding: 0 10px; }
 .screening .agent-call:hover, .screening .agent-call.current { background: var(--bg2); }
-.screening .call-line { min-height: 38px; align-items: center; grid-template-columns: 7ch 9ch minmax(0, 1fr) auto; column-gap: 12px; }
-.screening .agent-log.has-spans .call-line { grid-template-columns: 13ch 9ch minmax(0, 1fr) auto; }
+.screening .call-line { min-height: 38px; align-items: center; grid-template-columns: 7ch 16px minmax(0, 1fr) 5ch 24px; column-gap: 12px; }
+.screening .agent-log.has-spans .call-line { grid-template-columns: 13ch 16px minmax(0, 1fr) 5ch 24px; }
+.screening .agent-call.has-more .call-line { cursor: pointer; }
 .screening .call-time { font-family: var(--mono-ui); font-size: 12px; color: var(--fg2); }
-.screening .call-verb { color: var(--fg1); }
+.screening .call-verb { display: inline-grid; place-items: center; color: var(--fg1); }
+.screening .call-verb .tool-icon { width: 16px; height: 16px; }
+.screening .call-verb-word { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.screening .call-text { font-size: 14px; color: var(--fg1); }
+.screening .agent-call:hover .call-text, .screening .agent-call.current .call-text, .screening .agent-call.open .call-text { color: var(--fg0); }
+.screening .call-result.r-done { display: none; }
+.screening .call-result::first-letter { text-transform: uppercase; }
+.screening .call-more { all: unset; box-sizing: border-box; display: inline-grid; place-items: center; width: 24px; height: 24px; color: var(--fg2); cursor: pointer; }
+.screening .call-more .tool-icon { width: 14px; height: 14px; transition: transform var(--quick) var(--ease-in); }
+.screening .call-more[aria-expanded="true"] .tool-icon { transform: rotate(180deg); }
+.screening .call-more:hover { color: var(--fg0); }
+.screening .call-more:focus-visible { outline: 1px solid var(--accent); }
+.screening .agent-call:not(.open) > .call-details { display: none; }
+.screening .call-details .tree { display: none; }
+.screening .agent-why { display: none; }
 .screening .call-verb.v-write { color: var(--fg0); font-weight: 600; }
 .screening .call-result { font-family: var(--mono-ui); font-size: 12px; color: var(--fg1); }
-.screening .call-details { font-family: var(--mono-ui); font-size: 11px; color: var(--fg2); padding: 0 0 8px 7ch; }
+.screening .call-details { font-family: var(--mono-ui); font-size: 11px; color: var(--fg1); padding: 0 0 10px calc(7ch + 40px); }
 .screening .agent-why { padding: 8px 10px; color: var(--fg1); }
 /* The note box at the list's foot. */
 .screening .note-box { margin-top: 10px; background: var(--well); border: 0; box-shadow: inset 0 0 0 1px var(--line); }
@@ -374,3 +389,35 @@
 .dash .check-fix { font-size: 13px; color: var(--fg1); }
 .dash .check-ask { margin: 2px 10px 12px calc(9ch + 50px); min-height: 32px; }
 .dash .check-none, .dash .check-note { padding: 0 10px; overflow-wrap: anywhere; }
+
+/* ---- the looks: the pictures the agent saw as a grid the width of the frame ---- */
+.screening > .p-agent:has(.p-seen) { width: 100%; }
+.screening > .p-agent .view-tabs, .screening > .p-agent .note-box { width: min(100%, 620px); margin-inline: auto; box-sizing: border-box; }
+.screening .p-seen.view-panel { padding: 0; }
+.screening .seen-facts { position: sticky; top: 0; z-index: 1; background: var(--bg0); padding: 0 2px 8px; align-items: center; gap: 12px; margin: 0; font-family: var(--mono-ui); font-size: 11px; color: var(--fg2); }
+.screening .seen-facts .facts-text::first-letter { text-transform: uppercase; }
+.screening .seen-facts .tb-box { height: 24px; padding: 0 10px; border: 0; border-radius: 0; box-shadow: inset 0 0 0 1px var(--line); font-family: var(--sans); font-size: 12px; line-height: 24px; color: var(--fg1); }
+.screening .seen-facts .tb-box:hover { color: var(--fg0); background: var(--bg1); }
+.screening .seen-facts .tb-box[aria-pressed="true"] { background: var(--solid); color: var(--on-solid); box-shadow: none; }
+.screening .filmstrip { display: block; }
+.screening .strip-scroll { display: none; }
+.dash .screening .seen-strip { width: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px 8px; padding: 2px; overflow: visible; scroll-snap-type: none; mask-image: none; }
+.screening .thumb { width: 100%; border-radius: 0; outline-offset: 0; }
+.screening .thumb img { width: 100%; height: auto; aspect-ratio: 16 / 9; border-radius: 0; transition: opacity var(--quick) var(--ease-in); }
+.screening .thumb:not([aria-current="true"]) img { opacity: 0.78; }
+.screening .thumb:hover img, .screening .thumb:focus-visible img { opacity: 1; }
+.screening .thumb-caption { height: 22px; padding: 0; background: none; border-radius: 0; font-family: var(--mono-ui); font-size: 11px; color: var(--fg2); }
+.screening .thumb-caption > .dim { order: 0; color: inherit; }
+.screening .thumb-caption > .dim::first-letter { text-transform: uppercase; }
+.screening .thumb-caption > .thumb-turn { order: 1; }
+.screening .thumb:hover .thumb-caption { background: none; color: var(--fg1); }
+.screening .thumb[aria-current="true"] { outline: 0; }
+.screening .thumb[aria-current="true"] img { outline: 2px solid var(--fg0); outline-offset: -2px; }
+.screening .thumb[aria-current="true"] .thumb-caption { color: var(--fg0); }
+.dash .screening .thumb:focus-visible { outline-offset: -2px; }
+.dash .screening .thumb[aria-current="true"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; box-shadow: none; }
+.screening .seen-none { margin: 24px 0; text-align: center; color: var(--fg1); }
+/* Words on the frame's own controls start with a capital. */
+.screening .transport-view .tb, .screening #stage-zoom { text-transform: capitalize; }
+.screening .call-line > .call-result { grid-column: 4; }
+.screening .call-line > .call-more { grid-column: 5; }

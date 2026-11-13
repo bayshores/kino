@@ -192,7 +192,7 @@ test("live panels: the seen drawer while a look runs or just ended, the render d
 
 test("the line under the frame: the call as a sentence, the line before it, and what waits for you first", () => {
   assert.equal(asSentence("look at the source of smirk", { running: true }), "Looking at the source of smirk.");
-  assert.equal(asSentence("sheet 0:00 to 1:00", { verb: "look" }), "Looked sheet 0:00 to 1:00.");
+  assert.equal(asSentence("sheet 0:00 to 1:00", { verb: "look" }), "Looked at sheet 0:00 to 1:00.");
   assert.equal(asSentence("Which cut?"), "Which cut?");
   assert.equal(asAsk("look at the stop, then approve it …"), "Look at the stop, then approve it.", "a request stays in the present tense");
   const recording = voiceLine(data({ recording: { id: "R1", startedAt: NOW - 65_000 } }), nova, NOW);
@@ -200,7 +200,7 @@ test("the line under the frame: the call as a sentence, the line before it, and 
   const idle = voiceLine(data(), nova, NOW);
   assert.equal(idle.verb, "check");
   assert.equal(idle.text, "Checked the video. It failed.");
-  assert.equal(idle.before.text, "Looked sheet 0:00–1:00.");
+  assert.equal(idle.before.text, "Looked at sheet 0:00–1:00.");
   assert.equal(voiceLine(data({ hold: { on: true } }), nova, NOW).state, "hold");
   const asked = voiceLine(data({ approvals: [{ id: "Q16", status: "pending", kind: "final-render", agent: { id: "a1", name: "Nova" } }] }), nova, NOW);
   assert.equal(asked.state, "need");

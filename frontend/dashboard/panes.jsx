@@ -1232,6 +1232,14 @@ export function SeenPane({ data, cursor, enlarged, onEnlarge, onSelect, still, b
     const item = strip?.querySelector('[aria-current="true"]')?.closest("li");
     measureEnds();
     if (strip && item) keepCardInView(strip, item);
+    // A grid of pictures (the wide window) scrolls down, not sideways: the selected row stays in view.
+    const box = strip?.closest(".view-panel");
+    if (box && item) {
+      const card = item.getBoundingClientRect();
+      const view = box.getBoundingClientRect();
+      if (card.top < view.top + 40) box.scrollTop -= view.top + 40 - card.top;
+      else if (card.bottom > view.bottom) box.scrollTop += card.bottom - view.bottom + 6;
+    }
     measureEnds();
   }, [cursor, images.length, measureEnds]);
   // Moved with the arrow keys while a picture has the focus: the focus moves with the selection.
@@ -1280,9 +1288,9 @@ export function SeenPane({ data, cursor, enlarged, onEnlarge, onSelect, still, b
   }, [ends]);
   const facts = selected ? (
     <>
-      <span className="facts-text">{describe(selected.file)}, {selected.call.verb} {ago(selected.call.at)} ago</span>
+      <span className="facts-text">{imageKind(baseName(selected.file))}{sizes[selected.file] ? ` ${sizes[selected.file].width}×${sizes[selected.file].height}` : ""}, {ago(selected.call.at)} ago</span>
       <button type="button" className="tb tb-box" aria-pressed={enlarged === selected.file} onClick={() => onEnlarge(enlarged === selected.file ? null : selected.file)}
-        title="Show the selected picture at full size (Enter)">full size</button>
+        title="Show the selected picture at full size (Enter)">Full size</button>
     </>
   ) : null;
   const big = enlarged ? images.find((image) => image.file === enlarged) : null;
@@ -1292,7 +1300,7 @@ export function SeenPane({ data, cursor, enlarged, onEnlarge, onSelect, still, b
     : <Pane {...pane} number={3} name="what the agent saw" className="p-seen" labelId="pane-3-title" facts={facts}>{children}</Pane>);
   return wrap(
     <>
-      {images.length === 0 ? <p className="faint">no images yet: they appear when the agent calls look</p> : (
+      {images.length === 0 ? <p className="faint seen-none">Nothing yet. Pictures the agent looks at show here.</p> : (
         <>
           {big ? (
             <figure className="seen-full">

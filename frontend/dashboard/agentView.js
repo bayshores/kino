@@ -378,7 +378,7 @@ const TENSES = {
 };
 // A tool whose label does not start with a verb gets these words first.
 const TOOL_TENSES = {
-  edit: TENSES.edit, look: TENSES.look, check: TENSES.check, render: TENSES.render, inspect: TENSES.inspect,
+  edit: TENSES.edit, look: ["Looking at", "Looked at"], check: TENSES.check, render: TENSES.render, inspect: TENSES.inspect,
   status: ["Reading", "Read"], library: ["Looking up", "Looked up"], notes: ["Noting", "Noted"], project: ["Setting up", "Set up"], history: ["Going back to", "Went back to"],
 };
 
@@ -401,6 +401,9 @@ export function asSentence(text, { verb = "", running = false } = {}) {
   return /[?!]$/.test(line) ? line : `${line}.`;
 }
 
+/** A log row (agentLog) as one sentence: what the agent said it was for, else the call's own words. */
+export const rowSentence = (row, running = Boolean(row?.current)) => (row.said ? asSentence(row.said, { running }) : asSentence(row.text, { verb: row.verb, running }));
+
 /** What waits for you, as a sentence: its words as they are (no tense), with a capital and an end. */
 export function asAsk(text) {
   const words = String(text ?? "").replace(/\s+/g, " ").trim().replace(/[\s…·]+$/, "");
@@ -420,7 +423,7 @@ export function voiceLine(data, agent, now = Date.now(), nameOf = () => null) {
   const rows = agent ? agentLog(data, agent, 12) : [];
   const last = rows.at(-1) ?? null;
   // A failed call says so: "Checked the video. It failed."
-  const line = (row, running) => `${row.said ? asSentence(row.said, { running }) : asSentence(row.text, { verb: row.verb, running })}${row.result?.mark === "failed" ? " It failed." : ""}`;
+  const line = (row, running) => `${rowSentence(row, running)}${row.result?.mark === "failed" ? " It failed." : ""}`;
   const before = (skip) => {
     const row = rows.slice(0, skip ? -1 : undefined).at(-1);
     return row ? { verb: row.verb, kind: row.kind, text: line(row, false), rev: row.rev ?? null } : null;

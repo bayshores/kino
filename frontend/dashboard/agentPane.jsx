@@ -14,7 +14,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Bot } from "./bot.jsx";
 import { moodOfRow } from "./bot.js";
-import { agentLog, agentSaid, agentTask, crewAgents, isWorking, paneIdle, planStep, railAgents, stepWords, turnWords } from "./agentView.js";
+import { agentLog, agentSaid, agentTask, crewAgents, isWorking, paneIdle, planStep, railAgents, rowSentence, stepWords, turnWords } from "./agentView.js";
 import { needsYouRows } from "./state.js";
 import { AgentName, Pane, Spinner } from "./panes.jsx";
 import { notesForYou } from "./noteSpot.js";
@@ -22,30 +22,37 @@ import { ago } from "./format.js";
 import * as server from "./api.js";
 import { AgentRail, Glyph, NeedsYouCard } from "./live.jsx";
 import { CrewView } from "./crewPane.jsx";
+import { ToolIcon } from "./voice.jsx";
 
 /** The views, in tab order: [id, word]. */
 export const AGENT_VIEWS = [["agent", "All"], ["log", "Edits"], ["seen", "Looks"], ["checks", "Checks"], ["notes", "Notes"], ["session", "Session"]];
 // The tabs always shown.
 const TAB_VIEWS = new Set(["agent", "log", "notes", "checks", "seen", "session"]);
 
-/** One call in the agent's log; hovering it shows "see" (its pictures) and "undo" (its edit). */
+/**
+ * One call in the agent's log, as a sentence after its tool's icon; hovering it shows "See" (its
+ * pictures) and "Undo" (its edit). A row with facts under it opens on a click.
+ */
 function LogRow({ row, still, onSee, onUndo }) {
+  const [open, setOpen] = useState(false);
+  const more = row.details.length > 0;
   return (
-    <li className={`agent-call${row.current ? " current" : ""}`}>
-      <span className="call-line">
+    <li className={`agent-call${row.current ? " current" : ""}${more ? " has-more" : ""}${open ? " open" : ""}`}>
+      <span className="call-line" onClick={more ? (event) => { if (!event.target.closest("button")) setOpen((value) => !value); } : undefined}>
         <span className="call-time">{row.at}</span>
-        <span className={`call-verb v-${row.kind}`}>{row.verb}</span>
-        <span className="call-text" title={row.text}>{row.text}{row.count > 1 ? <span className="call-count"> ×{row.count}<span className="sr-only"> times</span></span> : null}</span>
+        <span className={`call-verb v-${row.kind}`}><ToolIcon name={row.verb} /><span className="call-verb-word">{row.verb}</span></span>
+        <span className="call-text" title={row.text}>{rowSentence(row)}{row.count > 1 ? <span className="call-count"> ×{row.count}<span className="sr-only"> times</span></span> : null}</span>
         <span className={`call-result r-${row.result.mark}`}>
           {row.result.mark === "running" ? <Spinner still={still} /> : row.result.text}
           <span className="sr-only">{{ running: " running", done: " done", failed: " failed", waits: " waits for you", held: " held", ops: " operations" }[row.result.mark] ?? ""}</span>
         </span>
         {row.images || row.rev != null ? (
           <span className="call-hover">
-            {row.images ? <button type="button" className="tb tb-box" onClick={onSee} title="See the frames it looked at (l)"><Glyph name="eye" /> see</button> : null}
-            {row.rev != null ? <button type="button" className="tb tb-box" onClick={() => onUndo(row.rev)} title="Undo this edit's turn"><Glyph name="undo" /> undo</button> : null}
+            {row.images ? <button type="button" className="tb tb-box" onClick={onSee} title="See the frames it looked at (l)"><Glyph name="eye" /> See</button> : null}
+            {row.rev != null ? <button type="button" className="tb tb-box" onClick={() => onUndo(row.rev)} title="Undo this edit's turn"><Glyph name="undo" /> Undo</button> : null}
           </span>
         ) : null}
+        {more ? <button type="button" className="call-more" aria-expanded={open} aria-label={open ? "Hide the facts of this call" : "Show the facts of this call"} onClick={() => setOpen((value) => !value)}><ToolIcon name="down" /></button> : null}
       </span>
       {row.details.length ? (
         <ul className="call-details">
@@ -88,7 +95,7 @@ export function AgentView({ data, agent, still, now, follow = null, onFollow, on
       {/* A run of the same call takes the wider time column ("22:27–22:30"). */}
       <ol className={`agent-log${rows.some((row) => row.at.includes("–")) ? " has-spans" : ""}`} ref={logRef} role="log" aria-label={`${agent.name}'s calls`} aria-live="polite"
         onScroll={(event) => { const box = event.currentTarget; stick.current = box.scrollTop + box.clientHeight >= box.scrollHeight - 2; }}>
-        {rows.length ? rows.map((row) => <LogRow key={row.key} row={row} still={still} onSee={onSee} onUndo={onUndo} />) : <li className="faint">no calls in this project yet</li>}
+        {rows.length ? rows.map((row) => <LogRow key={row.key} row={row} still={still} onSee={onSee} onUndo={onUndo} />) : <li className="faint">No calls yet.</li>}
       </ol>
       {said.why ? <p className="agent-why" aria-label={`Why, as ${agent.name} said`}><span className="faint">why</span> {said.why}</p> : null}
     </div>
