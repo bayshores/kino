@@ -20,7 +20,7 @@
 .dash .crew2 .crew-thumb { width: var(--thumb); height: var(--thumb-h); display: grid; place-items: center; background: var(--well); overflow: hidden; align-self: start; }
 .dash .crew2 .crew-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
 
-.dash .crew2 .crew-card-main { min-width: 0; align-self: start; padding-top: 2px; }
+.dash .crew2 .crew-card-main { min-width: 0; align-self: start; padding: 2px 0 8px; }
 .dash .crew2 .crew-card-name { margin: 0; display: flex; align-items: baseline; gap: 10px; min-width: 0; white-space: nowrap; overflow: hidden; }
 .dash .crew2 .crew-card-name strong { font-size: 21px; font-weight: 700; letter-spacing: -0.015em; line-height: 28px; color: var(--fg0); margin: 0; }
 .dash .crew2 .crew-card-name span { color: var(--fg1); font-size: 13px; overflow: hidden; text-overflow: ellipsis; }
