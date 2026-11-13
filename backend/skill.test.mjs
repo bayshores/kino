@@ -107,7 +107,7 @@ test("Codex finds the skill through .agents/skills/kino, a link to skills/kino, 
 test("library guide sends SKILL.md, and with a name one of its references", async () => {
   const files = skillFiles();
   const guide = await agent("library", { topic: "guide" });
-  assert.ok(guide.text.startsWith(files["SKILL.md"].replace(/^---[\s\S]*?---\s*/, "")));
+  assert.ok(withoutNext(guide.text).startsWith(files["SKILL.md"].replace(/^---[\s\S]*?---\s*/, "")));
   assert.match(guide.text, /\nnext: \w+ \{.*\}$/, "the guide ends with the next call too");
   for (const name of ["edits", "references/sound.md", "fields", "direction"]) {
     const reference = await agent("library", { topic: "guide", name });

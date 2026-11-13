@@ -10,6 +10,7 @@ import { mkdtemp, readdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { agentStateFile, APPROVAL, appCommand, askedAfter, callsTool, checkReplies, htmlText, nextMessage, pendingPick, personStep, pickMp4, PICK_REPLY, pollUntil, roundStatus, projectIdFor, projectIdFromStatus, promptFor, REPLY, replyFor, seedHouse, stopEntry, summarize, waitEntry, watchOver, WATCH_REPLY } from "../evals/taste/firstpass.mjs";
+import { commandsFrom, nextOf, report, summarize as summarizeCalls } from "../scripts/harness-report.mjs";
 import { stopsSummary } from "../backend/agent/stops.mjs";
 import { triesView } from "../backend/agent/tries.mjs";
 import { projectSeed } from "../engine/deck.js";
@@ -256,4 +257,26 @@ test("person mode starts the kino app from this checkout on the run's data folde
   const spec = appCommand({ repoRoot: "/repo", dataDir: "/runs/a/data", profileDir: "/tmp/profile-1", electronPath: "/repo/node_modules/electron/dist/Electron" });
   assert.deepEqual(spec, { command: "/repo/node_modules/electron/dist/Electron", args: ["/repo", "--user-data-dir=/tmp/profile-1"], env: { MOTION_DATA_DIR: "/runs/a/data" } });
   assert.equal(agentStateFile("/runs/a/data", "kino fp9"), path.join("/runs/a/data", "agent", "projects", "kino%20fp9.json"), "the project's agent state, where the app keeps the person's reactions");
+});
+
+test("the harness report counts kino calls, cut output, next lines, follows, waivers and ops from a tiny transcript", () => {
+  const use = (id, name, input) => JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", id, name, input }] } });
+  const result = (id, content) => JSON.stringify({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: id, content }] } });
+  const lines = [
+    use("a", "Bash", { command: "cd /tmp; kino status 2>&1 | head -5; ls | tail -1" }),
+    result("a", [{ type: "text", text: 'rev 1\nnext: check {"fix":"auto"}' }]),
+    use("b", "Bash", { command: 'kino check fix=auto | grep warn' }),
+    result("b", "2 warn"),
+    use("c", "mcp__kino__edit", { ops: [{ op: "add_layer" }, { op: "waive_check" }, { op: "add_layer" }] }),
+    result("c", '{"rev":2,"next":"look {\\"mode\\":\\"review\\"}"}'),
+    use("d", "Bash", { command: "kino look mode=sheet" }),
+    result("d", "sheet"),
+  ];
+  assert.deepEqual(nextOf('x\nnext: look {"mode":"review"}'), { tool: "look", key: "review" });
+  const s = summarizeCalls(commandsFrom(lines));
+  assert.deepEqual(s.calls, { status: 1, check: 1, edit: 1, look: 1 });
+  assert.deepEqual([s.commands, s.piped, s.cut], [4, 2, { head: 1, tail: 0, grep: 1 }], "ls | tail is not kino's pipeline");
+  assert.deepEqual([s.answers, s.withNext, s.asked, s.followed], [4, 2, 2, 1], "status->check followed; edit->look sheet is the same tool but another mode");
+  assert.deepEqual([s.waived, s.ops, s.largest], [1, { add_layer: 2, waive_check: 1 }, 45]);
+  assert.match(report([{ name: "t", text: lines.join("\n") }]).at(-1), /^TOTAL \(1 runs\)  kino calls 4 /);
 });

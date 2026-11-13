@@ -7,8 +7,8 @@ description: Makes and edits motion videos with kino, a local motion design engi
 
 ## The short path
 
-Every answer ends with `next:`, the next call. When unsure, send it as is;
-put your words where it has `<angle brackets>`. A new video, idea first:
+Every answer ends with `next:` (long ones also open with it): send it as is;
+fill `<angle brackets>` with your words. A new video, idea first:
 
 1. `project {action:"create", id:"orbit", name:"Orbit promo", width:1920, height:1080, duration:15}`
 2. `notes` brief: `ask` (their message whole; `"none"` if no person), `about`, then a line per thing.

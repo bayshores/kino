@@ -10,7 +10,7 @@ import { after, before, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { exitCodeFor, parseCommand, UsageError } from "../bin/kino.mjs";
+import { exitCodeFor, finalNextLine, outputsDiffer, parseCommand, UsageError } from "../bin/kino.mjs";
 import { planSetup } from "../bin/setup.mjs";
 import { ffmpeg, run, skipWithoutMediaTools, startTestServer } from "./media.test.support.mjs";
 
@@ -130,6 +130,13 @@ describe("parseCommand", () => {
     assert.equal(exitCodeFor("render", { action: "wait", job: "R1" }, canceled), 1);
     assert.equal(exitCodeFor("render", { action: "cancel", job: "R1" }, canceled), 0);
     assert.equal(exitCodeFor("render", { action: "wait", job: "R1" }, { text: "done", data: { status: "done" } }), 0);
+    // The final next line goes to stderr only when stdout and stderr are different files.
+    assert.equal(finalNextLine('rev 3\nnext: look {"mode":"review"}'), 'next: look {"mode":"review"}');
+    assert.equal(finalNextLine('{"ok":true,"next":"status {}"}'), "next: status {}");
+    assert.equal(finalNextLine("no call here"), null);
+    assert.equal(outputsDiffer((fd) => ({ dev: 1, ino: fd })), true);
+    assert.equal(outputsDiffer(() => ({ dev: 1, ino: 5 })), false);
+    assert.equal(outputsDiffer(() => { throw new Error("EBADF"); }), false);
   });
 
   test("edit reads operations inline, as an object with fields, or from a file", async () => {
@@ -348,7 +355,8 @@ describe("commands against a running kino", () => {
 
   test("project create, edit inline and from stdin, then status shows the result", async () => {
     const created = await runKino(["project", "create", "id=cli-demo", "name=CLI demo", "width=320", "height=180", "duration=2"], { env });
-    assert.deepEqual({ ...created, stdout: created.stdout.split("\n")[0] }, { code: 0, stdout: "created cli-demo rev 1 and opened it · s1 320×180 2s 30 fps bg #ffffff", stderr: "" });
+    // stdout and stderr are different pipes here, so the final next line is also on stderr.
+    assert.deepEqual({ ...created, stdout: created.stdout.split("\n")[0] }, { code: 0, stdout: "created cli-demo rev 1 and opened it · s1 320×180 2s 30 fps bg #ffffff", stderr: `${created.stdout.trimEnd().split("\n").at(-1)}\n` });
 
     const inline = await runKino(["edit", JSON.stringify([{ op: "add_layer", layerType: "rectangle", name: "box", properties: { x: 40, y: 30, width: 80, height: 60 } }])], { env });
     assert.equal(inline.code, 0, inline.stderr);
@@ -412,7 +420,7 @@ describe("commands against a running kino", () => {
     const sent = await runKino(["notes", "add", "Make the box blue", "--you"], { env });
     assert.equal(sent.code, 0, sent.stderr);
     const next = await runKino(["status"], { env });
-    assert.match(next.stdout, /\ninbox ◆1\n {2}N1 note "Make the box blue" · when done: notes \{action:"reply", id:"N1", text\}\ns1 [^\n]*\n[^\n]*\nnext: [^\n]*\n$/);
+    assert.match(next.stdout, /\ninbox ◆1\n {2}N1 note "Make the box blue" · when done: notes \{action:"reply", id:"N1", text\}\n(?:next: [^\n]*\n)?s1 [^\n]*\n[^\n]*\nnext: [^\n]*\n$/);
   });
 
   test("project import uploads a file and says how to add it", async () => {
@@ -459,14 +467,14 @@ describe("commands against a running kino", () => {
 
   test("inspect fields=x, box answers box's x, and an error says which word after the comma kino took as what", async () => {
     const answer = await runKino(["inspect", "fields=x,", "box"], { env });
-    assert.deepEqual(answer, { code: 0, stdout: 'rev 3\nL1 box rectangle in s1\n  x 40\nnext: edit {"ops":[{"op":"update_layer","layer":"box","properties":{"x":"<new value>"}}]}\n', stderr: "" });
+    assert.deepEqual(answer, { code: 0, stdout: 'rev 3\nL1 box rectangle in s1\n  x 40\nnext: edit {"ops":[{"op":"update_layer","layer":"box","properties":{"x":"<new value>"}}]}\n', stderr: 'next: edit {"ops":[{"op":"update_layer","layer":"box","properties":{"x":"<new value>"}}]}\n' });
     // widht is no field inspect knows, so it is read as a layer's name: the error says so.
     const misread = await runKino(["inspect", "box", "fields=x,", "widht"], { env });
     assert.equal(misread.code, 1);
     assert.match(misread.stdout, /"error":"unknown_ref","reason":"No layer, animation or scene \\"widht\\"\./);
     // Its next call keeps the fields and puts kino's suggestion where the name was sent.
     assert.match(misread.stdout, /"next":"inspect \{\\"fields\\":\\"x\\",\\"targets\\":\[\\"box\\"\]\}"/);
-    assert.equal(misread.stderr, "kino took \"widht\" as a layer, animation or scene to inspect, not as one of fields: inspect has no field widht (width is one). Write fields as one word, fields=x,width, so nothing is guessed.\n");
+    assert.equal(misread.stderr.replace(/^next: .*\n/, ""), "kino took \"widht\" as a layer, animation or scene to inspect, not as one of fields: inspect has no field widht (width is one). Write fields as one word, fields=x,width, so nothing is guessed.\n");
   });
 
   test("an unknown command exits 2 and suggests the closest ones", async () => {

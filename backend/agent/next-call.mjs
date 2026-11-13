@@ -19,6 +19,10 @@ export const callText = (next) => `${next.tool} ${JSON.stringify(next.input ?? {
 // an edit with ops is well over).
 const EARLY_NEXT_MAX = 90;
 
+// A text answer of this many lines or more (counting its inbox and last next line) also carries
+// the early next line near the top, the same size the first lines an agent reads are (8).
+const EARLY_NEXT_LINES = 8;
+
 /** The next call as an early line (a short form): whole when short, else the tool and where the call is. */
 export const earlyNextLine = (next) => {
   const full = callText(next);
@@ -54,25 +58,32 @@ const compact = (value) => JSON.stringify(value, (key, entry) =>
  * retry and the example the call already carries: they would say the same thing twice.
  */
 export function answerText({ text, data, json, early }, next, inbox = []) {
-  if (!json && early && Number.isInteger(early.at)) {
-    // An early place: the inbox (and, when asked, a short next) sit at line `at`, so an agent that
-    // reads only the first 8 lines still gets them. The full next call still ends the answer.
+  if (!json) {
     const lines = String(text).split("\n");
-    const block = [...(inbox.length ? [`inbox ◆${inbox.length}`, ...inbox.map((line) => `  ${line}`)] : []), ...(early.next ? [earlyNextLine(next)] : [])];
-    lines.splice(Math.min(early.at, lines.length), 0, ...block);
-    return `${lines.join("\n")}\nnext: ${callText(next)}`;
-  }
-  if (json) {
-    let fields = data;
-    if (fields?.retry && next.tool === "edit" && next.input?.retry === fields.retry) {
-      const carried = JSON.stringify(Object.values(next.input.fix ?? {}));
-      const { next: prose, example, ...rest } = fields;
-      fields = { ...rest, ...(example && !carried.includes(JSON.stringify(example)) ? { example } : {}), next: "Nothing was saved. The next call resends the edit with the fix." };
+    const inboxBlock = inbox.length ? [`inbox ◆${inbox.length}`, ...inbox.map((line) => `  ${line}`)] : [];
+    // The one general rule: an answer of 8 or more lines (with its inbox and last next) also gets
+    // a short next near the top, because an agent that cuts the output with head never sees the end.
+    const long = lines.length + inboxBlock.length + 1 >= EARLY_NEXT_LINES;
+    const placed = early && Number.isInteger(early.at);
+    if (placed) {
+      // An early place: the inbox (and a short next) sit at line `at`, so an agent that reads only
+      // the first 8 lines still gets them. The full next call still ends the answer.
+      lines.splice(Math.min(early.at, lines.length), 0, ...inboxBlock, ...(early.next || long ? [earlyNextLine(next)] : []));
+      return `${lines.join("\n")}\nnext: ${callText(next)}`;
     }
-    return compact(withNextField(fields, next, inbox));
+    if (long) {
+      lines.splice(Math.min(1, lines.length), 0, earlyNextLine(next));
+      return `${lines.join("\n")}${inboxBlock.length ? `\n${inboxBlock.join("\n")}` : ""}\nnext: ${callText(next)}`;
+    }
+    return `${text}${inboxBlock.length ? `\n${inboxBlock.join("\n")}` : ""}\nnext: ${callText(next)}`;
   }
-  const lines = inbox.length ? `\ninbox ◆${inbox.length}\n${inbox.map((line) => `  ${line}`).join("\n")}` : "";
-  return `${text}${lines}\nnext: ${callText(next)}`;
+  let fields = data;
+  if (fields?.retry && next.tool === "edit" && next.input?.retry === fields.retry) {
+    const carried = JSON.stringify(Object.values(next.input.fix ?? {}));
+    const { next: prose, example, ...rest } = fields;
+    fields = { ...rest, ...(example && !carried.includes(JSON.stringify(example)) ? { example } : {}), next: "Nothing was saved. The next call resends the edit with the fix." };
+  }
+  return compact(withNextField(fields, next, inbox));
 }
 
 const wordsOf = (text) => String(text ?? "").toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];

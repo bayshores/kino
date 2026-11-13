@@ -26,7 +26,7 @@ export const skipWithoutMediaTools = hasMediaTools ? false : "FFmpeg and ffprobe
  * An agent answer's text without its last line, the next call (`next: look {...}`), for tests
  * of what comes before it. backend/agent-next-call.test.mjs tests the next calls themselves.
  */
-export const withoutNext = (text) => String(text ?? "").replace(/\nnext: [^\n]*$/, "");
+export const withoutNext = (text) => String(text ?? "").replace(/\nnext: [^\n]*(?=\n|$)/g, "");
 /** The next call an answer ends with, as {tool, input}, or null. */
 export function nextCallOf(reply) {
   const text = String(reply?.text ?? "");

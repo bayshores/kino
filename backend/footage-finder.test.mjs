@@ -60,7 +60,7 @@ import { joinStretches, planTake, takeCredit, takeFootage, takeText } from "./fo
 import { writeFileSync } from "node:fs";
 import { flowCamera } from "./footage/analyze.mjs";
 import { fileURLToPath } from "node:url";
-import { ffmpeg, run, skipWithoutMediaTools, startTestServer } from "./media.test.support.mjs";
+import { ffmpeg, run, skipWithoutMediaTools, startTestServer, withoutNext } from "./media.test.support.mjs";
 import { jsonBlocks, skillSection } from "./skill.test.support.mjs";
 
 const FOOTAGE_STUB = fileURLToPath(new URL("../tests/fixtures/footage/stub-yt-dlp.mjs", import.meta.url));
@@ -825,16 +825,16 @@ test("library footage: the person's clips lead every answer, search's next is sc
   const searched = await service.call("library", { project: "anime-edit", topic: "footage", search: "show fight", want: "white hair, blindfold" });
   assert.equal(searched.isError, undefined, searched.text);
   assert.match(searched.text, /\nF10 [^\n]*"Episode 1 long[^\n]*· someone else's edit \(listed by inspire as an edit\)\n/);
-  const lines = searched.text.split("\n");
+  const lines = withoutNext(searched.text).split("\n");
   assert.equal(lines[0], "This video has 1 clip of the person's: they lead; found clips fill the gaps.");
   assert.match(lines[2], /^F1 Big Studio · 23:40 · "Episode 2 long title/);
   assert.match(searched.text, /Dropped 5: 3 edits, 2 reactions\./);
-  assert.equal(lines.at(-1), 'next: library {"topic":"footage","scan":"top"}');
+  assert.equal(searched.text.split("\n").at(-1), 'next: library {"topic":"footage","scan":"top"}');
   assert.ok(searched.text.length / 4 < 1500, `${searched.text.length} characters`);
   const scan = await service.call("library", { project: "anime-edit", topic: "footage", scan: "top" });
   assert.equal(scan.isError, undefined, scan.text);
   assert.deepEqual(scanned, [["F1", "white hair, blindfold"]]);
-  const shown = scan.text.split("\n");
+  const shown = withoutNext(scan.text).split("\n").concat(scan.text.split("\n").at(-1));
   assert.equal(shown[0], "This video has 1 clip of the person's: they lead; found clips fill the gaps.");
   assert.equal(shown[2], "F1.37 3:17.2-3:19.0 1.8s motion 82 face 40 match +3.1");
   assert.equal(shown.filter((line) => /^F1\.\d+ /.test(line)).length, 12);

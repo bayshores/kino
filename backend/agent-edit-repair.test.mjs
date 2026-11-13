@@ -433,7 +433,7 @@ test("an answer over 8,000 tokens is saved to a file and the agent gets its firs
 test("library search answers one short line per topic, not the topics' text", async () => {
   const reply = await agent("library", { topic: "search", search: "stagger" });
   assert.equal(reply.isError, undefined, reply.text);
-  assert.match(reply.text, /^ops: stagger_animations \(library \{topic:"op", name\}\)\ntopics \(library \{topic:"rules", name\} reads one\):\n/);
+  assert.match(withoutNext(reply.text), /^ops: stagger_animations \(library \{topic:"op", name\}\)\ntopics \(library \{topic:"rules", name\} reads one\):\n/);
   assert.match(reply.text, /^stagger \(Staggering animations\): /m);
   assert.ok(reply.text.split("\n").every((line) => line.length <= 220), "every line is short");
   assert.ok(reply.text.length < 3000, `search answer is ${reply.text.length} characters`);

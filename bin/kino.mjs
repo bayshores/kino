@@ -3,7 +3,7 @@
 //   kino mcp     runs the MCP server (what agents connect to)
 //   kino setup   connects Claude Code and Codex to kino (asks before changing anything)
 // Run `kino help` for examples.
-import { realpathSync } from "node:fs";
+import { fstatSync, realpathSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -533,9 +533,38 @@ async function runVerb(argv) {
     const images = (reply.images ?? []).map(({ data, ...image }) => image);
     console.log(JSON.stringify({ ...reply, ...(images.length ? { images } : {}) }, null, 2));
   } else console.log(reply.text);
+  // `kino ... | head -5` cuts the answer before its last line: say the next call on stderr too.
+  const nextLine = finalNextLine(reply.text);
+  if (nextLine && outputsDiffer()) console.error(nextLine);
   if (reply.isError && guesses) console.error(await guessNote(guesses));
   const code = exitCodeFor(verb, input, reply);
   if (code) process.exitCode = code;
+}
+
+/**
+ * The answer's final `next:` line: the last line of a text answer, or the "next" key of a JSON one
+ * (a receipt, a refusal) written as `next: …`. Null when the answer has none. Exported for tests.
+ */
+export function finalNextLine(text) {
+  const last = String(text ?? "").trimEnd().split("\n").at(-1) ?? "";
+  if (last.startsWith("next: ")) return last;
+  try {
+    const next = JSON.parse(text)?.next;
+    return typeof next === "string" && next ? `next: ${next}` : null;
+  } catch { return null; }
+}
+
+/**
+ * True when standard output and standard error are different files (a pipe or a file for the
+ * output, the terminal or another pipe for errors). Any error counts as "same", so nothing extra
+ * is written. `stat` is fs.fstatSync, passed in for tests. Exported for tests.
+ */
+export function outputsDiffer(stat = fstatSync) {
+  try {
+    const out = stat(1);
+    const err = stat(2);
+    return out.dev !== err.dev || out.ino !== err.ino;
+  } catch { return false; }
 }
 
 /** The exit code for a service answer: 1 when nothing the command asked for came of it. Exported for tests. */

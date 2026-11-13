@@ -43,6 +43,11 @@ test("answerText early: the inbox and a short next sit at the early line; a long
   assert.equal(lines.at(-1), `next: ${callText(long)}`);
   // Without an early place, or for a JSON answer, nothing moves.
   assert.equal(answerText({ text, early: {} }, LOOK), `${text}\nnext: look {"mode":"review"}`);
+  // Any text answer of 8 or more lines gets the early next after its first line, with no early place.
+  const eight = Array.from({ length: 7 }, (_, index) => `line ${index + 1}`).join("\n");
+  const cut = answerText({ text: eight }, LOOK).split("\n");
+  assert.deepEqual([cut[1], cut.at(-1), cut.length], ['next: look {"mode":"review"}', 'next: look {"mode":"review"}', 9]);
+  assert.equal(answerText({ text: "a\nb\nc\nd\ne\nf" }, LOOK).split("\n").filter((line) => line.startsWith("next:")).length, 1);
 });
 
 test("the fixed call for a refusal: the suggestion in place of the misspelled field or name; unfilled slots are found", () => {

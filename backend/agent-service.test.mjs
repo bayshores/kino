@@ -280,7 +280,7 @@ test("history lists turns, and reverting an earlier turn keeps later edits", asy
   assert.equal(second.data.turn, "T2");
 
   const list = await agent("history", { project: "turns" });
-  const lines = list.text.split("\n");
+  const lines = withoutNext(list.text).split("\n");
   assert.equal(lines[0], "rev 3 · 2 turns");
   assert.match(lines[1], /^ {2}T1 \d\d:\d\d \d+ calls · 1 edit rev 1→2$/);
   assert.match(lines[2], /^ {2}T2 \d\d:\d\d 1 call · 1 edit rev 2→3$/);

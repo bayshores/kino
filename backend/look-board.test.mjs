@@ -288,7 +288,7 @@ test("storyboard.md's footage board runs as written: look board shows the three 
   const cueLines = all.filter((line) => /^(on the |one take )/.test(line));
   assert.match(cueLines[0], /^on the longest shot \(2\.08 s\) at 1\.25 s: shot 2 /);
   assert.match(cueLines[1], /^on the last shot at 3\.33 s: shot 3 /);
-  const lines = all.filter((line) => !cueLines.includes(line));
+  const lines = all.filter((line) => !cueLines.includes(line) && !line.startsWith("next: "));
   assert.equal(lines.length, 5);
   assert.equal(lines[0], "board r1, page 1 of 1: shots 1–3 of 3, 4.4 s, 1080×1920, music none, sound search off");
   // Each line gives the shot's place and its id (review round 2 of B4a), a flagged number only under look:.
@@ -355,7 +355,7 @@ test("a 15-shot board: 4 pages of at most 4 rows, each text within 200 tokens; t
     assert.equal(reply.isError, undefined, reply.text);
     const text = before0(reply.text);
     // Page 1 also prints the story's cue lines (cueShows.js); the rows are counted without them.
-    const lines = text.split("\n").filter((line) => !/^(on the |one take )/.test(line));
+    const lines = text.split("\n").filter((line) => !/^(on the |one take |next: )/.test(line));
     const first = (page - 1) * 4 + 1, last = Math.min(page * 4, 15);
     assert.equal(lines[0], `board r1, page ${page} of 4: shots ${first}–${last} of 15, 15 s, 1080×1920, music none, sound search off`);
     assert.equal(lines.length, last - first + 3);
