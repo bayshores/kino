@@ -51,6 +51,7 @@ Which file does what, for a first code change.
 | `engine/vectorPath.js` | Curve parsing, interpolation and bounds |
 | `engine/svgImport.js`                 | Validated editable SVG import, and placing its layers |
 | `engine/layerClipboard.js`            | Copy and paste of layers and animations: the clipboard format, new IDs, media and font references |
+| `engine/piece.js`                     | A piece (saved layers or scene): its shape, list line and the check of one that came from a file |
 | `engine/fonts.js` and `engine/textLayout.js` | Real font shaping, glyph outlines and line layout |
 | `frontend/components/ScenePreview.jsx` | Scene rendering and media playback in the viewer |
 | `frontend/Viewer.jsx` and `frontend/useViewerDocument.js` | The share-link viewer: scene browsing, phone cards and live updates |
@@ -82,6 +83,8 @@ Which file does what, for a first code change.
 | `backend/lottie-png.mjs`            | Lossless RGBA PNG encoding for embedded Lottie assets |
 | `backend/export-batches.mjs`         | Immutable scene snapshots, cancellable queues and result files |
 | `backend/zip.mjs` and `backend/png-sequence.mjs` | Disk-streamed ZIP archives and lossless frame sequences |
+| `backend/pieces.mjs`                  | Pieces saved in the workspace (`<data>/pieces`): save, list, rename, delete, export, import; they keep their media alive |
+| `backend/piece-file.mjs`              | The `.kinopiece` file: writes with `zip.mjs`, reads with strict limits (no links, no unsafe paths, stored entries only) |
 | `engine/stillFrame.js`                | The still PNG time and design view: clamping, batch rule, thumbnails, validation |
 | `backend/lottie-shapes.mjs`          | Native curve, gradient, fill and stroke serialization |
 | `engine/paints.js`                    | Shared gradient coordinates for previews and exports |

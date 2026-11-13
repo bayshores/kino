@@ -211,6 +211,14 @@ export function createAgentClient(connection, { name = "mcp", session, app = nul
       if (reply.isError || reply.data?.held || reply.data?.waiting) return { refused: reply };
       return reply.data;
     }
+    // A piece file (project manage pieces export) comes in as a saved piece; kino checks the file.
+    if (path.extname(String(filePath)).toLowerCase() === ".kinopiece") {
+      if (!path.isAbsolute(filePath)) throw new Error("Choose a piece file by its absolute local path.");
+      const actual = await realpath(filePath);
+      if (!(await stat(actual)).isFile()) throw new Error("Choose a regular .kinopiece file.");
+      const reply = await call("project", { action: "manage", options: { resource: "pieces", action: "import", file: actual, ...(input.options?.replace === true ? { replace: true } : {}) } }, { signal, client });
+      return reply.isError || reply.data?.held || reply.data?.waiting ? { refused: reply } : { reply };
+    }
     const file = await readExplicitMediaFile(String(filePath ?? ""), { maxBytes: maxUploadBytes });
     const size = (await lstat(file.actualPath)).size;
     const check = await call("project", { action: "import", name: file.name, size }, { signal, client });

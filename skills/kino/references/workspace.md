@@ -5,7 +5,7 @@ Copying between projects, many variants from a CSV, imports, and workspace actio
 ## More editing ops
 
 - `duplicate_layers`, `multi_transform`, `import_svg`, `copy_layers`, `copy_scene`,
-  `copy_animations`, `apply_easing`, `apply_text_effect`: `library {topic:"op", name}` for each.
+  `copy_animations`, `apply_easing`, `apply_text_effect`, `use_piece`: `library {topic:"op", name}` for each.
 - `copy_layers {fromProject, layers:["title"], scene:"s1"}` copies dependencies too;
   `replaceLayers:["old-title"]` pastes in place. Source names/codes belong to fromProject.
 - `multi_transform {layers:["card"], action:{kind:"scale",scaleX:120,scaleY:120}}` scales about
@@ -27,8 +27,13 @@ Copying between projects, many variants from a CSV, imports, and workspace actio
   blank one, it is `<old> [copy]`.
 - Project files: `project import /absolute/file.motion` (or `.json`) migrates into a new file.
 - Workspace actions: `project {action:"manage", id, options:{resource, action, ...}}`.
-  Resources: projects, templates, folders, trash, comments, shares, easings, effects, media,
+  Resources: projects, templates, folders, trash, comments, shares, easings, effects, pieces, media,
   document, csv, exports. Load `library {topic:"rules", name:"workspace"}` for exact fields first.
+- Pieces (reuse across projects): `options:{resource:"pieces", action:"save", name, layers:["title","card"]}`
+  (or `scene:"s1"`) keeps layers or a scene with animations, components, media and fonts, even after
+  the source project is deleted; `list` is one short line each. `edit {op:"use_piece", piece, scene?,
+  at?:seconds, x?, y?, name?}` puts one in a project (one undo). `export {piece, out?}` writes a
+  `.kinopiece` file; `project import /absolute/name.kinopiece` reads one into the workspace.
 - Saved easings and text effects: `options:{resource:"easings", action:"save", name, easing:[x1,y1,x2,y2]}`
   and `options:{resource:"effects", action:"save", name, sourceAnimation}`; then
   `apply_easing {name, animationIds}` and `apply_text_effect {name, layers}` use them.

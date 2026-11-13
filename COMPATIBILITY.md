@@ -504,6 +504,11 @@ How to read it:
 - **Copying between files**: Verified. `copy_layers`, `copy_scene` and `copy_animations` give fresh ids
   and bring components, media and fonts, naming missing media. Evidence: `engine/layerClipboard.test.js`
   (including hostile data), `engine/sceneClipboard.test.js`.
+- **Pieces**: Verified. Layers or a scene are saved by name in the workspace, used in any project with
+  `use_piece {piece, scene?, at?, x?, y?, name?}` (the copy path above), and passed on as one `.kinopiece`
+  file that survives deleting the source project and imports into another workspace; hostile files are
+  refused. Evidence: `backend/agent-reach-workspace.test.mjs` (frames, second workspace, hostile files),
+  `engine/layerClipboard.test.js`, `backend/agent-op-examples.test.mjs`.
 - **Components**: Verified. Linked instances update live, nest, clip and detach; create from a scene or
   layers; overrides set, reset and detach. Evidence: `engine/componentOverrides.test.js`,
   `engine/linkedComponents.test.js`, `engine/createComponent.test.js`, `backend/component-create.test.mjs`,

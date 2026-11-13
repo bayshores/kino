@@ -1,10 +1,18 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
-import { readFile, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { crc32 } from "node:zlib";
+import { Resvg } from "@resvg/resvg-js";
 import { startTestServer, readImage } from "./media.test.support.mjs";
 import { createAgentClient } from "./agent/client.mjs";
 import { renderFrame } from "../tests/golden/render.mjs";
 import { createTemplateDocument } from "../engine/templates.js";
+import { createPieces } from "./pieces.mjs";
+import { openPieceFile } from "./piece-file.mjs";
 // These tests are about reaching features; approvals (D3) are tested in dashboard tests and
 // in agent-reach-workspace's approval test, so the person here allows them.
 const REACH_ALLOW = ["delete-scene", "delete-project", "share-link", "final-render", "overwrite-export", "large-import"];
@@ -385,4 +393,159 @@ test("Templates: every original template creates independent saved projects with
     assert.deepEqual(await pixels(first.data.project), expected, `${template.id} pixels match the original factory`);
     assert.deepEqual(await pixels(second.data.project), expected);
   }
+});
+
+// ---- Pieces: saved layers or scenes, used in other projects and passed on as one .kinopiece file ----
+const require = createRequire(import.meta.url);
+function hasElectron() {
+  if (process.platform === "linux" && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) return false;
+  try { return existsSync(require("electron")); } catch { return false; }
+}
+const BAR_SCRIPT = `export default function setup(layer) {
+  const ctx = layer.canvas.getContext("2d");
+  return function draw(frame) { ctx.fillStyle = "#ff0000"; ctx.fillRect(0, 0, frame.width * frame.values.reveal, frame.height); };
+}`;
+const near = (pixel, [r, g, b]) => Math.abs(pixel[0] - r) < 30 && Math.abs(pixel[1] - g) < 30 && Math.abs(pixel[2] - b) < 30;
+
+test("Pieces: saved from project A, A deleted, used in B and in a second workspace after export and import, drawing the same pixels", { timeout: 120_000 }, async () => {
+  const scripts = hasElectron();
+  await create("piece-a");
+  const png = Buffer.from(new Resvg('<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" fill="#00ff00"/></svg>').render().asPng());
+  const upload = await server.api("/api/media?project=piece-a", { method: "POST", headers: { "Content-Type": "image/png", "X-File-Name": "green.png" }, body: png });
+  assert.equal(upload.status, 201);
+  const { src } = await upload.json();
+  await edit("piece-a", [
+    { op: "add_layer", layerType: "rectangle", name: "badge", properties: { x: 10, y: 10, width: 60, height: 40, fill: "#0000ff" } },
+    { op: "add_animation", layer: "badge", preset: "move", start: 0, duration: 0.5, easing: "linear", from: { x: -50 }, to: { x: 10 } },
+    { op: "add_layer", layerType: "text", name: "caption", properties: { text: "Hi", x: 100, y: 10, width: 200, height: 40, fontSize: 30, fill: "#ffffff" } },
+    { op: "add_layer", layerType: "image", name: "logo", properties: { src, x: 10, y: 70, width: 64, height: 64 } },
+    ...(scripts ? [{ op: "add_layer", layerType: "script", name: "bar", properties: { x: 100, y: 70, width: 200, height: 60, script: BAR_SCRIPT,
+      inputs: [{ key: "reveal", type: "number", min: 0, max: 1 }, { key: "pic", type: "image" }], values: { reveal: 1, pic: src } } }] : []),
+  ]);
+  const names = ["badge", "caption", "logo", ...(scripts ? ["bar"] : [])];
+
+  // Save, list: one short line each; a taken name is refused with replace:true named.
+  const savedPiece = await manage("piece-a", "pieces", "save", { name: "Hero card", layers: names, description: "badge, caption, logo" });
+  assert.match(savedPiece.text, /^Saved piece Hero card \(layers /);
+  const again = await manage("piece-a", "pieces", "save", { name: "hero card", layers: ["badge"] }, true);
+  assert.match(again.text, /already exists.*replace:true/);
+  const listed = await manage(null, "pieces", "list");
+  assert.ok(listed.text.split("\n")[0].length <= 120, listed.text);
+  assert.match(listed.text, /320x180, [\d.]+s, \d layers, needs 0 fonts and 1 media/);
+  await create("piece-b");
+  const hint = await edit("piece-b", [{ op: "use_piece", piece: "Hero crad" }], {}, true);
+  assert.match(hint.text, /No piece .{1,3}Hero crad.{1,3}\. Did you mean .{1,3}Hero card.{1,3}\?/);
+
+  // A's project is deleted for good; the piece keeps its picture.
+  await call("project", { action: "archive", id: "piece-a" });
+  await manage(null, "trash", "delete", { id: "piece-a", confirm: true });
+  assert.equal((await server.api("/api/projects/piece-a")).status, 404);
+  assert.equal((await server.api(src)).status, 200, "the piece's picture outlives its project");
+
+  // Use it in B: one undoable revision, shifted to start at 0.5 s with its top left at 20,20.
+  await edit("piece-b", [{ op: "use_piece", piece: "Hero card", at: 0.5, x: 20, y: 20 }]);
+  assert.equal((await saved("piece-b")).document.scenes[0].layers.length, names.length);
+  const framePath = async (id, t) => (await call("look", { project: id, mode: "frame", t, width: 320 })).images[0].path;
+  const late = await readImage(await readFile(await framePath("piece-b", 1.5)));
+  const early = await readImage(await readFile(await framePath("piece-b", 0.75)));
+  assert.ok(near(late.pixel(50, 40), [0, 0, 255]), `the badge is blue at 1.5 s: ${late.pixel(50, 40)}`);
+  assert.ok(near(late.pixel(50, 110), [0, 255, 0]), `the picture is green: ${late.pixel(50, 110)}`);
+  if (scripts) assert.ok(near(late.pixel(200, 110), [255, 0, 0]), `the script layer draws its red bar: ${late.pixel(200, 110)}`);
+  const badge = (await saved("piece-b")).document.scenes[0].layers.find((layer) => layer.name === "badge");
+  assert.equal(badge.animations[0].start, 0.5, "the piece's first animation starts at 0.5 s");
+  // Halfway through the shifted move (0.75 s) the badge spans -10 to 50; unshifted it would be at rest, spanning 20 to 80.
+  assert.ok(!near(early.pixel(60, 40), [0, 0, 255]) && near(late.pixel(60, 40), [0, 0, 255]), `the move runs from 0.5 s: ${early.pixel(60, 40)}`);
+
+  // One file out, into a second workspace, used there: the same pixels.
+  const exported = await manage(null, "pieces", "export", { piece: "Hero card" });
+  assert.match(exported.text, /^Wrote .*Hero card\.kinopiece \(\d+ bytes, 1 media file\)/);
+  const other = await startTestServer({ allow: REACH_ALLOW });
+  try {
+    const otherCall = async (verb, body) => {
+      const result = await (await other.api(`/api/agent/${verb}`, { method: "POST", body })).json();
+      assert.equal(result.isError, undefined, result.text);
+      return result;
+    };
+    const client = createAgentClient({ url: other.baseUrl, ownerToken: other.ownerToken });
+    const imported = await client.importFile(exported.data.path);
+    assert.match(imported.reply.text, /^Imported piece Hero card \(layers /);
+    assert.equal((await other.api(src)).status, 200, "its picture came along under the same name");
+    await otherCall("project", { action: "create", id: "piece-c", width: 320, height: 180, duration: 2, background: "#15191e" });
+    await otherCall("edit", { project: "piece-c", ops: [{ op: "use_piece", piece: "Hero card", at: 0.5, x: 20, y: 20 }] });
+    const reply = await otherCall("look", { project: "piece-c", mode: "frame", t: 1.5, width: 320 });
+    assert.deepEqual(await readFile(reply.images[0].path), await readFile(await framePath("piece-b", 1.5)), "the imported piece draws the same frame");
+    const twice = await client.importFile(exported.data.path);
+    assert.match(twice.refused.text, /already exists/);
+  } finally { await other.stop(); }
+});
+
+// A zip written by hand, so a test can make the files a careless or hostile maker would.
+function rawZip(entries) {
+  const locals = [], centrals = [];
+  let offset = 0;
+  for (const { name, data = Buffer.alloc(0), link = false, declared } of entries) {
+    const nameBytes = Buffer.from(name), body = Buffer.from(data);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0); local.writeUInt16LE(20, 4); local.writeUInt32LE(crc32(body), 14);
+    local.writeUInt32LE(body.length, 18); local.writeUInt32LE(body.length, 22); local.writeUInt16LE(nameBytes.length, 26);
+    const central = Buffer.alloc(46);
+    central.writeUInt32LE(0x02014b50, 0); central.writeUInt16LE(link ? 0x031e : 20, 4); central.writeUInt16LE(20, 6);
+    central.writeUInt32LE(crc32(body), 16); central.writeUInt32LE(declared ?? body.length, 20); central.writeUInt32LE(declared ?? body.length, 24);
+    central.writeUInt16LE(nameBytes.length, 28); central.writeUInt32LE(link ? 0xa1ff0000 : 0, 38); central.writeUInt32LE(offset, 42);
+    locals.push(local, nameBytes, body); centrals.push(central, nameBytes);
+    offset += 30 + nameBytes.length + body.length;
+  }
+  const directory = Buffer.concat(centrals);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0); end.writeUInt16LE(entries.length, 8); end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(directory.length, 12); end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...locals, directory, end]);
+}
+
+test("Pieces: a hostile or broken .kinopiece file is refused with a sentence saying what is wrong", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "kino-piece-hostile-"));
+  try {
+    const stored = [];
+    const pieces = createPieces({ directory: path.join(directory, "pieces"), mediaRoot: directory, workDirectory: path.join(directory, "work"), importMedia: async (files) => { stored.push(...files); } });
+    const refused = async (name, entries, pattern) => {
+      const file = path.join(directory, `${name}.kinopiece`);
+      await writeFile(file, Buffer.isBuffer(entries) ? entries : rawZip(entries));
+      await assert.rejects(pieces.importFrom(file), pattern, name);
+      return file;
+    };
+    const json = Buffer.from("{}");
+    await refused("slip", [{ name: "piece.json", data: json }, { name: "media/../../evil.png", data: "x" }], /unsafe path/);
+    await refused("absolute", [{ name: "piece.json", data: json }, { name: "/etc/passwd", data: "x" }], /unsafe path/);
+    await refused("backslash", [{ name: "piece.json", data: json }, { name: "media\\a.png", data: "x" }], /unsafe path/);
+    await refused("other", [{ name: "piece.json", data: json }, { name: "script.sh", data: "x" }], /"script.sh" is not allowed/);
+    await refused("link", [{ name: "piece.json", data: json }, { name: "media/0a.png", data: "/etc/passwd", link: true }], /is a link/);
+    const twice = await refused("twice", [{ name: "piece.json", data: json }, { name: "piece.json", data: json }], /appears twice/);
+    await refused("noJson", [{ name: "media/0a.png", data: "x" }], /no piece\.json/);
+    await refused("notZip", Buffer.from("this is not a zip file at all, just text"), /not a zip file/);
+    await refused("broken", [{ name: "piece.json", data: Buffer.from("{ nope") }], /piece\.json is not valid JSON/);
+    await refused("wrongFormat", [{ name: "piece.json", data: Buffer.from('{"format":"other"}') }], /not a kino piece file/);
+    await refused("badContents", [{ name: "piece.json", data: Buffer.from(JSON.stringify({ format: "kino.piece", version: 1, name: "x", kind: "layers", envelope: { format: "kino.clipboard", kind: "layers", layers: [{ id: "a", type: "banana" }] } })) }], /contents are not valid/);
+    await refused("oversized", rawZip([{ name: "piece.json", data: json }, { name: "media/0a.png", data: "x", declared: 2 ** 31 }]), /"media\/0a\.png" is \d+ bytes; the limit/);
+    await assert.rejects(openPieceFile(twice, { entries: 1, mediaBytes: 10, jsonBytes: 10, totalBytes: 100 }), /holds 2 entries; at most 1/);
+    assert.equal(stored.length, 0, "nothing was stored for any refused file");
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("Pieces: a media file of the wrong kind inside a piece file is refused and leaves nothing in the library", async () => {
+  const other = await startTestServer({ allow: REACH_ALLOW });
+  const directory = await mkdtemp(path.join(tmpdir(), "kino-piece-kind-"));
+  try {
+    const id = "0a0a0a0a-0a0a-4a0a-8a0a-0a0a0a0a0a0a.png";
+    const envelope = { format: "kino.clipboard", version: 6, kind: "layers", source: { documentId: "d", sceneId: "s" }, layers: [{ id: "p", type: "image", name: "pic", src: `/api/media/${id}`, x: 0, y: 0, width: 10, height: 10, animations: [] }], roots: [{ id: "p", parentId: null }], masks: [], components: [], media: [], fonts: [] };
+    const piece = { format: "kino.piece", version: 1, name: "Fake", kind: "layers", envelope, canvas: { width: 320, height: 180 }, files: [{ id, name: "pic.png", mime: "image/png" }] };
+    const file = path.join(directory, "fake.kinopiece");
+    await writeFile(file, rawZip([{ name: "piece.json", data: JSON.stringify(piece) }, { name: `media/${id}`, data: "MZ this is a program, not a picture" }]));
+    const client = createAgentClient({ url: other.baseUrl, ownerToken: other.ownerToken });
+    assert.match((await client.importFile(file)).refused.text, /is not really image\/png: its first bytes do not match/);
+    assert.equal((await other.api(`/api/media/${id}`)).status, 404);
+    const kinds = { ...piece, files: [{ ...piece.files[0], mime: "application/x-msdownload" }] };
+    await writeFile(file, rawZip([{ name: "piece.json", data: JSON.stringify(kinds) }, { name: `media/${id}`, data: "x" }]));
+    assert.match((await client.importFile(file)).refused.text, /is not a kind kino accepts/);
+    assert.equal(await stat(path.join(other.dataDirectory, "pieces")).then(() => true, () => false), false, "no piece was saved");
+  } finally { await other.stop(); await rm(directory, { recursive: true, force: true }); }
 });
