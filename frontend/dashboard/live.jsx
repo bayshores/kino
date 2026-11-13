@@ -1,14 +1,12 @@
 // The live panels: they appear while something happens and go when it ends (plan: ui-polish).
 //   SeenDrawer    under the video while an agent looks (or just did): the frames it looked at
-//   RenderDock    at the stage's lower right while a render runs: cells fill as frames finish
-//   NeedsYouCard  at the top of the agent pane while an approval or stop waits for you
-//   AgentRail     the agent pane folded to a slim rail while no agent works
+//   RenderDock    one chip on the frame while a render runs: "Open when done"
 // Each shows only real state (the facts are plain functions in agentView.js). Under reduced
 // motion (`still`) they appear without sliding.
 import React, { useEffect, useRef, useState } from "react";
 import { Bot } from "./bot.jsx";
-import { leftWords, needWords, renderDock, seenNow, specWords } from "./agentView.js";
-import { act, boardShotUrl, frameUrl, renderFileUrl, seenUrl } from "./api.js";
+import { needWords, renderDock, seenNow, specWords } from "./agentView.js";
+import { boardShotUrl, frameUrl, renderFileUrl, seenUrl } from "./api.js";
 import { ago } from "./format.js";
 import { tickWhileShown } from "./visibleClock.js";
 import { keyTarget, needsYouRows, optionLabel, recommendedOption } from "./state.js";
@@ -110,15 +108,13 @@ export function SeenDrawer({ data, still, playing = false }) {
 
 // ---- the render dock --------------------------------------------------------------------------
 
-const CELLS = 72;
-
-/** A running render, docked at the stage's lower right. `onCancel(jobId)` is the cancel action. */
-export function RenderDock({ data, still, onCancel }) {
+/** A running render: one chip on the frame, "Open when done" (its progress and Cancel are the line
+ * under the frame); when it ends, a link to the file for a few seconds. */
+export function RenderDock({ data, still }) {
   const now = useNow();
   const dock = renderDock(data, now);
   const [openWhenDone, setOpenWhenDone] = useState(null);
   const [ended, setEnded] = useState(null);
-  const [folded, setFolded] = useState(false);
   // When the job ends: "open" for a few seconds (and open it when asked to).
   useEffect(() => {
     if (dock) return undefined;
@@ -141,35 +137,17 @@ export function RenderDock({ data, still, onCancel }) {
   if (!shown) return null;
   if (!dock && ended) {
     return (
-      <aside className={`live-dock done${still ? " still" : ""}`} aria-label="Render done">
-        <header className="live-head"><span className="ok" aria-hidden="true">✓</span><span>{ended.quality} {ended.id} done</span><span className="grow" />
-          <a className="tb tb-box" href={renderFileUrl(ended.id)} target="_blank" rel="noopener noreferrer">open</a></header>
+      <aside className={`live-dock done${still ? " still" : ""}`} onPointerDown={(event) => event.stopPropagation()} aria-label="Render done">
+        <a className="tb" href={renderFileUrl(ended.id)} target="_blank" rel="noopener noreferrer"><Glyph name="eye" /> Open the {ended.quality} render</a>
       </aside>
     );
   }
   if (!dock) return null;
-  const { job, agent, total, done, fraction, left } = dock;
-  const filled = Math.round(fraction * CELLS);
-  const size = Number.isFinite(job.height) && Number.isFinite(job.width) ? ` ${Math.min(job.width, job.height)}p` : "";
+  const { job, agent, fraction } = dock;
   return (
-    <aside className={`live-dock in${folded ? " folded" : ""}${still ? " still" : ""}`} style={{ "--who": agent?.color ?? "var(--accent)" }} aria-label={`${agent?.name ?? "A"} render ${job.id}, ${Math.round(fraction * 100)}%`}>
-      <header className="live-head">
-        <span className="live-dot" aria-hidden="true" />
-        <span className="who">{agent?.name ?? "you"}</span><span>{job.quality} {job.id}{size}</span>
-        <span className="grow" />
-        <button type="button" className="tb icon-button" onClick={() => setFolded((value) => !value)} aria-expanded={!folded} aria-label={folded ? "Show the render's frames" : "Fold the render panel"} title={folded ? "Show" : "Fold"}><span aria-hidden="true">{folded ? "+" : "–"}</span></button>
-      </header>
-      {folded ? null : <>
-        {total ? (
-          <div className="live-cells" aria-hidden="true">{Array.from({ length: CELLS }, (_, index) => <span key={index} className={index < filled ? "on" : ""} />)}</div>
-        ) : <div className="live-bar" aria-hidden="true"><span style={{ width: `${fraction * 100}%` }} /></div>}
-        <p className="live-facts"><span>{total ? `${done.toLocaleString("en-US")} of ${total.toLocaleString("en-US")} frames, ` : ""}{Math.round(fraction * 100)}%</span><span className="faint">{left != null ? `${leftWords(left)} left` : ""}</span></p>
-        <div className="live-actions">
-          <button type="button" className={`tb tb-box grow${openWhenDone === job.id ? " on" : ""}`} aria-pressed={openWhenDone === job.id} onClick={() => setOpenWhenDone((value) => (value === job.id ? null : job.id))}>
-            <Glyph name="eye" /> open when done</button>
-          <button type="button" className="tb tb-box" onClick={() => (onCancel ? onCancel(job.id) : act("render", { action: "cancel", job: job.id }).catch(() => {}))} title="Cancel the render (x)" aria-keyshortcuts="x"><Glyph name="close" /> cancel</button>
-        </div>
-      </>}
+    <aside className={`live-dock in${still ? " still" : ""}`} onPointerDown={(event) => event.stopPropagation()} aria-label={`${agent?.name ?? "Your"} render ${job.id}, ${Math.round(fraction * 100)}%`}>
+      <button type="button" className="tb" aria-pressed={openWhenDone === job.id} onClick={() => setOpenWhenDone((value) => (value === job.id ? null : job.id))}>
+        <Glyph name="eye" /> Open when done</button>
     </aside>
   );
 }

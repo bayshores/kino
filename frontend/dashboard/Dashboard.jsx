@@ -1007,7 +1007,7 @@ export function Dashboard() {
     try {
       const reply = await server.act("render", { project: projectId, scene: scene.id, quality: options.quality ?? "final", ...(options.format ? { format: options.format } : {}) });
       // A refusal (stops_open, check_failed) says why and what to do, not its JSON.
-      say(reply.isError && reply.data?.reason ? [reply.data.reason, reply.data.next].filter(Boolean).join(" ") : reply.text.split("\n")[0], reply.isError);
+      say(reply.isError && reply.data?.reason ? [reply.data.reason, reply.data.next].filter(Boolean).join(" ") : reply.text.split("\n")[0].replace(/\s+render \{.*$/, ""), reply.isError);
     } catch (cause) { fail(cause); }
   }, [projectId, scene, say, fail]);
 
@@ -1592,9 +1592,9 @@ export function Dashboard() {
   const renderPercent = rendering ? Math.round((rendering.progress ?? 0) * 100) : null;
   // The project menu: the open project first, then the others (newest first), then all projects.
   const renderOptions = [
-    { value: "final", label: "final mp4" }, { value: "draft", label: "draft mp4" },
-    { value: "gif", label: "final gif" }, { value: "webm", label: "final webm" }, { value: "mov", label: "final mov" },
-    ...(rendering ? [{ value: "@cancel", label: "cancel render" }] : []),
+    { value: "final", label: "Final MP4" }, { value: "draft", label: "Draft MP4" },
+    { value: "gif", label: "Final GIF" }, { value: "webm", label: "Final WebM" }, { value: "mov", label: "Final MOV" },
+    ...(rendering ? [{ value: "@cancel", label: "Cancel render" }] : []),
   ];
   const pickRender = (value) => {
     if (value === "@cancel") cancelRender();
