@@ -9,7 +9,7 @@ import { WebSocketServer } from "ws";
 import { createCanvas, loadImage } from "@napi-rs/canvas";
 import { imageFacts } from "../engine/imageFacts.js";
 import { openStore, ConflictError } from "./store.mjs";
-import { COMMENT_KEY_HEADER, commentKeyHash } from "./comments.mjs";
+import { COMMENT_KEY_HEADER, commentInboxLine, commentKeyHash } from "./comments.mjs";
 import { exportScene, renderSceneFrames } from "./export.mjs";
 import { parseExportDocument } from "./export-document.mjs";
 import { getMp4Encoders } from "./mp4-encoders.mjs";
@@ -1081,6 +1081,17 @@ function projectUnavailable(id, state) {
 // Every open session of the project receives the full comment list after a comment write (and
 // a session that joins receives it at once; see the "join" handler). The store's copies leave
 // out author key hashes. The owner's dashboard gets the same list as a "comments" event.
+// A comment or reply a person posts through this route reaches the agent as a note does: one
+// line in its status inbox, and a "comment" event the MCP server pushes to a channel when that
+// setting is on (forwardNotesToChannel in mcp.mjs). The agent's own comments go through
+// project manage (reach-workspace.mjs), never here, so they add no line.
+async function commentToAgent(projectId, comment) {
+  const { document, comments } = await store.getProject(projectId);
+  const text = commentInboxLine(comment, { document, comments });
+  await agentState.update(projectId, (state) => { state.inbox.push({ kind: "comment", commentId: comment.id, threadId: comment.parentId ?? comment.id, text }); });
+  dashboard.publish({ type: "comment", projectId, comment: { id: comment.id, parentId: comment.parentId, text } });
+}
+
 async function broadcastComments(projectId) {
   const { comments } = await store.getProject(projectId);
   broadcast(projectId, { type: "comments", comments });
@@ -1518,6 +1529,7 @@ const server = http.createServer(async (req, res) => {
           if (parts.length === 4 && method === "POST") {
             result = await store.addComment(id, await body(req, COMMENT_BODY_LIMIT), actor);
             status = 201;
+            await commentToAgent(id, result).catch(() => {});
           } else if (parts.length === 5 && method === "PATCH")
             result = await store.updateComment(id, parts[4], await body(req, COMMENT_BODY_LIMIT), actor);
           else if (parts.length === 5 && method === "DELETE")

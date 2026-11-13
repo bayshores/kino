@@ -51,6 +51,16 @@ export function snapNote(document, scene, point, time = null) {
   return spot;
 }
 
+/**
+ * Where a click on the share-link viewer's frame puts a new comment: `hit` ({sceneId, x, y}) and,
+ * by the same rule as notes, the layer under it (layerId). Null stays null (a click off the frame).
+ */
+export function snapComment(document, scene, hit, time = null) {
+  if (!hit) return null;
+  const { layerId } = snapNote(document, scene, hit, time);
+  return layerId ? { ...hit, layerId } : hit;
+}
+
 /** The number on a note's dot: the digits of its id ("N4" → "4"), else the id. */
 export function noteNumber(id) {
   const digits = String(id ?? "").match(/\d+/);

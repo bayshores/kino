@@ -39,7 +39,10 @@
 .viewer-controls > button:first-child { min-width: 9ch; border-color: var(--accent); color: var(--accent); }
 .viewer-loop { display: flex; align-items: center; gap: 0.5ch; color: var(--fg1); }
 .viewer-loop input, .viewer-scrubber { accent-color: var(--accent); }
-.viewer-scrubber { min-width: 40px; flex: 1; }
+.viewer-scrub { position: relative; min-width: 40px; flex: 1; display: flex; align-items: center; }
+.viewer-scrubber { flex: 1; min-width: 0; }
+/* A comment's time range, a thin line in the comments' color under the scrubber. */
+.viewer-scrub-range { position: absolute; bottom: -3px; height: 2px; min-width: 2px; background: var(--accent); pointer-events: none; }
 .viewer-controls output { color: var(--fg1); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .viewer-status { padding: 0.25lh 2ch; border-bottom: 1px solid var(--line); color: var(--warn); }
 
@@ -80,7 +83,7 @@
 .viewer-cards .viewer-header > .viewer-comments-toggle { grid-column: 1 / -1; grid-row: 4; justify-self: start; }
 .viewer-cards .viewer-scene-name > :first-child { max-width: none; }
 .viewer-cards .viewer-controls { flex-wrap: wrap; gap: 0.5lh 1ch; padding: 0.5lh 2ch; }
-.viewer-cards .viewer-scrubber { order: 1; flex-basis: calc(100% - 16ch); }
+.viewer-cards .viewer-scrub { order: 1; flex-basis: calc(100% - 16ch); }
 .viewer-cards .viewer-controls output { order: 2; }
 .viewer-cards .viewer-body { flex-direction: column; }
 /* On a phone the comments come first, right under the controls, so opening them shows them. */
@@ -98,6 +101,9 @@
 .viewer-comments-hint { padding: 0.5lh 1.5ch; border-bottom: 1px solid var(--line); color: var(--warn); }
 .viewer-new-comment { display: grid; gap: 0.5lh; padding: 0.5lh 1ch; border: 1px dashed var(--accent); }
 .viewer-new-comment-place { color: var(--accent); font-size: 12px; }
+.viewer .comment-chips { display: flex; flex-wrap: wrap; gap: 0.5ch; }
+.viewer button.comment-chip { padding: 0 1ch; font-size: 12px; color: var(--fg1); }
+.viewer button.comment-chip[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
 .viewer-new-comment textarea { display: block; width: 100%; min-height: 4lh; resize: vertical; padding: 0.25lh 1ch; font-size: 12px; line-height: 1.5; }
 
 @media (prefers-reduced-motion: reduce) { .viewer *, .viewer *::before, .viewer *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; } }

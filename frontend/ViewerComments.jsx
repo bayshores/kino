@@ -9,8 +9,9 @@
 // A new comment is tied to the current time on the current scene. A click on the frame puts it
 // at that spot; "Comment on this scene" (keyboard) puts it at the scene's middle.
 import { useEffect, useRef, useState } from "react";
-import { authorInitial, formatCommentTime, pinLabel } from "./comments.js";
+import { anchorTime, authorInitial, commentChips, formatCommentTime, pinLabel } from "./comments.js";
 import { pinPlacement, roundCoordinate } from "./commentPins.js";
+import { snapComment } from "./dashboard/noteSpot.js";
 import { CommentsPanel } from "./components/CommentsPanel.jsx";
 import { MentionTextarea } from "./components/MentionTextarea.jsx";
 import { useCommentMode } from "./useCommentMode.js";
@@ -63,7 +64,8 @@ export function useViewerComments({ access, viewer, doc, scene, time, open, setO
     window.addEventListener("keydown", keydown);
     return () => window.removeEventListener("keydown", keydown);
   }, [pinsShortcut]);
-  return { ...state, error, clearError: () => setError("") };
+  // now: the playhead, where the new comment's range can end.
+  return { ...state, now: time, error, clearError: () => setError("") };
 }
 
 /** Where a click at (clientX, clientY) lands on `scene`, in scene pixels: {sceneId, x, y}. */
@@ -82,18 +84,19 @@ const percent = (value, total) => `${(Number(value) / Number(total || 1)) * 100}
 
 /**
  * The pins on the frame: one per open thread on this scene, and the new comment's pin. While the
- * comments column is open, a click on the frame (not on a pin) places a new comment there.
+ * comments column is open, a click on the frame (not on a pin) places a new comment there, on the
+ * layer under the click.
  */
-export function CommentMarks({ state, scene, placing }) {
+export function CommentMarks({ state, doc, scene, time, placing }) {
   if (!scene) return null;
   const pins = state.pinsHidden ? [] : state.threads.filter(({ comment }) => !comment.resolved && comment.sceneId === scene.id);
-  const draft = state.draft?.sceneId === scene.id ? state.draft : null;
+  const draft = state.draft?.sceneId === scene.id && !state.draft.whole ? state.draft : null;
   return (
     <div
       className={`viewer-marks${placing ? " placing" : ""}`}
       onClick={(event) => {
         if (!placing || event.target !== event.currentTarget) return;
-        state.place(framePoint(event.currentTarget.getBoundingClientRect(), event.clientX, event.clientY, scene));
+        state.place(snapComment(doc, scene, framePoint(event.currentTarget.getBoundingClientRect(), event.clientX, event.clientY, scene), time));
       }}
     >
       {pins.map((thread) => {
@@ -119,6 +122,43 @@ export function CommentMarks({ state, scene, placing }) {
           <span>{authorInitial(state.author || "Guest")}</span>
         </span>
       )}
+    </div>
+  );
+}
+
+/**
+ * The new comment's place as chips: the layer it is pinned to (press to unpin), its range (press
+ * to end it at the playhead, again to clear) and whole video (press to toggle).
+ */
+function DraftChips({ state, draft, target }) {
+  const placed = !draft.whole;
+  const layer = draft.layerId ? target?.layers?.find((item) => item.id === draft.layerId)?.name || draft.layerId : null;
+  const ranged = Number.isFinite(draft.timeEnd);
+  const end = anchorTime(state.now, target);
+  const chips = commentChips({ ...draft, timeEnd: ranged ? draft.timeEnd : undefined }, { scenes: target ? [target] : [] });
+  return (
+    <div className="comment-chips" role="group" aria-label="Comment place">
+      {placed && layer && (
+        <button type="button" className="comment-chip" aria-pressed="true" aria-label={`Pinned to ${layer}`} title="Unpin the layer" onClick={() => state.adjustDraft({ layerId: null })}>
+          {layer}
+        </button>
+      )}
+      {placed && (
+        <button
+          type="button"
+          className="comment-chip"
+          aria-pressed={ranged}
+          aria-label={ranged ? `Range ${chips.at(-1)}` : `Range to ${formatCommentTime(end)}`}
+          title={ranged ? "Clear the range" : "Move the playhead, then end the range there"}
+          disabled={!ranged && !(end > draft.time)}
+          onClick={() => state.adjustDraft({ timeEnd: ranged ? undefined : end })}
+        >
+          {ranged ? chips.at(-1) : `to ${formatCommentTime(end)}`}
+        </button>
+      )}
+      <button type="button" className="comment-chip" aria-pressed={!placed} onClick={() => state.adjustDraft({ whole: placed })}>
+        whole video
+      </button>
     </div>
   );
 }
@@ -159,8 +199,11 @@ function NewComment({ state, doc }) {
       }}
     >
       <p className="viewer-new-comment-place">
-        new comment · {target?.name ?? "scene"} · {formatCommentTime(draft.time)} · at {Math.round(draft.x)}, {Math.round(draft.y)}
+        {draft.whole
+          ? "new comment · whole video"
+          : `new comment · ${target?.name ?? "scene"} · ${formatCommentTime(draft.time)} · at ${Math.round(draft.x)}, ${Math.round(draft.y)}`}
       </p>
+      <DraftChips state={state} draft={draft} target={target} />
       <MentionTextarea
         textareaRef={field}
         aria-label="Comment text"

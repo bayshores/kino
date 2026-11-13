@@ -177,3 +177,18 @@ test("a channel note the session cannot take (transport closed) is not an unhand
   assert.deepEqual(unhandled, []);
   assert.deepEqual(tries, ["N1", "N1"], "a failed send is forgotten, so the next event with the note sends it again");
 });
+
+test("a share-link comment reaches the channel once, as its inbox line", async () => {
+  const controller = new AbortController();
+  const sent = [];
+  const server = { server: { notification: async (message) => { sent.push(message.params); } } };
+  const event = { type: "comment", projectId: "p1", comment: { id: "c1", text: 'comment from Ann on Intro Logo @1 "Bigger"' } };
+  const client = { post: async () => true, async stream(onEvent) {
+    await onEvent(event);
+    await onEvent(event);
+    controller.abort();
+    throw new Error("stream closed");
+  } };
+  await forwardNotesToChannel(server, client, { signal: controller.signal });
+  assert.deepEqual(sent, [{ content: event.comment.text, meta: { project: "p1", comment_id: "c1" } }]);
+});

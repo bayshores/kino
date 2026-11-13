@@ -2,7 +2,7 @@
 import { randomBytes } from "node:crypto";
 import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { commentKeyHash } from "../comments.mjs";
+import { commentKeyHash, commentListText } from "../comments.mjs";
 import { parseDocument } from "../../engine/model.js";
 import { savedTextEffectInput } from "../../engine/savedTextEffects.js";
 import { sceneCsvRows } from "../../engine/sceneCsv.js";
@@ -19,7 +19,7 @@ projects: list {search?,folderId?,offset?:0,limit?:30}; returns total and next o
 templates: list; create {id} creates an independent project from an original template.
 easings: list, save {name,easing,intensity?}, rename {id,name}, delete {id}.
 effects: list, save {name,animation,rest} or save {name,sourceAnimation}, rename {id,name}, delete {id}.
-comments: list, add {text,author?,scene?,x?,y?,time?,parentId?,mentions?}, update {id,patch}, resolve {id,resolved?}, delete {id}. Replies use parentId. Agent authorship is persisted privately.
+comments: list, add {text,author?,scene?,layer?,x?,y?,time?,timeEnd?,parentId?,mentions?}, update {id,patch}, resolve {id,resolved?}, delete {id}. layer pins a layer (by name or code); time..timeEnd is a range; no scene is the whole video; patch layer:null unpins, scene:null makes it whole video. Replies use parentId. Agent authorship is persisted privately.
 trash: list, restore {id}, delete {id,confirm:true}. Only trashed files may be deleted forever.
 shares: list, create {role:view|comment|edit,label?,scene?,layer?,origin?}, revoke {id}. Tokens appear only in URL fragments and are omitted from activity logs.
 document: import {document} (migrates old versions, creates an independent project), export (saved JSON).
@@ -43,7 +43,7 @@ export function createReachWorkspace(deps) {
     const { resource, action = "list" } = input;
     const document = record?.document;
     const projectId = document?.id;
-    let result;
+    let result, text;
     const needProject = () => { if (!document) throw new Error("Choose a project with id or open one first."); };
     if (resource === "templates") {
       if (action === "list") result = { templates: TEMPLATE_CATALOG };
@@ -84,14 +84,31 @@ export function createReachWorkspace(deps) {
       else if (action === "move") { needProject(); const moved = await store.moveProject(projectId, input.folderId); result = { id: projectId, folderId: moved.folderId }; }
     } else if (resource === "comments") {
       needProject();
-      if (action === "list") result = { comments: (await store.getProject(projectId)).comments };
-      else {
+      // scene and layer by name or code; a layer brings its scene. null clears (update only):
+      // layer:null unpins the layer, scene:null makes the thread about the whole video.
+      const place = async (from) => {
+        const value = { ...from };
+        delete value.scene; delete value.layer;
+        const resolver = createResolver(document, assignCodes((await agentState.read(projectId)).codes, document));
+        if (from.scene === null) value.sceneId = null;
+        else if (from.scene) value.sceneId = resolver.resolve(from.scene, "scene");
+        if (from.layer === null) value.layerId = null;
+        else if (from.layer) {
+          value.layerId = resolver.resolve(from.layer, "layer");
+          value.sceneId ??= resolver.sceneOf("layer", value.layerId);
+        }
+        return value;
+      };
+      if (action === "list") {
+        const { comments } = await store.getProject(projectId);
+        result = { comments };
+        text = commentListText(comments, document);
+      } else {
         const author = await actor();
         if (action === "add") {
-          const value = Object.fromEntries(["text", "author", "sceneId", "x", "y", "time", "parentId", "mentions"].filter((key) => Object.hasOwn(input, key)).map((key) => [key, input[key]]));
-          if (input.scene) value.sceneId = createResolver(document, assignCodes((await agentState.read(projectId)).codes, document)).resolve(input.scene, "scene");
-          result = await store.addComment(projectId, { author: "Agent", ...value }, author);
-        } else if (action === "update") result = await store.updateComment(projectId, input.id, input.patch, author);
+          const value = Object.fromEntries(["text", "author", "sceneId", "x", "y", "time", "timeEnd", "parentId", "mentions", "scene", "layer"].filter((key) => Object.hasOwn(input, key)).map((key) => [key, input[key]]));
+          result = await store.addComment(projectId, { author: "Agent", ...(await place(value)) }, author);
+        } else if (action === "update") result = await store.updateComment(projectId, input.id, input.patch && typeof input.patch === "object" ? await place(input.patch) : input.patch, author);
         else if (action === "resolve") result = await store.resolveComment(projectId, input.id, input.resolved ?? true, author);
         else if (action === "delete") result = await store.deleteComment(projectId, input.id, author);
         if (result) await deps.commentsChanged?.(projectId);
@@ -155,6 +172,6 @@ export function createReachWorkspace(deps) {
       }
     }
     if (result === undefined) throw new Error(`Unknown workspace action ${resource}/${action}. Read library {topic:"rules",name:"workspace"}.`);
-    return { text: JSON.stringify(result), data: result };
+    return { text: text ?? JSON.stringify(result), data: result };
   };
 }

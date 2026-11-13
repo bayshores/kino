@@ -178,6 +178,36 @@ export function formatCommentTime(seconds) {
   return `${Number(seconds || 0).toFixed(2)} s`;
 }
 
+// A thread's time, or its range: "1.25 s" or "1.25-2.50 s".
+export function formatCommentSpan(comment) {
+  if (!Number.isFinite(comment?.timeEnd)) return formatCommentTime(comment?.time);
+  return `${Number(comment.time || 0).toFixed(2)}-${Number(comment.timeEnd).toFixed(2)} s`;
+}
+
+// A comment's chips: the layer it is about (by name) and its time or range; "whole video" for a
+// thread with no scene and no point. [] for an older thread that only has a point.
+export function commentChips(comment, document) {
+  if (!comment?.sceneId) return Number.isFinite(comment?.x) ? [] : ["whole video"];
+  const scene = commentScene(comment, document);
+  const layer = comment.layerId ? scene?.layers?.find((item) => item.id === comment.layerId) : null;
+  return [comment.layerId ? layer?.name || comment.layerId : null, Number.isFinite(comment.timeEnd) ? formatCommentSpan(comment) : null].filter(Boolean);
+}
+
+// The time range to mark on the scrubber of `sceneId`: the new comment's while one is written,
+// else the open thread's; null when neither has a range there. {from, to} in seconds.
+export function scrubberRange({ draft, openId, threads = [] }, sceneId) {
+  const source = draft ?? threads.find(({ comment }) => comment.id === openId)?.comment;
+  if (!source || source.whole || source.sceneId !== sceneId || !Number.isFinite(source.timeEnd)) return null;
+  return { from: source.time, to: source.timeEnd };
+}
+
+// The fields a new comment is posted with: its place (scene, point, time, layer, range), or none
+// for the whole video.
+export function draftPlace(draft) {
+  if (!draft || draft.whole) return {};
+  return Object.fromEntries(["sceneId", "x", "y", "time", "timeEnd", "layerId"].filter((key) => draft[key] !== undefined && draft[key] !== null).map((key) => [key, draft[key]]));
+}
+
 // What a screen reader says for a thread's pin: who wrote it, how it starts, the time it is
 // tied to, and how many replies it has. `time` is the time shown (comments.js commentPlacement).
 export function pinLabel(thread, time) {

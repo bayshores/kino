@@ -7,6 +7,9 @@ import {
   authorIdForKey,
   authorInitial,
   buildThreads,
+  commentChips,
+  draftPlace,
+  scrubberRange,
   canDeleteComment,
   canEditCommentText,
   canMoveComment,
@@ -266,4 +269,18 @@ test("the open thread someone else deleted stays listed, marked deleted, until i
   assert.equal(keepDeletedThread(after, null, lastSeen), after);
   assert.equal(keepDeletedThread(after, "a", lastSeen), after);
   assert.equal(keepDeletedThread(after, "b", null), after);
+});
+
+test("a thread's chips name its layer and range; the new comment posts its place, or none for the whole video", () => {
+  const doc = { scenes: [{ id: "s1", name: "Intro", layers: [{ id: "logo", name: "Logo" }] }] };
+  const pinned = { id: "c1", sceneId: "s1", x: 5, y: 5, time: 0.5, timeEnd: 1.25, layerId: "logo" };
+  assert.deepEqual(commentChips(pinned, doc), ["Logo", "0.50-1.25 s"]);
+  assert.deepEqual(commentChips({ sceneId: "s1", time: 1 }, doc), []);
+  assert.deepEqual(commentChips({ text: "Music" }, doc), ["whole video"]);
+  assert.deepEqual(commentChips({ x: 1, y: 1 }, doc), [], "an old pin without a scene is not the whole video");
+  assert.deepEqual(scrubberRange({ draft: null, openId: "c1", threads: [{ comment: pinned }] }, "s1"), { from: 0.5, to: 1.25 });
+  assert.equal(scrubberRange({ draft: { ...pinned, whole: true } }, "s1"), null);
+  assert.equal(scrubberRange({ draft: pinned }, "s2"), null);
+  assert.deepEqual(draftPlace({ ...pinned, timeEnd: undefined, layerId: null }), { sceneId: "s1", x: 5, y: 5, time: 0.5 });
+  assert.deepEqual(draftPlace({ ...pinned, whole: true }), {});
 });

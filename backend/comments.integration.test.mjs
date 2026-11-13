@@ -7,7 +7,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 import WebSocket from "ws";
-import { createDocument, createScene } from "../engine/model.js";
+import { createDocument, createLayer, createScene } from "../engine/model.js";
 import { authorIdForKeyHash, commentKeyHash } from "./comments.mjs";
 import { startTestServer } from "./media.test.support.mjs";
 
@@ -51,7 +51,7 @@ test("comment routes enforce roles and authorship, broadcast live, and never exp
     id: "comments-http",
     name: "Comments",
     scenes: [
-      createScene({ id: "wide", name: "Wide", width: 640, height: 360, duration: 4, background: "#ffffff", layers: [] }),
+      createScene({ id: "wide", name: "Wide", width: 640, height: 360, duration: 4, background: "#ffffff", layers: [createLayer("rectangle", { id: "logo", name: "Logo" })] }),
       createScene({ id: "small", name: "Small", width: 100, height: 50, duration: 1, background: "#ffffff", layers: [] }),
     ],
   });
@@ -167,12 +167,27 @@ test("comment routes enforce roles and authorship, broadcast live, and never exp
     [GUEST_ID, "small", 0.5, true],
   );
   assert.equal(agentComments.find((comment) => comment.id === reply.id).parentId, root.id);
+  // The guest's comment and the editor's reply reached the agent's inbox (handed over with its
+  // first call), one line each.
+  assert.match(read.text, /comment from Guest A on Wide @3 "Hold this frame @Editor" \(answer: manage comments add \{parentId:"/);
+  assert.match(read.text, /reply from Editor on Wide @3 "On it"/);
 
   // The owner moderates; deleting the thread removes the editor's reply, and every session hears it.
   live = waitForMessage(watcher, (message) => message.type === "comments" && message.comments.length === 0);
   const removed = await expectStatus(await server.api(`${comments}/${root.id}`, { method: "DELETE" }), 200, "the owner deletes the thread");
   assert.deepEqual(removed.deleted.sort(), [root.id, reply.id].sort());
   await live;
+
+  // The agent pins a comment to a layer by name, over a range, and lists it in one short line.
+  const agent = async (verb, body) => expectStatus(await server.api(`/api/agent/${verb}`, { method: "POST", body: { project: "comments-http", ...body } }), 200, verb);
+  const manage = (options) => agent("project", { action: "manage", id: "comments-http", options: { resource: "comments", ...options } });
+  const pinned = (await manage({ action: "add", text: "Logo enters late", layer: "Logo", time: 1, timeEnd: 2.5 })).data;
+  assert.deepEqual([pinned.sceneId, pinned.layerId, pinned.time, pinned.timeEnd], ["wide", "logo", 1, 2.5]);
+  assert.match((await manage({ action: "list" })).text, /1 open, 0 resolved\n\S+ Agent on Wide Logo @1-2\.5: "Logo enters late"/);
+  const whole = (await manage({ action: "update", id: pinned.id, patch: { scene: null } })).data;
+  assert.deepEqual([whole.sceneId, whole.layerId, whole.time], [undefined, undefined, undefined]);
+  assert.match((await manage({ action: "list" })).text, /Agent on whole video: "Logo enters late"/);
+  assert.doesNotMatch((await agent("status", {})).text, /Logo enters late/, "the agent's own comment adds no inbox line");
 
   // A revoked link cannot post.
   await expectStatus(await server.api(`/api/projects/comments-http/shares/${commentLink.grant.id}`, { method: "DELETE" }), 200, "owner revokes the comment link");

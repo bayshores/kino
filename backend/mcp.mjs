@@ -38,7 +38,7 @@ export function createKinoMcpServer({ client, channels = false } = {}) {
   return server;
 }
 
-const CHANNEL_INSTRUCTIONS = "Notes from the person watching the kino dashboard arrive as <channel source=\"kino\" project=\"…\" note_id=\"N1\">. Read the note, act on it with the kino tools, then answer with notes {action:\"reply\" or \"resolve\", id, project}.";
+const CHANNEL_INSTRUCTIONS = "Notes from the person watching the kino dashboard arrive as <channel source=\"kino\" project=\"…\" note_id=\"N1\">. Read the note, act on it with the kino tools, then answer with notes {action:\"reply\" or \"resolve\", id, project}. Share-link comments arrive the same way with comment_id; answer them as the line says.";
 
 /**
  * Pushes each new note from the person into the connected Claude Code session
@@ -50,6 +50,15 @@ export async function forwardNotesToChannel(server, client, { signal } = {}) {
   while (!signal?.aborted) {
     try {
       await client.stream(async (event) => {
+        // A comment a person posted on a share link: its inbox line, pushed once.
+        if (event.type === "comment" && event.comment?.id && !sent.has(`${event.projectId}/${event.comment.id}`)) {
+          const key = `${event.projectId}/${event.comment.id}`;
+          sent.add(key);
+          try {
+            await server.server.notification({ method: "notifications/claude/channel", params: { content: event.comment.text, meta: { project: event.projectId, comment_id: event.comment.id } } });
+          } catch { sent.delete(key); }
+          return;
+        }
         const note = event.note;
         if (event.type !== "note" || !note || note.status !== "new" || note.channelAt || sent.has(`${event.projectId}/${note.id}`)) return;
         const key = `${event.projectId}/${note.id}`;

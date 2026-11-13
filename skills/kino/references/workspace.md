@@ -32,6 +32,9 @@ Copying between projects, many variants from a CSV, imports, and workspace actio
 - Saved easings and text effects: `options:{resource:"easings", action:"save", name, easing:[x1,y1,x2,y2]}`
   and `options:{resource:"effects", action:"save", name, sourceAnimation}`; then
   `apply_easing {name, animationIds}` and `apply_text_effect {name, layers}` use them.
+- Share-link comments reach your status inbox, one line each. Answer one with
+  `options:{resource:"comments", action:"add", parentId, text}`. A new comment may name a
+  `layer` (name or code), a range `time` to `timeEnd`, or no scene for the whole video.
 - Share links, deleting from Trash forever and deleting a folder that holds projects may answer
   `awaiting_approval`. A folder delete covers only the projects it named: if more are in the
   folder when it is allowed, it asks again.

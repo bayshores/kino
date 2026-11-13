@@ -3,7 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createDocument, createLayer, createScene } from "../engine/model.js";
 import { layerBounds } from "./layerBounds.js";
-import { bubbleSide, noteCursorRows, noteDot, noteGroups, noteNumber, noteReader, noteStatus, notesForYou, readerLine, snapNote } from "./dashboard/noteSpot.js";
+import { bubbleSide, noteCursorRows, noteDot, noteGroups, noteNumber, noteReader, noteStatus, notesForYou, readerLine, snapComment, snapNote } from "./dashboard/noteSpot.js";
 
 // A 1920×1080 scene: a full-frame clip, a phone group with its screen in it, and a small title.
 function scene() {
@@ -35,6 +35,14 @@ test("a click on a layer that covers most of the frame keeps the spot", () => {
   const snap = snapNote(document, made, { x: 60, y: 1040 });
   assert.equal(snap.layerId, null);
   assert.deepEqual(snap.area, { x: 60, y: 1040, width: 1, height: 1 });
+});
+
+test("a viewer comment click pins the layer by the same rule, and keeps the spot", () => {
+  const { document, scene: made } = scene();
+  const at = middleOf(document, made, "screen");
+  assert.deepEqual(snapComment(document, made, { sceneId: "s1", ...at }), { sceneId: "s1", ...at, layerId: "phone" });
+  assert.deepEqual(snapComment(document, made, { sceneId: "s1", x: 60, y: 1040 }), { sceneId: "s1", x: 60, y: 1040 }, "the backdrop is too big");
+  assert.equal(snapComment(document, made, null), null);
 });
 
 test("a locked layer lets the click through to the one under it", () => {

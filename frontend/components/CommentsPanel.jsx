@@ -13,6 +13,7 @@ import {
   COMMENT_FILTERS,
   authorInitial,
   canMoveComment,
+  commentChips,
   commentScene,
   formatCommentTime,
   matchesFilter,
@@ -37,12 +38,13 @@ const EMPTY_TEXT = {
   all: "No comments yet.",
 };
 
-// Where a thread sits: "Scene 1 · 1.25 s", or why it has no pin.
+// Where a thread sits: "Scene 1 · 1.25 s", or why it has no pin. A range shows as a chip instead
+// of the time (commentChips), and so does the whole video.
 function threadPlace(comment, doc) {
   const scene = commentScene(comment, doc);
-  if (!scene) return comment.sceneId ? "Its scene was deleted" : "Not placed on a scene";
+  if (!scene) return comment.sceneId ? "Its scene was deleted" : Number.isFinite(comment.x) ? "Not placed on a scene" : "";
   const { time } = pinPlacement(comment, scene);
-  return Number.isFinite(time) ? `${scene.name} · ${formatCommentTime(time)}` : scene.name;
+  return Number.isFinite(time) && !Number.isFinite(comment.timeEnd) ? `${scene.name} · ${formatCommentTime(time)}` : scene.name;
 }
 
 // `placeHint` says how a comment is placed; `children` (the viewer's new-comment box) go under it.
@@ -237,7 +239,12 @@ export function CommentsPanel({ state, doc, access, placeHint = "Click a scene t
                           <time dateTime={comment.createdAt}>{formatCommentDate(comment.createdAt)}</time>
                           {unread && <span className="comment-sr-only">Unread.</span>}
                         </span>
-                        <span className="comment-thread-place">{threadPlace(comment, doc)}</span>
+                        <span className="comment-thread-place">
+                          {threadPlace(comment, doc)}
+                          {commentChips(comment, doc).map((chip) => (
+                            <span key={chip} className="comment-chip">{chip}</span>
+                          ))}
+                        </span>
                         {!open && (
                           <span className="comment-thread-body">
                             <MentionText text={comment.text} names={comment.mentions} viewerName={state.author} />

@@ -1912,6 +1912,42 @@ test("a comment link opens the viewer with comments; a new comment saves and rea
   await browser.click(q('[aria-label="Resolve the comment by Ana"]'));
   await until(async () => (await comments()).find((entry) => entry.id === saved.id)?.resolved === true, "the resolve");
 
+  // The "whole video" chip posts a comment with no scene, point or time; its thread says so.
+  await browser.clickAt(frame.left + frame.width * 0.25, frame.top + frame.height * 0.4);
+  await browser.waitFor(`document.activeElement?.getAttribute("aria-label") === "Comment text"`, { what: "the second comment box" });
+  await browser.click(`[...document.querySelectorAll(".viewer-new-comment .comment-chip")].find((chip) => chip.textContent === "whole video")`);
+  assert.equal(await browser.evaluate(textOf(".viewer-new-comment-place")), "new comment · whole video");
+  await browser.click(q('textarea[aria-label="Comment text"]'));
+  await browser.type("The music is too loud");
+  await browser.key("Enter");
+  const whole = await until(async () => (await comments()).find((entry) => entry.text === "The music is too loud"), "the whole-video comment");
+  assert.deepEqual([whole.sceneId, whole.x, whole.time, whole.layerId], [undefined, undefined, undefined, undefined]);
+  await browser.waitFor(pageHas("whole video", ".comment-thread-place"), { what: "the whole video chip on the thread" });
+
+  // A click on the headline pins the comment to it (its chip says so); a click on the scrubber
+  // moves the playhead, and the range chip ends the comment's range there.
+  await browser.clickAt(frame.left + frame.width * 0.5, frame.top + frame.height * 0.5);
+  await browser.waitFor(`!!document.querySelector('.viewer-new-comment [aria-label^="Pinned to "]')`, { what: "the layer chip" });
+  const scrub = await browser.box(q(".viewer-scrubber"), "the scrubber");
+  await browser.clickAt(scrub.left + scrub.width * 0.9, scrub.top + scrub.height / 2);
+  await browser.click(q('.viewer-new-comment [aria-label^="Range to "]'), "the range chip");
+  await browser.waitFor(`${q(".viewer-new-comment .comment-chip[aria-label^='Range ']")}?.getAttribute("aria-pressed") === "true" && !!document.querySelector(".viewer-scrub-range")`, { what: "the range, on the chip and the scrubber" });
+  await browser.click(q('textarea[aria-label="Comment text"]'));
+  await browser.type("Hold the headline longer");
+  await browser.key("Enter");
+  const ranged = await until(async () => (await comments()).find((entry) => entry.text === "Hold the headline longer"), "the layer and range comment");
+  const layerNames = new Map(firstScene.layers.map((layer) => [layer.id, layer.name]));
+  assert.ok(["headline", "card"].includes(layerNames.get(ranged.layerId)), `pinned to ${ranged.layerId}`);
+  assert.ok(ranged.timeEnd > ranged.time, JSON.stringify(ranged));
+  await browser.waitFor(`${pageHas(layerNames.get(ranged.layerId), ".comment-thread-place")} && !!document.querySelector(".viewer-scrub-range")`, { what: "the thread's layer chip and its range on the scrubber" });
+  // Both themes, for a look (KINO_DASHBOARD_SHOTS); then the page's own theme again.
+  const theme = await browser.evaluate("document.documentElement.dataset.theme ?? null");
+  for (const name of ["dark", "light"]) {
+    await browser.evaluate(`document.documentElement.dataset.theme = ${JSON.stringify(name)}`);
+    await browser.shot(`viewer-comment-chips-${name}`);
+  }
+  await browser.evaluate(theme === null ? "delete document.documentElement.dataset.theme" : `document.documentElement.dataset.theme = ${JSON.stringify(theme)}`);
+
   // The owner sees it, read only, in the dashboard's notes tab, and can send it to the agent.
   await open();
   await showView("notes", { focus: false });
@@ -1925,7 +1961,8 @@ test("a comment link opens the viewer with comments; a new comment saves and rea
   await browser.click(q(`[aria-label="Send Ana's comment to the agent as a note"]`));
   const note = await noteNamed("A comment from a share link");
   assert.match(note.text, /Ana: Make the card warmer/);
-  assert.match(inboxText(await agent("status")), /Make the card warmer/);
+  // One comment, one line: the note takes the place of the comment's own inbox line.
+  assert.deepEqual(inboxText(await agent("status")).match(/Make the card warmer/g), ["Make the card warmer"]);
 });
 
 test("⇧C on a comment link hides and shows the pins, moves focus from a hidden pin to the frame, and types a C in a text field", async () => {

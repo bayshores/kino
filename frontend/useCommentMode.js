@@ -28,6 +28,7 @@ import {
   canMoveComment,
   commentScene,
   deleteComment,
+  draftPlace,
   filterThreads,
   isMine,
   keepDeletedThread,
@@ -187,7 +188,12 @@ export function useCommentMode({ workspace, doc, scene, time, tool, setTool, fra
     setPlaying(false);
     draftReturn.current = null;
     // The time cursor belongs to the active scene; the other scenes are drawn at their start.
-    setDraft({ sceneId: target.id, x: hit.x, y: hit.y, time: target.id === scene.id ? anchorTime(time, target) : 0 });
+    setDraft({ sceneId: target.id, x: hit.x, y: hit.y, time: target.id === scene.id ? anchorTime(time, target) : 0, ...(hit.layerId ? { layerId: hit.layerId } : {}) });
+  }
+  // Changes the new comment's place: {layerId:null} unpins the layer, {timeEnd} makes a range,
+  // {whole:true} makes it about the whole video.
+  function adjustDraft(change) {
+    setDraft((current) => (current ? { ...current, ...change } : current));
   }
   // The keyboard way to start a comment: at the center of the active scene, at the time cursor.
   function commentHere(returnFocus) {
@@ -215,10 +221,7 @@ export function useCommentMode({ workspace, doc, scene, time, tool, setTool, fra
         text,
         author: author.trim(),
         mentions: mentionsInText(text, namesForSaving()),
-        sceneId: target.sceneId,
-        x: target.x,
-        y: target.y,
-        time: target.time,
+        ...draftPlace(target),
       });
       workspace.setComments((list) => mergeComment(list, saved));
       setDraft((current) => (current === target ? null : current));
@@ -396,6 +399,7 @@ export function useCommentMode({ workspace, doc, scene, time, tool, setTool, fra
     leave,
     place,
     commentHere,
+    adjustDraft,
     cancelDraft,
     postDraft,
     openThread,
