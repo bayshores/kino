@@ -14,7 +14,8 @@ import { ago, bytes } from "./format.js";
 import { isTyping } from "./keys.js";
 import { fpsLabel } from "../../engine/frameRate.js";
 import { notificationsAllowed } from "./notify.js";
-import { agentRows } from "./state.js";
+import { agentRows, appsThatCalled } from "./state.js";
+import { cursorInstallLink, vscodeInstallLink } from "../../engine/agentLinks.js";
 import { Screen } from "./screens.jsx";
 import { Btn, Icon, Switch } from "./controls.jsx";
 import { APPROVAL_KINDS, APPROVAL_WORDS, DRAFT_WIDTHS, EXPORT_FORMATS, EXPORT_FPS, FRAMES_AT_ONCE, VIDEO_ENCODER_WORDS, VIDEO_QUALITY_WORDS } from "./words.js";
@@ -270,6 +271,17 @@ const encoderWarns = (devices, setting) => {
 // "VideoToolbox (Apple)" → "VideoToolbox": the machine line has little room.
 const shortEncoder = (label) => label.replace(/\s*\(.*\)$/, "");
 
+// An agent app's name in the agents pane, with a green dot and "called" once it has called kino.
+function AgentName({ name, called }) {
+  return (
+    <>
+      {name}
+      <span aria-hidden="true" style={{ color: called ? "var(--ok)" : "var(--fg2)" }}>●</span>
+      {called ? <span className="faint">called<span className="sr-only"> kino</span></span> : <span className="sr-only">has not called kino yet</span>}
+    </>
+  );
+}
+
 // `stops` is the stops pane (StopSettings in stops.jsx), pane 2.
 export function SettingsScreen({ data, onSave: saveTo, onClearCache, onClearRenderCache, notificationState, onAskNotifications, now, stops = null }) {
   const settings = data.settings;
@@ -291,6 +303,23 @@ export function SettingsScreen({ data, onSave: saveTo, onClearCache, onClearRend
     keepFree: settings?.compute.keepFreePercent, renderCache: settings?.compute.renderCacheMegabytes, previewCache: settings?.compute.previewCacheMegabytes }));
   const [previewCache, setPreviewCache] = useState(null);
   const [showConfig, setShowConfig] = useState(false);
+  // The agents pane: the app whose link or extension was just opened (its name, or `<name>-error`
+  // with `openError`), and whether the Claude Desktop extension is built (the Mac app tells).
+  const [opened, setOpened] = useState("");
+  const [openError, setOpenError] = useState("");
+  const [bundle, setBundle] = useState(null);
+
+  useEffect(() => {
+    let active = true;
+    Promise.resolve(window.kinoDesktop?.claudeDesktop?.("status")).then((value) => { if (active && value?.ok) setBundle(value); }).catch(() => {});
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!opened || opened.endsWith("-error")) return undefined;
+    const timer = setTimeout(() => setOpened(""), 2000);
+    return () => clearTimeout(timer);
+  }, [opened]);
 
   useEffect(() => {
     let active = true;
@@ -323,6 +352,23 @@ export function SettingsScreen({ data, onSave: saveTo, onClearCache, onClearRend
   const copy = async (name, text) => {
     try { await navigator.clipboard.writeText(text); setCopied(name); } catch { setCopied(""); }
   };
+  const called = appsThatCalled(agents);
+  const cursorLink = config ? cursorInstallLink(config) : "";
+  const vscodeLink = config ? vscodeInstallLink(config) : "";
+  // The Mac app hands a link or the extension to the system; in a browser the link is followed.
+  const tell = async (name, run) => {
+    try {
+      const reply = await run();
+      if (reply && reply.ok === false) throw new Error(reply.error);
+      setOpenError("");
+      setOpened(name);
+    } catch (error) {
+      setOpenError(error?.message || "It could not be opened.");
+      setOpened(`${name}-error`);
+    }
+  };
+  const openLink = (name, link) => tell(name, () => (window.kinoDesktop?.openAgentLink ? window.kinoDesktop.openAgentLink(link) : window.open(link, "_self")));
+  const openBundle = () => tell("claude-desktop", () => window.kinoDesktop.claudeDesktop("open"));
   const number = (value) => { const parsed = Number(value); return Number.isFinite(parsed) ? Math.round(parsed) : value; };
   const configText = config ? JSON.stringify(config, null, 2) : "";
   const used = cache?.limitBytes ? Math.min(1, cache.bytes / cache.limitBytes) : 0;
@@ -365,11 +411,41 @@ export function SettingsScreen({ data, onSave: saveTo, onClearCache, onClearRend
               <span className="faint set-agent-last">{agent.lastVerb} {ago(agent.lastAt, now)}</span>
             </p>
           ))}
-          <SettingRow id="set-setup" label="Connect an agent" hint="sets up claude code and codex, asking before each change." choice>
+          <SettingRow id="set-setup" label={<AgentName name="Claude Code" called={called.has("claude-code")} />} hint="sets up claude code and codex, asking before each change." choice>
             <button type="button" id="set-setup" className="set-setup set-key" data-key="c" aria-keyshortcuts="c" aria-describedby="set-setup-hint"
               aria-label={copied === "setup" ? "Copied kino setup" : "Copy kino setup"} title="Copy" onClick={() => copy("setup", "kino setup")}>
               <code>kino setup</code><Icon name={copied === "setup" ? "check" : "copy"} />
             </button>
+          </SettingRow>
+          <SettingRow id="set-setup-codex" label={<AgentName name="Codex" called={called.has("codex")} />} choice>
+            <button type="button" id="set-setup-codex" className="set-setup set-key"
+              aria-label={copied === "setup-codex" ? "Copied kino setup for Codex" : "Copy kino setup for Codex"} title="Copy" onClick={() => copy("setup-codex", "kino setup")}>
+              <code>kino setup</code><Icon name={copied === "setup-codex" ? "check" : "copy"} />
+            </button>
+          </SettingRow>
+          <SettingRow id="set-claude-desktop" label={<AgentName name="Claude Desktop" called={called.has("claude-desktop")} />} choice
+            hint={opened === "claude-desktop-error" ? openError : ""} warn>
+            {bundle?.built ? (
+              <Btn id="set-claude-desktop" className="set-clear" icon={opened === "claude-desktop" ? "check" : "folder"} onClick={openBundle}>
+                {opened === "claude-desktop" ? "Opened" : "Open"}<span className="sr-only"> the Claude Desktop extension</span>
+              </Btn>
+            ) : (
+              <button type="button" id="set-claude-desktop" className="set-setup set-key"
+                aria-label={copied === "mcpb" ? "Copied npm run mcpb:pack, which builds the Claude Desktop extension" : "Copy npm run mcpb:pack, which builds the Claude Desktop extension"}
+                title="Copy" onClick={() => copy("mcpb", "npm run mcpb:pack")}>
+                <code>npm run mcpb:pack</code><Icon name={copied === "mcpb" ? "check" : "copy"} />
+              </button>
+            )}
+          </SettingRow>
+          <SettingRow id="set-cursor" label={<AgentName name="Cursor" called={called.has("cursor")} />} choice hint={opened === "cursor-error" ? openError : ""} warn>
+            <Btn id="set-cursor" className="set-clear" icon={opened === "cursor" ? "check" : "link"} disabled={!cursorLink} onClick={() => openLink("cursor", cursorLink)}>
+              {opened === "cursor" ? "Opened" : "Add"}<span className="sr-only"> kino to Cursor</span>
+            </Btn>
+          </SettingRow>
+          <SettingRow id="set-vscode" label={<AgentName name="VS Code" called={called.has("vscode")} />} choice hint={opened === "vscode-error" ? openError : ""} warn>
+            <Btn id="set-vscode" className="set-clear" icon={opened === "vscode" ? "check" : "link"} disabled={!vscodeLink} onClick={() => openLink("vscode", vscodeLink)}>
+              {opened === "vscode" ? "Opened" : "Add"}<span className="sr-only"> kino to VS Code</span>
+            </Btn>
           </SettingRow>
           <SettingRow id="set-config-show" label="Other agents" hint="the MCP server to add to other agents" choice>
             <Btn id="set-config-show" className="set-clear" aria-expanded={showConfig} aria-controls="set-config" aria-describedby="set-config-show-hint" disabled={!config}
@@ -378,7 +454,7 @@ export function SettingsScreen({ data, onSave: saveTo, onClearCache, onClearRend
               onClick={() => copy("config", configText)}>{copied === "config" ? "Copied" : "Copy"}</KeyButton>
           </SettingRow>
           {showConfig && config ? <pre id="set-config" className="set-config" aria-label="MCP configuration" title={configText}>{shortPaths(compactConfig(config))}</pre> : null}
-          <span className="sr-only" role="status">{copied ? "Copied" : ""}</span>
+          <span className="sr-only" role="status">{copied ? "Copied" : opened && !opened.endsWith("-error") ? "Opened" : ""}</span>
           <SettingRow id="set-channels" label="Send my notes to the agent right away" hint="Off by default. Pushes your notes straight into a Claude Code session started with: claude --dangerously-load-development-channels server:kino. Restart the agent's kino MCP server after changing it. Notes always reach the agent through its inbox as well.">
             <Toggle id="set-channels" checked={settings.channels} aria-describedby="set-channels-hint" onChange={(event) => onSave({ channels: event.target.checked })} />
           </SettingRow>

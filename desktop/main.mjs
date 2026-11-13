@@ -8,6 +8,7 @@ import { createDesktopSettings } from "./settings.mjs";
 import { isEditorUrl, serviceRequestAllowed } from "./navigation.mjs";
 import { installEditCommands } from "./edit-commands.mjs";
 import { installOpenSource } from "./open-source.mjs";
+import { installAgentConnect } from "./agent-connect.mjs";
 import { desktopLinkUrl, parseDesktopLink } from "../engine/shareUrls.js";
 import { createRestartPolicy, ownerSessionCookie, restartPort, relocatedEditorUrl } from "./service-restart.mjs";
 import { askAfterServiceStopped, askWhenWindowDoesNotAnswer } from "./dialogs.mjs";
@@ -101,6 +102,7 @@ if (!app.requestSingleInstanceLock()) {
   }
   installEditCommands({ ipcMain, trustedSender, isClosing: () => stopping || quitting });
   installOpenSource({ ipcMain, shell, trustedSender, isClosing: () => stopping || quitting });
+  installAgentConnect({ ipcMain, shell, trustedSender, isClosing: () => stopping || quitting, bundle: path.join(root, "release/kino.mcpb") });
   ipcMain.on("kino:window-state", (event) => {
     const window = BrowserWindow.fromWebContents(event.sender);
     event.returnValue = trustedSender(event) ? {

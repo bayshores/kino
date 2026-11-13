@@ -295,6 +295,28 @@ export function agentRows(state, now = Date.now()) {
   }).sort((a, b) => String(b.lastAt).localeCompare(String(a.lastAt)));
 }
 
+/**
+ * The agent apps the settings screen can connect, and which of them have called kino. A call carries
+ * the MCP client's own name (live.mjs cleanKind: "claude-code", "codex-mcp-client", "cursor-vscode",
+ * "Visual Studio Code", "claude-ai"), matched here by its words. `rows` are agentRows or the
+ * snapshot's agents.
+ */
+const APP_WORDS = [
+  ["claude-code", /claude[ _-]?code/i],
+  ["codex", /codex/i],
+  ["claude-desktop", /claude[ _-]?(ai|desktop)/i],
+  ["cursor", /cursor/i],
+  ["vscode", /vs[ _-]?code|visual[ _-]?studio[ _-]?code/i],
+];
+export function appsThatCalled(rows) {
+  const called = new Set();
+  for (const row of rows ?? []) {
+    const hit = APP_WORDS.find(([, words]) => words.test(String(row.kind ?? "")));
+    if (hit) called.add(hit[0]);
+  }
+  return called;
+}
+
 /** The agents that called kino in the last 20 s (WORKING_MS), newest first. */
 export const activeAgents = (state, now = Date.now()) => agentRows(state, now).filter((agent) => now - Date.parse(agent.lastAt) < WORKING_MS);
 
