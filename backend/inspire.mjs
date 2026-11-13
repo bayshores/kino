@@ -133,6 +133,9 @@ export const INSPIRE_VERSION = 3;
 export const REFERENCE_MIN_SHOT_FRAMES = 2;
 // Saved with the stills: 1 is one still a second (measure/stills.mjs); older saves kept 10 spread.
 const STILLS_EACH = 1;
+// How long a read waits for a reference's "most replayed" graph (one page lookup took 2.2 s
+// measured; a starting guess): a slower page fills it for a later read.
+const REPLAY_WAIT_MS = 10_000;
 
 /** Live frames: at most one this often (ms), this wide (px). */
 export const LIVE_EVERY_MS = 250;
@@ -1767,7 +1770,8 @@ export function createInspire(deps) {
       enqueue(id, { first: true });
       await waitFor(id, wait);
     }
-    await graph;
+    // A slow page does not hold the read: past REPLAY_WAIT_MS the graph lands on a later read.
+    if (graph) await Promise.race([graph, new Promise((resolve) => { const timer = setTimeout(resolve, deps.replayWaitMs ?? REPLAY_WAIT_MS); timer.unref?.(); })]);
     return summary(refs.get(id) ?? record, { full, look });
   }
 
@@ -1775,16 +1779,23 @@ export function createInspire(deps) {
    * Asks the video's page for its "most replayed" graph, once (record.replayAt says it was
    * asked, whether or not the video has one): one metadata call, nothing downloaded. A reference
    * added from a link already has the answer; a failed call (no yt-dlp, a bot check) is not
-   * remembered, so the next read asks again.
+   * remembered, so the next read asks again. Two reads at once share one call.
    */
-  async function fillReplay(record) {
-    if (!deps.replay || isSound(record) || record.replayAt || youtube.paused()) return;
-    try {
-      const graph = await deps.replay(record.id.slice(3));
-      record.replayAt = new Date(now()).toISOString();
-      if (graph) record.replay = graph;
-      if (record.state === "measured" || record.state === "failed") await save(record).catch(() => {});
-    } catch { /* the graph is extra: the read goes on without it */ }
+  const replayAsks = new Map();
+  function fillReplay(record) {
+    if (!deps.replay || isSound(record) || record.replayAt || youtube.paused()) return null;
+    if (!replayAsks.has(record.id)) {
+      replayAsks.set(record.id, (async () => {
+        try {
+          const graph = await deps.replay(record.id.slice(3));
+          record.replayAt = new Date(now()).toISOString();
+          if (graph) record.replay = graph;
+          if (record.state === "measured" || record.state === "failed") await save(record).catch(() => {});
+        } catch { /* the graph is extra: the read goes on without it */ }
+      })());
+      replayAsks.get(record.id).then(() => replayAsks.delete(record.id));
+    }
+    return replayAsks.get(record.id);
   }
 
   /** Measures a reference again (after it failed), at the front of the queue. */
@@ -2475,7 +2486,8 @@ export function referenceText(ref, { full = false } = {}) {
       `import: project {action:"import", source:"${ref.id}"} (the ${s.length} s preview, credit kept). Line its peak (${s.peakAt} s in) up with the moment it marks.`].join("\n");
   }
   const numbers = ref.numbers;
-  if (!numbers) return `${head}\n${numbersLine(ref)}`;
+  // Not measured yet (or failed): the replay graph's humps still print, with no kino numbers.
+  if (!numbers) return [head, numbersLine(ref), ...replayLines(ref)].join("\n");
   const span = numbers.seconds < ref.duration - 0.5 ? `the first ${Math.round(numbers.seconds)} s of ${clock(ref.duration)}` : `all ${Math.round(numbers.seconds)} s`;
   const longest = numbers.longest ? `longest ${numbers.longest.seconds} s ${numbers.longest.where ? `(${numbers.longest.where})` : `from ${clock(numbers.longest.start)}`}` : "";
   const beat = numbers.onBeat ? `cuts on the beat ${numbers.onBeatCount} of ${numbers.cuts.length}${ref.bpm ? ` (${Math.round(ref.bpm)} bpm)` : ""}` : "no steady beat in its sound";

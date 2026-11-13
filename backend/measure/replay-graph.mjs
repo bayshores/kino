@@ -99,21 +99,34 @@ const shotsIn = (numbers, from, to) => {
   return lengths;
 };
 
-/** The facts kino holds for the stretch [from, to] of a measured reference, as words ("" for none). */
+/**
+ * The facts kino holds for the stretch [from, to] of a measured reference, as words ("" for none).
+ * A hump that runs past the measured stretch gets the facts of the part inside it; one that starts
+ * past it says so.
+ */
 function measuredThere(ref, from, to) {
   const numbers = ref.numbers;
-  if (!numbers?.seconds || to > numbers.seconds) return "";
+  if (!(numbers?.seconds > 0)) return "";
+  const measured = round(numbers.seconds, 1);
+  if (from >= numbers.seconds) return `past the ${measured} s kino measured`;
+  const end = Math.min(to, numbers.seconds);
   const parts = [];
-  const lengths = shotsIn(numbers, from, to);
+  const lengths = shotsIn(numbers, from, end);
   if (lengths.length) parts.push(`${lengths.length} shot${lengths.length === 1 ? "" : "s"}, median ${round(median(lengths), 2)} s`);
+  // The loudest change of the sound (a song's drop, or a talk's loudest turn): heard.change.
   const change = ref.heard?.change;
-  if (change && change.at >= from && change.at <= to) parts.push(`the song's loudest change (${change.kind ?? "change"}) at ${round(change.at, 1)} s`);
-  const said = (ref.heard?.lines ?? []).find((line) => line.at >= from && line.at <= to);
+  if (change && change.at >= from && change.at <= end) parts.push(`the loudest change (${change.kind ?? "change"}) at ${round(change.at, 1)} s`);
+  const said = (ref.heard?.lines ?? []).find((line) => line.at >= from && line.at <= end);
   if (said) parts.push(`a heard line "${String(said.text ?? "").slice(0, 40)}" at ${round(said.at, 1)} s`);
-  return parts.join(", ");
+  if (!parts.length) return "";
+  return end < to ? `kino measured ${round(from, 1)}-${measured} s of it: ${parts.join(", ")}` : `kino measured there: ${parts.join(", ")}`;
 }
 
 const span = (hump) => `${round(hump.start, 1)}-${round(hump.end, 1)} s`;
+const withMeasures = (ref, hump) => {
+  const there = measuredThere(ref, hump.start, hump.end);
+  return `${span(hump)} top ${hump.top}${there ? ` (${there})` : ""}`;
+};
 
 /**
  * The lines a reference's printed text carries for its graph: [] without a graph; otherwise the
@@ -124,13 +137,10 @@ export function replayLines(ref) {
   const found = replayHumps(ref?.replay);
   if (!found) return [];
   const count = ref.replay.values.length;
-  const head = `most replayed (viewers' public graph, ${count} parts of ${found.width} s, graph median ${found.median}${ref.duration && Math.abs(ref.replay.seconds - ref.duration) > 0.5 ? `, it spans ${ref.replay.seconds} s, the video ${ref.duration} s` : ""})`;
-  const named = found.humps.map((hump) => {
-    const there = measuredThere(ref, hump.start, hump.end);
-    return `${span(hump)} top ${hump.top}${there ? ` (kino measured there: ${there})` : ""}`;
-  });
-  const opening = found.opening ? `at the start, apart: ${span(found.opening)} top ${found.opening.top}` : "";
-  const body = [...named, opening].filter(Boolean).join(" · ") || `no part stands ${HUMP_RISE} above the median`;
+  const head = `most replayed (viewers' public graph, ${count} parts of ${found.width} s, graph median ${found.median}, a hump rises ${HUMP_RISE} over it (a starting guess)${ref.duration && Math.abs(ref.replay.seconds - ref.duration) > 0.5 ? `, it spans ${ref.replay.seconds} s, the video ${ref.duration} s` : ""})`;
+  const named = found.humps.map((hump) => withMeasures(ref, hump));
+  const opening = found.opening ? `at the start, apart: ${withMeasures(ref, found.opening)}` : "";
+  const body = [...named, opening].filter(Boolean).join(" · ") || `no part rises ${HUMP_RISE} over the median`;
   return [`${head}: ${body}`,
     "each video's graph is scaled to itself (not comparable across videos), nobody publishes how it is computed, and a hump can be a part people liked or one they did not understand."];
 }
@@ -168,7 +178,7 @@ export const MEASURES = {
   cutsNear: "cuts within 1 s",
   shotSeconds: "length of the shot (s)",
   motion: "motion that second",
-  nearSongChange: "within 2 s of the song's loudest change",
+  nearSongChange: "within 2 s of the loudest change of the sound",
   voicePlaying: "a voice playing",
 };
 

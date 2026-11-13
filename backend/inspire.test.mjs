@@ -1037,10 +1037,14 @@ test("a replay graph is read from the page's heatmap and named as humps, with th
   const ref = { replay, duration: 30, numbers: { seconds: 20, cuts: [11.5, 11.9, 12.2, 15], onBeat: [] }, heard: { change: { at: 12, kind: "drop" }, lines: [{ at: 11.8, text: "go now" }] } };
   const [facts, caveat, extra] = replayLines(ref);
   assert.equal(extra, undefined, "two lines at most");
-  assert.match(facts, /^most replayed \(viewers' public graph, 100 parts of 0\.3 s, graph median 0\.2\): 11\.7-12\.6 s top 1 \(kino measured there: 3 shots, median 0\.4 s, the song's loudest change \(drop\) at 12 s, a heard line "go now" at 11\.8 s\) · 21-21\.3 s top 0\.5 · at the start, apart: 0-0\.9 s top 0\.9$/);
+  assert.equal(facts, `most replayed (viewers' public graph, 100 parts of 0.3 s, graph median 0.2, a hump rises 0.1 over it (a starting guess)): 11.7-12.6 s top 1 (kino measured there: 3 shots, median 0.4 s, the loudest change (drop) at 12 s, a heard line "go now" at 11.8 s) · 21-21.3 s top 0.5 (past the 20 s kino measured) · at the start, apart: 0-0.9 s top 0.9 (kino measured there: 1 shot, median 11.5 s)`);
   assert.match(caveat, /scaled to itself.*liked or one they did not understand/);
+  // A hump that runs past the measured stretch gets the facts of the part inside it.
+  assert.match(replayLines({ ...ref, numbers: { ...ref.numbers, seconds: 21.1 } })[0], /21-21\.3 s top 0\.5 \(kino measured 21-21\.1 s of it: 1 shot, median 6\.1 s\)/);
   assert.deepEqual(replayLines({ ...ref, replay: undefined }), [], "no graph prints nothing");
-  assert.match(replayLines({ ...ref, replay: readReplay(madeUpHeatmap({ flat: true })) })[0], /no part stands 0\.1 above the median/);
+  // A reference not measured (yet, or failed) still prints its humps, with no kino numbers.
+  assert.match(referenceText({ id: "yt:u", title: "u", duration: 30, url: "u", state: "failed", error: "no copy", replay }), /\nmost replayed .*: 11\.7-12\.6 s top 1 · 21-21\.3 s top 0\.5 · at the start, apart: 0-0\.9 s top 0\.9\neach video's graph/);
+  assert.match(replayLines({ ...ref, replay: readReplay(madeUpHeatmap({ flat: true })) })[0], /no part rises 0\.1 over the median/);
   // The page's description carries it: parseVideoInfo keeps it, and a page without one is as before.
   const page = { id: "G9wj1YA0DYI", title: "t", channel: "c", duration: 30, heatmap: madeUpHeatmap() };
   assert.deepEqual(parseVideoInfo(JSON.stringify(page), "G9wj1YA0DYI").replay, replay);
@@ -1068,6 +1072,17 @@ test("a read of a saved reference asks for its replay graph once, keeps it, and 
   const onDisk = JSON.parse(await readFile(path.join(directory, "AAAAAAAAAAA.json"), "utf8"));
   assert.ok(onDisk.replay.values.length === 100 && onDisk.replayAt, "kept on the record");
   assert.ok(JSON.parse(await readFile(path.join(directory, "BBBBBBBBBBB.json"), "utf8")).replayAt, "the asking is remembered even with no graph");
+  // Two reads at once share one call, and a slow page does not hold the read: a later read has the graph.
+  await saved("CCCCCCCCCCC");
+  let answer;
+  const slow = [];
+  const later = createInspire({ directory, projectState: memoryProjects(), replayWaitMs: 20, replay: (videoId) => { slow.push(videoId); return new Promise((resolve) => { answer = resolve; }); } });
+  const [first, second] = await Promise.all([later.reference("yt:CCCCCCCCCCC", { full: true, replay: true }), later.reference("yt:CCCCCCCCCCC", { full: true, replay: true })]);
+  assert.deepEqual([slow, "replay" in first, "replay" in second], [["CCCCCCCCCCC"], false, false]);
+  answer(readReplay(madeUpHeatmap()));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal((await later.reference("yt:CCCCCCCCCCC", { full: true, replay: true })).replay.values.length, 100);
+  assert.equal(slow.length, 1);
 });
 
 test("the replay study compares the measures at humps with random times of the same videos, with a fixed seed and a small-sample note", () => {

@@ -2106,10 +2106,11 @@ edit by hand. Dark only, no purple. Main tests: `backend/dashboard.test.mjs`, `f
 - **Reference replay graph**: Verified live on 10 saved references (6 carried a graph), facts only. A
   read of a reference (`library inspire name:"yt:X"`) asks the video page once for its public "most
   replayed" graph, keeps its 100 numbers, and prints up to 3 humps in seconds, the start apart, what
-  kino measured inside each, and a fixed caveat; a video with no graph prints nothing. It never feeds
-  a check or a default. `scripts/replay-study.mjs` (hand-run) compares the measures at humps with
-  random times. Evidence: `backend/inspire.test.mjs`, `backend/footage-finder.test.mjs`. Gap: 6
-  graphs are too few for any finding; a read of a search result adds one metadata call.
+  kino measured inside each (or the part inside the measured stretch), and a fixed caveat; a video
+  with no graph prints nothing. It never feeds a check or a default. `scripts/replay-study.mjs`
+  (hand-run) compares the measures at humps with random times. Evidence: `backend/inspire.test.mjs`,
+  `backend/footage-finder.test.mjs`. Gap: 6 graphs are too few for any finding; a read of a search
+  result adds one metadata call (about 2.5 s, capped at 10 s per read).
 - **Reference fingerprint**: Verified on a Mac. Inspire measures motion, camera, text, palette and
   shots (`kino-measure`, Apple Vision); `reference_drift` measures the render the same way. Evidence:
   `backend/measure-fingerprint.test.mjs`, `backend/measure-vision.test.mjs`, `backend/inspire.test.mjs`,
