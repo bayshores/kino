@@ -151,6 +151,7 @@
 .voice-button.primary:hover { background: color-mix(in srgb, var(--solid) 86%, var(--bg0)); }
 .voice-facts { display: flex; align-items: center; gap: 18px; min-height: 18px; max-width: 100%; color: var(--fg1); font-size: 13px; }
 .voice-facts > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.voice-facts > span::first-letter { text-transform: uppercase; }
 .voice-meter { flex: none; width: 220px; height: 3px; background: var(--line); }
 .voice-meter > span { display: block; height: 100%; background: var(--yellow); transition: width 400ms linear; }
 

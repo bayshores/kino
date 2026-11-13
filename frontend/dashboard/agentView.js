@@ -440,7 +440,7 @@ export function voiceLine(data, agent, now = Date.now(), nameOf = () => null) {
   const dock = renderDock(data, now);
   if (dock) {
     const text = dock.total ? `Rendering frame ${dock.done} of ${dock.total}.` : `Rendering, ${Math.round(dock.fraction * 100)}%.`;
-    return { state: "render", verb: "render", text, facts: [dock.left == null ? "" : `${leftWords(dock.left)} left`, dock.job.format ?? ""].filter(Boolean), before: before(false), render: dock };
+    return { state: "render", verb: "render", text, facts: [dock.left == null ? "" : `${leftWords(dock.left)} left`, String(dock.job.format ?? "").toUpperCase()].filter(Boolean), before: before(false), render: dock };
   }
   if (!agent || !last) return { state: "empty", verb: "plug", text: "Waiting for an agent.", facts: [], before: null };
   const working = isWorking(data, agent, now);

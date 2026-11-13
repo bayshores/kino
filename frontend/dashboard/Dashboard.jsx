@@ -968,6 +968,11 @@ export function Dashboard() {
     setConfirm({
       text: `Revert ${affected[0].id}${later.length ? ` and every later turn (${later.join(", ")})` : ""}? The project goes back to how it was at rev ${before}, as a new revision. The agent is told in its next answer.`,
       yes: "revert",
+      // On the stage the question is the line under the frame, not a box.
+      ask: {
+        text: later.length ? `Undo ${affected[0].id} and ${later.length} later ${later.length === 1 ? "turn" : "turns"}?` : "Undo this turn?",
+        yes: "Undo", no: "Keep", facts: [`Back to rev ${before}`, "The agent is told"], from: data.record?.revision ?? null, to: before,
+      },
       async run() {
         try {
           const result = await server.undoTurn(projectId, turnId);
@@ -1512,7 +1517,9 @@ export function Dashboard() {
   // The pick box: pairs the sitting still takes, less the ones picked here the server has not dropped yet.
   const picks = data.picks ? { ...data.picks, pairs: data.picks.pairs.filter((pair) => !picksDone.includes(pair.pair_id)) } : null;
   const picksShown = Boolean(picks?.pairs.length && screen.name === "main" && !judgeShown && picksLater !== picks.queued);
-  const waiting = Boolean(confirm) || judgeShown || picksShown;
+  // A question asked on the stage is the line under the frame: nothing is inert for it.
+  const askInline = Boolean(confirm?.ask) && !phone && screen.name === "main" && !draft;
+  const waiting = (Boolean(confirm) && !askInline) || judgeShown || picksShown;
   const stageRev = checkpoint?.rev ?? data.record?.revision;
   const sceneLayers = scene?.layers ?? [];
 
@@ -1715,6 +1722,8 @@ export function Dashboard() {
   const saveSettings = async (change) => { try { await server.saveSettings(change); say("Saved."); } catch (cause) { fail(cause); } };
   // The log, checks and notes: a view of the agent pane on a wide screen (bare), a pane of its
   // own with its own tabs on the phone's stack.
+  const inlineAsk = askInline
+    ? { ...confirm.ask, onYes: () => { const { run: yes } = confirm; setConfirm(null); yes(); }, onNo: () => setConfirm(null) } : null;
   const logProps = {
     data, cursor: list === 4 ? cursors[4] : -1, expanded,
     onToggle: (id) => setExpanded((value) => (value.includes(id) ? value.filter((entry) => entry !== id) : [...value, id])),
@@ -1768,7 +1777,7 @@ export function Dashboard() {
             }} />
         ) : null}
         {noteField ?? <Voice data={data} agent={askingAgent ?? agentShown} now={now} scene={scene} time={time} still={still} listOpen={listOpen}
-          onRun={run} onAnswer={answer} onMaterial={answerMaterial} onCancelRender={() => cancelRender()} onStopRecording={stopRecording}
+          onRun={run} onAnswer={answer} onMaterial={answerMaterial} onCancelRender={() => cancelRender()} onStopRecording={stopRecording} ask={inlineAsk}
           onHistory={() => { if (listOpen) { setListOpen(false); focusPane(1); } else { setAgentViewOnly("agent"); focusPane(2); } }} />}
         <TimelinePane {...paneProps(3)} data={data} scene={scene} time={time} cursor={list === 5 ? cursors[5] : -1} selectedLayer={selectedLayer}
           onSeek={(value) => { stopPlaying(); setView((current) => ({ ...current, time: value })); }} onSelectLayer={selectLayer} onTurn={selectTurn} viewTurn={checkpoint?.turn ?? null}
@@ -1839,7 +1848,7 @@ export function Dashboard() {
           server.act("notes", { action: "judge", pair_id: pairId, pick, words, ...(note ? { note } : {}) }).then((reply) => { if (reply.isError) { setPicksDone((value) => value.filter((id) => id !== pairId)); say(reply.text, true); } }, fail);
         }}
         onLater={() => setPicksLater(picks.queued)} /> : null}
-      {confirm ? <ConfirmBox text={confirm.text} yes={confirm.yes} onYes={() => { const { run: yes } = confirm; setConfirm(null); yes(); }} onNo={() => setConfirm(null)} /> : null}
+      {confirm && !inlineAsk ? <ConfirmBox text={confirm.text} yes={confirm.yes} onYes={() => { const { run: yes } = confirm; setConfirm(null); yes(); }} onNo={() => setConfirm(null)} /> : null}
       {commandOpen ? <CommandLine onRun={runCommand} onClose={() => setCommandOpen(false)} inert={waiting} items={commandItems} /> : null}
       {phone ? <StatusLine data={data} scene={scene} time={time} playing={playing} timeStore={timeStore} checks={checks} onChecks={showChecks} connection={connection} still={still} now={now} inert={waiting} /> : (
         // The bottom line: what the top line and the line under the frame do not say (tokens,

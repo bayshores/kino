@@ -54,9 +54,12 @@ function BeforeAfter({ data, scene, time, before, after }) {
  * an approval, `onMaterial(need, answer)` a material question, `onCancelRender()` stops the
  * render, `onStopRecording()` a screen recording, and `onHistory()` opens the earlier lines.
  */
-export function Voice({ data, agent, now, scene, time, still, listOpen = false, onRun, onAnswer, onMaterial, onCancelRender, onStopRecording, onHistory }) {
+export function Voice({ data, agent, now, scene, time, still, listOpen = false, ask = null, onRun, onAnswer, onMaterial, onCancelRender, onStopRecording, onHistory }) {
   const nameOf = (id) => data.agents?.find((entry) => entry.id === id)?.name;
-  const line = voiceLine(data, agent, now, nameOf);
+  const live = voiceLine(data, agent, now, nameOf);
+  // A question of the dashboard's own ("Undo this turn?") takes the line until it is answered
+  // (`ask`: {text, yes, no, facts, from, to, onYes, onNo}; y and n answer it too).
+  const line = ask ? { state: "ask", verb: "undo", text: ask.text, facts: ask.facts ?? [], before: live.before } : live;
   const { need } = line;
   const approval = need?.row.type === "approval" ? need.row.approval : null;
   const material = need?.row.type === "material" ? need.row.need : null;
@@ -68,7 +71,7 @@ export function Voice({ data, agent, now, scene, time, still, listOpen = false, 
     <section className={`voice is-${line.state}${still ? " still" : ""}`} aria-label={need ? `${who} needs you` : `What ${who} is doing`} style={agent?.color ? { "--who": agent.color } : undefined}>
       <p className="voice-before">
         {line.before ? <><ToolIcon name={line.before.verb} /><span className="voice-before-text" title={line.before.text}>{line.before.text}</span></> : null}
-        {line.before?.rev != null && line.state !== "need" ? (
+        {line.before?.rev != null && line.state !== "need" && line.state !== "ask" ? (
           <button type="button" className="voice-icon" onClick={() => onRun("undo")} aria-label="Undo the last turn" title="Undo the last turn (u)" aria-keyshortcuts="u"><ToolIcon name="undo" /></button>
         ) : null}
         {line.state !== "empty" ? (
@@ -77,9 +80,9 @@ export function Voice({ data, agent, now, scene, time, still, listOpen = false, 
         ) : null}
       </p>
       <div className="voice-row">
-        {edit ? <BeforeAfter data={data} scene={scene} time={time} before={edit.before} after={edit.after} /> : null}
+        {edit ? <BeforeAfter data={data} scene={scene} time={time} before={edit.before} after={edit.after} /> : ask?.to != null ? <BeforeAfter data={data} scene={scene} time={time} before={ask.from} after={ask.to} /> : null}
         {/* The sentence is announced when it changes (politely; a question at once). */}
-        <p className="voice-line" role="status" aria-live={need ? "assertive" : "polite"} key={line.text}>
+        <p className="voice-line" role="status" aria-live={need || ask ? "assertive" : "polite"} key={line.text}>
           <ToolIcon name={line.verb} /><span>{line.text}</span>
         </p>
         {line.state === "need" && need.words.allow ? (
@@ -95,6 +98,12 @@ export function Voice({ data, agent, now, scene, time, still, listOpen = false, 
           </span>
         ) : null}
         {line.state === "hold" ? <span className="voice-answers"><button type="button" className="voice-button primary" onClick={() => onRun("hold")} title="Release: agent writes work again (h)" aria-keyshortcuts="h">Release</button></span> : null}
+        {line.state === "ask" ? (
+          <span className="voice-answers">
+            <button type="button" className="voice-button primary" onClick={ask.onYes} aria-keyshortcuts="y">{ask.yes}</button>
+            <button type="button" className="voice-button" onClick={ask.onNo} aria-keyshortcuts="n">{ask.no}</button>
+          </span>
+        ) : null}
         {line.state === "recording" ? <span className="voice-answers"><button type="button" className="voice-button rec" onClick={onStopRecording} title="Stop recording (the recording so far is kept)">Stop</button></span> : null}
         {line.state === "render" ? <span className="voice-answers"><button type="button" className="voice-button" onClick={onCancelRender}>Cancel</button></span> : null}
       </div>
