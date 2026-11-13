@@ -4,7 +4,7 @@
 // empty search bar, stays solid while a word is typed, then blinks again).
 //
 // The letters share one animation on your layer (unit letters, a delay per letter). The caret is
-// a thin bar placed with the text layout's glyph advances: it steps to the right edge of each
+// a thin bar placed with the text layout's glyph advances: it jumps to the right edge of each
 // letter as it appears, and to the next line when the text wraps. `field` (your box under the
 // text) widens and deepens so the text keeps the room it had on the left. A cue per word
 // (`<id>.1`, `<id>.2`, ...) and `<id>.typed` give a key sound a place to sit.
@@ -20,6 +20,10 @@ const MOST_LETTERS = 120;
 const JITTER = 0.25;
 // A letter cuts on over this long (a soft edge on the cut, like a screen redraw).
 const LETTER_IN = 0.03;
+// The caret jumps to the next letter at once, as a text field moves it: an instant step, which the
+// checks read as a jump on purpose. At about 33 letters a second or more its 0.03 s glides met end
+// to start and speed_jump read the run as one flowing move with a jump at every letter.
+const CARET_STEP = 0;
 // The newest letter keeps the highlight color about this long before it turns to its own fill, then
 // settles over HIGHLIGHT_SETTLE. Source: the type-on study's final pass, where the lit letter read
 // as "the letter just struck" at about 2 frames of 30 fps; the settle length is a guess.
@@ -179,7 +183,7 @@ export const typeOn = {
       stops.forEach((stop, index) => {
         const to = at(stop);
         if (to.x === from.x && to.y === from.y) return;
-        ctx.animate(caret, `k${index + 1}`, motion({ name: "Caret", start: typeAt + keys.times[index], duration: LETTER_IN, easing: CURVES.arrive, from, to }));
+        ctx.animate(caret, `k${index + 1}`, motion({ name: "Caret", start: typeAt + keys.times[index], duration: CARET_STEP, easing: CURVES.arrive, from, to }));
         from = to;
       });
       // Blinking while it waits for the first key and after the last, solid in between.

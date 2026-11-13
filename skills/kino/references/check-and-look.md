@@ -51,7 +51,7 @@ Contents: Check · Looking · Review before final · Building in order
   and `videoType`. Checker facts: `library {topic:"rules", name:"quality-settings"}`
   (roles, videoType, assertions, waivers, face and crop findings) `"quality-references"`
   (reference rules) and `"quality-final"` (board stop, final render).
-- luma_jump, reading_time, type_min, safe_zone turn to advice when 2+ saved, measured references go as far; past them they say by how much.
+- luma_jump, reading_time, hold, type_min, safe_zone turn to advice when 2+ saved, measured references go as far; past them, by how much.
 - A slow linear move (under 4% of the frame diagonal a second) still running when its layer leaves passes linear_motion, text too: no waiver.
 
 ## Looking

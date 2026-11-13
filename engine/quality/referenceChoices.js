@@ -5,6 +5,8 @@
 //                 rhythms, ctx.closeRefs: [{id, seconds, flashes}])
 //   reading_time  how long a text is readable against the shortest time the references' lines
 //                 stay on screen (fingerprint.text.limits.hold, seconds)
+//   hold          how long a text is on screen against the same reference time, so a line the
+//                 references back for reading_time is not then held to the fixed table for longer
 //   type_min      a text's drawn size against the references' smallest line height
 //                 (fingerprint.text.limits.height, share of the frame height)
 //   safe_zone     how close a text sits to the frame edge against the references' closest line
@@ -20,7 +22,7 @@
 
 /** Two references agreeing is a choice, not chance (the same count reference_range needs). */
 export const CHOICE_REFS = 2;
-export const CHOICE_RULES = Object.freeze(["luma_jump", "reading_time", "type_min", "safe_zone"]);
+export const CHOICE_RULES = Object.freeze(["luma_jump", "reading_time", "hold", "type_min", "safe_zone"]);
 
 const round = (value, digits = 2) => Math.round(value * 10 ** digits) / 10 ** digits;
 const limitsOf = (ref) => ref?.fingerprint?.text?.limits ?? null;
@@ -72,6 +74,8 @@ const MEASURES = {
     said: "their text sits as close as",
   },
 };
+// hold's measured is seconds on screen, the same quantity the references' limits.hold is.
+MEASURES.hold = MEASURES.reading_time;
 
 /**
  * The findings of rule `code` with the references' evidence: advice where CHOICE_REFS or more

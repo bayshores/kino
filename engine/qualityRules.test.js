@@ -246,6 +246,22 @@ test("hold: text stays on screen for its recommended hold (0.2 s a word + 2 s)",
   await silent("hold", shown(4));
 });
 
+test("hold: a typed card counts its typing as reading_time does, and gives way where the references back reading_time", async () => {
+  // 26 characters (1.3 s to read), 5 words (3 s to hold). Typed from 0.25 s, a letter each 0.05 s
+  // (the last at 1.5 s), then held to 2.6 s: on screen 2.35 s from its first letter.
+  const card = scene({ duration: 4, layers: [text("card", "> create project MOVE spot", { fontSize: 64,
+    animations: [show(0.25), { ...fadeIn(0.25, 0.03), unit: "letters", stagger: 0.05 }, hide(2.6)] })] });
+  await silent("reading_time", card);
+  const [held] = await fires("hold", card);
+  assert.ok(Math.abs(held.measured - 2.35) <= 1 / 30 + 1e-6, `measured ${held.measured}`);
+  // Two references whose shortest text stays 0.5 s: reading_time has nothing to say, and hold is advice.
+  const refs = { choiceRefs: limitRefs({ hold: 0.5 }, { hold: 0.5 }) };
+  await silent("reading_time", card, refs);
+  const [advice] = (await check("hold", card, refs)).findings;
+  assert.deepEqual([advice.severity, blocksFinal(advice, true)], ["info", false]);
+  assert.match(advice.message, /Your references make the same choice \(their shortest text stays r1 0\.5 s; r2 0\.5 s\)/);
+});
+
 test("hold: a layer named after its text is named once", async () => {
   const LINE = "Fresh bread every single morning";
   const document = scene({ duration: 5, layers: [text("line", LINE, { name: LINE, animations: [show(0.5), hide(2.5)] })] });
