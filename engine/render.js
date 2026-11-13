@@ -1235,8 +1235,11 @@ function renderLayerAt(node, context, { maskContent = false, maskInvert = null }
     body = `<image x="0" y="0" width="${fmt(Math.max(0, finite(state.width)))}" height="${fmt(Math.max(0, finite(state.height)))}" href="${escapeXml(href)}" preserveAspectRatio="xMidYMid ${layer.type === "image" ? "slice" : "meet"}"/>`;
   } else if (layer.type === "script") {
     // The picture the layer's module drew for this moment (scriptLayer.js), or nothing yet.
-    const href = scriptHref(layer, context);
-    if (href) body = `<image x="0" y="0" width="${fmt(Math.max(0, finite(state.width)))}" height="${fmt(Math.max(0, finite(state.height)))}" href="${escapeXml(href)}" preserveAspectRatio="none"/>`;
+    const href = context.liveScripts?.has(layer.id) ? "" : scriptHref(layer, context);
+    // The live preview paints the frame's pictures into this canvas (frontend/useScriptFrames.js),
+    // inside the same clip, transform and opacity groups an image layer gets.
+    if (context.liveScripts?.has(layer.id)) body = `<foreignObject x="0" y="0" width="${fmt(Math.max(0, finite(state.width)))}" height="${fmt(Math.max(0, finite(state.height)))}"><canvas xmlns="http://www.w3.org/1999/xhtml" data-kino-script="${escapeXml(String(layer.id ?? ""))}" width="1" height="1" style="display:block;width:100%;height:100%"/></foreignObject>`;
+    else if (href) body = `<image x="0" y="0" width="${fmt(Math.max(0, finite(state.width)))}" height="${fmt(Math.max(0, finite(state.height)))}" href="${escapeXml(href)}" preserveAspectRatio="none"/>`;
   } else if (!["group", "audio"].includes(layer.type)) {
     throw new Error(
       `Layer “${layer.name ?? layer.id}” has unsupported type “${layer.type}”.`,
@@ -1604,10 +1607,12 @@ export function renderLayerSvg(layer, time = 0, options = {}) {
 // lut effect: the export loads it from the media folder, the dashboard with useSceneLuts.
 // `calmLight` (the dashboard preview under reduced motion) calms short Light bursts such as a
 // glow flashing on a beat (calmLightAnimations in effects/light.js); exports never set it.
+// `liveScripts` (a Set of layer ids, the live preview only) draws those script layers as an empty
+// <canvas data-kino-script> that the page paints, instead of a `scriptFrames` picture.
 export function renderSceneSvg(
   scene,
   time = 0,
-  { design = false, embedMedia, videoFrames, decodedVideos, videoLead, imageFrames, scriptFrames, interactiveMedia = false, canvas = false, raster = false, rasterScale = { x: 1, y: 1 }, fonts = defaultFonts, idPrefix = "", capture, mediaTime = time, luts, levels, calmLight = false, draft = false, previewBlur = false } = {},
+  { design = false, embedMedia, videoFrames, decodedVideos, videoLead, imageFrames, scriptFrames, liveScripts, interactiveMedia = false, canvas = false, raster = false, rasterScale = { x: 1, y: 1 }, fonts = defaultFonts, idPrefix = "", capture, mediaTime = time, luts, levels, calmLight = false, draft = false, previewBlur = false } = {},
 ) {
   if (!scene || !Array.isArray(scene.layers))
     throw new TypeError("A scene with a layers array is required.");
@@ -1631,7 +1636,7 @@ export function renderSceneSvg(
     design: Boolean(design),
     embedMedia,
     videoFrames, decodedVideos, videoLead,
-    imageFrames, scriptFrames,
+    imageFrames, scriptFrames, liveScripts,
     interactiveMedia: Boolean(interactiveMedia),
     canvas: Boolean(canvas),
     raster: Boolean(raster),

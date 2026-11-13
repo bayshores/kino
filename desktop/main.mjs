@@ -10,6 +10,7 @@ import { installEditCommands } from "./edit-commands.mjs";
 import { installOpenSource } from "./open-source.mjs";
 import { installAgentConnect } from "./agent-connect.mjs";
 import { desktopLinkUrl, parseDesktopLink } from "../engine/shareUrls.js";
+import { SCRIPT_FRAME_PATH } from "../engine/scriptLayer.js";
 import { createRestartPolicy, ownerSessionCookie, restartPort, relocatedEditorUrl } from "./service-restart.mjs";
 import { askAfterServiceStopped, askWhenWindowDoesNotAnswer } from "./dialogs.mjs";
 import { appMenuTemplate } from "./menu.mjs";
@@ -292,7 +293,9 @@ if (!app.requestSingleInstanceLock()) {
   }
 
   async function configureService(nextOrigin) {
-    desktopSession.webRequest.onHeadersReceived({ urls: [`${nextOrigin}/*`] }, (details, callback) => callback({
+    desktopSession.webRequest.onHeadersReceived({ urls: [`${nextOrigin}/*`] }, (details, callback) => callback(
+      // A script layer's sandboxed frame keeps its own, stricter policy (backend/script-frame-page.mjs).
+      new URL(details.url).pathname === SCRIPT_FRAME_PATH ? { responseHeaders: details.responseHeaders } : {
       responseHeaders: { ...details.responseHeaders, "Content-Security-Policy": [
         `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ${nextOrigin.replace('http:', 'ws:')}; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'self'`,
       ] },
