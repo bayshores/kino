@@ -6,7 +6,9 @@
 .dash { --gutter: clamp(24px, 12.7vw, 183px); }
 
 /* ---- the page column ---- */
-.dash .screen-wrap { margin: 0; border: 0; border-radius: 0; }
+/* A screen scrolls inside its own box. The box is the containing block of everything in it, so a
+   hidden input far down a long screen (a chip's radio) cannot make the window itself scroll. */
+.dash .screen-wrap { margin: 0; border: 0; border-radius: 0; position: relative; }
 .dash .screen-wrap > .screen { padding: 20px var(--gutter) 28px; }
 .dash .screen h2 { font-size: 22px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.25; margin: 0 0 14px; }
 .dash .screen h3 { font-size: 18px; font-weight: 700; color: var(--fg0); letter-spacing: -0.01em; margin: 28px 0 8px; }

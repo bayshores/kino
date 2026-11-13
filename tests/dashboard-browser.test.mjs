@@ -859,6 +859,8 @@ test("settings by keyboard and by mouse save at once", async () => {
     await browser.waitFor(`!!document.activeElement?.closest("#set-approval-crew-budget")`, { what: "↓ to the next approval" });
     await browser.key("5");
     await browser.waitFor(`!!document.activeElement?.closest('.set-pane[data-pane="5"]')`, { what: "5 to the render pane" });
+    // The long settings screen scrolls in its own box: the window itself has nothing to scroll.
+    assert.deepEqual(await browser.evaluate(`[document.documentElement.scrollHeight - innerHeight, ${q(".screen-wrap")}.scrollHeight > ${q(".screen-wrap")}.clientHeight]`), [0, true], "only the settings screen scrolls");
     await browser.evaluate(`${q("#set-channels")}.focus()`);
     await browser.key(" ");
     await until(async () => (await settings()).channels === true, "channels on");
