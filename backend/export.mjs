@@ -94,6 +94,7 @@ import { graphicsReport, listGraphics, renderSettings } from "./render-devices.m
 import { isBackground, renderStarted } from "./render-activity.mjs";
 import { videoWindows } from "./video-windows.mjs";
 import { sceneNeedsChromium } from "./raster-policy.mjs";
+import { sceneScriptFrames } from "./script-layer-frames.mjs";
 import { layersLutSources, loadedLut, missingLut } from "../engine/effects/lutFiles.js";
 import { makeTempFolder, removeTempFolder } from "./temp-folders.mjs";
 import { checkPictures } from "./check-pictures.mjs";
@@ -1327,7 +1328,11 @@ async function prepareMedia(
   const levels = await measureSceneLevels(scene, videoSources, { directory, signal, warnings, brightImages });
   // `morph` false: check and look draw morph joins as morphDissolveScene's dissolve, without the flow.
   const morphs = design || !morph ? new Map() : await morphPictures(scene, videoSources, { directory, fps, frameTimes, signal, warnings });
-  return { images, imageSources, imageFrames, videos, videoPlans, audio, lottieVideoIds, lottieVideoLayerIds, luts, levels, directory, morphs };
+  // Script layers draw their frames as each output frame is made (renderPng, renderQualityFrame),
+  // so a long export never holds them all (script-layer-frames.mjs).
+  const scripts = format === "lottie" ? null : sceneScriptFrames(scene, { dimensions, warnings, final: options.renderQuality === "final",
+    readImage: (src, label) => readMediaSource(src, mediaRoot, label) });
+  return { images, imageSources, imageFrames, videos, videoPlans, audio, lottieVideoIds, lottieVideoLayerIds, luts, levels, directory, morphs, scripts };
 }
 
 // Grades that normalize (duotone, tritone, color-look section-grade; engine/effects/relight.js)
@@ -1842,6 +1847,7 @@ function frameSvg(scene, time, media, fonts, dimensions, { design = false, raste
     embedMedia: media.images,
     imageFrames,
     videoFrames,
+    scriptFrames: media.scripts?.frames,
     fonts,
     luts: media.luts,
     levels: media.levels,
@@ -1852,8 +1858,13 @@ function frameSvg(scene, time, media, fonts, dimensions, { design = false, raste
 // `label` names the frame in a Chromium time-limit error ("frame 151 at 5.033 s").
 // `draft` (check and look frames): tilted layers get a coarser grid with only on-screen triangles
 // (render.js triangleTiltTag) and, in Chromium, a smaller shared bitmap.
-async function renderPng(scene, time, media, fonts, dimensions, { design = false, raw = false, rasterizer, signal, mediaTime = time, svg, label, draft = false, previewBlur = false } = {}) {
+// `scriptProblems` (a list) collects the sentences of script layer frames that failed.
+async function renderPng(scene, time, media, fonts, dimensions, { design = false, raw = false, rasterizer, signal, mediaTime = time, svg, label, draft = false, previewBlur = false, scriptProblems } = {}) {
   aborted(signal);
+  if (!svg && media.scripts) {
+    const failed = await media.scripts.prepare([time], signal);
+    scriptProblems?.push(...failed);
+  }
   svg ??= frameSvg(scene, time, media, fonts, dimensions, { design, rasterizer, mediaTime, draft, previewBlur });
   const rendererOptions = makeRendererOptions(scene, fonts, dimensions);
   // Chromium's pixels depend on the card it draws with (rasterizer.graphicsKey), so a frame drawn on
@@ -1939,6 +1950,11 @@ async function renderQualityFrame(scene, time, media, fonts, dimensions, options
     return { ...frame, pixels: straightAlpha(frame.pixels) };
   }
   const times = motionSampleTimes(time, options.duration ?? scene.duration, options.fps ?? 30, options.motionBlur, frameMotionSamples(scene, time, options, dimensions, fonts));
+  // Script layers are drawn at every shutter sample before the samples' SVGs are made.
+  if (media.scripts) {
+    const failed = await media.scripts.prepare(times, context.signal);
+    context.scriptProblems?.push(...failed);
+  }
   const svgs = times.map(sampleTime => frameSvg(scene, sampleTime, media, fonts, dimensions, { ...context, mediaTime: time }));
   // Nothing moves while the shutter is open: every sample is the same picture, so draw it once.
   if (svgs.every(svg => svg === svgs[0])) svgs.length = 1;
@@ -3362,9 +3378,14 @@ async function renderStillsNow(given, times, { width, height, mediaRoot, fonts: 
     });
     rasterizer = await starting;
     const stills = [];
-    for await (const { index, buffer } of orderedFrames(times, (time) =>
-      renderQualityFrame(scene, time, media, fonts, dimensions, options, { design: false, rasterizer, signal, draft: true, previewBlur }), signal))
-      stills.push({ time: times[index], buffer });
+    // A still whose script layer failed carries the sentences in `warnings` (look leaves it out of
+    // its cache and tells the agent).
+    for await (const { index, buffer, scriptProblems } of orderedFrames(times, async (time) => {
+      const scriptProblems = [];
+      const result = await renderQualityFrame(scene, time, media, fonts, dimensions, options, { design: false, rasterizer, signal, draft: true, previewBlur, scriptProblems });
+      return { ...result, scriptProblems };
+    }, signal))
+      stills.push({ time: times[index], buffer, ...(scriptProblems.length ? { warnings: [...new Set(scriptProblems)] } : {}) });
     return stills;
   } finally {
     rasterizer ??= await starting?.catch(() => null);
@@ -3393,7 +3414,11 @@ async function renderSceneFramesNow(given, times, { mediaRoot, fonts: providedFo
     rasterizer = await starting;
     // The next frame's SVG is made while Chromium draws this one (orderedFrames keeps one ahead).
     const frames = [];
-    for await (const { index, ...frame } of orderedFrames(times, (time) => renderPng(scene, time, media, fonts, dimensions, { raw: true, rasterizer, signal, draft: true }), signal))
+    for await (const { index, ...frame } of orderedFrames(times, async (time) => {
+      const scriptProblems = [];
+      const drawn = await renderPng(scene, time, media, fonts, dimensions, { raw: true, rasterizer, signal, draft: true, scriptProblems });
+      return scriptProblems.length ? { ...drawn, warnings: [...new Set(scriptProblems)] } : drawn;
+    }, signal))
       frames.push({ time: times[index], ...frame });
     return frames;
   } finally {

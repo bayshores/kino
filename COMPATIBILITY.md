@@ -508,8 +508,11 @@ How to read it:
   full-scene media background not repeated through the agent.
 - **Script layers**: Partly verified. `add_layer {layerType:"script"}` saves a module (syntax, import and
   default export checked at save, never run), typed inputs and values; values merge, number and color
-  inputs animate; status lists inputs, inspect the code. Evidence: `engine/scriptLayer.test.js`,
-  `backend/agent-script-layer.test.mjs`. Gap: no pixels yet (renderer and preview pending).
+  inputs animate; status lists inputs, inspect the code. Exports, stills and `look` frames draw the
+  module in a sandboxed hidden window at the output's pixel ratio (frames cached; a failing frame draws
+  nothing, look and drafts name the layer, message and time, a final render is refused). Evidence:
+  `engine/scriptLayer.test.js`, `backend/agent-script-layer.test.mjs`, `backend/script-frames.test.mjs`,
+  `backend/script-layer-export.test.mjs`. Gap: live preview, edit receipts and checks, 3D.
 - **Artboard positions**: Verified. Scenes store `canvasX`/`canvasY`, never exported. Evidence:
   `engine/sceneLayout.test.js`.
 - **Bulk create from CSV**: Verified. `project manage csv` then `bulk_create` makes linked variants;

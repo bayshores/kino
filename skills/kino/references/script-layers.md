@@ -6,8 +6,8 @@ A `script` layer's picture is drawn by a small JavaScript module you write. Its 
 typed values that you, and animations, change without touching the code. Use one for a
 picture no preset makes: a chart that grows, a generative pattern, a custom meter.
 
-Status: the document, ops and checks work now; frames are not drawn yet, so a script layer
-shows as transparent in `look`, the dashboard and exports until the renderer lands.
+Status: `look` frames and renders draw the module; the dashboard preview does not yet (the
+layer shows empty there).
 
 ## The module
 
@@ -62,6 +62,13 @@ that animation's name. Only number and color inputs animate.
 - `Math.random` is seeded again before every draw, and `Date.now` and `performance.now`
   give `frame.time * 1000`. No network, storage or app access; timers end with the draw.
 - Limits: setup 5 s, one draw 2 s.
+
+## What you hear when it fails
+
+A frame that throws or runs too long draws nothing for that layer. `look` adds a line such as
+`script layer "bars": ReferenceError: x is not defined at 1.20 s (draw)` (the phase is load,
+setup or draw), a draft render carries it as a warning, and a final render is refused with it.
+Fix the module with `update_layer {properties:{script}}` and look at that time again.
 
 ## Example: bars that grow
 
