@@ -734,7 +734,13 @@ test("a measured reference keeps what was heard in it (loudest change, voice) an
   }
   assert.deepEqual(later.heard, { change: { at: 5, kind: "drop" }, voice: [], by: "whisper" });
   assert.equal(tries, 2);
-  assert.equal((await failed.reference(second)).state, "measured", "only its voice facts were measured again");
+  // The job ends a moment after its facts are saved (it removes its work folder first).
+  let state;
+  for (let wait = 0; wait < 60 && state !== "measured"; wait += 1) {
+    state = (await failed.reference(second)).state;
+    if (state !== "measured") await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  assert.equal(state, "measured", "only its voice facts were measured again");
 });
 
 test("a sounds search keeps sound effects of 60 s or less, measures their shape, keeps a preview, imports it with credit; forget drops a search", async () => {
