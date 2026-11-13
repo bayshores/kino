@@ -606,22 +606,6 @@
   background: var(--bg1); border: 1px solid var(--line); padding: 0 0.5ch; min-width: 0; border-radius: 2px;
 }
 .filter-line input { flex: 1; }
-/* The checks tab: one finding a line. Only the mark has a colour; a long line ends in "…" and
-   opens to full length on a click or Enter (its tooltip has all of it too). */
-.check-summary { color: var(--fg1); margin-bottom: 4px; }
-.check-row {
-  display: grid; grid-template-columns: 2ch minmax(0, 1fr); column-gap: 1ch; align-items: start;
-  width: 100%; text-align: left; padding: 0; white-space: normal;
-}
-/* The mark sits on the first line (1lh tall), red for an error and orange for a warning. */
-.check-row > .mark { width: 100%; height: 1lh; }
-.check-row > .mark.warn { color: var(--accent); }
-.check-text { display: grid; min-width: 0; }
-.check-line { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* A note (why a check did not run, and how to turn it on) is never cut: it wraps. */
-.check-note { overflow-wrap: anywhere; }
-.check-row[aria-expanded="true"] .check-line { white-space: normal; overflow-wrap: anywhere; }
-.check-rule { color: var(--fg-mid); }
 .note-item { padding: 0.25lh 0; border-bottom: 1px solid var(--line-soft); }
 .note-form { display: grid; gap: 0.25lh; margin-bottom: 0.5lh; }
 .note-form textarea { resize: vertical; min-height: 3lh; padding: 0.25lh 0.5ch; }

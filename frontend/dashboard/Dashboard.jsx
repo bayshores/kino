@@ -1721,6 +1721,7 @@ export function Dashboard() {
     onTurn: (id) => { const index = turns.findIndex((row) => row.id === id); if (index >= 0) setCursors((value) => ({ ...value, 4: index })); selectTurn(id); },
     onReview: (id) => setScreen({ name: "turn", turn: id }), filter, onFilter: setFilter, filterOpen, checks, onCompose: () => startNote(),
     onForwardComment: forwardComment, onNote: noteAct, still, now, time,
+    onSeek: (value) => { stopPlaying(); setView((current) => ({ ...current, time: value })); },
   };
   const log = phone
     ? <LogPane {...paneProps(4)} {...logProps} tab={["log", "checks", "notes"].includes(logTab) ? logTab : "log"} onTab={setLogTab} composer={composer} />

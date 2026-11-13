@@ -1373,7 +1373,8 @@ export function topWaivers(waivedFindings) {
  * fix is in plain words (fixWords). A long line ends with "…": its tooltip has all of it, and a
  * click or Enter opens it to full length.
  */
-function CheckList({ checks }) {
+function CheckList({ checks, onSeek, onAsk }) {
+  const [asked, setAsked] = useState([]);
   const [open, setOpen] = useState([]);
   const toggle = (key) => setOpen((value) => (value.includes(key) ? value.filter((entry) => entry !== key) : [...value, key]));
   const data = checks.data;
@@ -1384,6 +1385,7 @@ function CheckList({ checks }) {
       rule: String(finding.rule ?? ""),
       ref: String(finding.ref ?? ""),
       at: atWords(finding.at),
+      time: Number.isFinite(Number(finding.at)) && finding.at != null && finding.at !== "" ? Number(finding.at) : null,
       message: String(finding.message ?? ""),
       fix: `${fixWords(finding.fix)}${finding.auto && finding.fix ? " (auto)" : ""}`,
     }))
@@ -1417,26 +1419,31 @@ function CheckList({ checks }) {
           const what = [row.rule, row.ref, row.at].filter(Boolean).join(" ");
           const word = row.severity === "error" ? "error" : "warning";
           return (
-            <li key={key}>
-              <button type="button" className="tb check-row" aria-expanded={isOpen} onClick={() => toggle(key)}
+            <li key={key} className={isOpen ? "open" : undefined}>
+              <button type="button" className="tb check-row" aria-expanded={isOpen} onClick={(event) => { const item = event.currentTarget.parentElement; toggle(key); if (!isOpen && row.time != null) onSeek?.(row.time); if (!isOpen) requestAnimationFrame(() => item.scrollIntoView({ block: "nearest" })); }}
                 title={`${word}${what ? ` ${what}` : ""}: ${row.message}${row.fix ? `\nfix: ${row.fix}` : ""}`}>
-                <Mark kind={row.severity === "error" ? "failed" : "warning"} className={row.severity === "error" ? "err" : "warn"} />
+                <span className="check-at">{row.time != null ? clock(row.time) : ""}</span>
+                <ControlIcon name={row.severity === "error" ? "x" : "warning"} className={`check-mark ${row.severity === "error" ? "err" : "warn"}`} />
                 <span className="sr-only">{word}: </span>
                 <span className="check-text">
-                  <span className="check-line">
-                    {row.rule ? <span className="check-rule">{row.rule}</span> : null}{row.ref ? <> {row.ref}</> : null}{row.at ? <span className="dim"> {row.at}</span> : null}{what ? " " : ""}{row.message}
-                  </span>
-                  {row.fix ? <span className="check-line check-fix"><span className="dim">fix:</span> {row.fix}</span> : null}
+                  <span className="check-line">{row.message}</span>
+                  {row.rule || row.ref ? <span className="check-line check-what">{row.rule ? <span className="check-rule">{row.rule}</span> : null}{row.ref ? <> {row.ref}</> : null}</span> : null}
+                  {row.fix ? <span className="check-line check-fix"><span className="sr-only">fix: </span>{row.fix}</span> : null}
                 </span>
               </button>
+              {isOpen && onAsk && !checks.error ? (
+                <button type="button" className="ui-btn check-ask" disabled={asked.includes(key)} onClick={() => { setAsked((value) => [...value, key]); onAsk(row); }}>
+                  <ControlIcon name={asked.includes(key) ? "check" : "message"} />{asked.includes(key) ? "Asked" : "Ask to fix"}
+                </button>
+              ) : null}
             </li>
           );
         })}
       </ul>
-      {rows.length === 0 && !checks.error ? <p className="faint">nothing found</p> : null}
+      {rows.length === 0 && !checks.error ? <p className="faint check-none">Nothing found.</p> : null}
       {data?.more ? <p className="dim">+{data.more} more, not shown</p> : null}
       {/* A note says why a check did not run and how to turn it on: it wraps, so all of it shows. */}
-      {(data?.notes ?? []).map((note, index) => <p key={index} className="check-note dim">note: {note}</p>)}
+      {(data?.notes ?? []).map((note, index) => <p key={index} className="check-note dim">{note}</p>)}
     </>
   );
 }
@@ -1618,7 +1625,7 @@ function NoteThread({ data, notes, cursor, now, onNote }) {
   );
 }
 
-export function LogPane({ data, tab, onTab, cursor, expanded, onToggle, onTurn, onReview, filter, onFilter, filterOpen, checks, onCompose, composer, onForwardComment, onNote, still, now, bare = false, ...pane }) {
+export function LogPane({ data, tab, onTab, cursor, expanded, onToggle, onTurn, onReview, filter, onFilter, filterOpen, checks, onCompose, composer, onForwardComment, onNote, onSeek, still, now, bare = false, ...pane }) {
   const turns = useMemo(() => turnRows(data, now), [data, now]);
   const shown = filter ? turns.filter((row) => `${row.id} ${row.summary} ${row.calls.map((call) => `${call.verb} ${callSummary(call)} ${call.summary}`).join(" ")}`.toLowerCase().includes(filter.toLowerCase())) : turns;
   // Turns that were already there when the log opened; a newer one slides in once (dashboard.css).
@@ -1691,7 +1698,7 @@ export function LogPane({ data, tab, onTab, cursor, expanded, onToggle, onTurn, 
         </div>
       ) : tab === "checks" ? (
         <div role="tabpanel" id="panel-checks" aria-labelledby="tab-checks">
-          {!checks ? <p className="faint">Checking</p> : <CheckList checks={checks} />}
+          {!checks ? <p className="faint">Checking</p> : <CheckList checks={checks} onSeek={onSeek} onAsk={(row) => onNote?.({ action: "add", text: `Fix this check finding: ${row.message}${row.rule ? ` (${[row.rule, row.ref].filter(Boolean).join(" ")})` : ""}`, ...(row.time != null ? { t: row.time } : {}) }, "Asked. The agent gets it with its next call.")} />}
         </div>
       ) : (
         <div role="tabpanel" id="panel-notes" aria-labelledby="tab-notes">

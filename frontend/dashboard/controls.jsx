@@ -28,6 +28,7 @@ const ICONS = {
   timer: "M8 14a5.5 5.5 0 1 0 0-11 5.5 5.5 0 0 0 0 11zM8 5.5V8.5l2 1.5M6.5 1.5h3",
   detect: "M2 5V2h3M11 2h3v3M14 11v3h-3M5 14H2v-3M8 10a2 2 0 1 0 0-4 2 2 0 0 0 0 4z",
   check: "M3 8.5l3 3 7-7",
+  warning: "M8 2.5l6 10.5H2zM8 6.8v2.9M8 11.4v.1",
   undo: "M3 6.5h7a3.5 3.5 0 0 1 0 7H6M3 6.5l3-3M3 6.5l3 3",
   chevron: "M6 4l4 4-4 4",
   frame: "M2.5 3.5h11v9h-11zM5.5 3.5v9M10.5 3.5v9",

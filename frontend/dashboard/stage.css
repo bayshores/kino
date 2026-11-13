@@ -351,3 +351,25 @@
 .dash .render-bar > span { display: block; height: 100%; background: var(--yellow); transition: width var(--panel) linear; }
 .dash .p-session .agent-row { display: flex; align-items: center; gap: 10px; }
 .dash .p-session .agent-row .agent-bot { display: inline-flex; }
+
+/* ---- the checks list: when, the mark, the finding in one line. An open row shows all of it,
+   the rule, the fix in words and "Ask to fix" (a note to the agent); it puts the frame there. ---- */
+.dash .check-summary { margin: 0 0 6px; padding: 0 10px; font-size: 13px; color: var(--fg1); }
+.dash .check-list { margin: 0; padding: 0; list-style: none; }
+.dash .check-list > li { transition: background-color var(--quick) var(--ease-in); }
+.dash .check-list > li:hover, .dash .check-list > li.open { background: var(--bg2); }
+.dash .check-row {
+  display: grid; grid-template-columns: 9ch 16px minmax(0, 1fr); column-gap: 12px; align-items: start; box-sizing: border-box;
+  width: 100%; padding: 9px 10px; text-align: left; white-space: normal; font-size: 14px; line-height: 20px; color: var(--fg0);
+}
+.dash .check-at { font-family: var(--mono-ui); font-size: 12px; color: var(--fg2); font-variant-numeric: tabular-nums; }
+.dash .check-mark { width: 16px; height: 16px; margin-top: 2px; }
+.dash .check-mark.err { color: var(--rec); }
+.dash .check-text { display: grid; gap: 4px; min-width: 0; }
+.dash .check-line { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dash .check-what, .dash .check-fix { display: none; }
+.dash .check-list > li.open .check-line { display: block; white-space: normal; overflow-wrap: anywhere; }
+.dash .check-what { font-family: var(--mono-ui); font-size: 11px; color: var(--fg2); }
+.dash .check-fix { font-size: 13px; color: var(--fg1); }
+.dash .check-ask { margin: 2px 10px 12px calc(9ch + 50px); min-height: 32px; }
+.dash .check-none, .dash .check-note { padding: 0 10px; overflow-wrap: anywhere; }
