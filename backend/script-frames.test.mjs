@@ -79,6 +79,44 @@ test("Math.random, Date.now and performance.now give the same picture again and 
   }
 });
 
+test("crypto.getRandomValues and randomUUID repeat for the same frame, as Math.random does", { skip }, async () => {
+  const script = `export default function setup(layer) {
+    const ctx = layer.canvas.getContext("2d");
+    return () => {
+      const bytes = crypto.getRandomValues(new Uint8Array(20));
+      ctx.fillStyle = "#fff";
+      for (let i = 0; i < 20; i += 1) if (bytes[i] > 127) ctx.fillRect(i * 2, 0, 2, 20);
+      if (crypto.randomUUID().length !== 36) throw new Error("uuid");
+    };
+  }`;
+  const [first] = await renderer.render({ script, width: 40, height: 20, frames: [frameAt(0.5)] });
+  const [again] = await renderer.render({ script, width: 40, height: 20, frames: [frameAt(0.5)] });
+  assert.ok(first.png, first.error?.message);
+  assert.equal(first.empty, false);
+  assert.ok(first.png.equals(again.png));
+});
+
+test("a clip, a style and an open path one frame leaves never reach the next frame", { skip }, async () => {
+  // The first frame (time 0) clips to a corner and leaves a red fill and a path open; any later
+  // frame only fills, so a leak would show as a clipped or red picture.
+  const script = `export default function setup(layer) {
+    const ctx = layer.canvas.getContext("2d");
+    return (frame) => {
+      if (frame.time === 0) {
+        ctx.save(); ctx.beginPath(); ctx.rect(0, 0, 4, 4); ctx.clip();
+        ctx.fillStyle = "#ff0000"; ctx.globalAlpha = 0.5; ctx.beginPath(); ctx.rect(0, 0, 40, 20);
+        return;
+      }
+      ctx.fill();
+      ctx.fillStyle = ctx.fillStyle === "#000000" ? "#00ff00" : "#0000ff";
+      ctx.fillRect(0, 0, 40, 20);
+    };
+  }`;
+  const [, later] = await renderer.render({ script, width: 40, height: 20, frames: [frameAt(0), frameAt(1)] });
+  const picture = await pixels(later.png);
+  assert.deepEqual(picture.at(30, 15), [0, 255, 0, 255], "full size, opaque, default fill style");
+});
+
 test("the network is out of reach: fetch, WebSocket and an image fail and no request leaves the session", { skip }, async () => {
   const script = `export default function setup(layer) {
     const ctx = layer.canvas.getContext("2d");
