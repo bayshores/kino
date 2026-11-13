@@ -2,7 +2,8 @@
 // marks a borrowed rhythm makes, the one-at-a-time queue, and a whole measure of a generated
 // video through a stub yt-dlp and the real shot and beat finders. Nothing here goes online.
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { readReplay, replayHumps, replayLines, replayStudy } from "./measure/replay-graph.mjs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -1011,4 +1012,75 @@ test("region, members-only, age and private videos are dropped with one line, no
   assert.equal(cannotPlayReason("ERROR: [youtube] abc: Sign in to confirm your age. This video may be inappropriate for some users."), "age");
   assert.equal(cannotPlayReason("ERROR: [youtube] abc: Sign in to confirm you're not a bot"), null);
   assert.equal(cannotPlayLine("F3", "region", "F4"), "F3 cannot play from here (region). Dropped; F4 is next.");
+});
+
+// A made-up "most replayed" graph: 100 parts of 0.3 s, a low floor, a tall hump near 12 s, a small one
+// near 21 s, and a high start that falls.
+const madeUpHeatmap = (shape = {}) => Array.from({ length: 100 }, (_, i) => {
+  const base = shape.flat ? 0.4 : 0.2 + (i < 6 ? 0.7 - i * 0.12 : 0) + (Math.abs(i - 40) <= 2 ? 0.8 - 0.3 * Math.abs(i - 40) : 0) + (i === 70 ? 0.3 : 0);
+  return { start_time: i * 0.3, end_time: (i + 1) * 0.3, value: Math.min(1, base) };
+});
+
+test("a replay graph is read from the page's heatmap and named as humps, with the start apart and the video's own measures there", () => {
+  assert.equal(readReplay(undefined), null, "most videos have none");
+  assert.equal(readReplay(madeUpHeatmap().slice(0, 10)), null, "too few parts is no graph");
+  assert.equal(readReplay([...madeUpHeatmap().slice(0, 99), { start_time: 29.7, end_time: 30, value: 1.5 }]), null, "a value past 1 is no graph");
+  const replay = readReplay(madeUpHeatmap());
+  assert.deepEqual([replay.seconds, replay.values.length, replay.values[40]], [30, 100, 1]);
+  const found = replayHumps(replay);
+  assert.equal(found.width, 0.3);
+  assert.deepEqual(found.humps.map((hump) => [hump.start, hump.end, hump.top]), [[11.7, 12.6, 1], [21, 21.3, 0.5]]);
+  assert.deepEqual([found.opening.start, found.opening.end, found.opening.top], [0, 0.9, 0.9], "the start is named apart");
+  assert.equal(found.humps[0].at, 12.15);
+  assert.deepEqual(replayHumps(readReplay(madeUpHeatmap({ flat: true }))).humps, [], "a flat graph has no hump");
+  // The printed lines: with kino's own numbers inside the first hump only (the second is past the measured 20 s).
+  const ref = { replay, duration: 30, numbers: { seconds: 20, cuts: [11.5, 11.9, 12.2, 15], onBeat: [] }, heard: { change: { at: 12, kind: "drop" }, lines: [{ at: 11.8, text: "go now" }] } };
+  const [facts, caveat, extra] = replayLines(ref);
+  assert.equal(extra, undefined, "two lines at most");
+  assert.match(facts, /^most replayed \(viewers' public graph, 100 parts of 0\.3 s, graph median 0\.2\): 11\.7-12\.6 s top 1 \(kino measured there: 3 shots, median 0\.4 s, the song's loudest change \(drop\) at 12 s, a heard line "go now" at 11\.8 s\) · 21-21\.3 s top 0\.5 · at the start, apart: 0-0\.9 s top 0\.9$/);
+  assert.match(caveat, /scaled to itself.*liked or one they did not understand/);
+  assert.deepEqual(replayLines({ ...ref, replay: undefined }), [], "no graph prints nothing");
+  assert.match(replayLines({ ...ref, replay: readReplay(madeUpHeatmap({ flat: true })) })[0], /no part stands 0\.1 above the median/);
+  // The page's description carries it: parseVideoInfo keeps it, and a page without one is as before.
+  const page = { id: "G9wj1YA0DYI", title: "t", channel: "c", duration: 30, heatmap: madeUpHeatmap() };
+  assert.deepEqual(parseVideoInfo(JSON.stringify(page), "G9wj1YA0DYI").replay, replay);
+  assert.equal("replay" in parseVideoInfo(JSON.stringify({ ...page, heatmap: null }), "G9wj1YA0DYI"), false);
+});
+
+test("a read of a saved reference asks for its replay graph once, keeps it, and says nothing for a video that has none", async () => {
+  const directory = path.join(folder, "replay-read");
+  await mkdir(directory, { recursive: true });
+  const saved = (videoId, extra = {}) => writeFile(path.join(directory, `${videoId}.json`), JSON.stringify({ id: `yt:${videoId}`, videoId, title: videoId, duration: 30, url: `https://www.youtube.com/watch?v=${videoId}`, state: "measured", numbers: { seconds: 30, shots: 2, cuts: [12], cutsPerSecond: 0.03, median: 12, onBeat: [] }, ...extra }));
+  await saved("AAAAAAAAAAA");
+  await saved("BBBBBBBBBBB");
+  const asked = [];
+  const inspire = createInspire({ directory, projectState: memoryProjects(), replay: async (videoId) => { asked.push(videoId); return videoId.startsWith("A") ? readReplay(madeUpHeatmap()) : null; } });
+  const withGraph = await inspire.reference("yt:AAAAAAAAAAA", { full: true, replay: true });
+  assert.equal(withGraph.replay.values.length, 100);
+  assert.equal(referenceText(withGraph).split("\n").filter((line) => /most replayed|scaled to itself/.test(line)).length, 2);
+  const without = await inspire.reference("yt:BBBBBBBBBBB", { full: true, replay: true });
+  assert.equal("replay" in without, false);
+  assert.doesNotMatch(referenceText(without), /replayed/);
+  await inspire.reference("yt:AAAAAAAAAAA", { full: true, replay: true });
+  await inspire.reference("yt:BBBBBBBBBBB", { full: true, replay: true });
+  await inspire.reference("yt:AAAAAAAAAAA", { full: true });
+  assert.deepEqual(asked, ["AAAAAAAAAAA", "BBBBBBBBBBB"], "one call each, only on a replay read, never again");
+  const onDisk = JSON.parse(await readFile(path.join(directory, "AAAAAAAAAAA.json"), "utf8"));
+  assert.ok(onDisk.replay.values.length === 100 && onDisk.replayAt, "kept on the record");
+  assert.ok(JSON.parse(await readFile(path.join(directory, "BBBBBBBBBBB.json"), "utf8")).replayAt, "the asking is remembered even with no graph");
+});
+
+test("the replay study compares the measures at humps with random times of the same videos, with a fixed seed and a small-sample note", () => {
+  // Every video: a hump at 12 s where a cut lands; random times mostly have none.
+  const make = () => ({ replay: readReplay(madeUpHeatmap()), numbers: { seconds: 30, cuts: [11.5, 12.5] }, heard: { change: { at: 12, kind: "drop" } } });
+  const refs = [make(), make(), make()];
+  const first = replayStudy(refs, { draws: 400 });
+  assert.deepEqual(replayStudy(refs, { draws: 400 }), first, "the same seed gives the same answer");
+  assert.equal(first.tooSmall, true);
+  assert.equal(first.n, 3);
+  const cuts = first.rows.find((row) => row.measure === "cutsNear");
+  assert.equal(cuts.hump, 1, "2 cuts near the first hump, none near the second");
+  assert.ok(cuts.difference > 0.5 && cuts.chance < 0.05, JSON.stringify(cuts));
+  assert.equal(first.rows.find((row) => row.measure === "motion").n, 0, "a measure kino did not take is not made up");
+  assert.equal(replayStudy(Array.from({ length: 15 }, make), { draws: 50 }).tooSmall, false);
 });

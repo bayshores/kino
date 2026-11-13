@@ -8626,10 +8626,10 @@ export function createAgentService(deps) {
       if (!byYou() && agent) await deps.inspire.setLooking(projectId, id, by);
       // Read: the compare step (brief.mjs compareStep) counts the studies an agent read.
       if (!byYou()) await agentState.update(projectId, (draft) => { draft.read = [...new Set([...(draft.read ?? []), id])].slice(-20); });
-      const ref = await deps.inspire.reference(id, { wait: byYou() ? 0 : INSPIRE_WAIT_MS, full: true });
+      const ref = await deps.inspire.reference(id, { wait: byYou() ? 0 : INSPIRE_WAIT_MS, full: true, replay: true });
       // The text has the whole fingerprint; the data keeps the numbers and the suggested lines
-      // (the brief's style line shape), not the long curves.
-      const { fingerprint, stripList, ...short } = ref;
+      // (the brief's style line shape), not the long curves (nor the replay graph's 100 numbers).
+      const { fingerprint, stripList, replay, ...short } = ref;
       // The cut facts keep their summary here; each cut's jump (one per cut, 280 in a busy 90 s) stays saved.
       if (short.numbers?.picture?.jumps) {
         const { jumps, ...picture } = short.numbers.picture;

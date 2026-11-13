@@ -12,6 +12,7 @@
 import { readdir } from "node:fs/promises";
 import path from "node:path";
 import { jsRuntime, NO_JS_RUNTIME, runYtDlp, ytDlpCommand } from "../inspire.mjs";
+import { peakParts } from "../measure/replay-graph.mjs";
 import { botCheckError } from "../process-slots.mjs";
 import { makeTempFolder, removeTempFolder } from "../temp-folders.mjs";
 
@@ -137,15 +138,8 @@ const wantWords = (want) => String(want ?? "").toLowerCase().split(/[^\p{L}\p{N}
 
 // Heatmap parts no lower than either neighbor and higher than one (a flat stretch has no peak),
 // the most replayed first.
-function heatmapPeaks(heatmap) {
-  return heatmap
-    .filter((part, index) => {
-      const before = heatmap[index - 1]?.value ?? part.value;
-      const after = heatmap[index + 1]?.value ?? part.value;
-      return part.value >= before && part.value >= after && (part.value > before || part.value > after);
-    })
-    .sort((a, b) => b.value - a.value);
-}
+// (Shared with inspire's replay graph, backend/measure/replay-graph.mjs.)
+const heatmapPeaks = peakParts;
 
 /**
  * The stretches of a video to scan: [{start, end}] in seconds, sorted, not overlapping.

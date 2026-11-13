@@ -26,6 +26,7 @@ import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { beatFit, beatFitLine } from "./measure/beat-fit.mjs";
+import { readReplay, replayLines } from "./measure/replay-graph.mjs";
 import { ONSCREEN_KINDS, onscreenMoments, onscreenNote, suggestStyleLines, suggestionText, typeNote } from "./measure/suggest.mjs";
 import { backgroundStep, lowerIfBackground } from "./render-activity.mjs";
 import { BOT_CHECK, BOT_CHECK_PAUSE_MS, botCheckError, createSlots, createYouTubeGate } from "./process-slots.mjs";
@@ -1071,7 +1072,9 @@ export function parseVideoInfo(text, videoId) {
   // A full description's url is the video file's own address; kino links the watch page instead.
   const [result] = parseSearchLines(JSON.stringify({ ...entry, url: undefined }));
   if (result?.videoId !== videoId) throw new Error(`yt:${videoId} has no length yet (a live stream or premiere), so kino cannot measure it.`);
-  return result;
+  // The "most replayed" graph rides along when the page has one (backend/measure/replay-graph.mjs).
+  const replay = readReplay(entry.heatmap);
+  return replay ? { ...result, replay } : result;
 }
 
 /** Reads one video's metadata from its page (nothing is downloaded), as a search result. */
@@ -1302,6 +1305,8 @@ export function createInspire(deps) {
       ...(withLook && record.look ? { look: record.look } : {}),
       // Where a voice plays and the lines it says (heard.lines): the agent's read lists them (heardLinesText).
       ...(full && record.heard ? { heard: record.heard } : {}),
+      // The public "most replayed" graph, when the video has one (100 numbers and the seconds they span).
+      ...(full && record.replay ? { replay: record.replay } : {}),
     };
   }
 
@@ -1736,7 +1741,8 @@ export function createInspire(deps) {
     if (known) return summary(known);
     await start();
     const result = await deps.lookup(id.slice(3), { signal });
-    if (!refs.has(id)) refs.set(id, { ...result, state: "found", thumb: false });
+    // This lookup read the whole page, so the replay graph (if any) is already here: no second call.
+    if (!refs.has(id)) refs.set(id, { ...result, state: "found", thumb: false, replayAt: new Date(now()).toISOString() });
     const record = refs.get(id);
     await updateProject(projectId, (state) => {
       const made = { n: state.nextSearch, query: record.url, by: by ?? "you", at: new Date(now()).toISOString(), state: "done", wanted: 1, ids: [id], count: 1 };
@@ -1751,14 +1757,34 @@ export function createInspire(deps) {
    * One reference. With `wait` (ms), a reference not measured yet moves to the front of the queue
    * and this waits up to that long for its numbers.
    */
-  async function reference(id, { wait = 0, full = false, look = false } = {}) {
+  async function reference(id, { wait = 0, full = false, look = false, replay = false } = {}) {
     const record = await load(id);
     if (!record) return null;
+    // An agent's read of a reference asks once for its "most replayed" graph (replay:true); the
+    // wait for its numbers runs meanwhile.
+    const graph = replay ? fillReplay(record) : null;
     if (wait > 0 && unmeasured(record)) {
       enqueue(id, { first: true });
       await waitFor(id, wait);
     }
+    await graph;
     return summary(refs.get(id) ?? record, { full, look });
+  }
+
+  /**
+   * Asks the video's page for its "most replayed" graph, once (record.replayAt says it was
+   * asked, whether or not the video has one): one metadata call, nothing downloaded. A reference
+   * added from a link already has the answer; a failed call (no yt-dlp, a bot check) is not
+   * remembered, so the next read asks again.
+   */
+  async function fillReplay(record) {
+    if (!deps.replay || isSound(record) || record.replayAt || youtube.paused()) return;
+    try {
+      const graph = await deps.replay(record.id.slice(3));
+      record.replayAt = new Date(now()).toISOString();
+      if (graph) record.replay = graph;
+      if (record.state === "measured" || record.state === "failed") await save(record).catch(() => {});
+    } catch { /* the graph is extra: the read goes on without it */ }
   }
 
   /** Measures a reference again (after it failed), at the front of the queue. */
@@ -2228,6 +2254,8 @@ export async function inspireTools({ command } = {}) {
     search: (query, options) => searchYouTube(query, { ...options, command: command ?? ytDlpCommand() }),
     mix: (videoId, options) => mixYouTube(videoId, { ...options, command: command ?? ytDlpCommand() }),
     lookup: (videoId, options) => lookupYouTube(videoId, { ...options, command: command ?? ytDlpCommand() }),
+    // The video page's "most replayed" graph, or null when it has none (one metadata call).
+    replay: async (videoId, options) => (await lookupYouTube(videoId, { ...options, command: command ?? ytDlpCommand() })).replay ?? null,
     async download(videoId, folder, { signal } = {}) {
       const ffmpeg = ffmpegCommand();
       // YouTube sends a JavaScript challenge; without a runtime to answer it yt-dlp falls back to
@@ -2461,6 +2489,7 @@ export function referenceText(ref, { full = false } = {}) {
   const filled = numbersWithMedian(numbers, ref.bpm);
   const median = filled.median != null ? `median shot ${round(filled.median, 1)} s${medianBeatWords(filled, ref.bpm)}` : "";
   return [head, `measured ${span}: ${[`${numbers.shots} shots`, `${numbers.cutsPerSecond} cuts/s`, median, longest, beat].filter(Boolean).join(" · ")}`, ...(fit ? [fit] : []), cuts, lendLine(numbers),
+    ...replayLines(ref),
     ...fingerprintLines(ref),
     ...heardLinesText(ref).split("\n").filter(Boolean),
     `borrow: edit {ops:[{op:"borrow_rhythm", ref:"${ref.id}", fit:true}]} (each section's shot lengths in a new order, cut on the song's seams when fit_music marked them; fit:true scales to the scene)`].join("\n");
