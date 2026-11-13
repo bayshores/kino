@@ -238,7 +238,7 @@ export function CrewScreen({ data, now, hold, still = false, onHold, onWatch, on
     if (name === "watch") { if (row) onWatch({ id: row.id, name: row.name }); return; }
     if (!target) return;
     // An agent known only from the project's saved calls is not connected: nothing to hold or stop.
-    if (target.fromCalls && (name === "hold" || name === "stop")) { say(`${target.name} is not connected now, so there is nothing to ${name}.`); return; }
+    if (target.fromCalls && (name === "hold" || name === "stop")) { say(`${target.name} is not working right now, so there is nothing to ${name}.`); return; }
     const ended = ENDED.includes(target.state);
     if (name === "hold" && !ended) {
       const on = !target.heldBy;

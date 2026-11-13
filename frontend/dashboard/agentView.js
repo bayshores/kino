@@ -469,9 +469,10 @@ export function voiceLine(data, agent, now = Date.now(), nameOf = () => null) {
   if (ready) return { state: "ready", verb: "check", text: `The ${ready.job.quality === "final" ? "final" : "draft"} is ready.`, facts: ready.facts, before: before(false), ready };
   if (!agent || !last) return { state: "empty", verb: "plug", text: "Waiting for an agent.", facts: [], before: null };
   // The agent of the saved calls is not connected now (kino restarted, or its session ended): say
-  // so, and that nothing is lost. The line before stays its last call.
+  // so in plain words ("Nova is not connected" told a person nothing: who Nova is, or what to do),
+  // that nothing is lost, and how to go on. The line before stays its last call.
   if (!(data?.agents ?? []).some((entry) => entry.id === agent.id) && !last.current) {
-    return { state: "away", verb: "plug", text: `${agent.name ?? "The agent"} is not connected.`, facts: [agent.lastAt ? `Last call ${agoWords(agent.lastAt, now)}` : "", "All of it is saved"].filter(Boolean), before: before(false) };
+    return { state: "away", verb: "plug", text: `Your agent${agent.name ? ` ${agent.name}` : ""} is not working on this right now.`, facts: [agent.lastAt ? `Last active ${agoWords(agent.lastAt, now)}` : "", "Everything is saved", "Message it in its chat to continue"].filter(Boolean), before: before(false) };
   }
   const working = isWorking(data, agent, now);
   return { state: working ? "working" : "idle", verb: last.verb, kind: last.kind, text: line(last, Boolean(last.current)), facts: [], before: before(true) };

@@ -203,6 +203,9 @@ test("the line under the frame: the call as a sentence, the line before it, and 
   assert.equal(idle.text, "Checked the video. It failed.");
   assert.equal(idle.before.text, "Looked at sheet 0:00–1:00.");
   assert.equal(voiceLine(data({ hold: { on: true } }), nova, NOW).state, "hold");
+  // Its session ended: who the name is, that nothing is lost, and how to go on.
+  const away = voiceLine(data({ agents: [] }), nova, NOW);
+  assert.deepEqual([away.state, away.text, away.facts.slice(-2)], ["away", "Your agent Nova is not working on this right now.", ["Everything is saved", "Message it in its chat to continue"]]);
   // A render that ended under a minute ago is said to be ready, with its facts.
   const ready = voiceLine(data({ renders: [{ id: "R2", projectId: "walk", status: "done", quality: "final", format: "mp4", width: 1920, height: 1080, duration: 14, size: 12_400_000, finishedAt: new Date(NOW - 5_000).toISOString() }] }), nova, NOW);
   assert.deepEqual([ready.state, ready.text, ready.facts], ["ready", "The final is ready.", ["14 s, 1920 by 1080", "12 MB, MP4"]]);
