@@ -59,7 +59,7 @@ const KIND_WORDS = { move: "move", effect: "effect", animation: "animation", sty
 
 /** One pick's chip: "zoom through · shot 2", or the entry's words alone. */
 export function askChip(ask) {
-  return ask.shot ? `${ask.words} · shot ${ask.shot}` : ask.words;
+  return ask.shot ? `${ask.words}, shot ${ask.shot}` : ask.words;
 }
 
 /** The note the picks become: each entry by its kind and name (and shot), then the person's words. */

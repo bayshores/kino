@@ -249,7 +249,7 @@ export function TimelineLanes({ model, data, scene, percent, trackWidth, onSeek,
               {render ? (
                 <span className="lane-render" aria-label={`${agent.name} renders ${render.id ?? ""}: ${Math.round(renderShare * 100)}%`} role="img">
                   <span className="lane-render-done" style={{ width: `${renderShare * 100}%` }} />
-                  <span className="lane-render-text" style={{ left: `${renderShare * 100}%` }}>{`${render.id ?? "render"} · ${Math.round(renderShare * 100)}%`}</span>
+                  <span className="lane-render-text" style={{ left: `${renderShare * 100}%` }}>{`${render.id ?? "render"} ${Math.round(renderShare * 100)}%`}</span>
                 </span>
               ) : null}
               {lane.marks.map((mark, index) => {
@@ -257,15 +257,15 @@ export function TimelineLanes({ model, data, scene, percent, trackWidth, onSeek,
                 seenTurns.add(mark.turn);
                 return (
                   <button key={`${mark.turn}/${index}`} type="button" className={`tb agent-mark${viewTurn === mark.turn ? " current" : ""}`} tabIndex={firstOfTurn ? 0 : -1}
-                    style={{ left: percent(mark.at) }} aria-pressed={viewTurn === mark.turn} title={`${mark.turn} · ${spanText([mark.at, mark.end], duration)}`}
+                    style={{ left: percent(mark.at) }} aria-pressed={viewTurn === mark.turn} title={`${mark.turn}, ${spanText([mark.at, mark.end], duration)}`}
                     aria-label={`${mark.turn}: ${agent.name} changed the scene at ${spanText([mark.at, mark.end], duration)}. Show this checkpoint.`}
                     onClick={(event) => { event.stopPropagation(); onTurn(mark.turn); }} />
                 );
               })}
               {block ? (
                 <span className="lane-now" style={{ left: percent(block.start), width: `calc(${percent(Math.min(duration, block.end))} - ${percent(block.start)})` }}
-                  title={`${agent.name} · ${block.label} · ${spanText([block.start, block.end], duration)}`} aria-label={`${agent.name} works on ${spanText([block.start, block.end], duration)} now`} role="img">
-                  <span className="lane-now-text">{block.label ? `${block.label} · now` : "now"}</span>
+                  title={`${agent.name}: ${block.label}, ${spanText([block.start, block.end], duration)}`} aria-label={`${agent.name} works on ${spanText([block.start, block.end], duration)} now`} role="img">
+                  <span className="lane-now-text">{block.label ? `${block.label}, now` : "now"}</span>
                 </span>
               ) : null}
             </div>

@@ -428,14 +428,14 @@ export function boardRows(inspire) {
   const saved = inspire?.saved ?? [];
   const savedSounds = saved.filter((id) => isSound(refs[id])).length;
   const rows = [
-    { key: "all", name: "All found", count: all.length, sub: `${all.length} · ${plural(searches.length, "search", "searches")}`, cover: cover(all) },
-    { key: "saved", name: "Saved", count: saved.length, sub: `${plural(saved.length - savedSounds, "video")} · ${plural(savedSounds, "sound")}`, cover: cover(saved) },
+    { key: "all", name: "All found", count: all.length, sub: `${all.length}, ${plural(searches.length, "search", "searches")}`, cover: cover(all) },
+    { key: "saved", name: "Saved", count: saved.length, sub: `${plural(saved.length - savedSounds, "video")}, ${plural(savedSounds, "sound")}`, cover: cover(saved) },
   ];
   for (const search of [...searches].reverse()) {
     const ids = search.ids ?? [];
     const count = search.count ?? ids.length;
     const names = ids.slice(0, 2).map((id) => String(refs[id]?.title ?? "").split(/[\s:|(]/).filter(Boolean)[0]).filter(Boolean);
-    const sub = search.state === "searching" ? "searching" : search.state === "failed" ? "failed" : [names.join(", "), String(count)].filter(Boolean).join(" · ");
+    const sub = search.state === "searching" ? "searching" : search.state === "failed" ? "failed" : [names.join(", "), String(count)].filter(Boolean).join(": ");
     rows.push({ key: `s${search.n}`, n: search.n, name: search.query, sub, count, cover: cover(ids), kind: kindOf(search), state: search.state });
   }
   return rows;

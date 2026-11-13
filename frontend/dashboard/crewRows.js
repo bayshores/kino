@@ -396,6 +396,6 @@ export function crewCard(member, plan) {
   const stepText = plan ? `step ${current < 0 ? plan.length : current + 1}/${plan.length}` : "";
   const last = member.last;
   const label = last?.label && last.label !== last.verb ? cut(last.label, 40) : "";
-  const now = ["working", "looking"].includes(member.state) && last ? [last.verb, label].filter(Boolean).join(" · ") : member.stateWords ?? member.state ?? "";
+  const now = ["working", "looking"].includes(member.state) && last ? [last.verb, label].filter(Boolean).join(": ") : member.stateWords ?? member.state ?? "";
   return { steps, stepText, now };
 }

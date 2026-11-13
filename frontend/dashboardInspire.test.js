@@ -100,7 +100,7 @@ test("boards: All found and Saved pinned, one board per search newest first, a f
     searches: [...inspire.searches, { n: 4, query: "whoosh", by: "you", kind: "sounds", state: "done", ids: [sound.id], count: 1 }] };
   const rows = boardRows(withSounds);
   assert.deepEqual(rows.map((row) => [row.key, row.sub]), [
-    ["all", "4 · 4 searches"], ["saved", "1 video · 1 sound"], ["s4", "Soft · 1"], ["s3", "searching"], ["s2", "Crossing, Cat · 2"], ["s1", "Asahi, Crossing · 2"],
+    ["all", "4, 4 searches"], ["saved", "1 video, 1 sound"], ["s4", "Soft: 1"], ["s3", "searching"], ["s2", "Crossing, Cat: 2"], ["s1", "Asahi, Crossing: 2"],
   ]);
   assert.deepEqual(rows[0].cover, ["yt:AAAAAAAAAAA", "yt:SSSSSSSSSSS"], "covers only thumbnails");
   assert.deepEqual(filterBoards(rows, "WALK").shown.map((row) => row.key), ["s1"]);
