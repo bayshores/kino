@@ -56,6 +56,32 @@ test("a still PNG time must be a finite number within the scene", async () => {
     /between 0 and 1 seconds/, "an explicit duration is the upper limit");
 });
 
+test("a JPEG still has the right size, the JPEG signature, the scene color where it is clear, and no transparency", async () => {
+  const scene = slidingScene({ x: 30 });
+  const result = await exportScene(scene, { format: "jpeg", width: 40, height: 20, time: 1 });
+  assert.equal(result.extension, "jpg");
+  assert.equal(result.mime, "image/jpeg");
+  assert.deepEqual([...result.buffer.subarray(0, 3)], [0xff, 0xd8, 0xff], "starts with the JPEG magic bytes");
+  const image = await readImage(result.buffer);
+  assert.deepEqual([image.width, image.height], [40, 20]);
+  assert.ok(near(image.pixel(39, 0), [0, 0, 0, 255], 12), "the scene's black background shows");
+  assert.ok(Math.abs(await barColumn(result.buffer) - 20) <= 2, "it is the frame at t=1 (bar middle at 2 + 18)");
+  // The same bar over a clear scene (background off) takes the scene's color, or black when there is none.
+  const clear = { ...scene, background: "#336699", backgroundEnabled: false };
+  assert.ok(near((await readImage((await exportScene(clear, { format: "jpeg", width: 40, height: 20 })).buffer)).pixel(39, 19), [0, 0, 0, 255], 12),
+    "a scene with no background fills with black");
+  const colored = { ...scene, background: "#336699", layers: [] };
+  assert.ok(near((await readImage((await exportScene(colored, { format: "jpeg", width: 40, height: 20 })).buffer)).pixel(20, 10), [51, 102, 153, 255], 12),
+    "a scene background shows");
+  const low = await exportScene(scene, { format: "jpeg", width: 40, height: 20, quality: 5 });
+  assert.ok(low.buffer.length < result.buffer.length, "a lower quality is a smaller file");
+  await assert.rejects(exportScene(scene, { format: "jpeg", transparent: true }), /JPEG cannot be transparent/);
+  await assert.rejects(exportScene(scene, { profile: "jpeg", transparent: true }), /JPEG cannot be transparent/);
+  await assert.rejects(exportScene(scene, { format: "jpeg", quality: 101 }), /JPEG quality/);
+  await assert.rejects(exportScene(scene, { format: "png", quality: 50 }), /Quality is available/);
+  await assert.rejects(exportScene(scene, { format: "jpeg", time: 5 }), /still image time/);
+});
+
 test("a PNG batch renders the shared time in each scene, clamped to that scene", async (t) => {
   const exportBatches = createExportBatches();
   t.after(() => exportBatches.close());

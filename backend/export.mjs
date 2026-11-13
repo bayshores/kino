@@ -71,13 +71,13 @@ import { keptRanges } from "../engine/keepLine.js";
 import { maskStyle, maskSwitchedOff } from "../engine/maskVisibility.js";
 import { captureLayerSvg, escapeXml, EXPORT_FRAME_URL, heldSceneTime, layerClocks, normalizeMediaHref, renderSceneSvg } from "../engine/render.js";
 import { hasMaterial } from "../engine/typeMaterial.js";
-import { backgroundLayer, isBackgroundEnabled, withoutBackground } from "../engine/sceneBackground.js";
+import { backgroundLayer, backgroundPaintAt, isBackgroundEnabled, withoutBackground } from "../engine/sceneBackground.js";
 import { ffmpegRate, readFps } from "../engine/frameRate.js";
 import { exportFrameCount, exportFrameTime, exportFrameTimes, exportProfile, resolveExportDimensions, validateExportDimensions } from "../engine/exportOptions.js";
 import { nativePngSize } from "../engine/nativePngSize.js";
 import { hasSceneFinish } from "../engine/sceneFinishFields.js";
 import { MAX_TIME } from "../engine/schema.js";
-import { assertStillDesign, assertStillFrameTime } from "../engine/stillFrame.js";
+import { assertStillDesign, assertStillFrameTime, isStillFormat } from "../engine/stillFrame.js";
 import { MORPH_SAME_SHOT, interpolateFrame, morphDissolveScene, morphFlows, morphJoins, shotDifference } from "../engine/morphCut.js";
 import { speechPieces } from "../engine/speech.js";
 import { archivePngSequence } from "./png-sequence.mjs";
@@ -127,6 +127,7 @@ const MIME_BY_EXT = {
 };
 const FORMAT_INFO = {
   png: { extension: "png", mime: "image/png" },
+  jpeg: { extension: "jpg", mime: "image/jpeg" },
   mp4: { extension: "mp4", mime: "video/mp4" },
   webm: { extension: "webm", mime: "video/webm" },
   mov: { extension: "mov", mime: "video/quicktime" },
@@ -1593,7 +1594,7 @@ async function loadSceneLuts(scene, mediaRoot, renderedIds, signal) {
 
 export function getOutputSize(scene, options) {
   if (options.size === "native") {
-    if (options.format !== "png") throw new Error("Native size applies only to still PNG exports.");
+    if (!isStillFormat(options.format)) throw new Error("Native size applies only to still PNG and JPEG exports.");
     return nativePngSize(scene);
   }
   if (options.format === "lottie") return {
@@ -3413,6 +3414,24 @@ function startCheckRasterizer(scene, directory, signal, render) {
   return starting;
 }
 
+const JPEG_TRANSPARENT_MESSAGE = "A JPEG cannot be transparent. Leave transparent out (see-through areas take the scene's background color, or black when it has none), or export a PNG.";
+
+// A JPEG has no transparency, so the drawn PNG frame is laid over black, then over the scene's
+// background color (kept as a safety net: an enabled background already painted the frame).
+async function jpegFromPng(png, background, quality) {
+  const image = await loadImage(png);
+  const canvas = createCanvas(image.width, image.height), context = canvas.getContext("2d");
+  context.fillStyle = "#000000";
+  context.fillRect(0, 0, image.width, image.height);
+  const paint = colorToRgba(background);
+  if (paint && paint[3] > 0) {
+    context.fillStyle = `rgba(${paint[0]}, ${paint[1]}, ${paint[2]}, ${paint[3]})`;
+    context.fillRect(0, 0, image.width, image.height);
+  }
+  context.drawImage(image, 0, 0);
+  return Buffer.from(await canvas.encode("jpeg", quality));
+}
+
 export async function exportScene(scene, options = {}, context = {}) {
   // Counted as a running render (render-activity.mjs), unless background work asked for it.
   const ended = isBackground() ? null : renderStarted();
@@ -3430,6 +3449,8 @@ async function exportSceneNow(
   // options, so they do not change what the file is asked to be.
   const machine = renderSettings(render);
   aborted(signal);
+  if (options.transparent && (options.profile ? exportProfile(options.profile).format : String(options.format ?? "").toLowerCase()) === "jpeg")
+    throw new Error(JPEG_TRANSPARENT_MESSAGE);
   if (options.profile) {
     const profile = exportProfile(options.profile);
     options = { ...options, format: profile.format, transparent: Boolean(profile.transparent) };
@@ -3445,7 +3466,8 @@ async function exportSceneNow(
   // A still renders one frame at this time; other formats render every frame and ignore it.
   // `design: true` asks a still for the design view instead (the Design canvas), which has no time.
   const stillTime = options.time === undefined ? 0 : options.time;
-  if (format === "png") assertStillFrameTime(stillTime, requestedDuration);
+  const still = isStillFormat(format);
+  if (still) assertStillFrameTime(stillTime, requestedDuration);
   assertStillDesign(options.design, format);
   const design = options.design === true;
   // A draft render draws tilted layers as check and look frames do (render.js triangleTiltTag): the
@@ -3539,9 +3561,9 @@ async function exportSceneNow(
   if (options.loop != null && typeof options.loop !== "boolean") throw new Error("Export loop must be true or false.");
   if (options.loop != null && !["gif", "apng"].includes(format)) throw new Error("Loop settings are available for GIF and APNG exports.");
   if (options.quality != null && (!Number.isInteger(options.quality) || options.quality < 1 || options.quality > 100))
-    throw new Error("GIF quality must be an integer between 1 and 100.");
-  if (options.quality != null && (format !== "gif" || options.transparent || options.gifEncoder === "ffmpeg"))
-    throw new Error("Quality is available for the standard GIF encoder.");
+    throw new Error(`${format === "jpeg" ? "JPEG" : "GIF"} quality must be an integer between 1 and 100.`);
+  if (options.quality != null && format !== "jpeg" && (format !== "gif" || options.transparent || options.gifEncoder === "ffmpeg"))
+    throw new Error("Quality is available for JPEG and the standard GIF encoder.");
   if (options.gifEncoder != null && !["gifski", "ffmpeg"].includes(options.gifEncoder))
     throw new Error("Unknown GIF encoder.");
   if (options.gifEncoder != null && format !== "gif") throw new Error("GIF encoder settings apply only to GIF exports.");
@@ -3619,12 +3641,12 @@ async function exportSceneNow(
   // Video pictures of a long export, extracted a window of frames at a time (videoPictureWindows).
   let pictureWindows = null;
   try {
-    const shownTimes = format === "png" ? [stillTime] : frameTimes;
+    const shownTimes = still ? [stillTime] : frameTimes;
     // The times each output frame's pictures are drawn at: with motion blur, its shutter samples.
     const samplesFor = (times) => options.motionBlur && format !== "lottie" ? shutterSamples(times, duration, fps, options.motionBlur,
       (time) => frameMotionSamples(scene, time, { ...options, fps, duration }, dimensions, fonts)) : times;
     const limits = { ...VIDEO_LIMITS, ...videoLimits };
-    const windowed = format !== "png" && format !== "lottie" && frameCount > 2 * limits.windowFrames;
+    const windowed = !still && format !== "lottie" && frameCount > 2 * limits.windowFrames;
     const media = await prepareMedia(lottieMediaScene, options, mediaRoot, {
       directory,
       format,
@@ -3645,7 +3667,7 @@ async function exportSceneNow(
     });
     if (media.videoPlans.length)
       pictureWindows = videoPictureWindows(media, { directory, frameTimes, windowFrames: limits.windowFrames, samplesFor, signal, limits, flowCacheDir });
-    exportFacts = { ...(format !== "lottie" ? { renderedFrames: format === "png" ? 1 : frameCount } : {}),
+    exportFacts = { ...(format !== "lottie" ? { renderedFrames: still ? 1 : frameCount } : {}),
       hasAudio: ["mp4", "webm", "mov"].includes(format) && audibleClips(media.audio, frameCount / fps, audioStart).length > 0 };
     if (format === "lottie" && (options.motionBlur || options.dither)) warnings.push({ code: "lottie-quality", message: "Lottie keeps editable vector animation; motion blur and dither apply to raster formats only." });
     if (format === "lottie") {
@@ -3702,12 +3724,12 @@ async function exportSceneNow(
       // same time leaves room for them. They draw on the card context.render.graphics names.
       // A worker that stops (a crash, or a frame out of time) is replaced and its frame drawn again
       // (chromium-raster.mjs createPool); the result says so in a warning.
-      const workers = format === "png" ? 1 : rasterWorkers ?? chooseRasterWorkers({ frames: frameCount, width: dimensions.width, height: dimensions.height,
+      const workers = still ? 1 : rasterWorkers ?? chooseRasterWorkers({ frames: frameCount, width: dimensions.width, height: dimensions.height,
         framesAtOnce: machine.framesAtOnce, keepFreePercent: machine.keepFreePercent });
       rasterizer = await createChromiumRasterizer({ directory: join(directory, "chromium"), mediaDirectory: directory, signal, workers,
         graphics: machine.graphics, claim: claimRasterWorkers(workers), onWorkerStopped: workerStopped });
     }
-    if (format === "png") {
+    if (still) {
       aborted(signal);
       report({ stage: "render", completed: 0, total: 1 });
       const result = await renderQualityFrame(scene, stillTime, media, fonts, dimensions, { ...options, fps, duration }, { design, rasterizer, signal, previewBlur, draft });
@@ -3715,6 +3737,8 @@ async function exportSceneNow(
       report({ stage: "render", completed: 1, total: 1 });
       // Await inside the try: an aborted write must be observed before the asynchronous
       // finally cleanup runs, otherwise its rejection can terminate the batch service.
+      if (format === "jpeg")
+        return await finishBuffer(await jpegFromPng(result.buffer, backgroundPaintAt(scene, stillTime, { design }), options.quality ?? 90));
       return await finishBuffer(result.buffer);
     }
     const frameDirectory = sequenceDirectory ?? directory;

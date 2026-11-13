@@ -2,8 +2,8 @@
 
 Contents: Render ladder and queue (batch exports: workspace reference)
 
-Videos and stills come from `render` (the person sees each job in the dashboard). `out` must be
-an absolute folder (the `kino` command resolves a relative one or `~` for you).
+Videos and stills come from `render` (the person sees each job in the dashboard). `out` is an
+absolute folder (the `kino` command resolves a relative one or `~`).
 
 ## Render ladder and queue
 
@@ -48,8 +48,8 @@ an absolute folder (the `kino` command resolves a relative one or `~` for you).
 {"action":"start","quality":"final","format":"png","options":{"time":1.2,"shutterAngle":180,"motionSamples":8}}
 ```
 - `scene:"all"` exports up to 20 scenes as separate files. Unchanged scenes reuse checked
-  segments, including after app restart. `wait` reports `cachedScenes`, `redrawnScenes`, and
-  `files` with checks; reused files report zero newly rendered frames. Use the returned job ID:
+  segments, including after app restart. `wait` reports `cachedScenes`, `redrawnScenes` and
+  `files` with checks (reused files: zero newly rendered frames). Use the returned job ID:
 
 ```json
 {"action":"start","scene":"all","quality":"draft","format":"mp4"}
@@ -60,9 +60,10 @@ an absolute folder (the `kino` command resolves a relative one or `~` for you).
 - `queue` lists recent jobs; `status` shows one; `cancel` stops work (a job that already
   finished answers `Nothing to cancel` with its saved files). Two exports run at once. Restart
   interrupted jobs to reuse finished scenes; job history persists.
-- Formats: mp4, webm, mov, gif, png, apng, png-sequence (ZIP), lottie (native vector canvas;
-  no blur/dither). `options` passes existing settings such as transparent, profile, loop, GIF
-  quality, PNG time, and imageDPIRatio.
+- Formats: mp4, webm, mov, gif, png, jpeg, apng, png-sequence (ZIP), lottie (native vector canvas;
+  no blur/dither). `options` passes transparent, profile, loop, GIF quality, PNG time, imageDPIRatio.
+  A jpeg still (`.jpg`) takes a png's options plus `quality` 1..100 (default 90); clear areas
+  take the scene background, else black; `transparent:true` is refused.
 - MP4 only: `options:{videoEncoder, videoQuality}` replace the person's export defaults for
   one render. `videoEncoder` is "auto", "software" (libx264) or a hardware family:
   "videotoolbox" (Mac), "nvenc", "qsv", "amf" or "vaapi". A named encoder that does not work on
@@ -77,8 +78,7 @@ an absolute folder (the `kino` command resolves a relative one or `~` for you).
 
 - The graphics card, frames at once and memory to leave free are the person's dashboard
   settings; you cannot change them. `wait` says what drew each file and what encoded it, such as `drawn on Apple M3 Pro (Metal) (graphics card), 1 frame at once; encoded
-  with h264_videotoolbox, standard quality` (frames at once: the most workers drawing at the
-  same time). A `graphics-card-not-used`
+  with h264_videotoolbox, standard quality`. A `graphics-card-not-used`
   warning means the processor drew although this computer has a card: tell the person
   (docs/running.md says how).
 - File checks cover dimensions, frames, duration, codec, audio-stream offset and sound peak

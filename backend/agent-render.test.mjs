@@ -13,7 +13,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PRIVATE_TMP = path.join(ROOT, ".local", "tmp");
 const PROJECT_ID = "a6-agent-render";
 const OWNER_TOKEN = "a6-agent-render-test-owner";
-const FORMATS = ["mp4", "webm", "mov", "gif", "png", "apng", "png-sequence", "lottie"];
+const FORMATS = ["mp4", "webm", "mov", "gif", "png", "jpeg", "apng", "png-sequence", "lottie"];
 
 async function startServer(dataDirectory) {
   const env = { ...process.env };
@@ -196,6 +196,20 @@ test("the agent render endpoint exports, reuses, queues, cancels, and recovers r
     `requested PNG time evaluates the fade (${startShapePixel[3]} alpha at 0s, ${middleShapePixel[3]} at 0.2s)`);
   assert.deepEqual(middleImage.pixel(0, 0), [0, 0, 0, 0], "transparent pixels remain transparent at the requested time");
 
+  // A JPEG still takes the same options (time) and quality; it has no transparency.
+  const jpegStill = await renderAndWait({ project: PROJECT_ID, scene: sceneA, quality: "final", format: "jpeg", options: { time: 0.2, quality: 80 } });
+  const jpegFile = jpegStill.data.files[0];
+  assert.match(jpegFile.path, /\.jpg$/);
+  const jpegBytes = await readFile(jpegFile.path);
+  assert.deepEqual([...jpegBytes.subarray(0, 3)], [0xff, 0xd8, 0xff], "the file is a JPEG");
+  const jpegImage = await readImage(jpegBytes);
+  assert.deepEqual([jpegImage.width, jpegImage.height], [96, 64]);
+  assert.ok(jpegImage.pixel(0, 0)[3] === 255 && jpegImage.pixel(0, 0)[2] > 0, "the corner shows the scene background (#101820)");
+  const jpegTransparent = await (await server.api("/api/agent/render", { project: PROJECT_ID, action: "start", scene: sceneA, quality: "final", format: "jpeg",
+    options: { transparent: true } })).json();
+  assert.equal(jpegTransparent.isError, true);
+  assert.match(jpegTransparent.text, /JPEG cannot be transparent/);
+
   // With no quality overrides, final is full-size. A second render with the documented
   // defaults must produce the same deterministic APNG bytes: blur 0.5 and dither enabled.
   const finalApng = await renderAndWait({ project: PROJECT_ID, scene: sceneA, quality: "final", format: "apng" });
@@ -229,7 +243,7 @@ test("the agent render endpoint exports, reuses, queues, cancels, and recovers r
     const expectedDraftSize = format === "lottie" ? { width: 96, height: 64 } : { width: 48, height: 32 };
     assert.deepEqual({ width: file.width, height: file.height }, expectedDraftSize,
       `${format} uses its draft output dimensions`);
-    if (format !== "png") assert.equal(file.fps, 30, `${format} uses draft frame rate`);
+    if (!["png", "jpeg"].includes(format)) assert.equal(file.fps, 30, `${format} uses draft frame rate`);
   }
 
   const firstAllScenes = await renderAndWait({ project: PROJECT_ID, scene: "all", quality: "final", format: "mp4" });

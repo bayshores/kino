@@ -6,7 +6,7 @@ import { exportFrameTimes, exportProfile } from "../engine/exportOptions.js";
 import { parseFps, readFps } from "../engine/frameRate.js";
 import { nextMp4Encoder } from "../engine/mp4Encoders.js";
 import { archiveFileNames } from "../engine/exportNames.js";
-import { assertBatchStillTime, assertStillDesign, stillOptionsForScene, thumbnailFrame } from "../engine/stillFrame.js";
+import { assertBatchStillTime, assertStillDesign, isStillFormat, stillOptionsForScene, thumbnailFrame } from "../engine/stillFrame.js";
 import { exportScene, getOutputSize } from "./export.mjs";
 import { checkVideoEncoderOptions, getMp4Encoders } from "./mp4-encoders.mjs";
 import { archiveFiles } from "./zip.mjs";
@@ -90,6 +90,8 @@ function exportOptions(value = {}) {
   const options = { format: "mp4", ...value };
   if (options.profile) options.format = exportProfile(options.profile).format;
   else exportProfile(options.format);
+  if (options.format === "jpeg" && options.transparent)
+    throw requestError("A JPEG cannot be transparent. Leave transparent out (see-through areas take the scene's background color, or black when it has none), or export a PNG.");
   if (options.renderQuality !== undefined && !["draft", "final"].includes(options.renderQuality))
     throw requestError("Render quality must be draft or final.");
   // 29.97, "30000/1001" and {num, den} become frames a second here (frameRate.js).
@@ -240,7 +242,7 @@ function jobFrameCount(jobOptions, scene) {
  */
 export function plannedFrameCount(scene, options = {}) {
   const jobOptions = sceneOptions(exportOptions(options), scene);
-  return jobOptions.format === "png" ? 1 : jobFrameCount(jobOptions, scene);
+  return isStillFormat(jobOptions.format) ? 1 : jobFrameCount(jobOptions, scene);
 }
 
 function validationOptions(job, output) {
@@ -253,7 +255,7 @@ function validationOptions(job, output) {
   return {
     format,
     ...size,
-    ...(format === "png" ? {} : { fps, frameCount, duration: frameCount / fps }),
+    ...(isStillFormat(format) ? {} : { fps, frameCount, duration: frameCount / fps }),
     ...(typeof output.hasAudio === "boolean" ? { hasAudio: output.hasAudio } : {}),
     // The sound's loudness target, so the file check warns when the encoded master misses it.
     // The target the export used (a song-led mix's is the song's own, not in LOUDNESS_TARGETS).
