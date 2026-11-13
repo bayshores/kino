@@ -6,7 +6,7 @@
 //        [--wait "<css selector>"] [--keys "F2"] [--click "<css selector>;<css selector>"] [--hold]
 //
 // It runs on its own temporary profile (--user-data-dir), so it never takes over a kino app that
-// is already open or its runtime.json. --data is the kino data folder to show (MOTION_DATA_DIR);
+// is already open or its runtime.json. Without --hold the window is invisible and cannot take focus. --data is the kino data folder to show (MOTION_DATA_DIR);
 // without it, a new empty one is made and deleted afterwards. --keys presses keys (comma
 // separated, Playwright names) before the shot; --click then clicks each selector (; separated). --hold keeps the app open until Ctrl-C.
 import { mkdtemp, rm } from "node:fs/promises";
@@ -44,6 +44,10 @@ const app = await electron.launch({
 });
 try {
   const window = await app.firstWindow();
+  // A test window never takes the person's typing or shows on their screen (--hold is for looking by eye).
+  if (!settings.hold) await app.evaluate(({ BrowserWindow }) => {
+    for (const each of BrowserWindow.getAllWindows()) { each.setFocusable(false); each.blur(); each.setOpacity(0); }
+  });
   await app.evaluate(({ BrowserWindow }, size) => {
     for (const each of BrowserWindow.getAllWindows()) each.setContentSize(size.width, size.height);
   }, { width, height });
