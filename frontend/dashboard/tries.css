@@ -1,7 +1,7 @@
 /* The sketch screen (tries.jsx): small steps for the rounds on top, the versions side by side (a
-   sketch round shows one large and the others small, a clip round all the same size), and the
-   agent's question under them with "None of these" and "Skip". Nothing moves until play is
-   pressed. Colors come from .dash. */
+   sketch round shows one large and the others stacked beside it, a clip round all the same
+   size), and the agent's question with "None of these" and "Skip" (above the sketches, under
+   the clips). Nothing moves until play is pressed. Colors come from .dash. */
 .dash .screen-wrap > .screen.try-screen { display: flex; flex-direction: column; gap: 14px; height: 100%; box-sizing: border-box; padding: 12px 24px 16px; overflow: auto; }
 
 /* ---- the rounds ---- */
@@ -30,11 +30,37 @@
 .try-option figcaption .ui-btn { min-height: 40px; padding: 0 18px; flex: none; }
 .try-clock { flex: none; font-family: var(--mono-ui); font-size: 12px; color: var(--fg1); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
-/* A sketch round: the one shown is large, in the middle of the line of sight. */
-.try-sketches .try-option.shown { flex-grow: 2.86; }
-.try-sketches .try-option:not(.shown) .try-video { opacity: 0.72; transition: opacity var(--quick) var(--ease-in); }
-.try-sketches .try-option:not(.shown):hover .try-video { opacity: 1; }
-.try-sketches .try-option.shown .try-name { color: var(--fg0); font-size: 24px; line-height: 30px; font-weight: 700; letter-spacing: -0.015em; -webkit-line-clamp: 2; }
+/* A sketch round reads as a choice: the question on top, the sketch being watched large on the
+   left, the others stacked beside it, a letter and a "Pick" button on each. The sizes come from
+   the room there is: --hb is the large sketch's height (the height left, or the width shared
+   with the stack, whichever is less), --hs a stacked one's, so the stack ends on the large one's
+   caption line. --ar (width over height), --n (how many) and --room (the height left for the
+   sketches and their captions, measured) are set by tries.jsx. */
+.try-sketches {
+  container-type: inline-size; justify-content: flex-start; gap: 12px;
+  --cap: 66px; --gy: 12px; --gx: 24px; --rest: max(1, var(--n) - 1);
+  --hb: max(140px, min(var(--room, calc(100vh - 244px)) - var(--cap), (100cqw - var(--gx) + var(--ar) * (var(--n) - 2) * (var(--cap) + var(--gy)) / var(--rest)) / (var(--ar) * var(--n) / var(--rest))));
+  --hs: calc((var(--hb) - (var(--n) - 2) * (var(--cap) + var(--gy))) / var(--rest));
+  --wide: calc(var(--hb) * var(--ar) + var(--gx) + var(--hs) * var(--ar));
+}
+.try-sketches .try-options { display: grid; grid-template-columns: auto auto; justify-content: start; align-items: start; gap: var(--gy) var(--gx); width: var(--wide); margin: 0 auto; }
+.try-sketches .try-option { grid-column: 2; flex: none; width: calc(var(--hs) * var(--ar)); transition: none; }
+.try-sketches .try-option.shown { grid-column: 1; width: calc(var(--hb) * var(--ar)); }
+.try-sketches .try-video { height: var(--hs); }
+.try-sketches .try-option.shown .try-video { height: var(--hb); }
+.try-sketches .try-video video { width: 100%; height: 100%; max-height: none; }
+.try-sketches .try-option figcaption { align-items: center; gap: 12px; height: 54px; font-size: 14px; line-height: 18px; color: var(--fg0); }
+.try-sketches .try-option figcaption .ui-btn { min-height: 36px; padding: 0 14px; }
+.try-letter { display: inline-grid; place-items: center; width: 32px; height: 32px; flex: none; font: 500 15px/1 var(--mono-ui); color: var(--fg0); box-shadow: inset 0 0 0 1px var(--fg0); }
+.try-option.shown .try-letter { background: var(--solid); color: var(--on-solid); box-shadow: none; }
+/* Four sketches leave a stacked name little room: its button already says the letter. */
+.try-sketches .count-4 .try-option:not(.shown) .try-letter { display: none; }
+.try-sketches .try-option.shown .try-name { font-size: 22px; line-height: 27px; font-weight: 700; letter-spacing: -0.015em; -webkit-line-clamp: 2; }
+.try-sketches .try-rounds, .try-sketches .try-ask, .try-sketches .try-shots { box-sizing: border-box; width: var(--wide); max-width: 100%; margin: 0 auto; }
+.try-sketches > * { flex: none; }
+.try-sketches .try-ask { justify-content: flex-start; min-height: 0; padding-top: 0; }
+.try-sketches .try-shots { margin-top: 0; }
+.try-stretch { position: absolute; top: -5px; height: 3px; background: var(--yellow); }
 /* The whole sketch is its play button. The icon shows while paused, on hover and on focus. */
 .try-play { position: absolute; inset: 0; display: grid; place-items: center; padding: 0; border: 0; background: transparent; color: #fff; cursor: pointer; }
 .try-play-icon { width: 16px; height: 16px; fill: currentColor; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
@@ -62,7 +88,8 @@
 
 /* ---- the question ---- */
 .try-ask { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 10px 20px; min-height: 76px; padding-top: 14px; flex: none; min-width: 0; }
-.try-ask .voice-line { max-width: 100%; }
+/* The question is as wide as its words (stage.css stretches the stage's sentence in a narrow window). */
+.try-ask .voice-line { flex: 0 1 auto; max-width: 100%; }
 .try-ask.answered .voice-line { color: var(--fg-mid); background: none; font-weight: 500; }
 /* The note sent with the answer: the storyboard stop's underlined box (board.css .stop-note). */
 .try-note { box-sizing: border-box; display: flex; align-items: center; flex: 0 1 320px; min-width: 160px; height: 36px; padding: 0 4px; box-shadow: inset 0 -1px 0 var(--line); transition: box-shadow var(--quick) var(--ease-in); }
@@ -75,6 +102,10 @@
 
 /* A phone: the versions under each other, two a row in a clip round. */
 .phone .try-options { flex-wrap: wrap; align-items: flex-start; }
-.phone .try-sketches .try-option, .phone .try-sketches .try-option.shown { flex: 1 1 100%; }
+.phone .try-sketches .try-options { display: flex; width: auto; }
+.phone .try-sketches .try-option, .phone .try-sketches .try-option.shown { flex: 1 1 100%; width: auto; }
+.phone .try-sketches .try-video, .phone .try-sketches .try-option.shown .try-video { height: auto; }
+.phone .try-sketches .try-video video { height: auto; }
+.phone .try-sketches .try-ask, .phone .try-sketches .try-shots { width: auto; }
 .phone .try-clips .try-option { flex: 1 1 40%; }
 @media (prefers-reduced-motion: reduce) { .try-option { transition: none; } }

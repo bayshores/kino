@@ -57,6 +57,7 @@ import { StopCard, StopDone, StopElsewhere, StopScreen, StopsCard, StopSettings 
 import { BoardScreen } from "./board.jsx";
 import { directionWords } from "./boardRows.js";
 import { TryScreen } from "./tries.jsx";
+import { followTry } from "./tryRows.js";
 import { LibraryScreen } from "./library.jsx";
 import { CrewScreen } from "./crew.jsx";
 import { InspireScreen } from "./inspire.jsx";
@@ -725,6 +726,16 @@ export function Dashboard() {
       notify("request", `${entry.round.id} needs you in ${entry.name}`, String(entry.round.ask ?? "").split("\n")[0], () => load(entry.projectId));
     }
   }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // A round that starts waiting for a pick opens by itself, while follow is on and the person is
+  // on the stage; the stage comes back when that round is answered (tryRows.js followTry).
+  const autoTry = useRef({ seen: null, opened: null });
+  useEffect(() => {
+    if (!data) return;
+    const round = openTryOf(data);
+    const name = followTry(autoTry.current, { waiting: round?.status === "waiting" ? `${data.projectId}:${round.id}` : null, follow, screen: screen.name });
+    if (name) setScreen({ name });
+  }, [data, follow, screen.name]);
 
   // ---- actions -------------------------------------------------------------------------------------
   const focusPane = useCallback((number) => {

@@ -1,15 +1,17 @@
 // The sketch screen (backend/agent/tries.mjs, sketches.mjs): the agent's question about one
 // moment of the video, and 2 to 4 versions of it side by side. The person picks one, says none of
 // these, or skips; the agent hears it and applies the pick, so the video is built up round by
-// round. The question is the line under the versions, in the agent's color, with the answers
-// beside it; the rounds so far, the one open and the topics planned next are small steps on top.
+// round. The question is the agent's line with the answers beside it (above the sketches of a
+// sketch round, under the clips of a clip round); the rounds so far, the one open and the topics
+// planned next are small steps on top.
 //
 // Data flow: agent.tries in the snapshot and the "tries" event (state.js) → this screen. The clips
 // are GET /api/dashboard/try/<project>/<T1-B.mp4>; an answer is notes {action:"try", round, pick}
 // (Dashboard.jsx). A sketch round's clips (SketchRound) carry their sound: one is shown large, a
 // click on another brings it forward and plays it, and nothing plays by itself. A clip round's
 // clips (ClipRound) are silent and play together on one clock.
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { clockWords } from "./boardRows.js";
 import { Btn } from "./controls.jsx";
 import { ANSWER_WORDS, answerWords, roundList, shownRound } from "./tryRows.js";
@@ -30,20 +32,22 @@ export function TryScreen({ projectId, tries, shots = [], onAnswer }) {
   useEffect(() => { if (!ref.current?.contains(document.activeElement)) ref.current?.focus(); }, []);
   const round = shownRound(tries);
   const list = roundList(tries, round);
+  const steps = list.length > 1 ? (
+    <ol className="try-rounds" aria-label="Rounds">
+      {list.map((entry, index) => (
+        <li key={entry.key} className={`is-${MARKS[entry.mark] ?? "later"}${entry.current ? " current" : ""}`} aria-current={entry.current ? "step" : undefined}>
+          <span className="try-step" aria-hidden="true">{entry.mark === "✓" ? <ToolIcon name="check" /> : index + 1}</span>
+          <span className="try-topic">{entry.text}</span>
+        </li>
+      ))}
+    </ol>
+  ) : null;
+  // A sketch round sets the steps itself, on the left edge of its sketches.
   return (
     <section ref={ref} className="screen try-screen" tabIndex={-1} aria-labelledby="screen-title">
       <h2 id="screen-title" className="sr-only">Sketches</h2>
-      {list.length > 1 ? (
-        <ol className="try-rounds" aria-label="Rounds">
-          {list.map((entry, index) => (
-            <li key={entry.key} className={`is-${MARKS[entry.mark] ?? "later"}${entry.current ? " current" : ""}`} aria-current={entry.current ? "step" : undefined}>
-              <span className="try-step" aria-hidden="true">{entry.mark === "✓" ? <ToolIcon name="check" /> : index + 1}</span>
-              <span className="try-topic">{entry.text}</span>
-            </li>
-          ))}
-        </ol>
-      ) : null}
-      {round ? <TryRound key={round.id} projectId={projectId} round={round} shots={shots} onAnswer={onAnswer} />
+      {round?.sketch ? null : steps}
+      {round ? <TryRound key={round.id} projectId={projectId} round={round} shots={shots} onAnswer={onAnswer} steps={round.sketch ? steps : null} />
         : <p className="try-none">No sketches yet. Your agent shows them here when a moment has more than one good way to go.</p>}
     </section>
   );
@@ -76,11 +80,27 @@ function Ask({ round, open, answer, sent, note, onNote, onChoose }) {
   );
 }
 
-// A sketch round: each option is a 2 to 10 s sketch of one treatment with its sound. One sketch
-// is shown large; a click on a sketch brings it forward and plays it (the others stop, so only
-// one is heard), a second click pauses. Before it is played a sketch shows its middle frame, so
-// sketches that start alike do not look alike. "Pick" under the large one picks it.
-function SketchRound({ projectId, round, onAnswer }) {
+/** The video's shots as a thin row, with the stretch (or the one moment) the round is about in the agent's color. */
+function Shots({ shots, from, to }) {
+  const total = shots.length ? Math.max(...shots.map((shot) => shot.cue + shot.dur)) : 0;
+  if (!(total > 0)) return null;
+  const left = Math.min(100, (from / total) * 100);
+  return (
+    <div className="try-shots" aria-hidden="true">
+      {shots.map((shot, index) => <span key={shot.id ?? index} className="try-shot" style={{ left: `${(shot.cue / total) * 100}%`, width: `${(shot.dur / total) * 100}%` }}>{shot.dur / total > 0.015 ? index + 1 : null}</span>)}
+      {to > from ? <span className="try-stretch" style={{ left: `${left}%`, width: `${Math.min(100 - left, ((to - from) / total) * 100)}%` }} />
+        : <span className="try-at" style={{ left: `${left}%` }} />}
+    </div>
+  );
+}
+
+// A sketch round: each option is a 2 to 10 s sketch of one treatment with its sound. It reads as
+// a choice: the question is on top, every sketch has its letter and its own "Pick" button, the
+// one being watched is large on the left and the others are stacked beside it. A click on a
+// sketch brings it forward and plays it (the others stop, so only one is heard), a second click
+// pauses. Before it is played a sketch shows its middle frame, so sketches that start alike do
+// not look alike. The row of shots under them marks the stretch of the video the pick decides.
+function SketchRound({ projectId, round, shots, onAnswer, steps }) {
   const videos = useRef(new Map());
   const started = useRef(new Set());
   const [shown, setShown] = useState(() => (round.options.some((option) => option.letter === round.pick) ? round.pick : round.options[Math.floor((round.options.length - 1) / 2)]?.letter));
@@ -88,13 +108,21 @@ function SketchRound({ projectId, round, onAnswer }) {
   const [time, setTime] = useState(0);
   const [sent, setSent] = useState(null);
   const [note, setNote] = useState("");
+  // Width over height of the sketches (16:9 until the first one has loaded): the sizes are worked out from it (tries.css).
+  const [ratio, setRatio] = useState(16 / 9);
   const open = round.status === "waiting" && !sent;
   const answer = sent ?? (round.pick ? answerWords(round) : null);
   const length = Math.max(0.1, round.to - round.from);
   const stopAll = () => { for (const video of videos.current.values()) video.pause(); setPlaying(null); };
+  // Another sketch comes forward: the two change places in one move, where the app can (and motion is wanted).
+  const bringForward = (letter) => {
+    const calm = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    if (letter === shown || calm || !window.document.startViewTransition) { setShown(letter); return; }
+    window.document.startViewTransition(() => flushSync(() => setShown(letter)));
+  };
   const toggle = (letter) => {
     const video = videos.current.get(letter);
-    setShown(letter);
+    bringForward(letter);
     if (!video) return;
     if (playing === letter) { stopAll(); return; }
     stopAll();
@@ -105,20 +133,44 @@ function SketchRound({ projectId, round, onAnswer }) {
   };
   const choose = (pick, words) => { stopAll(); setSent(words); onAnswer(round, pick, note.trim()); };
   useEffect(() => () => stopAll(), []);
+  // The height left for the sketches: the round's own, less the question and the row of shots
+  // (and the gaps between them). tries.css works the sizes out from it, so nothing is cut off
+  // when the question wraps or the window is short.
+  const frame = useRef(null);
+  const [room, setRoom] = useState(null);
+  useLayoutEffect(() => {
+    const node = frame.current;
+    if (!node || typeof ResizeObserver === "undefined") return undefined;
+    const rest = [...node.children].filter((each) => !each.classList.contains("try-options"));
+    const fit = () => {
+      const gap = parseFloat(getComputedStyle(node).rowGap) || 0;
+      setRoom(Math.round(node.clientHeight - rest.reduce((sum, each) => sum + each.offsetHeight + gap, 0)));
+    };
+    const watch = new ResizeObserver(fit);
+    for (const each of [node, ...rest]) watch.observe(each);
+    return () => watch.disconnect();
+  }, [open, shots.length > 0, round.status, Boolean(steps)]);
   return (
-    <div className="try-round try-sketches">
+    <div ref={frame} className="try-round try-sketches" style={{ "--ar": ratio, "--n": round.options.length, ...(room ? { "--room": `${room}px` } : {}) }}>
+      {steps}
       {round.status === "failed" ? <p className="err">These sketches could not be made: {round.error}.</p> : null}
+      <Ask round={round} open={open} answer={answer} sent={sent} note={note} onNote={setNote} onChoose={choose} />
       <div className={`try-options count-${round.options.length}`}>
         {round.options.map((option) => {
           const on = shown === option.letter;
           const plays = playing === option.letter;
           return (
-            <figure key={option.letter} className={`try-option${on ? " shown" : ""}${round.pick === option.letter ? " picked" : ""}${plays ? " playing" : ""}`}>
+            <figure key={option.letter} className={`try-option${on ? " shown" : ""}${round.pick === option.letter ? " picked" : ""}${plays ? " playing" : ""}`}
+              style={{ viewTransitionName: `try-${option.letter}`, ...(on ? { gridRow: `1 / span ${Math.max(1, round.options.length - 1)}` } : {}) }}>
               <div className="try-video">
                 {option.ready ? (<>
                   <video ref={(element) => { if (element) videos.current.set(option.letter, element); else videos.current.delete(option.letter); }}
                     src={clipUrl(projectId, option.file)} playsInline preload="auto" aria-hidden="true"
-                    onLoadedMetadata={(event) => { if (!started.current.has(option.letter)) event.currentTarget.currentTime = (event.currentTarget.duration || length) / 2; }}
+                    onLoadedMetadata={(event) => {
+                      const { videoWidth, videoHeight, duration } = event.currentTarget;
+                      if (videoWidth > 0 && videoHeight > 0) setRatio(videoWidth / videoHeight);
+                      if (!started.current.has(option.letter)) event.currentTarget.currentTime = (duration || length) / 2;
+                    }}
                     onTimeUpdate={(event) => { if (plays) setTime(event.currentTarget.currentTime); }}
                     onEnded={() => setPlaying((now) => (now === option.letter ? null : now))} />
                   <button type="button" className="try-play" aria-pressed={plays}
@@ -129,16 +181,17 @@ function SketchRound({ projectId, round, onAnswer }) {
                 </>) : <span className="try-missing">{option.error ? "Could not be made" : "Making it"}</span>}
               </div>
               <figcaption>
+                <span className="try-letter" aria-hidden="true">{option.letter}</span>
                 <span className="try-name" title={option.name}>{option.name}</span>
                 {on && plays ? <span className="try-clock" aria-live="off">{clockWords(time)} / {clockWords(length)}</span> : null}
                 {round.pick === option.letter ? <span className="ui-chip accent">Picked</span>
-                  : on && open && option.ready ? <Btn kind="primary" icon="check" onClick={() => choose(option.letter, `${option.letter}, ${option.name}`)} aria-label={`Pick ${option.letter}: ${option.name}`}>Pick</Btn> : null}
+                  : open && option.ready ? <Btn kind={on ? "primary" : ""} icon={on ? "check" : undefined} onClick={() => choose(option.letter, `${option.letter}, ${option.name}`)} aria-label={`Pick ${option.letter}: ${option.name}`}>Pick {option.letter}</Btn> : null}
               </figcaption>
             </figure>
           );
         })}
       </div>
-      <Ask round={round} open={open} answer={answer} sent={sent} note={note} onNote={setNote} onChoose={choose} />
+      <Shots shots={shots} from={round.from} to={round.to} />
     </div>
   );
 }
@@ -183,7 +236,6 @@ function ClipRound({ projectId, round, shots, onAnswer }) {
     onAnswer(round, pick, note.trim());
   };
   const moment = ((round.at - round.from) / length) * 100;
-  const total = shots.length ? Math.max(...shots.map((shot) => shot.cue + shot.dur)) : 0;
   return (
     <div className="try-round try-clips">
       {round.status === "failed" ? <p className="err">These options could not be made: {round.error}.</p> : null}
@@ -214,12 +266,7 @@ function ClipRound({ projectId, round, shots, onAnswer }) {
         </span>
         <span className="try-clock">{clockWords(time)} / {clockWords(length)}</span>
       </div>
-      {total > 0 ? (
-        <div className="try-shots" aria-hidden="true">
-          {shots.map((shot, index) => <span key={shot.id ?? index} className="try-shot" style={{ left: `${(shot.cue / total) * 100}%`, width: `${(shot.dur / total) * 100}%` }}>{index + 1}</span>)}
-          <span className="try-at" style={{ left: `${(round.at / total) * 100}%` }} />
-        </div>
-      ) : null}
+      <Shots shots={shots} from={round.at} to={round.at} />
       <Ask round={round} open={open} answer={answer} sent={sent} note={note} onNote={setNote} onChoose={choose} />
     </div>
   );
