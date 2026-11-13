@@ -773,19 +773,21 @@ async function importPieceMedia(files) {
     const { id, mime, name } = file;
     const extension = mediaTypes[mime];
     if (!extension || id.split(".").pop() !== extension)
-      throw new Error(`The piece file's media/${id} is not a kind kino accepts (${String(mime).slice(0, 40)}). Pieces hold images, video, audio, fonts and .cube LUTs.`);
+      throw new Error(`The piece file's media/${id} is not a kind kino accepts (${String(mime).slice(0, 40)}). Pieces hold images, video, audio, fonts, .cube LUTs and .glb models.`);
     let bytes = file.bytes;
     if (bytes.length > MAX_UPLOAD_BYTES) throw new Error(`The piece file's media/${id} is larger than ${MAX_UPLOAD_BYTES} bytes.`);
-    const plain = mime.startsWith("font/") || mime === "image/svg+xml" || mime === LUT_MIME;
+    // Fonts, SVGs, LUTs and models have checks of their own below (a model: glb-model.mjs).
+    const plain = mime.startsWith("font/") || mime === "image/svg+xml" || mime === LUT_MIME || mime === MODEL_MIME;
     if (!plain && !mediaSignatureMatches(mime, bytes.subarray(0, 64))) throw new Error(`The piece file's media/${id} is not really ${mime}: its first bytes do not match.`);
     const svgAsset = mime === "image/svg+xml" ? prepareSvgAsset(bytes, { fontFiles: [] }) : null;
     if (svgAsset) bytes = svgAsset.buffer;
     if (mime.startsWith("font/")) { try { new FontRegistry().register(bytes); } catch { throw new Error(`The piece file's media/${id} does not contain a supported font face.`); } }
     const lut = mime === LUT_MIME ? parseCubeLut(bytes.toString("utf8")) : null;
+    const model = mime === MODEL_MIME ? checkGlbModel(bytes) : null;
     let existing = null;
     try { existing = await readFile(path.join(mediaRoot, id)); } catch (error) { if (error.code !== "ENOENT") throw error; }
     if (existing && !existing.equals(bytes)) throw new Error(`The piece file's media/${id} clashes with a different file of the same name already in the library, so it was not imported.`);
-    prepared.push({ id, mime, name, bytes, svgAsset, lut, exists: existing !== null });
+    prepared.push({ id, mime, name, bytes, svgAsset, lut, model, exists: existing !== null });
   }
   const written = [];
   try {
@@ -798,7 +800,8 @@ async function importPieceMedia(files) {
       if (/^(?:image|video|audio)\//.test(file.mime) && !file.svgAsset && measurements.measurementSucceeded !== true) throw new Error(`The piece file's media/${file.id} could not be read as ${file.mime}.`);
       const shots = file.mime.startsWith("video/") ? await uploadShots(target, measurements.duration) : {};
       const metadata = { id: file.id, src: `/api/media/${file.id}`, name: file.name, mime: file.mime, size: file.bytes.length, ...measurements, ...shots,
-        ...(file.lut ? { lut: { type: file.lut.type, size: file.lut.size, ...(file.lut.title ? { title: file.lut.title.slice(0, 200) } : {}) } } : {}) };
+        ...(file.lut ? { lut: { type: file.lut.type, size: file.lut.size, ...(file.lut.title ? { title: file.lut.title.slice(0, 200) } : {}) } } : {}),
+        ...(file.model ? { model: file.model } : {}) };
       const release = await acquireFileMutation();
       try { await writeMediaRecord(mediaRoot, file.id, metadata); } finally { release(); }
     }

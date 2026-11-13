@@ -13,6 +13,7 @@ import { renderFrame } from "../tests/golden/render.mjs";
 import { createTemplateDocument } from "../engine/templates.js";
 import { createPieces } from "./pieces.mjs";
 import { openPieceFile } from "./piece-file.mjs";
+import { makeGlb } from "./glb.test.support.mjs";
 // These tests are about reaching features; approvals (D3) are tested in dashboard tests and
 // in agent-reach-workspace's approval test, so the person here allows them.
 const REACH_ALLOW = ["delete-scene", "delete-project", "share-link", "final-render", "overwrite-export", "large-import"];
@@ -414,13 +415,17 @@ test("Pieces: saved from project A, A deleted, used in B and in a second workspa
   const upload = await server.api("/api/media?project=piece-a", { method: "POST", headers: { "Content-Type": "image/png", "X-File-Name": "green.png" }, body: png });
   assert.equal(upload.status, 201);
   const { src } = await upload.json();
+  // A 3D model travels with the piece too (a script layer's model input).
+  const glb = await server.api("/api/media?project=piece-a", { method: "POST", headers: { "Content-Type": "model/gltf-binary", "X-File-Name": "cube.glb" }, body: makeGlb() });
+  assert.equal(glb.status, 201);
+  const { src: modelSrc } = await glb.json();
   await edit("piece-a", [
     { op: "add_layer", layerType: "rectangle", name: "badge", properties: { x: 10, y: 10, width: 60, height: 40, fill: "#0000ff" } },
     { op: "add_animation", layer: "badge", preset: "move", start: 0, duration: 0.5, easing: "linear", from: { x: -50 }, to: { x: 10 } },
     { op: "add_layer", layerType: "text", name: "caption", properties: { text: "Hi", x: 100, y: 10, width: 200, height: 40, fontSize: 30, fill: "#ffffff" } },
     { op: "add_layer", layerType: "image", name: "logo", properties: { src, x: 10, y: 70, width: 64, height: 64 } },
     ...(scripts ? [{ op: "add_layer", layerType: "script", name: "bar", properties: { x: 100, y: 70, width: 200, height: 60, script: BAR_SCRIPT,
-      inputs: [{ key: "reveal", type: "number", min: 0, max: 1 }, { key: "pic", type: "image" }], values: { reveal: 1, pic: src } } }] : []),
+      inputs: [{ key: "reveal", type: "number", min: 0, max: 1 }, { key: "pic", type: "image" }, { key: "shape", type: "model" }], values: { reveal: 1, pic: src, shape: modelSrc } } }] : []),
   ]);
   const names = ["badge", "caption", "logo", ...(scripts ? ["bar"] : [])];
 
@@ -431,7 +436,7 @@ test("Pieces: saved from project A, A deleted, used in B and in a second workspa
   assert.match(again.text, /already exists.*replace:true/);
   const listed = await manage(null, "pieces", "list");
   assert.ok(listed.text.split("\n")[0].length <= 120, listed.text);
-  assert.match(listed.text, /320x180, [\d.]+s, \d layers, needs 0 fonts and 1 media/);
+  assert.match(listed.text, new RegExp(`320x180, [\\d.]+s, \\d layers, needs 0 fonts and ${scripts ? 2 : 1} media`));
   await create("piece-b");
   const hint = await edit("piece-b", [{ op: "use_piece", piece: "Hero crad" }], {}, true);
   assert.match(hint.text, /No piece .{1,3}Hero crad.{1,3}\. Did you mean .{1,3}Hero card.{1,3}\?/);
@@ -458,7 +463,7 @@ test("Pieces: saved from project A, A deleted, used in B and in a second workspa
 
   // One file out, into a second workspace, used there: the same pixels.
   const exported = await manage(null, "pieces", "export", { piece: "Hero card" });
-  assert.match(exported.text, /^Wrote .*Hero card\.kinopiece \(\d+ bytes, 1 media file\)/);
+  assert.match(exported.text, new RegExp(`^Wrote .*Hero card\\.kinopiece \\(\\d+ bytes, ${scripts ? "2 media files" : "1 media file"}\\)`));
   const other = await startTestServer({ allow: REACH_ALLOW });
   try {
     const otherCall = async (verb, body) => {
@@ -470,6 +475,7 @@ test("Pieces: saved from project A, A deleted, used in B and in a second workspa
     const imported = await client.importFile(exported.data.path);
     assert.match(imported.reply.text, /^Imported piece Hero card \(layers /);
     assert.equal((await other.api(src)).status, 200, "its picture came along under the same name");
+    if (scripts) assert.equal((await other.api(modelSrc)).status, 200, "its 3D model came along too");
     await otherCall("project", { action: "create", id: "piece-c", width: 320, height: 180, duration: 2, background: "#15191e" });
     await otherCall("edit", { project: "piece-c", ops: [{ op: "use_piece", piece: "Hero card", at: 0.5, x: 20, y: 20 }] });
     const reply = await otherCall("look", { project: "piece-c", mode: "frame", t: 1.5, width: 320 });
