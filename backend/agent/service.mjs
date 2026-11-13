@@ -7931,7 +7931,8 @@ export function createAgentService(deps) {
       await finishRender(job).catch(() => {});
       const data = renderData(job);
       list.push({ id: job.id, projectId: job.projectId, quality: job.quality, format: job.format, rev: job.rev, width: job.width, height: job.height,
-        fps: job.fps, duration: job.duration, startedAt: new Date(job.startedAt).toISOString(), by: job.by ?? "agent", client: job.client ?? null,
+        fps: job.fps, duration: job.duration, startedAt: new Date(job.startedAt).toISOString(), finishedAt: job.finishedAt ? new Date(job.finishedAt).toISOString() : null,
+        by: job.by ?? "agent", client: job.client ?? null,
         status: data.status, progress: data.status === "done" ? 1 : data.progress ?? null,
         path: job.path ?? job.files?.[0]?.path ?? null, size: job.size ?? null, files: (job.files ?? []).map(file => ({ scene: file.scene, path: file.path, size: file.size })),
         error: data.error ?? null, avOffset: job.files?.find(file => file.avOffset)?.avOffset ?? null });

@@ -1777,7 +1777,7 @@ export function Dashboard() {
             }} />
         ) : null}
         {noteField ?? <Voice data={data} agent={askingAgent ?? agentShown} now={now} scene={scene} time={time} still={still} listOpen={listOpen}
-          onRun={run} onAnswer={answer} onMaterial={answerMaterial} onCancelRender={() => cancelRender()} onStopRecording={stopRecording} ask={inlineAsk}
+          onRun={run} onAnswer={answer} onMaterial={answerMaterial} onCancelRender={() => cancelRender()} onStopRecording={stopRecording} ask={inlineAsk} onShare={() => setShareOpen(true)}
           onHistory={() => { if (listOpen) { setListOpen(false); focusPane(1); } else { setAgentViewOnly("agent"); focusPane(2); } }} />}
         <TimelinePane {...paneProps(3)} data={data} scene={scene} time={time} cursor={list === 5 ? cursors[5] : -1} selectedLayer={selectedLayer}
           onSeek={(value) => { stopPlaying(); setView((current) => ({ ...current, time: value })); }} onSelectLayer={selectLayer} onTurn={selectTurn} viewTurn={checkpoint?.turn ?? null}

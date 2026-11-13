@@ -202,6 +202,10 @@ test("the line under the frame: the call as a sentence, the line before it, and 
   assert.equal(idle.text, "Checked the video. It failed.");
   assert.equal(idle.before.text, "Looked at sheet 0:00–1:00.");
   assert.equal(voiceLine(data({ hold: { on: true } }), nova, NOW).state, "hold");
+  // A render that ended under a minute ago is said to be ready, with its facts.
+  const ready = voiceLine(data({ renders: [{ id: "R2", projectId: "walk", status: "done", quality: "final", format: "mp4", width: 1920, height: 1080, duration: 14, size: 12_400_000, finishedAt: new Date(NOW - 5_000).toISOString() }] }), nova, NOW);
+  assert.deepEqual([ready.state, ready.text, ready.facts], ["ready", "The final is ready.", ["14 s, 1920 by 1080", "12 MB, MP4"]]);
+  assert.notEqual(voiceLine(data({ renders: [{ id: "R2", projectId: "walk", status: "done", finishedAt: new Date(NOW - 90_000).toISOString() }] }), nova, NOW).state, "ready");
   const asked = voiceLine(data({ approvals: [{ id: "Q16", status: "pending", kind: "final-render", agent: { id: "a1", name: "Nova" } }] }), nova, NOW);
   assert.equal(asked.state, "need");
   assert.equal(asked.need.row.approval.id, "Q16");

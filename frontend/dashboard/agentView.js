@@ -1,7 +1,7 @@
 // The F1 stage screen's facts about one agent, as plain functions (tested in
 // frontend/dashboardAgentView.test.js). The React side is agentPane.jsx (the right pane: the agent's
 // bot, task, plan step, log, why and next) and the top line in Dashboard.jsx.
-import { callAgent, agentRows, needsYouRows, recommendedOption, WORKING_MS } from "./state.js";
+import { callAgent, agentRows, needsYouRows, recommendedOption, WORKING_MS, timeText } from "./state.js";
 import { callLine, cut, timeOfDay } from "./format.js";
 import { APPROVAL_WORDS, STOP_WORDS } from "./words.js";
 
@@ -358,6 +358,21 @@ export function renderDock(data, now = Date.now()) {
   return { job, total, done: total == null ? null : Math.round(total * fraction), fraction, left, agent: job.by === "you" || !call ? null : callAgent(call) };
 }
 
+// A finished render is said under the frame for this long.
+export const READY_MS = 60_000;
+
+/**
+ * The open project's newest render when it is done and ended less than READY_MS ago, else null:
+ * the line under the frame says it is ready, with its length, size and file facts.
+ */
+export function renderReady(data, now = Date.now()) {
+  const job = [...(data?.renders ?? [])].reverse().find((entry) => !data?.projectId || entry.projectId === data.projectId);
+  const ended = Date.parse(job?.finishedAt ?? "");
+  if (!job || job.status !== "done" || !Number.isFinite(ended) || now - ended > READY_MS || now < ended - 5_000) return null;
+  const megabytes = Number.isFinite(job.size) && job.size > 0 ? `${(job.size / 1e6).toFixed(job.size < 1e7 ? 1 : 0)} MB` : "";
+  return { job, facts: [[Number.isFinite(job.duration) ? `${Number.isInteger(job.duration) ? job.duration : timeText(job.duration)} s` : "", job.width && job.height ? `${job.width} by ${job.height}` : ""].filter(Boolean).join(", "), [megabytes, String(job.format ?? "").toUpperCase()].filter(Boolean).join(", ")].filter(Boolean) };
+}
+
 /** "0:41" from seconds, or "". */
 export const leftWords = (seconds) => (seconds == null ? "" : `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`);
 
@@ -445,6 +460,9 @@ export function voiceLine(data, agent, now = Date.now(), nameOf = () => null) {
     const text = dock.total ? `Rendering frame ${dock.done} of ${dock.total}.` : `Rendering, ${Math.round(dock.fraction * 100)}%.`;
     return { state: "render", verb: "render", text, facts: [dock.left == null ? "" : `${leftWords(dock.left)} left`, String(dock.job.format ?? "").toUpperCase()].filter(Boolean), before: before(false), render: dock };
   }
+  // A render that just ended, unless the agent is in a call now.
+  const ready = last?.current ? null : renderReady(data, now);
+  if (ready) return { state: "ready", verb: "check", text: `The ${ready.job.quality === "final" ? "final" : "draft"} is ready.`, facts: ready.facts, before: before(false), ready };
   if (!agent || !last) return { state: "empty", verb: "plug", text: "Waiting for an agent.", facts: [], before: null };
   const working = isWorking(data, agent, now);
   return { state: working ? "working" : "idle", verb: last.verb, kind: last.kind, text: line(last, Boolean(last.current)), facts: [], before: before(true) };

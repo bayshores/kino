@@ -4,7 +4,7 @@
 // the frame count and Cancel. The words are plain functions in agentView.js (voiceLine).
 import React from "react";
 import { voiceLine } from "./agentView.js";
-import { frameUrl } from "./api.js";
+import { frameUrl, renderFileUrl } from "./api.js";
 import { clock } from "./format.js";
 import { MaterialChoices } from "./live.jsx";
 
@@ -53,9 +53,10 @@ function BeforeAfter({ data, scene, time, before, after }) {
  * `agent` is the agent shown; `time` and `scene` what the stage shows. `onRun(action)` runs the
  * dashboard's commands ("allow", "deny", "undo", "hold"), `onAnswer(id, decision, always)` answers
  * an approval, `onMaterial(need, answer)` a material question, `onCancelRender()` stops the
- * render, `onStopRecording()` a screen recording, and `onHistory()` opens the earlier lines.
+ * render, `onStopRecording()` a screen recording, `onShare()` opens the share box (a finished
+ * render offers it), and `onHistory()` opens the earlier lines.
  */
-export function Voice({ data, agent, now, scene, time, still, listOpen = false, ask = null, onRun, onAnswer, onMaterial, onCancelRender, onStopRecording, onHistory }) {
+export function Voice({ data, agent, now, scene, time, still, listOpen = false, ask = null, onRun, onAnswer, onMaterial, onCancelRender, onStopRecording, onHistory, onShare }) {
   const nameOf = (id) => data.agents?.find((entry) => entry.id === id)?.name;
   const live = voiceLine(data, agent, now, nameOf);
   // A question of the dashboard's own ("Undo this turn?") takes the line until it is answered
@@ -107,6 +108,12 @@ export function Voice({ data, agent, now, scene, time, still, listOpen = false, 
         ) : null}
         {line.state === "recording" ? <span className="voice-answers"><button type="button" className="voice-button rec" onClick={onStopRecording} title="Stop recording (the recording so far is kept)">Stop</button></span> : null}
         {line.state === "render" ? <span className="voice-answers"><button type="button" className="voice-button" onClick={onCancelRender}>Cancel</button></span> : null}
+        {line.state === "ready" ? (
+          <span className="voice-answers">
+            <a className="voice-button primary" href={renderFileUrl(line.ready.job.id)} target="_blank" rel="noopener noreferrer">Open</a>
+            {onShare ? <button type="button" className="voice-button" onClick={onShare}>Make a link</button> : null}
+          </span>
+        ) : null}
       </div>
       <p className="voice-facts">
         {line.state === "render" ? <span className="voice-meter" aria-hidden="true"><span style={{ width: `${Math.round(line.render.fraction * 100)}%` }} /></span> : null}

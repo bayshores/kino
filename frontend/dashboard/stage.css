@@ -421,3 +421,6 @@
 .screening .transport-view .tb, .screening #stage-zoom { text-transform: capitalize; }
 .screening .call-line > .call-result { grid-column: 4; }
 .screening .call-line > .call-more { grid-column: 5; }
+/* A finished render is said on the line under the frame, so its chip on the frame is not shown too. */
+.screening .live-dock.done { display: none; }
+.voice a.voice-button { text-decoration: none; display: inline-flex; align-items: center; }
