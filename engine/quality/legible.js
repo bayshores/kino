@@ -1,6 +1,7 @@
 // The lightest fix that makes one text readable over rendered frames of what is behind it (the
-// text left out), in the order contrastFixes (pixels.js) tries them: a scrim, a halo shadow, a
-// darker place in the frame, a size that counts as large text, and a solid plate last. Readable is
+// text left out). Over busy detail: the picture blurred and dimmed while the text is on. Else, in
+// the order contrastFixes (pixels.js) tries them: a scrim, a halo shadow, a darker place in the
+// frame, a size that counts as large text, and a solid plate last. Readable is
 // what the two pixel checks measure, on every frame given: contrast (pixels.js, the 10th
 // percentile of the text color over the pixels behind it) and text_on_busy (polish.js, under
 // BUSY_SHARE edge pixels around the letters, a scrim included). Used where kino sets a text itself
@@ -13,15 +14,24 @@ import { BUSY_SHARE, edgeShare } from "./rules/polish.js";
 const darkened = (frame, alpha) => ({ ...frame, pixels: Uint8ClampedArray.from(frame.pixels, (value, index) => (index % 4 === 3 ? value : value * (1 - alpha))) });
 const round2 = (value) => Math.round(value * 100) / 100;
 
+// Over a busy picture the picture is treated, not the text: blurred and dimmed while the text is
+// on, the first step whose frames pass with edge pixels under half of BUSY_SHARE. Blur in px at
+// 1080 high (scaled with the frame), dim the black layer's opacity.
+export const CALM_STEPS = [{ blur: 16, dim: 0.35 }, { blur: 28, dim: 0.5 }, { blur: 44, dim: 0.65 }];
+export const CALM_SHARE = BUSY_SHARE / 2;
+
 /**
  * Measures a text over `frames` ([{pixels, width, height}], rendered without it) and answers
  * {required, before: {contrast, busy}, fix} where fix is null (it passes as it is) or the first
- * that passes: {kind: "scrim", alpha} | {kind: "halo", shadow} | {kind: "place", dy} |
- * {kind: "size", fontSize} | {kind: "plate", fill, margin}, each with `after` {contrast, busy}.
- * `box` {x0, y0, x1, y1} is the text's ink box in scene pixels; `scene` {width, height};
- * `size` its drawn size, `fontSize` its own; `color` its fill.
+ * that passes. Over busy detail (BUSY_SHARE or more edge pixels) with `renderCalm({blur, dim})`
+ * (the same frames rendered with the picture blurred and dimmed): {kind: "picture", blur, dim,
+ * short?} from CALM_STEPS (short: none passed, the last). Else, in contrastFixes' order:
+ * {kind: "scrim", alpha} | {kind: "halo", shadow} | {kind: "place", dy} | {kind: "size", fontSize}
+ * | {kind: "plate", fill, margin}. Each fix has `after` {contrast, busy}. `box` {x0, y0, x1, y1}
+ * is the text's ink box in scene pixels; `scene` {width, height}; `size` its drawn size,
+ * `fontSize` its own; `color` its fill.
  */
-export function legibleFix({ frames, box, scene, color, size, fontSize = size, weight = 400 }) {
+export async function legibleFix({ frames, box, scene, color, size, fontSize = size, weight = 400, renderCalm = null }) {
   const scale = Math.min(scene.width, scene.height) / 1080;
   const required = requiredRatio(size, weight, scale);
   const pad = 0.15 * size;
@@ -37,6 +47,15 @@ export function legibleFix({ frames, box, scene, color, size, fontSize = size, w
   const before = measure(frames);
   const answer = (fix) => ({ required, before, fix });
   if (!frames.length || passes(before)) return answer(null);
+  if (before.busy >= BUSY_SHARE && renderCalm) {
+    let after = null, step = null;
+    for (const rung of CALM_STEPS) {
+      step = { blur: Math.round(rung.blur * (scene.height / 1080)), dim: rung.dim };
+      after = measure(await renderCalm(step));
+      if (after.contrast >= required && after.busy < CALM_SHARE) return answer({ kind: "picture", ...step, after });
+    }
+    return answer({ kind: "picture", ...step, after, short: true });
+  }
   for (const alpha of SCRIM_ALPHAS) {
     const after = measure(frames.map((frame) => darkened(frame, alpha)));
     if (passes(after)) return answer({ kind: "scrim", alpha, after });

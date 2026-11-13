@@ -108,13 +108,32 @@ export function cutTimes(count, seconds, beats = []) {
 /** The beat the line enters on: the song beat nearest 0.5 s (0.5 s without beats). */
 export const lineEntry = (beats = []) => sec([...beats].sort((a, b) => Math.abs(a - 0.5) - Math.abs(b - 0.5))[0] ?? 0.5);
 
+// How long the line's exit lasts, and how long the picture takes to calm and to come back.
+export const LINE_EXIT = 0.3;
+const CALM_IN = 0.3;
+const CALM_OUT = 0.4;
+
+/**
+ * The beat the line leaves on (its exit starts there): the song beat nearest 2.5 s after it
+ * entered, at least 1.5 s after it and with the exit done 1 s before the sketch ends; without such
+ * a beat, 2.5 s after it entered (inside the sketch).
+ */
+export function lineExit(beats, start, seconds) {
+  const last = seconds - 1 - LINE_EXIT;
+  const fits = beats.filter((beat) => beat - start >= 1.5 - 1e-6 && beat <= last + 1e-6);
+  const near = fits.sort((a, b) => Math.abs(a - start - 2.5) - Math.abs(b - start - 2.5))[0];
+  return sec(near ?? Math.max(start + 0.5, Math.min(start + 2.5, last)));
+}
+
 /**
  * The edit ops of one kino-built sketch on a fresh scene of `frame` {width, height}: each clip full
  * frame (cropped to fill by coverBox), cut on the beats; the song from its entry with a short fade
- * out; the line large and centered, entering on a beat with the mask entrance, in `font`.
+ * out; the line large and centered, entering on a beat with the mask entrance and leaving on a beat
+ * (lineExit), in `font`. `calm` {blur, dim} (engine/quality/legible.js, a busy picture): while the
+ * line is on, the clips are blurred by `blur` px and a black layer dims them by `dim`.
  * clips [{src, type: "video"|"image", width, height, duration, in}], song {src, from, beats} or null.
  */
-export function sketchOps({ frame, seconds, clips = [], song = null, line = "", font = null, coverBox }) {
+export function sketchOps({ frame, seconds, clips = [], song = null, line = "", font = null, coverBox, calm = null }) {
   const beats = song?.beats ?? [];
   const starts = cutTimes(clips.length, seconds, beats);
   const ops = clips.map((clip, index) => {
@@ -130,11 +149,22 @@ export function sketchOps({ frame, seconds, clips = [], song = null, line = "", 
   if (line) {
     const size = Math.round(Math.min(frame.height * 0.13, (frame.width * 0.84 * 1.6) / Math.max(8, line.length)));
     const start = lineEntry(beats);
+    const leave = lineExit(beats, start, seconds);
+    if (calm) {
+      const ease = (key, on, off) => [{ kind: "in", name: "Calm in", start, duration: CALM_IN, easing: "smooth", from: { [key]: off }, to: { [key]: on } },
+        { kind: "custom", name: "Calm out", start: leave, duration: CALM_OUT, easing: "smooth", from: { [key]: on }, to: { [key]: off } }];
+      ops.forEach((op) => { if (op.layerType === "video" || op.layerType === "image") op.animations = ease("blur", calm.blur, 0); });
+      ops.push({ op: "add_layer", layerType: "rectangle", name: "sketch-dim", properties: { x: 0, y: 0, width: frame.width, height: frame.height, fill: "#000000", opacity: calm.dim },
+        animations: ease("opacity", calm.dim, 0) });
+    }
+    // The exit is the entrance reversed (by word), done in LINE_EXIT.
+    const words = line.split(" ").length;
     ops.push({ op: "add_layer", layerType: "text", name: "sketch-line",
       properties: { text: line, x: Math.round(frame.width * 0.08), y: Math.round(frame.height / 2 - size * 0.75), width: Math.round(frame.width * 0.84), height: Math.round(size * 1.5),
         fontSize: size, fill: "#ffffff", textAlign: "center", verticalAlign: "middle" },
       // By word: the text mask's own letter stagger (0.15 s a letter) took 4 s to show a 27-letter line.
-      animations: [{ preset: "preset-mask", start, duration: 0.5, unit: "words", stagger: 0.06 }] });
+      animations: [{ preset: "preset-mask", start, duration: 0.5, unit: "words", stagger: 0.06 },
+        { preset: "preset-mask", kind: "out", start: leave, duration: sec(Math.max(0.15, LINE_EXIT - 0.03 * (words - 1))), unit: "words", stagger: 0.03 }] });
     if (font) ops.push({ op: "set_font", layers: ["sketch-line"], family: font });
   }
   return ops;
@@ -172,6 +202,8 @@ export function lineFixText(legible) {
   if (!legible?.fix) return null;
   const { fix, before, required } = legible;
   const why = before.busy >= BUSY_SHARE ? `busy picture (${Math.round(before.busy * 100)}% edge pixels)` : "low contrast picture";
+  if (fix.kind === "picture")
+    return `line over ${why}: picture blurred ${fix.blur} px and dimmed ${Math.round(fix.dim * 100)}% while the line is on (to ${Math.round(fix.after.busy * 100)}%; contrast ${before.contrast}:1 to ${fix.after.contrast}:1${fix.short ? `; the strongest step, short of under ${Math.round(BUSY_SHARE * 50)}% edge pixels and ${required}:1` : ""})`;
   const what = fix.kind === "scrim" ? `scrim ${Math.round(fix.alpha * 100)}%` : fix.kind === "halo" ? "halo shadow"
     : fix.kind === "place" ? `moved ${Math.abs(fix.dy)} px ${fix.dy < 0 ? "up" : "down"}` : fix.kind === "size" ? `font size ${fix.fontSize}` : `solid plate ${fix.fill}`;
   return `line over ${why}: ${what} (contrast ${before.contrast}:1 to ${fix.after.contrast}:1, ${required}:1 needed; edge pixels ${Math.round(before.busy * 100)}% to ${Math.round(fix.after.busy * 100)}%, under ${Math.round(BUSY_SHARE * 100)}% needed)`;
@@ -374,7 +406,7 @@ const builtText = (option) => {
   if (!option.built) return "";
   const song = option.song?.src ? `song "${option.song.title}" ${option.song.from}-${option.song.to} s of the song (${option.song.kind})`
     : option.song?.error ? `silent: the song "${option.song.asked}" could not be fetched (${option.song.error})` : "no song (silent)";
-  const line = option.line ? `line "${option.line}" (${option.lineFrom})` : "no line";
+  const line = option.line ? `line "${option.line}" (${option.lineFrom}${option.lineAt ? `, on ${option.lineAt[0]} to ${option.lineAt[1]} s` : ""})` : "no line";
   return `; ${song}; font ${option.font ?? "the default"}; ${line}; ${option.cuts ?? 0} cut${option.cuts === 1 ? "" : "s"}${option.cuts && option.song?.src ? " on the song's beats" : ""}${option.lineFix ? `; ${option.lineFix}` : ""}`;
 };
 

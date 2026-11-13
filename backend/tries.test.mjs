@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { beatsIn, clipFacts, colorOverlap, cutTimes, lineEntry, lineFixOps, lineFixText, pickedSketch, sketchKey, sketchLines, sketchOps, songEntry, treatmentDefaults } from "./agent/sketches.mjs";
+import { beatsIn, clipFacts, colorOverlap, cutTimes, lineEntry, lineExit, lineFixText, pickedSketch, sketchKey, sketchLines, sketchOps, songEntry, treatmentDefaults } from "./agent/sketches.mjs";
 import { legibleFix } from "../engine/quality/legible.js";
 import { coverBox } from "../engine/footage/layout.js";
 import { answerText, createTries, readTry } from "./agent/tries.mjs";
@@ -132,16 +132,22 @@ test("a built sketch: the song from its strongest entry, cuts on its beats, the 
   assert.throws(() => readTry({ seconds: 12, options: [{ treatment: "A", song: "x" }, { treatment: "B" }] }, SCENES, { treatments: TREATMENTS }), /seconds is the sketch length, 2 to 10/);
 });
 
-test("a built sketch's line: measured over the frames behind it, unchanged on a calm picture, the lightest scrim that passes on a busy one", () => {
+test("a built sketch's line: on for about 2.5 s between beats; a busy picture behind it is blurred and dimmed by the first step that passes, a calm one left as it is", async () => {
+  assert.deepEqual([lineExit([0.5, 1.4, 2.1, 2.9, 3.3, 4.8], 0.5, 6), lineExit([], 0.5, 6), lineExit([4.9], 0.5, 6)], [2.9, 3, 3], "the beat nearest 2.5 s on, inside 1.5 s and 1 s before the end");
   const frame = (shade) => ({ width: 96, height: 54, pixels: Uint8ClampedArray.from({ length: 96 * 54 * 4 }, (_, index) => (index % 4 === 3 ? 255 : shade(Math.floor(index / 4) % 96))) });
   const line = { box: { x0: 200, y0: 470, x1: 1720, y1: 610 }, scene: { width: 1920, height: 1080 }, color: "#ffffff", size: 140, fontSize: 140 };
-  assert.equal(legibleFix({ ...line, frames: [frame(() => 20)] }).fix, null, "a dark calm picture keeps the line as it is");
-  // Light stripes: 1.7:1 and every pixel an edge; a 65% scrim is the first that calms them under 16%.
-  const busy = legibleFix({ ...line, frames: [frame((x) => (x % 2 ? 200 : 150))] });
-  assert.deepEqual([busy.before.busy, busy.fix.kind, busy.fix.alpha, busy.fix.after.busy], [1, "scrim", 0.65, 0]);
-  const ops = lineFixOps(busy.fix, { box: line.box, size: 140, start: 0.5, frame: line.scene });
-  assert.deepEqual(ops.map((op) => [op.op, op.name ?? op.position, op.properties?.width]), [["add_layer", "sketch-line-scrim", 1920], ["move_layers", "below", undefined]]);
-  assert.match(lineFixText(busy), /^line over busy picture \(100% edge pixels\): scrim 65% \(contrast 1\.\d+:1 to \d+\.\d+:1, 3:1 needed/);
+  assert.equal((await legibleFix({ ...line, frames: [frame(() => 20)] })).fix, null, "a dark calm picture keeps the line as it is");
+  // Light stripes (1.7:1, every pixel an edge); the stand-in render softens them more at each step: the second passes.
+  const asked = [];
+  const busy = await legibleFix({ ...line, frames: [frame((x) => (x % 2 ? 200 : 150))], renderCalm: async (calm) => { asked.push(calm); return [frame((x) => (x % 2 ? 90 : 90 - (calm.blur < 20 ? 30 : 10)))]; } });
+  assert.deepEqual([busy.before.busy, asked, busy.fix.kind, busy.fix.blur, busy.fix.dim, busy.fix.after.busy], [1, [{ blur: 16, dim: 0.35 }, { blur: 28, dim: 0.5 }], "picture", 28, 0.5, 0]);
+  assert.match(lineFixText(busy), /^line over busy picture \(100% edge pixels\): picture blurred 28 px and dimmed 50% while the line is on \(to 0%; contrast 1\.\d+:1 to \d+\.\d+:1\)$/);
+  const ops = sketchOps({ frame: line.scene, seconds: 6, clips: [{ src: "a.mp4", type: "video", width: 1920, height: 1080, duration: 9 }], line: "who made this", coverBox, calm: { blur: 28, dim: 0.5 } });
+  assert.deepEqual(ops.map((op) => [op.name, op.animations?.map((animation) => [animation.kind ?? "in", animation.start, Object.keys(animation.to ?? {})[0] ?? animation.preset])]), [
+    ["sketch-clip-1", [["in", 0.5, "blur"], ["custom", 3, "blur"]]], ["sketch-dim", [["in", 0.5, "opacity"], ["custom", 3, "opacity"]]],
+    ["sketch-line", [["in", 0.5, "preset-mask"], ["out", 3, "preset-mask"]]]]);
+  // Calm but low contrast: the scrim order stays.
+  assert.equal((await legibleFix({ ...line, frames: [frame(() => 200)] })).fix.kind, "scrim");
 });
 
 test("a built round: each sketch made by kino on a fresh copy, the receipt names its song and font, and the pick carries them", async () => {
