@@ -74,6 +74,27 @@ function scriptRuntime() {
     value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
     return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
   };
+  // crypto.getRandomValues draws from the same seeded generator, one byte at a time.
+  if (typeof crypto === "object" && crypto) {
+    const seededValues = function getRandomValues(array) {
+      if (!ArrayBuffer.isView(array) || array instanceof Float32Array || array instanceof Float64Array)
+        throw new TypeError("getRandomValues needs an integer typed array.");
+      const bytes = new Uint8Array(array.buffer, array.byteOffset, array.byteLength);
+      for (let index = 0; index < bytes.length; index += 1) bytes[index] = Math.floor(Math.random() * 256);
+      return array;
+    };
+    try { Object.defineProperty(crypto, "getRandomValues", { value: seededValues, configurable: false, writable: false }); }
+    catch { /* a platform that refuses keeps its own */ }
+    const seededUuid = function randomUUID() {
+      const bytes = seededValues(new Uint8Array(16));
+      bytes[6] = (bytes[6] & 0x0f) | 0x40;
+      bytes[8] = (bytes[8] & 0x3f) | 0x80;
+      const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+      return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+    };
+    try { Object.defineProperty(crypto, "randomUUID", { value: seededUuid, configurable: false, writable: false }); }
+    catch { /* as above */ }
+  }
   function FrameDate(...args) {
     if (!new.target) return new RealDate(clock).toString();
     return args.length ? new RealDate(...args) : new RealDate(clock);
@@ -230,8 +251,16 @@ function scriptRuntime() {
     for (const key of Object.keys(state.images)) values[key] = state.images[key];
     const given = Object.freeze({ ...frame, values: Object.freeze(values), pixelRatio: state.pixelRatio });
     if (state.kind === "2d") {
+      // The whole drawing state starts fresh each frame (clips, styles, paths, the saved-state
+      // stack), so nothing one frame set leaks into the next; reset() clears the pixels too.
       const context = state.context;
-      context.setTransform(1, 0, 0, 1, 0, 0);
+      if (typeof context.reset === "function") context.reset();
+      else {
+        context.setTransform(1, 0, 0, 1, 0, 0);
+        context.globalAlpha = 1;
+        context.globalCompositeOperation = "source-over";
+        context.beginPath();
+      }
       context.clearRect(0, 0, state.canvas.width, state.canvas.height);
       context.setTransform(state.pixelRatio, 0, 0, state.pixelRatio, 0, 0);
     }

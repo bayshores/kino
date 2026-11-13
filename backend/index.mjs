@@ -11,6 +11,7 @@ import { imageFacts } from "../engine/imageFacts.js";
 import { openStore, ConflictError } from "./store.mjs";
 import { COMMENT_KEY_HEADER, commentInboxLine, commentKeyHash } from "./comments.mjs";
 import { exportScene, renderSceneFrames } from "./export.mjs";
+import { closeScriptRenderer } from "./script-layer-frames.mjs";
 import { parseExportDocument } from "./export-document.mjs";
 import { getMp4Encoders } from "./mp4-encoders.mjs";
 import { createExportBatches, exportFileName, withVideoDefaults } from "./export-batches.mjs";
@@ -2052,6 +2053,8 @@ process.on("SIGTERM", async () => {
   for (const controller of activeExports) controller.abort();
   exportProgress.clear();
   await exportBatches.close();
+  // The script layers' hidden drawing window ends with the server.
+  await closeScriptRenderer();
   // A recording running now is finished and kept (its helper closes the files first).
   await recorder.close().catch(() => {});
   for (const socket of clients.keys()) socket.close();

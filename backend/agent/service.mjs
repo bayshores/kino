@@ -4505,6 +4505,7 @@ export function createAgentService(deps) {
     const fonts = await fontsFor(document);
     const scene = sceneFor(document, codes, input.scene, state.focus);
     let image, text, lookKey = scene.id, extra = null, nextCall = null;
+    look?.takeWarnings?.(); // only this look's script failures are told below
 
     if (mode === "review") return reviewLook(input, { record, codes, fonts, scene, state });
     if (mode === "versus") return versusLook(input, { record, codes, fonts, state });
@@ -4731,6 +4732,8 @@ export function createAgentService(deps) {
       text += `\nimage ${file}`;
     }
     if (misnamed) text += `\n(${misnamed} read as t: look takes t, in seconds)`;
+    // A script layer that failed is left out of the frames; the agent hears why (and where).
+    for (const sentence of look?.takeWarnings?.() ?? []) text += `\n${sentence}; the frame shows the layer empty`;
     const frames = image.frames;
     // compare, source and board are looks beside the scene's own frames: changed never compares them.
     const remember = mode !== "compare" && mode !== "source" && mode !== "board" && mode !== "reference" && mode !== "motion" && mode !== "sound";

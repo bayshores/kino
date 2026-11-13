@@ -544,8 +544,17 @@ export function createLook({ cache, outDirectory, mediaRoot, renderSettings }) {
     if (cached) return { key, png: cached, cached: true };
     // Look shows the motion blur a final render has (previewBlur.js), drawn cheaply.
     const output = await exportScene(prepared.scene, options, { mediaRoot, fonts: prepared.fonts, render, previewBlur: true, signal });
-    await cache.set(key, output.buffer);
+    const failed = (output.warnings ?? []).filter((warning) => warning.code === "script-layer-error").map((warning) => warning.message);
+    // A frame whose script layer failed is drawn without it and never kept: the next look tries again.
+    if (failed.length) noteScriptProblems(failed);
+    else await cache.set(key, output.buffer);
     return { key, png: output.buffer, cached: false };
+  }
+
+  // Script layer failures seen since the last takeWarnings() (each sentence once).
+  const scriptProblems = new Set();
+  function noteScriptProblems(sentences) {
+    for (const sentence of sentences) if (scriptProblems.size < 8) scriptProblems.add(sentence);
   }
 
   // The frames at several times of one scene, as frame() draws them, in order. The ones not in
@@ -570,7 +579,8 @@ export function createLook({ cache, outDirectory, mediaRoot, renderSettings }) {
       const stills = await renderStills(prepared.scene, [...missing.values()], { width, ...(height ? { height } : {}), mediaRoot, fonts: prepared.fonts, render, previewBlur: true, shutter: sceneShutterOptions(prepared.scene) });
       const keys = [...missing.keys()];
       for (const [index, still] of stills.entries()) {
-        await cache.set(keys[index], still.buffer);
+        if (still.warnings?.length) noteScriptProblems(still.warnings);
+        else await cache.set(keys[index], still.buffer);
         for (const entry of found) if (entry.key === keys[index]) entry.png = still.buffer;
       }
     }
@@ -626,6 +636,12 @@ export function createLook({ cache, outDirectory, mediaRoot, renderSettings }) {
     frame,
     frames,
     save,
+    /** The script layer failures the frames drawn since the last call met, as sentences. */
+    takeWarnings() {
+      const sentences = [...scriptProblems];
+      scriptProblems.clear();
+      return sentences;
+    },
 
     async frameImage(prepared, { time, width }) {
       const rendered = await frame(prepared, time, width);

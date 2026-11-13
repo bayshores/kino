@@ -63,6 +63,7 @@ Which file does what, for a first code change.
 | `engine/exportOptions.js` | Export presets, dimensions and frame sampling |
 | `engine/scriptRuntime.js` | The runtime a script layer's drawing module runs in, inside a sandboxed frame: its page and policy, `setup`/`draw` calls, seeded `Math.random`, the frame clock, image inputs, errors with phase and line, PNG or ImageBitmap out, empty frames; the time limits |
 | `backend/script-frames.mjs` | `createScriptRenderer`: draws a script layer's frames to PNG in one long-lived Electron worker, keeps a module mounted while nothing changed, and stops a script that takes too long |
+| `backend/script-layer-frames.mjs` | A scene's script layers for an export, still or look frame: `sceneScriptFrames` draws the frames each output frame needs before its SVG (pixel ratio from the output size, image inputs read from the media folder), caches them, and turns a failed frame into a warning sentence (a final render's error); one shared renderer per process, closed after a quiet minute (`closeScriptRenderer`) |
 | `desktop/script-worker.cjs` and `desktop/script-page.cjs` | The script worker's Electron process (hidden window, in-memory session, every request but its own pages cancelled, no permissions or navigation, the setup and draw watchdog) and its page's preload, which passes messages to the sandboxed frame |
 | `backend/index.mjs`                 | HTTP API, uploads, and WebSocket connections         |
 | `backend/store.mjs`                 | Atomic persistent storage and revision conflicts     |
