@@ -171,7 +171,7 @@ export function checkCounts(findings) {
 const shownFindings = (findings) => findings.filter((finding) => !finding.waived && finding.severity !== "info");
 
 // The gates that need rendered frames (contrast, flashing, luma_jump, frozen_picture).
-const PIXEL_GATES = RULES.filter((rule) => rule.pixels && rule.level === "error").map((rule) => rule.code).join(", ");
+const PIXEL_GATES = RULES.filter((rule) => rule.pixels && rule.level === "error" && !rule.unlisted).map((rule) => rule.code).join(", ");
 
 // "0 err · 2 warn (past_scene_end hero-title.in, missing_font L4)". Status, edit receipts and dry
 // runs do not render frames, so their counts leave out the pixel gates unless check ran on the
