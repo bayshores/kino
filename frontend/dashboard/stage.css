@@ -240,7 +240,7 @@
 /* The note box at the list's foot. */
 .screening .note-box { margin-top: 10px; background: var(--well); border: 0; box-shadow: inset 0 0 0 1px var(--line); }
 
-@media (max-width: 1099px) {
+@media (max-width: 1339px) {
   .panes.screening { --gutter: 56px; grid-template-rows: [frame-start] minmax(0, 1fr) [frame-end list-start list-end voice-start] auto [voice-end controls-start] 40px [controls-end strip-start] auto [strip-end]; }
   .panes.screening.list-open { grid-template-rows: [frame-start] minmax(120px, 0.9fr) [frame-end list-start] minmax(0, 1fr) [list-end voice-start] auto [voice-end controls-start] 40px [controls-end strip-start] auto [strip-end]; }
   /* A narrow window: play and the time, then your marks, on a row of their own over the strip. */
