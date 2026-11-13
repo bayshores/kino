@@ -4,13 +4,14 @@
 // its cookies or storage, or any server. It speaks the runtime's messages (engine/scriptRuntime.js):
 // mount, then draw with output "bitmap"; the picture comes back as an ImageBitmap.
 //
-// A module that never returns: the host waits SCRIPT_LIMITS (setup, draw), then throws the frame
-// away and answers {ok:false, tooLong:true}. The frame is a separate process from the page in the
-// Mac app and in the test browser (sandboxed frames get their own), so the page keeps running.
+// A module that never returns: the frame runs it in a Worker and stops that Worker at the limit
+// (SCRIPT_LIMITS), answering {ok:false, tooLong:true}; the same frame then mounts the next module.
+// Only if the frame itself stops answering (BACKSTOP_MS past the limit) is it thrown away.
 import { SCRIPT_LIMITS, tooLongMessage } from "../engine/scriptRuntime.js";
 
 const HIDDEN_STYLE = "position:fixed;left:-10000px;top:0;width:1px;height:1px;border:0;opacity:0;pointer-events:none";
 const START_MS = 15_000;
+const BACKSTOP_MS = 3000;
 
 /**
  * Starts a frame. `src`: the frame page's address (SCRIPT_FRAME_PATH in engine/scriptLayer.js).
@@ -47,8 +48,9 @@ export function createScriptHost({ src, limits = SCRIPT_LIMITS, parent = globalT
     // The frame's script could have put anything in the message: only plain fields go on.
     if (data.ok === true) {
       const bitmap = typeof ImageBitmap === "function" && data.bitmap instanceof ImageBitmap ? data.bitmap : null;
-      entry.resolve({ ok: true, bitmap, empty: data.empty === true });
-    } else entry.resolve({ ok: false, message: String(data.message ?? "The script failed.").slice(0, 500), phase: String(data.phase ?? "draw") });
+      const png = data.png instanceof ArrayBuffer ? data.png : null;
+      entry.resolve({ ok: true, bitmap, png, empty: data.empty === true });
+    } else entry.resolve({ ok: false, message: String(data.message ?? "The script failed.").slice(0, 500), phase: String(data.phase ?? "draw"), tooLong: data.tooLong === true, stopped: data.stopped === true });
   }
   globalThis.addEventListener("message", onMessage);
   parent.append(frame);
@@ -76,7 +78,7 @@ export function createScriptHost({ src, limits = SCRIPT_LIMITS, parent = globalT
         waiting.delete(id);
         destroy();
         resolve({ ok: false, message: tooLongMessage(time), phase, tooLong: true });
-      }, limitMs);
+      }, limitMs + BACKSTOP_MS);
       waiting.set(id, { resolve, timer });
       frame.contentWindow.postMessage({ kino: "script", id, ...message }, "*", transfer);
     });
@@ -90,8 +92,9 @@ export function createScriptHost({ src, limits = SCRIPT_LIMITS, parent = globalT
       const transfer = Object.values(request.images ?? {}).filter((bytes) => bytes instanceof ArrayBuffer);
       return call({ type: "mount", ...request }, limits.setupMs, 0, "setup", transfer);
     },
-    draw(frameValues) {
-      return call({ type: "draw", frame: frameValues, output: "bitmap" }, limits.drawMs, frameValues.time, "draw");
+    /** `output`: "bitmap" (the preview) or "png" (bytes, to compare with the backend renderer). */
+    draw(frameValues, output = "bitmap") {
+      return call({ type: "draw", frame: frameValues, output }, limits.drawMs, frameValues.time, "draw");
     },
     destroy,
   };

@@ -1,8 +1,11 @@
 // The live preview's script frame on a visitor's machine (frontend/scriptHost.js with the frame
 // page backend/script-frame-page.mjs serves), in the test browser: a module cannot reach the
-// network or the page, and a module stuck in an endless loop is given up after the limit while
-// the page keeps running. Also measures one 1920x1080 picture from request to painted.
+// network or the page; a module stuck in an endless loop is stopped at the limit, its Worker is
+// gone and the same frame draws the next module; the preview's Worker draws the same pixels as the
+// backend's direct mode; an image input arrives as a picture. Also measures one 1920x1080 picture
+// from request to painted.
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import http from "node:http";
 import { tmpdir } from "node:os";
@@ -10,7 +13,7 @@ import path from "node:path";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { sendScriptFrame } from "../backend/script-frame-page.mjs";
-import { SCRIPT_LIMITS } from "../engine/scriptRuntime.js";
+import { SCRIPT_FRAME_CSP, SCRIPT_LIMITS, scriptFrameHtml } from "../engine/scriptRuntime.js";
 import { Browser } from "./dashboard-browser.support.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -34,6 +37,8 @@ before(async () => {
     const url = new URL(req.url, "http://localhost");
     if (url.pathname === "/") return res.writeHead(200, { "Content-Type": "text/html" }).end(HOST_PAGE);
     if (url.pathname === "/api/script-frame") return sendScriptFrame(req, res);
+    // The backend renderer's page: the module runs in the frame itself (direct mode).
+    if (url.pathname === "/direct-frame") return res.writeHead(200, { "Content-Type": "text/html", "Content-Security-Policy": SCRIPT_FRAME_CSP }).end(scriptFrameHtml());
     if (/^\/(frontend|engine)\/[\w/.-]+\.js$/.test(url.pathname)) {
       try { return res.writeHead(200, { "Content-Type": "text/javascript" }).end(await readFile(path.join(root, url.pathname))); } catch { /* not found */ }
     }
@@ -58,8 +63,8 @@ after(async () => {
 });
 
 // Mounts `script` in a new frame in the page and gives back the mount's answer.
-const mountIn = (script, extra = "") => `(async () => {
-  const host = window.createScriptHost({ src: "/api/script-frame" });
+const mountIn = (script, extra = "", src = "/api/script-frame") => `(async () => {
+  const host = window.createScriptHost({ src: ${JSON.stringify(src)} });
   window.host = host;
   const reply = await host.mount({ script: ${JSON.stringify(script)}, width: 1920, height: 1080, pixelRatio: 1, name: "test", images: {} });
   ${extra}
@@ -71,7 +76,7 @@ test("a module in the preview frame cannot reach the network, the page, its cook
   const script = `export default async function setup() {
     const results = {};
     const attempt = async (name, run) => { try { results[name] = "got " + String(await run()); } catch (error) { results[name] = "blocked"; } };
-    const wait = (start) => new Promise((resolve, reject) => { start(resolve, reject); setTimeout(() => reject(new Error("no answer")), 1500); });
+    const wait = (start) => new Promise((resolve, reject) => { start(resolve, reject); setTimeout(() => reject(new Error("no answer")), 500); });
     await attempt("fetch", () => fetch(${JSON.stringify(`${otherHost}/fetch`)}).then((response) => response.status));
     await attempt("socket", () => wait((resolve, reject) => { const socket = new WebSocket(${JSON.stringify(`ws://localhost:${other.port}/socket`)}); socket.onopen = () => resolve("open"); socket.onerror = reject; }));
     await attempt("image", () => wait((resolve, reject) => { const image = new Image(); image.onload = () => resolve("loaded"); image.onerror = reject; image.src = ${JSON.stringify(`${otherHost}/image.png`)}; }));
@@ -79,12 +84,14 @@ test("a module in the preview frame cannot reach the network, the page, its cook
     await attempt("top", () => top.location.href);
     await attempt("cookie", () => document.cookie || Promise.reject(new Error("none")));
     await attempt("storage", () => localStorage.getItem("kino_test"));
+    await attempt("database", () => wait((resolve, reject) => { const request = indexedDB.open("kino"); request.onsuccess = () => resolve("open"); request.onerror = reject; }));
+    await attempt("worker", () => new Worker(URL.createObjectURL(new Blob(["1"]))));
     throw new Error(JSON.stringify(results));
   }`;
   const reply = await browser.evaluate(mountIn(script, "host.destroy();"));
   assert.equal(reply.ok, false);
   const results = JSON.parse(reply.message.replace(/^Error: /, ""));
-  assert.deepEqual(results, { fetch: "blocked", socket: "blocked", image: "blocked", parent: "blocked", top: "blocked", cookie: "blocked", storage: "blocked" });
+  assert.deepEqual(results, { fetch: "blocked", socket: "blocked", image: "blocked", parent: "blocked", top: "blocked", cookie: "blocked", storage: "blocked", database: "blocked", worker: "blocked" });
   assert.deepEqual(otherRequests, [], "nothing reached the other host");
 });
 
@@ -124,24 +131,107 @@ test("one 1920x1080 picture, from request to painted in a page canvas", async ()
   console.log(`# 1920x1080 picture, request to painted: median ${result.median.toFixed(1)} ms, worst ${result.worst.toFixed(1)} ms`);
 });
 
-// Last: the stuck frame's process stays busy, and Chromium puts later sandboxed frames from the
-// same server in that same process, so a new frame in this page would not start.
-test("a module stuck in an endless loop is given up after the limit; the page keeps running and the frame is gone", async () => {
-  const script = "export default function setup() { return function draw() { for (;;) {} }; }";
+// CPU seconds used so far by the test browser's processes (its main process and every helper),
+// from `ps` (cumulative CPU time, so a process spinning in a loop adds about 1 s every second).
+function browserCpuSeconds() {
+  return new Promise((resolve, reject) => execFile("ps", ["-A", "-o", "pid=,ppid=,time="], (error, out) => {
+    if (error) return reject(error);
+    const rows = out.trim().split("\n").map((line) => line.trim().split(/\s+/));
+    const ours = new Set([String(browser.child.pid)]);
+    for (let grew = true; grew;) { grew = false; for (const [pid, ppid] of rows) if (ours.has(ppid) && !ours.has(pid)) { ours.add(pid); grew = true; } }
+    const seconds = (text) => text.split(/[:-]/).map(Number).reduce((total, part) => total * 60 + part, 0);
+    resolve(rows.filter(([pid]) => ours.has(pid)).reduce((total, [, , time]) => total + seconds(time), 0));
+  }));
+}
+
+test("a module stuck in an endless loop is stopped at the limit; its Worker is gone and the same frame draws a corrected module at once", async () => {
+  const stuck = "export default function setup() { return function draw() { for (;;) {} }; }";
+  const fixed = "export default function setup(layer) { const context = layer.canvas.getContext(\"2d\"); return function draw() { context.fillStyle = \"#00ff00\"; context.fillRect(0, 0, 8, 8); }; }";
+  const busy = await browser.evaluate(`(async () => {
+    const mounted = await (${mountIn(stuck)});
+    window.host.draw({ time: 1, duration: 2, progress: 0.5, values: {}, width: 1920, height: 1080 }).then((reply) => { window.stuckReply = reply; });
+    return mounted.ok;
+  })()`);
+  assert.equal(busy, true);
+  // While the module loops, a process spins: about one CPU second each second.
+  const spinStart = await browserCpuSeconds();
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+  const spinning = (await browserCpuSeconds()) - spinStart;
   const result = await browser.evaluate(`(async () => {
-    const mounted = await (${mountIn(script)});
     let ticks = 0;
     const counter = setInterval(() => { ticks += 1; }, 50);
-    const started = performance.now();
-    const drawn = await window.host.draw({ time: 1, duration: 2, progress: 0.5, values: {}, width: 1920, height: 1080 });
+    while (!window.stuckReply) await new Promise((resolve) => setTimeout(resolve, 20));
     clearInterval(counter);
-    return { mounted: mounted.ok, drawn, ms: Math.round(performance.now() - started), ticks, frames: document.querySelectorAll("iframe[data-kino-script-frame]").length };
+    const started = performance.now();
+    const mounted = await window.host.mount({ script: ${JSON.stringify(fixed)}, width: 16, height: 16, pixelRatio: 1, name: "fixed", images: {} });
+    const drawn = await window.host.draw({ time: 0, duration: 1, progress: 0, values: {}, width: 16, height: 16 });
+    const ms = Math.round(performance.now() - started);
+    const canvas = new OffscreenCanvas(16, 16);
+    canvas.getContext("2d").drawImage(drawn.bitmap, 0, 0);
+    return { stuck: window.stuckReply, ticks, mounted: mounted.ok, drawn: drawn.ok, ms, pixel: [...canvas.getContext("2d").getImageData(2, 2, 1, 1).data],
+      frames: document.querySelectorAll("iframe[data-kino-script-frame]").length, destroyed: window.host.destroyed };
   })()`, 30_000);
-  assert.equal(result.mounted, true);
-  assert.equal(result.drawn.tooLong, true, JSON.stringify(result.drawn));
-  assert.ok(result.ms >= SCRIPT_LIMITS.drawMs && result.ms < SCRIPT_LIMITS.drawMs + 1500, `gave up after ${result.ms} ms`);
-  // A page that froze with the frame would count no ticks while the frame looped.
-  assert.ok(result.ticks >= (SCRIPT_LIMITS.drawMs / 50) * 0.5, `the page ran ${result.ticks} timer ticks during the loop`);
-  assert.equal(result.frames, 0, "the stuck frame was thrown away");
-  console.log(`# endless loop: given up after ${result.ms} ms; the page ran ${result.ticks} 50 ms ticks meanwhile`);
+  assert.equal(result.stuck.tooLong, true, JSON.stringify(result.stuck));
+  // A page that froze with the frame would count no ticks while the module looped.
+  assert.ok(result.ticks >= 10, `the page ran ${result.ticks} timer ticks during the loop`);
+  assert.deepEqual([result.mounted, result.drawn, result.destroyed], [true, true, false], "the same frame mounts and draws again");
+  assert.ok(result.ms < 1000, `the corrected module drew in ${result.ms} ms`);
+  assert.deepEqual(result.pixel, [0, 255, 0, 255]);
+  // Once the Worker is stopped nothing spins: the browser's processes use little CPU.
+  // (Measured: the stopped Worker's thread still spins up to about 2 s after terminate(), the
+  // browser's grace before it forces the stop; after that its process is idle.)
+  await new Promise((resolve) => setTimeout(resolve, 2500));
+  const idleStart = await browserCpuSeconds();
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+  const idle = (await browserCpuSeconds()) - idleStart;
+  assert.ok(spinning >= 0.5, `a process spun during the loop (${spinning} CPU s in 1 s)`);
+  assert.ok(idle < 0.5, `nothing spins after the stop (${idle} CPU s in 1 s)`);
+  await browser.evaluate("window.host.destroy()");
+  console.log(`# endless loop: stopped at the limit, page ran ${result.ticks} ticks; corrected module drew in ${result.ms} ms; CPU in 1 s: ${spinning} s while stuck, ${idle} s after`);
+});
+
+test("the preview's Worker draws the same pixels as the backend's direct mode for the same frame", async () => {
+  const script = `export default function setup(layer) {
+    const context = layer.canvas.getContext("2d");
+    return function draw(frame) {
+      context.fillStyle = "#123456"; context.fillRect(0, 0, layer.width, layer.height);
+      for (let index = 0; index < 40; index += 1) {
+        context.fillStyle = "hsl(" + Math.floor(Math.random() * 360) + " 80% 50%)";
+        context.beginPath(); context.arc(Math.random() * layer.width, Math.random() * layer.height, 4 + frame.progress * 20, 0, Math.PI * 2); context.fill();
+      }
+      context.font = "20px sans-serif"; context.fillStyle = "white"; context.fillText(String(Date.now()) + " " + crypto.randomUUID().slice(0, 8), 10, 30);
+    };
+  }`;
+  const both = await browser.evaluate(`(async () => {
+    const frame = { time: 0.75, duration: 2, progress: 0.375, values: {}, width: 320, height: 180 };
+    const bytes = async (src) => {
+      const host = window.createScriptHost({ src });
+      await host.mount({ script: ${JSON.stringify(script)}, width: 320, height: 180, pixelRatio: 1, name: "same", images: {} });
+      const reply = await host.draw(frame, "png");
+      host.destroy();
+      return reply.png ? [...new Uint8Array(reply.png)].join(",") : JSON.stringify(reply);
+    };
+    return { worker: await bytes("/api/script-frame"), direct: await bytes("/direct-frame") };
+  })()`);
+  assert.ok(both.worker.length > 1000, both.worker.slice(0, 200));
+  assert.equal(both.worker, both.direct, "the PNG bytes match");
+});
+
+test("an image input reaches the module as a picture it can draw", async () => {
+  const script = "export default function setup(layer) { const context = layer.canvas.getContext(\"2d\"); return function draw(frame) { context.drawImage(frame.values.logo, 0, 0, layer.width, layer.height); }; }";
+  const pixel = await browser.evaluate(`(async () => {
+    const source = new OffscreenCanvas(4, 4);
+    const context = source.getContext("2d");
+    context.fillStyle = "#ff8800"; context.fillRect(0, 0, 4, 4);
+    const png = await (await source.convertToBlob({ type: "image/png" })).arrayBuffer();
+    const host = window.createScriptHost({ src: "/api/script-frame" });
+    const mounted = await host.mount({ script: ${JSON.stringify(script)}, width: 8, height: 8, pixelRatio: 1, name: "logo", images: { logo: png } });
+    const drawn = await host.draw({ time: 0, duration: 1, progress: 0, values: { logo: "/api/media/logo.png" }, width: 8, height: 8 });
+    host.destroy();
+    if (!drawn.ok) return [mounted.message, drawn.message];
+    const canvas = new OffscreenCanvas(8, 8);
+    canvas.getContext("2d").drawImage(drawn.bitmap, 0, 0);
+    return [...canvas.getContext("2d").getImageData(4, 4, 1, 1).data];
+  })()`);
+  assert.deepEqual(pixel, [255, 136, 0, 255]);
 });

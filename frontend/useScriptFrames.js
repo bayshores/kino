@@ -54,6 +54,14 @@ export function useScriptFrames(scene, time, { active = true, container } = {}) 
     slot.host.draw(wanted.frame).then((reply) => {
       slot.pending = null;
       if (slot.gone) { reply.bitmap?.close(); return; }
+      // Stopped along with a stuck module: the frame lost the mount, so it mounts again.
+      if (reply.stopped) {
+        slot.mounted = null;
+        if (!slot.mounting && slot.wanted) void mount(slot, slot.wanted);
+        return;
+      }
+      // An answer for a module that was replaced meanwhile.
+      if (!reply.ok && slot.mounted !== wanted.mountKey) return pump(slot);
       if (!reply.ok) return fail(slot, wanted.mountKey);
       if (isLate(wanted, slot.wanted) || !reply.bitmap) reply.bitmap?.close();
       else {
@@ -66,11 +74,11 @@ export function useScriptFrames(scene, time, { active = true, container } = {}) 
     });
   }, [paint]);
 
-  // A failed or stuck module: its frame goes, and the layer draws nothing until its mount changes.
+  // A failed or stuck module draws nothing until its mount changes. The frame stays (it stopped
+  // a stuck module's Worker itself) unless it stopped answering and was thrown away.
   const fail = useCallback((slot, mountKey) => {
     slot.failedKey = mountKey;
-    slot.host?.destroy();
-    slot.host = null;
+    if (slot.host?.destroyed) slot.host = null;
     slot.mounted = null;
     slot.bitmap?.close();
     slot.bitmap = null;
@@ -79,21 +87,27 @@ export function useScriptFrames(scene, time, { active = true, container } = {}) 
   }, [paint]);
 
   const mount = useCallback(async (slot, wanted) => {
-    slot.host?.destroy();
     slot.mounted = null;
     slot.mounting = wanted.mountKey;
-    const host = createScriptHost({ src: SCRIPT_FRAME_PATH });
-    slot.host = host;
+    // One frame per layer for as long as the layer is shown; a new module mounts in the same one.
+    if (!slot.host || slot.host.destroyed) slot.host = createScriptHost({ src: SCRIPT_FRAME_PATH });
+    const host = slot.host;
+    slot.mountId = (slot.mountId ?? 0) + 1;
+    const mountId = slot.mountId;
     const images = {};
     try {
       for (const [key, src] of Object.entries(wanted.mount.images)) images[key] = await imageBytes(src);
     } catch {
       // A picture that cannot be loaded is no picture, as for an image layer.
     }
-    if (slot.host !== host || slot.gone) return;
+    // A newer mount started meanwhile: this one's answer no longer counts.
+    const stale = () => slot.mountId !== mountId || slot.gone;
+    if (stale()) return;
     const reply = await host.mount({ ...wanted.mount, images });
-    if (slot.host !== host || slot.gone) return;
+    if (stale()) return;
     slot.mounting = null;
+    // Stopped along with an older module that got stuck: this one has done nothing wrong.
+    if (reply.stopped) return mount(slot, wanted);
     if (!reply.ok) return fail(slot, wanted.mountKey);
     slot.mounted = wanted.mountKey;
     pump(slot);
