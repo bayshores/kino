@@ -4,7 +4,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { agentLabels, withAgentLabels } from "./dashboard/agentLabels.js";
-import { agentGoal, canWake, agentLog, asAsk, asSentence, agentOfCalls, agentSaid, agentTask, CREW_MS, crewAgents, crewFeed, currentCall, DETAIL_CHARS, leftWords, paneIdle, railAgents, renderDock, SEEN_MS, seenNow, minutes, needWords, planStep, shownAgent, specWords, stepWords, turnWords, usefulDetails, verbKind, voiceLine } from "./dashboard/agentView.js";
+import { agentGoal, canWake, wakeFor, agentLog, asAsk, asSentence, agentOfCalls, agentSaid, agentTask, CREW_MS, crewAgents, crewFeed, currentCall, DETAIL_CHARS, leftWords, paneIdle, railAgents, renderDock, SEEN_MS, seenNow, minutes, needWords, planStep, shownAgent, specWords, stepWords, turnWords, usefulDetails, verbKind, voiceLine } from "./dashboard/agentView.js";
 
 const NOW = Date.parse("2026-10-26T10:00:30Z");
 const nova = { id: "a1", name: "Nova", kind: "claude-code", color: "#42c0b6", lastAt: "2026-10-26T10:00:20Z" };
@@ -237,6 +237,9 @@ test("the line under the frame: the call as a sentence, the line before it, and 
   // A note you send starts the agent when kino can continue its chat and no agent called in the last 90 s.
   const quiet = { ...alone, agents: [{ ...alone.agents[0], lastAt: new Date(NOW - 120_000).toISOString() }], resume: { possible: true, run: null } };
   assert.deepEqual([canWake(quiet, NOW), canWake({ ...quiet, hold: { on: true } }, NOW), canWake({ ...quiet, agents: alone.agents }, NOW), canWake({ ...quiet, resume: { possible: false } }, NOW)], [true, false, false, false]);
+  // So does an answer (a sketch pick): at once when no agent works, after the quiet 90 s when one called lately, never once an agent called after it.
+  assert.deepEqual([wakeFor(quiet, NOW - 5_000, NOW), wakeFor({ ...quiet, agents: alone.agents }, NOW, NOW), wakeFor({ ...quiet, agents: alone.agents }, Date.parse(alone.agents[0].lastAt) - 1, NOW), wakeFor({ ...quiet, resume: { possible: false } }, NOW, NOW)],
+    ["wake", "wait", "drop", "drop"]);
   const two = withAgentLabels(data());
   // Juno was seen first (its last call at 09:00), so Nova is Agent 2.
   assert.equal(voiceLine({ ...two, agents: [] }, two.agents[0], NOW).text, "Agent 2 last worked on this just now. Everything is saved.");

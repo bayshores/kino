@@ -135,8 +135,10 @@ test("two agents at work: the top line names both, each in its color; one keeps 
   // One chip per agent at work on the top line, its dot in its color (the name is plain text).
   const names = await browser.waitFor(`(() => {
     const chips = [...document.querySelectorAll(".topline .agent-chip .chip-name")];
-    return chips.length === 2 ? chips.map((name) => ({ name: name.innerText, color: getComputedStyle(name.closest(".agent-chip").querySelector(".chip-dot")).backgroundColor })) : null;
-  })()`, { what: "2 agents on the top line" });
+    const found = chips.map((name) => ({ name: name.innerText, color: getComputedStyle(name.closest(".agent-chip").querySelector(".chip-dot")).backgroundColor }));
+    // On Nova's project, where the dashboard ends: on Juno's, a moment earlier, the two are numbered the other way round (it failed once on a slow machine).
+    return found.length === 2 && document.querySelector(".dash")?.dataset.project === "live" ? found : null;
+  })()`, { what: "2 agents on the top line of the live project" });
   assert.deepEqual(names.map((entry) => entry.name).sort(), ["Agent 1", "Agent 2"]);
   assert.equal(names.find((entry) => entry.name === "Agent 2").color, rgb("#6cb6ff"));
   assert.equal(names.find((entry) => entry.name === "Agent 1").color, rgb("#42c0b6"));

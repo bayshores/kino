@@ -41,7 +41,7 @@ import { Icon, LogPane, lookMoment, Menu, SeenPane, SessionPane, StagePane, Stat
 import { agentChips, idleLine, renderAgent, runningRender } from "./topbar.js";
 import { usePreviewList } from "./previewCache.jsx";
 import { AgentPane } from "./agentPane.jsx";
-import { agentOfCalls, canWake, needWords, shownAgent } from "./agentView.js";
+import { agentOfCalls, canWake, needWords, shownAgent, wakeFor } from "./agentView.js";
 import { theAgent, withAgentLabels } from "./agentLabels.js";
 import { noteCursorRows, noteGroups, noteReader, readerLine } from "./noteSpot.js";
 import { Bot } from "./bot.jsx";
@@ -830,23 +830,36 @@ export function Dashboard() {
     return reply.data?.note;
   }, [projectId]);
 
+  // A note or an answer (a sketch pick, an approval, a button in the notes view) the agent has not
+  // read yet starts your agent in the background once none is working, when kino can continue its
+  // chat; an agent that calls first has read it (agentView.js wakeFor, backend/agent/resume.mjs).
+  const [unread, setUnread] = useState(null);
+  const leftForAgent = useCallback(() => setUnread({ project: projectId, at: Date.now() }), [projectId]);
+  useEffect(() => {
+    if (!unread) return;
+    const what = unread.project === projectId ? wakeFor(data, unread.at, now) : "drop";
+    if (what === "wait") return;
+    setUnread(null);
+    if (what === "wake") server.continueAgent(projectId).catch(() => {});
+  }, [unread, data, now, projectId]);
+
   // A button in the notes view (Looks good, Not yet, always, Keep it, Let ...): one notes action.
   const noteAct = useCallback(async (payload, words) => {
     try {
       const reply = await server.act("notes", { project: projectId, ...payload });
       if (reply.isError) throw new Error(reply.text);
+      // "Looks good" closes a note: nothing for the agent to do.
+      if (payload.action !== "resolve") leftForAgent();
       if (words) say(words);
     } catch (cause) { fail(cause); }
-  }, [projectId, say, fail]);
+  }, [projectId, say, fail, leftForAgent]);
 
-  // A note typed while no agent is working starts your agent in the background, when kino can
-  // continue its chat (agentView.js canWake, backend/agent/resume.mjs). Says what happens next.
+  // A note typed while no agent is working starts your agent (leftForAgent). Says what happens next.
   const noteSent = useCallback((note) => {
     const id = note?.id ?? "Note";
-    if (!canWake(data)) { say(`${id} queued: the agent gets it with its next call.`); return; }
-    server.continueAgent(projectId).catch(() => {});
-    say(`${id} sent. Starting your agent.`);
-  }, [data, projectId, say]);
+    leftForAgent();
+    say(canWake(data) ? `${id} sent. Starting your agent.` : `${id} queued: the agent gets it with its next call.`);
+  }, [data, say, leftForAgent]);
 
   // `urgent`: ⌘Enter, or "urgent" in the bubble: the agent's inbox marks it URGENT.
   const submitDraft = useCallback(async (urgent = false) => {
@@ -874,19 +887,20 @@ export function Dashboard() {
     try {
       const { approval } = await server.answerApproval(id, { decision, always, note: approvalNotes[id] ?? "" });
       setApprovalNotes((value) => ({ ...value, [id]: "" }));
+      leftForAgent();
       const rule = always ? `, from now on always ${decision}` : "";
       // Allowed, but the call it let through failed: that is an error, not a success.
       if (approval.result?.isError) say(`${id} allowed${rule}, but the call failed: ${cut(approval.result.text, 120)}. The agent is told in its next answer.`, true);
       else say(`${id} ${approval.status}${rule}${approval.result ? `: ${cut(approval.result.text, 120)}` : ""}. The agent is told in its next answer.`);
     } catch (cause) { fail(cause); }
-  }, [approvalNotes, say, fail]);
+  }, [approvalNotes, say, fail, leftForAgent]);
 
   // A material question's answer ("option N", "have" or "drop"), saved as yours (by:"you"), the
   // same answer an agent records from the chat; the agent reads it in its inbox.
   const answerMaterial = useCallback((need, value) => {
     server.act("notes", { action: "needs", project: projectId, id: need.id, answer: value })
-      .then((reply) => { if (reply.isError) say(reply.text, true); else say(`${need.id}: ${value}. The agent is told in its next answer.`); }, fail);
-  }, [projectId, say, fail]);
+      .then((reply) => { if (reply.isError) say(reply.text, true); else { leftForAgent(); say(`${need.id}: ${value}. The agent is told in its next answer.`); } }, fail);
+  }, [projectId, say, fail, leftForAgent]);
 
   // The "needs you" row a, d, A and D act on: pane 1's cursor row, else the first that is not a
   // stop in another project (keyTarget in state.js).
@@ -1871,7 +1885,7 @@ export function Dashboard() {
       }} />,
       board: () => <BoardScreen projectId={projectId} document={doc} revision={revision} />,
       try: () => <TryScreen projectId={projectId} tries={data.agent?.tries ?? null} shots={doc?.board?.shots ?? []} onBack={back}
-        onAnswer={(round, pick) => server.act("notes", { action: "try", project: projectId, round: round.id, pick }).then((reply) => { if (reply.isError) say(reply.text, true); }, fail)} />,
+        onAnswer={(round, pick) => server.act("notes", { action: "try", project: projectId, round: round.id, pick }).then((reply) => { if (reply.isError) say(reply.text, true); else leftForAgent(); }, fail)} />,
       library: () => <LibraryScreen document={doc} shots={doc?.board?.shots ?? []}
         onSend={async (text) => { try { await sendNote(text); say("Sent to the agent."); } catch (cause) { fail(cause); throw cause; } }} />,
       inspire: () => <InspireScreen data={data} projectId={projectId} now={now} onBack={back} say={say} keysRef={inspireKeys} still={still} />,

@@ -14,6 +14,8 @@ export const SKETCH_STEP = "show sketches: their pick in the app";
 // song search is the step itself (a run took the bundled tracks while the finder was only named
 // beside the sketch call).
 export const SONG_FIRST_STEP = `find each sketch's song (real songs first), then ${SKETCH_STEP}`;
+// They answered "None of these": other treatments come next, then a round of those.
+export const OTHER_STEP = "they liked none of the sketches: write 5 other treatments (other ideas and moves), then show sketches of those";
 // Where the song and font candidates come from (the real-song finder and the font ranking).
 export const SKETCH_HINT = 'songs: library {topic:"soundtrack", song:"<title> by <artist>"} or explore:true; fonts: library {topic:"fonts"}';
 
@@ -48,15 +50,18 @@ export const WAIT_CALL = { tool: "notes", input: { action: "brief", log: [{ q: P
 
 /**
  * The step while no treatment is picked: { step, call }. A round asked for these treatments is
- * never asked again: once it ended without a pick (skipped, none, failed) or the app went away,
- * the pick is the agent's own. `own` is true under "just start" or a pick left to the agent.
+ * never asked again: once it ended without a pick (skipped, failed) or the app went away, the
+ * pick is the agent's own. "None of these" is an answer, not a missing pick: other treatments
+ * come next (`otherCall` saves them), and a new set of treatments gets its own round.
+ * `own` is true under "just start" or a pick left to the agent.
  */
-export function pickStep(state, treatments, { appSeen = false, own = false, files = [], leftToAgent = false, songCall = null } = {}) {
+export function pickStep(state, treatments, { appSeen = false, own = false, files = [], leftToAgent = false, songCall = null, otherCall = null } = {}) {
   const ownPick = { step: "pick a treatment, with why", call: { tool: "notes", input: { action: "brief", fields: { treatments: { ...OWN_PICK_CALL } } } } };
   if (leftToAgent) return ownPick;
   const round = sketchRoundFor(state, treatments);
   if (round) {
     if (appSeen && (round.status === "rendering" || round.status === "waiting")) return { step: `their sketch pick in the app (${round.id}): end your turn`, call: WAIT_CALL };
+    if (round.status === "none" && otherCall) return { step: OTHER_STEP, call: otherCall };
     return ownPick;
   }
   if (appSeen && songCall && !state?.soundtrack?.candidates?.length) return { step: SONG_FIRST_STEP, call: songCall };
@@ -67,13 +72,13 @@ export function pickStep(state, treatments, { appSeen = false, own = false, file
 /**
  * Where the sketch round stands for the saved treatments: "songs" (the next step finds the
  * sketches' songs), "show" (the next step shows sketches),
- * "wait" (their pick is waiting in the app) or null (no round: the pick is asked or the agent's own).
+ * "wait" (their pick is waiting in the app), "other" (they liked none: other treatments first) or null (no round: the pick is asked or the agent's own).
  * The treatments text (treatments.mjs treatmentsText) says the same thing as the step.
  */
 export function sketchPhase(state, treatments, { appSeen = false, leftToAgent = false, songCall = null } = {}) {
   if (!treatments?.list || treatments.picked) return null;
-  const step = pickStep(state, treatments, { appSeen, own: true, leftToAgent, songCall })?.step ?? "";
-  return step === SONG_FIRST_STEP ? "songs" : step.startsWith(SKETCH_STEP) ? "show" : step.startsWith("their sketch pick") ? "wait" : null;
+  const step = pickStep(state, treatments, { appSeen, own: true, leftToAgent, songCall, otherCall: {} })?.step ?? "";
+  return step === SONG_FIRST_STEP ? "songs" : step === OTHER_STEP ? "other" : step.startsWith(SKETCH_STEP) ? "show" : step.startsWith("their sketch pick") ? "wait" : null;
 }
 
 /**

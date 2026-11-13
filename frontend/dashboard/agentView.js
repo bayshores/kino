@@ -448,6 +448,18 @@ export function canWake(data, now = Date.now()) {
   return !(data.agents ?? []).some((agent) => data.live?.latest?.[agent.id]?.phase === "start" || (agent.lastAt && now - Date.parse(agent.lastAt) < WAKE_AFTER_MS));
 }
 
+/**
+ * What to do about a note or an answer (a sketch pick, an approval) left at `since` (ms) that the
+ * agent has not read: "wake" (start the agent now), "wait" (an agent called lately or a run is
+ * alive: look again) or "drop" (an agent called after it, so it has read it; or kino cannot
+ * continue the chat, or the project is on hold).
+ */
+export function wakeFor(data, since, now = Date.now()) {
+  if (!data?.resume?.possible || data?.hold?.on) return "drop";
+  if ((data.agents ?? []).some((agent) => agent.lastAt && Date.parse(agent.lastAt) > since)) return "drop";
+  return canWake(data, now) ? "wake" : "wait";
+}
+
 // The last paragraph of what the agent said (its question or its summary), as one line.
 function lastWords(reply) {
   const text = String(reply).split(/\n\s*\n/).map((part) => part.replace(/\s+/g, " ").trim()).filter(Boolean).at(-1) ?? "";

@@ -9,7 +9,7 @@ import { fromAppPick, fromJudged, ladder } from "../evals/taste/ladder.mjs";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { agentArgs, agentStateFile, APPROVAL, appCommand,askedAfter, callsTool, checkReplies, htmlText, nextMessage, pendingPick, personStep, pickMp4, PICK_REPLY, pollUntil, roundStatus, projectIdFor, mcpConfig, projectIdFromStatus, promptFor, REPLY, replyFor, seedHouse, stopEntry, summarize, waitEntry, watchOver, WATCH_REPLY } from "../evals/taste/firstpass.mjs";
+import { agentArgs, agentStateFile, APPROVAL, appCommand,askedAfter, callsTool, checkReplies, htmlText, nextMessage, NONE_REPLY, pendingPick, personStep, pickAnswer, pickMp4, PICK_REPLY, pollUntil, roundStatus, projectIdFor, mcpConfig, projectIdFromStatus, promptFor, REPLY, replyFor, seedHouse, stopEntry, summarize, waitEntry, watchOver, WATCH_REPLY } from "../evals/taste/firstpass.mjs";
 import { commandsFrom, nextOf, report, summarize as summarizeCalls } from "../scripts/harness-report.mjs";
 import { stopsSummary } from "../backend/agent/stops.mjs";
 import { triesView } from "../backend/agent/tries.mjs";
@@ -214,6 +214,10 @@ test("person mode: a stop is answered as before, a waiting try round makes the r
 
   assert.deepEqual(ask(snap([round("T2", "waiting")])), { action: "pick", round: { id: "T2", question: "Which opening?", status: "waiting" }, message: PICK_REPLY, line: "waiting for your pick in the app: Which opening?" });
   assert.equal(PICK_REPLY, "I picked in the app.");
+  // Once the wait is over: a pick and "None of these" are their answers; skipped, failed or no answer is "your call".
+  assert.deepEqual(["picked", "none", "skipped", "failed", null].map((status) => { const answer = pickAnswer(status); return [answer.message, answer.theirs, answer.line(3)]; }), [
+    [PICK_REPLY, true, "picked after 3 s"], [NONE_REPLY, true, '"None of these" after 3 s: replied "None of these. Show me other directions."'],
+    ["your call", false, 'skipped after 3 s: replied "your call"'], ["your call", false, 'round failed after 3 s: replied "your call"'], ["your call", false, 'no answer in the app after 3 s: replied "your call"']]);
   assert.equal(ask(snap([])).action, "reply", "nothing waits and no MP4: your call");
   assert.equal(ask(snap([])).message, REPLY);
   assert.equal(ask(null).action, "reply", "an unreadable snapshot: your call");

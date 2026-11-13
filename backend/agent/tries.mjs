@@ -89,6 +89,8 @@ export function answerText(round) {
   const head = `try ${round.id} "${round.question}"`;
   const said = round.words ? ` (their note: "${round.words}")` : "";
   if (round.pick === "skip") return `${head}: the person skipped it${said}. Keep the video as it is and go on to the next round.`;
+  // Sketches of treatments: other treatments come first (sketch-step.mjs pickStep); status next has the call.
+  if (round.pick === "none" && round.options.some((option) => option.treatment)) return `${head}: the person liked none of these${said}. Do not pick one of them: write 5 other treatments (notes brief fields.treatments), then show sketches of those; status next has the call.`;
   if (round.pick === "none") return `${head}: the person liked none of these${said}. Try other options: notes {action:"try"} again.`;
   const option = round.options.find((entry) => entry.letter === round.pick);
   if (option.built) {

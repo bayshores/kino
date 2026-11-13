@@ -991,12 +991,12 @@ function openParts(state, video) {
   }
   if (video.treatmentsWaived) return open;
   const treatments = brief.treatments;
-  if (!treatments?.list) {
-    const one = { idea: STORY_PLACEHOLDER, who: "<whose want or fear drives it: a person, a crew, a viewer, a thing>",
-      tension: "<what they want, fear or wonder before the turn>", turn: "<the on-screen moment it flips>",
-      move: "<the signature move>", ending: "<the last image, from this material>", type: "<the type and how it appears, from the references you studied>", p: "<0 to 1: how typical the story is>", source: "<the file or screen the move uses, and the moment>" };
-    return [...open, { step: "write 5 treatments", call: briefCall({ treatments: Array.from({ length: 5 }, () => one) }) }];
-  }
+  // The call that saves 5 treatments, each field a placeholder.
+  const one = { idea: STORY_PLACEHOLDER, who: "<whose want or fear drives it: a person, a crew, a viewer, a thing>",
+    tension: "<what they want, fear or wonder before the turn>", turn: "<the on-screen moment it flips>",
+    move: "<the signature move>", ending: "<the last image, from this material>", type: "<the type and how it appears, from the references you studied>", p: "<0 to 1: how typical the story is>", source: "<the file or screen the move uses, and the moment>" };
+  const writeCall = briefCall({ treatments: Array.from({ length: 5 }, () => one) });
+  if (!treatments?.list) return [...open, { step: "write 5 treatments", call: writeCall }];
   const picked = treatments.picked;
   // Under "just start" the pick is the agent's own, with why (treatmentsText says what to pick).
   // So is a pick the person left to the agent ("your call" recorded by notes answer).
@@ -1005,7 +1005,7 @@ function openParts(state, video) {
   // click in the app is not a question (sketch-step.mjs). One round per set of treatments.
   if (!picked) {
     const own = leftToAgent || /just start/i.test(brief.noPlayback?.reason ?? "");
-    const step = pickStep(state, treatments, { appSeen: video.appSeen === true, own, files: video.files ?? [], leftToAgent, songCall: video.songFinder ? songCall(brief) : null });
+    const step = pickStep(state, treatments, { appSeen: video.appSeen === true, own, files: video.files ?? [], leftToAgent, songCall: video.songFinder ? songCall(brief) : null, otherCall: writeCall });
     if (step) return [...open, step];
     return [...open, { step: "ask their treatment pick", call: briefCall({ treatments: { pick: "<A, B or C>", quote: "<their words>" } }) }];
   }

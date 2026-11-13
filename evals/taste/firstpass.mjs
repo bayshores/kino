@@ -196,6 +196,8 @@ export function stopEntry(stop, askedAfter, reply) {
 // ---- person mode: someone sits at the app (KINO_FIRSTPASS_PERSON=1) -----------------------------------
 
 export const PICK_REPLY = "I picked in the app.";
+// Their "None of these" is an answer too: the agent shows other directions.
+export const NONE_REPLY = "None of these. Show me other directions.";
 export const WATCH_REPLY = "I watched it in the app.";
 /** The watch is over once the person's last reaction is this old. */
 export const WATCH_QUIET_MS = 20_000;
@@ -212,6 +214,17 @@ export const POLL_FAILURES = 5;
 export function pendingPick(snapshot, id = null) {
   const round = (snapshot?.agent?.tries?.rounds ?? []).find((entry) => (entry.status === "waiting" || entry.status === "rendering") && (id === null || entry.id === id));
   return round ? { id: String(round.id), question: String(round.question ?? ""), status: round.status } : null;
+}
+
+/**
+ * The runner's reply once the wait for a pick is over, from the round's status (null: no answer in
+ * time): { message, theirs (a reply of the person), line(seconds) for the log }.
+ */
+export function pickAnswer(status) {
+  if (status === "picked") return { message: PICK_REPLY, theirs: true, line: (seconds) => `picked after ${seconds} s` };
+  if (status === "none") return { message: NONE_REPLY, theirs: true, line: (seconds) => `"None of these" after ${seconds} s: replied "${NONE_REPLY}"` };
+  const why = status === null ? "no answer in the app" : status === "skipped" ? "skipped" : `round ${status ?? "gone"}`;
+  return { message: REPLY, theirs: false, line: (seconds) => `${why} after ${seconds} s: replied "${REPLY}"` };
 }
 
 /** How a try round stands now ("picked", "skipped", "failed" ...), or null when it is gone. */
@@ -686,9 +699,11 @@ async function main() {
           ended = roundStatus(now, step.round.id);
           return !pendingPick(now, step.round.id);
         });
-        // Only a real pick is answered as one: a skipped or failed round, or no pick in time, is "your call".
-        if (wait.timedOut || ended !== "picked") { message = REPLY; console.log(`  no pick after ${wait.seconds} s (round ${ended ?? "gone"}): replied "${REPLY}"`); }
-        else { personReplies += 1; console.log(`  picked after ${wait.seconds} s`); }
+        // A pick and "None of these" are the person's answers; a skipped or failed round, or no answer in time, is "your call".
+        const answer = pickAnswer(wait.timedOut ? null : ended);
+        message = answer.message;
+        if (answer.theirs) personReplies += 1;
+        console.log(`  ${answer.line(wait.seconds)}`);
       } else if (step.action === "watch") {
         console.log(`  ${step.line}`);
         watchStarted = true;
