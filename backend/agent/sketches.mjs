@@ -46,10 +46,12 @@ const median = (values) => {
   return list.length % 2 ? list[middle] : (list[middle - 1] + list[middle]) / 2;
 };
 
-// The fields kino builds a sketch from itself (song, font, line, clips), and the default length.
-export const BUILT_FIELDS = ["song", "font", "line", "clips"];
+// The fields kino builds a sketch from itself (song, font, line, clips, type, together), and the default length.
+export const BUILT_FIELDS = ["song", "font", "line", "clips", "type", "together"];
 export const SKETCH_SECONDS = 6;
 const CLIPS_MOST = 6;
+// Song beats that get a cue (beat-1..) for an option's own ops.
+const CUE_BEATS = 16;
 
 /** True when a try input asks for sketches: a stretch (from and to), seconds, kino-built fields or an option tied to a treatment. */
 export const isSketchInput = (input) => input?.from !== undefined || input?.to !== undefined || input?.seconds !== undefined
@@ -70,7 +72,8 @@ function readBuilt(option, index) {
   const clips = option?.clips;
   if (clips !== undefined && (!Array.isArray(clips) || !clips.length || clips.length > CLIPS_MOST || clips.some((clip) => typeof clip?.file !== "string" || (clip.in !== undefined && !(Number(clip.in) >= 0)))))
     throw new Error(`options[${index}].clips lists 1 to ${CLIPS_MOST} project files, [{file:"intro.mp4", in:2.5}] (in: seconds into the file).`);
-  return { song: text("song", 200), font: text("font", 80), line: text("line", 200), clips: clips?.map((clip) => ({ file: clip.file.trim(), ...(clip.in !== undefined ? { in: Number(clip.in) } : {}) })) };
+  if (option?.together !== undefined && typeof option.together !== "boolean") throw new Error(`options[${index}].together is true (every clip on for the whole sketch, for a move that shows several at once) or left out.`);
+  return { song: text("song", 200), font: text("font", 80), line: text("line", 200), type: text("type", 80), ...(option?.together ? { together: true } : {}), clips: clips?.map((clip) => ({ file: clip.file.trim(), ...(clip.in !== undefined ? { in: Number(clip.in) } : {}) })) };
 }
 
 /**
@@ -125,20 +128,140 @@ export function lineExit(beats, start, seconds) {
   return sec(near ?? Math.max(start + 0.5, Math.min(start + 2.5, last)));
 }
 
+// ---- how the line is set ------------------------------------------------------------------------
+// A treatment says its own type in words (treatments.mjs `type`: "<family class>, <size>, <case>,
+// <how it appears>"), and a built sketch shows it: kino reads the size, the case, the place and
+// how the line appears from those words, so sketches of three type directions do not arrive the
+// same way. Of two sizes (or two ways to appear) the words name, the first named wins. What the
+// words do not say is shown plainly: big, in the middle, cut on with a beat.
+
+// How a line can appear, in the order the words are tried: the key, what the receipt calls it,
+// and the words that name it.
+const APPEAR_WORDS = [
+  ["typed", "typed on with a caret", /\b(?:typed|typing|types? (?:on|out|itself)|typewriter|cursor|caret|keystrokes?)\b/i],
+  ["beat", "one word a beat", /\bone (?:word|numeral|number) (?:per|a|an|each|every|at a|on)\b|\b(?:word|numeral|number)s? (?:per|a|each|every) (?:beat|cut|hit|kick|bar)\b|\bsingle words?\b|\bwords? flash\w*/i],
+  ["words", "word by word, cut on", /\b(?:each word|word[- ]by[- ]word|by word|per word|words? (?:cuts?|lands?|hits?|pops?|snaps?))\b/i],
+  ["decode", "decoded from random letters", /\b(?:decod\w*|scrambl\w*|cipher\w*|computed)\b/i],
+  ["stream", "streamed in word by word", /\bstream\w*\b/i],
+  ["assemble", "letters flying together", /\b(?:assembl\w*|scatter\w*|fl(?:y|ies|ying) together)\b/i],
+  ["cut", "cut on whole", /\b(?:cuts? (?:in|on)|cut-on|hard[- ]cuts?|whole|static|no animation|(?:snap|pop|slam|stamp)\w*)\b/i],
+  ["slide", "slid in", /\b(?:slid\w*|push\w* (?:in|up)|scroll\w*|crawl\w*|ticker)\b/i],
+  ["mask", "risen through a mask, word by word", /\b(?:mask\w*|ris(?:e|es|ing)|reveal\w*)\b/i],
+  ["blur", "out of a blur", /\b(?:blur\w*|defocus\w*|focus\w*)\b/i],
+  ["wipe", "wiped on", /\bwip\w*\b/i],
+  ["grow", "grown in", /\b(?:grow\w*|scal\w*|zoom\w*|punch\w*|expand\w*)\b/i],
+  ["fade", "faded in", /\b(?:fad\w*|dissolv\w*)\b/i],
+];
+const SIZE_WORDS = [
+  ["giant", /\b(?:giant|huge|massive|enormous|oversized?|full[- ](?:frame|width|screen|bleed)|wall[- ]to[- ]wall|edge[- ]to[- ]edge)\b/i],
+  ["small", /\b(?:small|tiny|little|captions?|labels?|subtitles?|fine print|footnotes?)\b/i],
+  ["big", /\b(?:big|large|bold|headline|display|heavy)\b/i],
+];
+const CASE_WORDS = [["upper", /\b(?:caps|capitals?|upper[- ]?case|all[- ]caps)\b/i], ["lower", /\blower[- ]?case\b/i]];
+const PLACE_WORDS = [["low", /\b(?:lower[- ]third|low|bottom|captions?|subtitles?)\b/i], ["top", /\b(?:top|upper[- ]third|header)\b/i]];
+const ON_BLACK = /\bon (?:a )?black\b|\bblack (?:cards?|frames?|screens?)\b/i;
+/** What the receipt calls each way to appear ({typed: "typed on with a caret", ...}). */
+export const APPEARS = Object.freeze(Object.fromEntries(APPEAR_WORDS.map(([key, words]) => [key, words])));
+// The ways by name, for a receipt whose type words named none.
+const APPEAR_NAMES = "typed, one word a beat, word by word, cut, slide, mask, blur, wipe, grow, fade, stream, decode, assemble";
+// The entrance preset of the ways that are one (the others are a cut, a text swap or a move).
+const APPEAR_PRESET = Object.freeze({ slide: "preset-slide", mask: "preset-mask", blur: "preset-blur", wipe: "preset-wipe", grow: "preset-grow", fade: "preset-fade" });
+const APPEAR_MOVE = Object.freeze({ typed: "type-on", decode: "decode", stream: "stream", assemble: "assemble" });
+
+// The key whose words come first in the text, or null. rows: [key, ..., pattern].
+function firstNamed(text, rows) {
+  let found = null;
+  for (const row of rows) {
+    const at = row.at(-1).exec(text)?.index;
+    if (at !== undefined && (!found || at < found.at)) found = { key: row[0], at };
+  }
+  return found?.key ?? null;
+}
+
+/**
+ * A type direction in words, read: {appear, size, case, place, black}, each null (false for
+ * black) when the words do not say it. `appear` is a key of APPEARS, `size` giant, big or small,
+ * `case` upper or lower, `place` low or top, `black` true for a line set on black.
+ */
+export function readType(text) {
+  const words = String(text ?? "");
+  return { appear: firstNamed(words, APPEAR_WORDS), size: firstNamed(words, SIZE_WORDS), case: firstNamed(words, CASE_WORDS), place: firstNamed(words, PLACE_WORDS), black: ON_BLACK.test(words) };
+}
+
+// Where the line sits when the words do not say: a small line low (a caption), unless it is on black.
+const placeOf = (read) => read.place ?? (read.size === "small" && !read.black ? "low" : "middle");
+
+/** The receipt's words for how a sketch's line is set: "giant, upper case, cut on whole (from "giant caps, cut in whole")". */
+export function typeText(read, said = null) {
+  if (!read) return null;
+  const parts = [read.size ?? "big", read.case ? `${read.case} case` : null, placeOf(read), read.black ? "on black" : null,
+    read.appear ? APPEARS[read.appear] : `${APPEARS.cut} (the words name no way to appear: ${APPEAR_NAMES})`].filter(Boolean);
+  return `${parts.join(", ")}${said ? ` (from "${said}")` : ""}`;
+}
+
+// The line's share of the frame height, the share of the width it may fill and the fewest
+// letters it is fitted for, by size. 1.6 letters per font size of width fits a monospace line.
+const SIZES = Object.freeze({ giant: { share: 0.34, width: 0.92, least: 3 }, big: { share: 0.13, width: 0.84, least: 8 }, small: { share: 0.05, width: 0.7, least: 20 } });
+const LETTERS_PER_SIZE = 1.6;
+// The middle of the line, as a share of the frame height.
+const PLACES = Object.freeze({ low: 0.82, top: 0.16, middle: 0.5 });
+
+// The usual seconds between two beats (the median gap), or null without two beats.
+const beatGap = (beats) => median(beats.slice(1).map((beat, index) => beat - beats[index]));
+
+/**
+ * When a sketch's line is on: {start, leave, step, appear}. It enters on the beat nearest 0.5 s
+ * and leaves on a beat about 2.5 s later (lineExit). One word a beat shows each word alone for one
+ * `step` (a beat; half beats when the words do not fit) and leaves after the last; word by word
+ * adds a word each `step`, all of them on within the first 60% of its time. One word is a cut.
+ */
+export function lineWindow({ beats = [], seconds, line = "", type = null }) {
+  const count = line.split(" ").length;
+  const asked = type?.appear ?? "cut";
+  const appear = count < 2 && (asked === "beat" || asked === "words") ? "cut" : asked;
+  const start = lineEntry(beats);
+  const gap = beatGap(beats) ?? 0.5;
+  if (appear === "beat") {
+    const room = seconds - 0.4 - start;
+    let step = gap;
+    while (step * count > room && step > 0.2) step /= 2;
+    return { start, leave: sec(Math.min(seconds - 0.4, start + step * count)), step: sec(step), appear };
+  }
+  const leave = lineExit(beats, start, seconds);
+  if (appear !== "words") return { start, leave, step: null, appear };
+  let step = gap;
+  while (step * (count - 1) > (leave - start) * 0.6 && step > 0.06) step /= 2;
+  return { start, leave, step: sec(step), appear };
+}
+
+// A long giant line is set on two rows: the break that leaves the shorter longest row.
+function twoRows(words) {
+  let best = null;
+  for (let at = 1; at < words.length; at += 1) {
+    const rows = [words.slice(0, at).join(" "), words.slice(at).join(" ")];
+    const longest = Math.max(rows[0].length, rows[1].length);
+    if (!best || longest < best.longest) best = { rows, longest };
+  }
+  return best;
+}
+
 /**
  * The edit ops of one kino-built sketch on a fresh scene of `frame` {width, height}: each clip full
- * frame (cropped to fill by coverBox), cut on the beats; the song from its entry with a short fade
- * out; the line large and centered, entering on a beat with the mask entrance and leaving on a beat
- * (lineExit), in `font`. `calm` {blur, dim} (engine/quality/legible.js, a busy picture): while the
- * line is on, the clips are blurred by `blur` px and a black layer dims them by `dim`.
+ * frame (cropped to fill by coverBox), cut on the beats (`together`: every clip on for the whole
+ * sketch, the last on top, for a move that shows several at once); the song from its entry with a
+ * short fade out; cues for an option's own ops (cut-2.. at the cuts, beat-1.. at the song's beats,
+ * line-in and line-out); the line set and brought on as `type` reads (readType: size, case, place,
+ * on black, how it appears; nothing read is big, in the middle, cut on), on a beat and off on a
+ * beat (lineWindow), in `font`. `calm` {blur, dim} (engine/quality/legible.js, a busy picture):
+ * while the line is on, the clips are blurred by `blur` px and a black layer dims them by `dim`.
  * clips [{src, type: "video"|"image", width, height, duration, in}], song {src, from, beats} or null.
  */
-export function sketchOps({ frame, seconds, clips = [], song = null, line = "", font = null, coverBox, calm = null }) {
+export function sketchOps({ frame, seconds, clips = [], song = null, line = "", font = null, coverBox, calm = null, type = null, together = false }) {
   const beats = song?.beats ?? [];
-  const starts = cutTimes(clips.length, seconds, beats);
+  const starts = together ? clips.map(() => 0) : cutTimes(clips.length, seconds, beats);
   const ops = clips.map((clip, index) => {
     const start = starts[index];
-    const length = sec((starts[index + 1] ?? seconds) - start);
+    const length = together ? seconds : sec((starts[index + 1] ?? seconds) - start);
     const box = coverBox({ width: clip.width || frame.width, height: clip.height || frame.height }, frame);
     const offset = clip.type === "video" ? sec(Math.max(0, Math.min(clip.in ?? 0, (clip.duration || Infinity) - length))) : 0;
     return { op: "add_layer", layerType: clip.type, name: `sketch-clip-${index + 1}`,
@@ -146,30 +269,50 @@ export function sketchOps({ frame, seconds, clips = [], song = null, line = "", 
   });
   if (song) ops.push({ op: "add_layer", layerType: "audio", name: "sketch-song", properties: { src: song.src, mediaStart: 0, mediaDuration: seconds, mediaOffset: song.from, volume: 0.8 },
     animations: [{ kind: "custom", name: "Song out", start: sec(seconds - 0.4), duration: 0.4, easing: "quart-out", from: { volume: 0.8 }, to: { volume: 0 } }] });
-  if (line) {
-    const size = Math.round(Math.min(frame.height * 0.13, (frame.width * 0.84 * 1.6) / Math.max(8, line.length)));
-    const start = lineEntry(beats);
-    const leave = lineExit(beats, start, seconds);
-    if (calm) {
-      const ease = (key, on, off) => [{ kind: "in", name: "Calm in", start, duration: CALM_IN, easing: "smooth", from: { [key]: off }, to: { [key]: on } },
-        { kind: "custom", name: "Calm out", start: leave, duration: CALM_OUT, easing: "smooth", from: { [key]: on }, to: { [key]: off } }];
-      ops.forEach((op) => { if (op.layerType === "video" || op.layerType === "image") op.animations = ease("blur", calm.blur, 0); });
-      ops.push({ op: "add_layer", layerType: "rectangle", name: "sketch-dim", properties: { x: 0, y: 0, width: frame.width, height: frame.height, fill: "#000000", opacity: calm.dim },
-        animations: ease("opacity", calm.dim, 0) });
-    }
-    // The exit is the entrance reversed (by word), done in LINE_EXIT.
-    const words = line.split(" ").length;
-    ops.push({ op: "add_layer", layerType: "text", name: "sketch-line",
-      properties: { text: line, x: Math.round(frame.width * 0.08), y: Math.round(frame.height / 2 - size * 0.75), width: Math.round(frame.width * 0.84), height: Math.round(size * 1.5),
-        fontSize: size, fill: "#ffffff", textAlign: "center", verticalAlign: "middle" },
-      // By word: the text mask's own letter stagger (0.15 s a letter) took 4 s to show a 27-letter line.
-      animations: [{ preset: "preset-mask", start, duration: 0.5, unit: "words", stagger: 0.06 },
-        { preset: "preset-mask", kind: "out", start: leave, duration: sec(Math.max(0.15, LINE_EXIT - 0.03 * (words - 1))), unit: "words", stagger: 0.03 },
-        // Gone after its exit, so the lettering share counts only the time it was on.
-        { kind: "custom", name: "Line gone", start: sec(leave + LINE_EXIT), duration: 0.03, from: { opacity: 1 }, to: { opacity: 0 } }] });
-    if (font) ops.push({ op: "set_font", layers: ["sketch-line"], family: font });
+  const cues = [...(together ? [] : starts.slice(1).map((at, index) => ({ op: "set_cue", name: `cut-${index + 2}`, at }))), ...beats.slice(0, CUE_BEATS).map((at, index) => ({ op: "set_cue", name: `beat-${index + 1}`, at }))];
+  if (!line) return [...ops, ...cues];
+  const read = type ?? {};
+  const cased = read.case === "upper" ? line.toUpperCase() : read.case === "lower" ? line.toLowerCase() : line;
+  const words = cased.split(" ");
+  const { start, leave, step, appear } = lineWindow({ beats, seconds, line: cased, type });
+  const set = SIZES[read.size ?? "big"];
+  const rows = read.size === "giant" && appear !== "beat" && words.length > 1 && cased.length > 10 ? twoRows(words) : null;
+  const longest = appear === "beat" ? Math.max(...words.map((word) => word.length)) : rows?.longest ?? cased.length;
+  // Two giant rows together stay within about two thirds of the frame's height.
+  const size = Math.round(Math.min(frame.height * (rows ? 0.26 : set.share), (frame.width * set.width * LETTERS_PER_SIZE) / Math.max(set.least, longest)));
+  const height = Math.round(size * (rows ? 2.7 : 1.5));
+  const middle = frame.height * PLACES[placeOf(read)];
+  const y = Math.round(Math.max(frame.height * 0.03, Math.min(frame.height * 0.97 - height, middle - height / 2)));
+  const quiet = read.black ? { blur: 0, dim: 1 } : calm;
+  if (quiet) {
+    const ease = (key, on, off) => [{ kind: "in", name: "Calm in", start, duration: CALM_IN, easing: "smooth", from: { [key]: off }, to: { [key]: on } },
+      { kind: "custom", name: "Calm out", start: leave, duration: CALM_OUT, easing: "smooth", from: { [key]: on }, to: { [key]: off } }];
+    if (quiet.blur) ops.forEach((op) => { if (op.layerType === "video" || op.layerType === "image") op.animations = ease("blur", quiet.blur, 0); });
+    ops.push({ op: "add_layer", layerType: "rectangle", name: "sketch-dim", properties: { x: 0, y: 0, width: frame.width, height: frame.height, fill: "#000000", opacity: quiet.dim },
+      animations: ease("opacity", quiet.dim, 0) });
   }
-  return ops;
+  // Off at `at`, so the lettering share counts only the time it was on.
+  const gone = (at) => ({ kind: "custom", name: "Line gone", start: sec(at), duration: 0.03, from: { opacity: 1 }, to: { opacity: 0 } });
+  const cutOn = { kind: "in", name: "Line on", start, duration: 0.03, from: { opacity: 0 }, to: { opacity: 1 } };
+  const preset = APPEAR_PRESET[appear];
+  const animations = preset ? [
+    // By word: the text mask's own letter stagger (0.15 s a letter) took 4 s to show a 27-letter line.
+    { preset, start, duration: 0.5, ...(appear === "mask" ? { unit: "words", stagger: 0.06 } : {}) },
+    // The exit is the entrance reversed, done in LINE_EXIT.
+    { preset, kind: "out", start: leave, duration: appear === "mask" ? sec(Math.max(0.15, LINE_EXIT - 0.03 * (words.length - 1))) : LINE_EXIT, ...(appear === "mask" ? { unit: "words", stagger: 0.03 } : {}) },
+    gone(leave + LINE_EXIT)]
+    : appear === "words" ? [{ preset: "preset-fade", start, duration: 0.03, unit: "words", stagger: step }, gone(leave)]
+    // One word a beat: the layer holds the first word and swaps to the next at each step.
+    : appear === "beat" ? [cutOn, ...words.slice(1).map((word, index) => ({ kind: "change-text", start: sec(start + step * (index + 1)), text: word, out: null, in: null })), gone(leave)]
+    : APPEAR_MOVE[appear] ? [gone(leave)] : [cutOn, gone(leave)];
+  ops.push({ op: "add_layer", layerType: "text", name: "sketch-line",
+    properties: { text: appear === "beat" ? words[0] : rows ? rows.rows.join("\n") : cased, x: Math.round((frame.width * (1 - set.width)) / 2), y, width: Math.round(frame.width * set.width), height,
+      fontSize: size, fill: "#ffffff", textAlign: "center", verticalAlign: "middle" }, animations });
+  if (font) ops.push({ op: "set_font", layers: ["sketch-line"], family: font });
+  // A move brings the letters on: typed within 1.6 s or 60% of the line's time, whichever is less.
+  if (appear === "typed") ops.push({ op: "move", name: "type-on", id: "sketch-typed", layer: "sketch-line", at: start, wait: 0, until: leave, cps: Math.max(10, Math.ceil(cased.length / Math.min(1.6, (leave - start) * 0.6))) });
+  else if (APPEAR_MOVE[appear]) ops.push({ op: "move", name: APPEAR_MOVE[appear], id: `sketch-${appear}`, layer: "sketch-line", at: start });
+  return [...ops, ...cues, { op: "set_cue", name: "line-in", at: start }, { op: "set_cue", name: "line-out", at: leave }];
 }
 
 /**
@@ -213,7 +356,7 @@ export function lineFixText(legible) {
 
 /**
  * A treatment's defaults for a built sketch: the line is the first quoted words of its move or idea
- * ('312 keyframes'), else none; the clips are the project files its source names, each `in` the
+ * ('312 keyframes'), else none; the type is its own type words; the clips are the project files its source names, each `in` the
  * first seconds number after the name. `files` [{name, ...}] are the project's files.
  */
 export function treatmentDefaults(entry, files = []) {
@@ -228,7 +371,7 @@ export function treatmentDefaults(entry, files = []) {
     const seconds = /^[^;,]*?(\d+(?:\.\d+)?)\s*s\b/.exec(source.slice(at + stem.length))?.[1];
     clips.push({ at, clip: { file: file.name, ...(seconds !== undefined ? { in: Number(seconds) } : {}) } });
   }
-  return { line: quoted, clips: clips.sort((a, b) => a.at - b.at).map((entry) => entry.clip).slice(0, CLIPS_MOST) };
+  return { line: quoted, type: entry?.type ?? null, clips: clips.sort((a, b) => a.at - b.at).map((entry) => entry.clip).slice(0, CLIPS_MOST) };
 }
 
 /** What a picked sketch carries to later steps: its song (file and stretch), font and line, or null. */
@@ -409,7 +552,10 @@ const builtText = (option) => {
   const song = option.song?.src ? `song "${option.song.title}" ${option.song.from}-${option.song.to} s of the song (${option.song.kind})`
     : option.song?.error ? `silent: the song "${option.song.asked}" could not be fetched (${option.song.error})` : "no song (silent)";
   const line = option.line ? `line "${option.line}" (${option.lineFrom}${option.lineAt ? `, on ${option.lineAt[0]} to ${option.lineAt[1]} s` : ""})` : "no line";
-  return `; ${song}; font ${option.font ?? "the default"}; ${line}; ${option.cuts ?? 0} cut${option.cuts === 1 ? "" : "s"}${option.cuts && option.song?.src ? " on the song's beats" : ""}${option.lineFix ? `; ${option.lineFix}` : ""}`;
+  const type = option.line && option.type ? `; type ${option.type}` : "";
+  // The treatment's move is in the sketch only when the option brought ops for it.
+  const move = option.treatment ? (option.moveOps ? `; move: ${option.moveOps} op${option.moveOps === 1 ? "" : "s"} of yours` : "; move: none in the sketch (no ops: only kino's clips, song and line)") : "";
+  return `; ${song}; font ${option.font ?? "the default"}; ${line}${type}; ${option.cuts ?? 0} cut${option.cuts === 1 ? "" : "s"}${option.cuts && option.song?.src ? " on the song's beats" : ""}${move}${option.lineFix ? `; ${option.lineFix}` : ""}`;
 };
 
 /**
@@ -426,11 +572,11 @@ export function sketchLines(round) {
     const made = option.cached ? "cached, not rendered again" : `rendered in ${sec(option.renderSeconds)} s, ${sec(option.renderSeconds / length)} s per sketch second (measured on this machine)`;
     return `${head}: ${made}; ${factText(option.facts)}${builtText(option)}`;
   });
-  // Two sketches on one song or one font: said once, as a fact.
-  for (const [key, label] of [["song", "song"], ["font", "font"]]) {
-    const named = round.options.filter((option) => option.built).map((option) => [option.letter, key === "song" ? option.song?.src ?? null : option.font]).filter(([, value]) => value);
+  // Two sketches on one song, one font or one type setting (size, place, how the line appears): said once, as a fact.
+  for (const [key, label] of [["song", "song"], ["font", "font"], ["set", "type setting"]]) {
+    const named = round.options.filter((option) => option.built).map((option) => [option.letter, key === "song" ? option.song?.src ?? null : key === "font" ? option.font : option.line ? option.typeSet ?? null : null]).filter(([, value]) => value);
     const same = named.filter(([, value], index) => named.some(([, other], at) => at !== index && other === value));
-    if (same.length) lines.push(`${same.map(([letter]) => letter).join(" and ")} use the same ${label}${key === "font" ? ` (${same[0][1]})` : ""}.`);
+    if (same.length) lines.push(`${same.map(([letter]) => letter).join(" and ")} use the same ${label}${key === "song" ? "" : ` (${same[0][1]})`}.`);
   }
   const done = round.options.filter((option) => option.facts);
   let closest = null;

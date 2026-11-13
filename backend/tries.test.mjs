@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { beatsIn, clipFacts, colorOverlap, cutTimes, lineEntry, lineExit, lineFixText, pickedSketch, sketchKey, sketchLines, sketchOps, songEntry, treatmentDefaults } from "./agent/sketches.mjs";
+import { beatsIn, clipFacts, colorOverlap, cutTimes, lineEntry, lineExit, lineFixText, lineWindow, pickedSketch, readType, sketchKey, sketchLines, sketchOps, songEntry, treatmentDefaults, typeText } from "./agent/sketches.mjs";
 import { legibleFix } from "../engine/quality/legible.js";
 import { coverBox } from "../engine/footage/layout.js";
 import { answerText, createTries, readTry } from "./agent/tries.mjs";
@@ -124,16 +124,48 @@ test("a built sketch: the song from its strongest entry, cuts on its beats, the 
   assert.deepEqual([beats, cutTimes(3, 6, beats), cutTimes(2, 6), lineEntry(beats)], [[0.5, 1, 2.5, 3, 4.1], [0, 2.5, 4.1], [0, 3], 0.5]);
   const ops = sketchOps({ frame: { width: 1920, height: 1080 }, seconds: 6, clips: [{ src: "a.mp4", type: "video", width: 1000, height: 1422, duration: 4, in: 3 }, { src: "b.png", type: "image", width: 1920, height: 1080 }],
     song: { src: "s.mp3", from: 144, beats }, line: "312 keyframes", font: "Archivo Black", coverBox });
-  assert.deepEqual(ops.map((op) => [op.op, op.layerType ?? op.family, op.properties?.mediaStart, op.properties?.mediaDuration]),
+  assert.deepEqual(ops.filter((op) => op.op !== "set_cue").map((op) => [op.op, op.layerType ?? op.family, op.properties?.mediaStart, op.properties?.mediaDuration]),
     [["add_layer", "video", 0, 3], ["add_layer", "image", 3, 3], ["add_layer", "audio", 0, 6], ["add_layer", "text", undefined, undefined], ["set_font", "Archivo Black", undefined, undefined]]);
-  assert.deepEqual([ops[0].properties.width >= 1920 && ops[0].properties.height >= 1080, ops[0].properties.mediaOffset, ops[0].properties.volume, ops[2].properties.mediaOffset, ops[3].animations[0]],
-    [true, 1, 0, 144, { preset: "preset-mask", start: 0.5, duration: 0.5, unit: "words", stagger: 0.06 }], "full frame, kept inside the file, muted under the song");
+  // Nothing said about the type: the line cuts on with the beat and off with one; cues for an option's own ops.
+  assert.deepEqual([ops[0].properties.width >= 1920 && ops[0].properties.height >= 1080, ops[0].properties.mediaOffset, ops[0].properties.volume, ops[2].properties.mediaOffset, ops[3].animations.map((animation) => [animation.name, animation.start])],
+    [true, 1, 0, 144, [["Line on", 0.5], ["Line gone", 3]]], "full frame, kept inside the file, muted under the song");
+  assert.deepEqual(ops.filter((op) => op.op === "set_cue").map((op) => [op.name, op.at]), [["cut-2", 3], ["beat-1", 0.5], ["beat-2", 1], ["beat-3", 2.5], ["beat-4", 3], ["beat-5", 4.1], ["line-in", 0.5], ["line-out", 3]]);
   const files = [{ name: "01-dash-build.mp4" }, { name: "06-render.mp4" }, { name: "05-play.mp4" }];
   assert.deepEqual(treatmentDefaults({ move: "'312 keyframes' collapses to '1 sentence'", source: "01-dash-build 0.87 s cut; 06-render 1.57 s" }, files),
-    { line: "312 keyframes", clips: [{ file: "01-dash-build.mp4", in: 0.87 }, { file: "06-render.mp4", in: 1.57 }] });
-  assert.deepEqual(treatmentDefaults({ move: "split screen", source: "words only" }, files), { line: null, clips: [] });
+    { line: "312 keyframes", type: null, clips: [{ file: "01-dash-build.mp4", in: 0.87 }, { file: "06-render.mp4", in: 1.57 }] });
+  assert.deepEqual(treatmentDefaults({ move: "split screen", type: "giant caps, cut in whole", source: "words only" }, files), { line: null, type: "giant caps, cut in whole", clips: [] });
   assert.equal(pickedSketch({ brief: { treatments: { picked: { label: "A" } } } }), null, "a typed pick carries no sketch");
   assert.throws(() => readTry({ seconds: 12, options: [{ treatment: "A", song: "x" }, { treatment: "B" }] }, SCENES, { treatments: TREATMENTS }), /seconds is the sketch length, 2 to 10/);
+});
+
+test("a built sketch's type: read from the treatment's own words, so the line of each sketch is set and arrives its own way", () => {
+  assert.deepEqual(["typed grey sans with cursor, phrase by phrase", "big numerals, one word per beat", "giant condensed caps, cut in whole", "small lowercase lines, whole, on black", "small serif captions, each word cut on", "condensed caps rising through a mask", "small mono labels plus one bold line"]
+    .map((words) => { const read = readType(words); return [read.appear, read.size, read.case, read.place, read.black]; }),
+  [["typed", null, null, null, false], ["beat", "big", null, null, false], ["cut", "giant", "upper", null, false], ["cut", "small", "lower", null, true], ["words", "small", null, "low", false], ["mask", null, "upper", null, false], [null, "small", null, null, false]]);
+  assert.equal(typeText(readType("giant condensed caps, cut in whole"), "giant condensed caps, cut in whole"), 'giant, upper case, middle, cut on whole (from "giant condensed caps, cut in whole")');
+  assert.match(typeText(readType("small mono labels")), /^small, low, cut on whole \(the words name no way to appear: typed, one word a beat, /);
+  const beats = [0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4];
+  const make = (type, line = "ten edits landed") => sketchOps({ frame: { width: 1920, height: 1080 }, seconds: 6, clips: [], song: { src: "s.mp3", from: 0, beats }, line, coverBox, type: readType(type) });
+  const lineOf = (ops) => ops.find((op) => op.name === "sketch-line");
+  // One word a beat: the first word, then a swap on each beat, off after the last.
+  const beat = lineOf(make("big caps, one word per beat"));
+  assert.deepEqual([beat.properties.text, beat.animations.map((animation) => [animation.kind ?? animation.preset, animation.start, animation.text])],
+    ["TEN", [["in", 0.5, undefined], ["change-text", 1, "EDITS"], ["change-text", 1.5, "LANDED"], ["custom", 2, undefined]]]);
+  assert.deepEqual(lineWindow({ beats, seconds: 6, line: "ten edits landed", type: readType("each word cut on") }), { start: 0.5, leave: 3, step: 0.5, appear: "words" });
+  // Typed: kino's typing move on the line, done within the line's time and gone with it.
+  assert.deepEqual(make("mono, typed with a cursor").find((op) => op.op === "move"), { op: "move", name: "type-on", id: "sketch-typed", layer: "sketch-line", at: 0.5, wait: 0, until: 3, cps: 11 });
+  // Giant: a short word fills the frame's height share; a long line breaks into two even rows. Small sits low; on black dims the picture fully.
+  const giant = lineOf(make("giant caps, cut in whole", "move")), rows = lineOf(make("giant caps", "made by an agent")), small = lineOf(make("small captions, fade in")), black = make("small lowercase, on black");
+  assert.deepEqual([giant.properties.text, giant.properties.fontSize, rows.properties.text, rows.properties.fontSize, small.properties.fontSize, small.properties.y > 800, small.animations[0].preset, black.find((op) => op.name === "sketch-dim").properties.opacity, lineOf(black).properties.y < 600],
+    ["MOVE", 367, "MADE BY\nAN AGENT", 281, 54, true, "preset-fade", 1, true]);
+  // together: every clip on for the whole sketch, no cut cues.
+  const together = sketchOps({ frame: { width: 1920, height: 1080 }, seconds: 6, clips: [{ src: "a.mp4", type: "video", width: 1920, height: 1080, duration: 9 }, { src: "b.mp4", type: "video", width: 1920, height: 1080, duration: 9 }], coverBox, together: true });
+  assert.deepEqual(together.map((op) => [op.name, op.properties?.mediaStart, op.properties?.mediaDuration]), [["sketch-clip-1", 0, 6], ["sketch-clip-2", 0, 6]]);
+  // The receipt: the type of each, the same setting said once, and whether the move is in the sketch.
+  const lines = sketchLines({ from: 0, to: 6, options: ["A", "B"].map((letter) => ({ letter, name: letter, treatment: letter, built: true, facts: { changes: 2, shot: 1, lettering: 0.5, lufs: -14, colors: [{ hex: "#101010", share: 1 }] }, renderSeconds: 6, line: "x", type: 'big, middle, cut on whole (from "bold")', typeSet: "big, middle, cut on whole", ...(letter === "A" ? { moveOps: 2 } : {}) })) });
+  assert.match(lines[0], /type big, middle, cut on whole \(from "bold"\); 0 cuts; move: 2 ops of yours/);
+  assert.match(lines[1], /move: none in the sketch \(no ops: only kino's clips, song and line\)/);
+  assert.ok(lines.includes("A and B use the same type setting (big, middle, cut on whole)."));
 });
 
 test("a built sketch's line: on for about 2.5 s between beats; a busy picture behind it is blurred and dimmed by the first step that passes, a calm one left as it is", async () => {
@@ -149,7 +181,7 @@ test("a built sketch's line: on for about 2.5 s between beats; a busy picture be
   const ops = sketchOps({ frame: line.scene, seconds: 6, clips: [{ src: "a.mp4", type: "video", width: 1920, height: 1080, duration: 9 }], line: "who made this", coverBox, calm: { blur: 28, dim: 0.5 } });
   assert.deepEqual(ops.map((op) => [op.name, op.animations?.map((animation) => [animation.kind ?? "in", animation.start, Object.keys(animation.to ?? {})[0] ?? animation.preset])]), [
     ["sketch-clip-1", [["in", 0.5, "blur"], ["custom", 3, "blur"]]], ["sketch-dim", [["in", 0.5, "opacity"], ["custom", 3, "opacity"]]],
-    ["sketch-line", [["in", 0.5, "preset-mask"], ["out", 3, "preset-mask"], ["custom", 3.3, "opacity"]]]]);
+    ["sketch-line", [["in", 0.5, "opacity"], ["custom", 3, "opacity"]]], ["line-in", undefined], ["line-out", undefined]]);
   // Calm but low contrast: the scrim order stays.
   assert.equal((await legibleFix({ ...line, frames: [frame(() => 200)] })).fix.kind, "scrim");
 });

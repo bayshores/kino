@@ -56,6 +56,8 @@ export function readTry(input, scenes, { treatments = null, known = false, empty
     if (!name) throw new Error(`options[${index}] needs a name (a few words the person reads under the video).`);
     const ops = option?.ops ?? [];
     if (!Array.isArray(ops)) throw new Error(`options[${index}].ops is a list of edit ops ([] keeps the video as it is).`);
+    // The sketch call's placeholder, sent as it came: the move is still to be written.
+    if (ops.some((op) => typeof op === "string")) throw new Error(`options[${index}].ops still holds words to replace: write the edit ops that show this sketch's move on kino's layers (sketch-clip-1.., sketch-line; cues cut-2.., beat-1.., line-in, line-out; library {topic:"moves"} lists kino's moves), or [] for a sketch without its move.`);
     if (!sketch && JSON.stringify(ops).length > OPS_MOST) throw new Error(`options[${index}].ops is over ${OPS_MOST} characters: try one change at a time.`);
     return { letter: TRY_LETTERS[index], name, ops, ...(drawn?.treatments[index] ? { treatment: drawn.treatments[index], idea: drawn.ideas[index] } : {}),
       ...(drawn?.built ? { built: true, asked: drawn.built[index] } : {}) };

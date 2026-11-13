@@ -10,6 +10,9 @@ export const SKETCH_SECONDS = 6;
 const LINE_PLACEHOLDER = "<the words on screen>";
 
 export const SKETCH_STEP = "show sketches: their pick in the app";
+// The ops of a sketch show its treatment's move: what they are written on.
+export const MOVE_HINT = 'each sketch\'s ops show its move on kino\'s layers (sketch-clip-1.., sketch-line; cues cut-2.., beat-1.., line-in, line-out; together:true puts every clip on at once); moves: library {topic:"moves"}';
+const movePlaceholder = (move) => `<edit ops that show this move: ${move}>`;
 // Before the round, when the song finder is on and the project has no song candidate yet: the
 // song search is the step itself (a run took the bundled tracks while the finder was only named
 // beside the sketch call).
@@ -31,7 +34,9 @@ const shownEntries = (treatments) => (treatments?.shown ?? []).map((index, posit
 /**
  * The filled sketch-round call: one option per shown treatment, its clip the project file its
  * source names (at the seconds the source names, else 0), else the project's clips in turn; its
- * line the treatment's quote, else a placeholder. Song and font stay placeholders.
+ * line the treatment's quote, else a placeholder; its type the treatment's own type words (kino
+ * sets the line from them); its ops a placeholder for the treatment's move, so no sketch is only
+ * clips, a song and a line. Song and font stay placeholders.
  * `files` are the project's clip and picture names.
  */
 export function sketchCall(treatments, files = []) {
@@ -40,7 +45,7 @@ export function sketchCall(treatments, files = []) {
     const named = files.find((name) => source.toLowerCase().includes(String(name).toLowerCase()));
     const at = named ? Number(/(\d+(?:\.\d+)?)\s*s\b/.exec(source.slice(source.toLowerCase().indexOf(named.toLowerCase()) + named.length))?.[1] ?? 0) : 0;
     const file = named ?? (files.length ? files[index % files.length] : "<project file>");
-    return { treatment: letter, song: "<title> by <artist>", font: "<family>", line: entry.quote || LINE_PLACEHOLDER, clips: [{ file, in: at }] };
+    return { treatment: letter, song: "<title> by <artist>", font: "<family>", line: entry.quote || LINE_PLACEHOLDER, ...(entry.type ? { type: entry.type } : {}), clips: [{ file, in: at }], ops: [movePlaceholder(entry.move)] };
   });
   return { tool: "notes", input: { action: "try", options, seconds: SKETCH_SECONDS } };
 }
@@ -66,7 +71,7 @@ export function pickStep(state, treatments, { appSeen = false, own = false, file
     return ownPick;
   }
   if (appSeen && songCall && !state?.soundtrack?.candidates?.length) return { step: SONG_FIRST_STEP, call: songCall };
-  if (appSeen) return { step: `${SKETCH_STEP}; ${SKETCH_HINT}`, call: sketchCall(treatments, files) };
+  if (appSeen) return { step: `${SKETCH_STEP}; ${SKETCH_HINT}; ${MOVE_HINT}`, call: sketchCall(treatments, files) };
   return own ? ownPick : null;
 }
 

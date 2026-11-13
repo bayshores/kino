@@ -135,7 +135,7 @@ import { heardLines as soundLines, sectionsInVideo, soundMapImage, soundMapText,
 // look sound measures each line on its own layer alone for at most this many layers (one FFmpeg run each).
 const SOUND_LINE_LAYERS = 6;
 import { createTries, pickQuote, triesView } from "./tries.mjs";
-import { beatsIn, lineEntry, lineExit, lineFixOps, lineFixText, measureSketch, pickedSketch, sketchOps, songEntry, treatmentDefaults, treatmentOf } from "./sketches.mjs";
+import { beatsIn, lineFixOps, lineFixText, lineWindow, measureSketch, pickedSketch, readType, sketchOps, songEntry, treatmentDefaults, treatmentOf, typeText } from "./sketches.mjs";
 import { legibleFix } from "../../engine/quality/legible.js";
 import { boxAt } from "../../engine/quality/model.js";
 import { drawnSize } from "../../engine/quality/analysis.js";
@@ -3244,23 +3244,36 @@ export function createAgentService(deps) {
     }
     const line = asked.line ?? defaults.line ?? "";
     const lineFrom = asked.line ? "given" : defaults.line ? `treatment ${option.treatment}'s quoted words` : null;
+    // How the line is set: the option's type words, else its treatment's own (sketches.mjs readType).
+    const typeSaid = asked.type ?? defaults.type ?? null;
+    const type = typeSaid ? readType(typeSaid) : null;
     const fresh = createDocument({ id: document.id, name: document.name, scenes: [createScene({ id: scene.id, name: scene.name, width: scene.width, height: scene.height, duration: seconds, background: "#000000" })] });
-    // The sketch's ops, with the picture calmed while the line is on (calm {blur, dim}) or not.
-    const make = (calm = null) => [...sketchOps({ frame: { width: scene.width, height: scene.height }, seconds, clips, song, line, font: asked.font ?? null, coverBox, calm }), ...(option.ops ?? [])];
-    let ops = make();
-    let built = await documentWith({ ...record, document: fresh }, ops);
+    // The sketch's ops, with the picture calmed while the line is on (calm {blur, dim}) or not; then the option's own (its move).
+    const base = (calm = null) => sketchOps({ frame: { width: scene.width, height: scene.height }, seconds, clips, song, line, font: asked.font ?? null, coverBox, calm, type, together: asked.together === true });
+    const own = option.ops ?? [];
+    const withOwn = async (kino) => {
+      if (!own.length) return documentWith({ ...record, document: fresh }, kino);
+      await documentWith({ ...record, document: fresh }, kino);
+      try { return await documentWith({ ...record, document: fresh }, [...kino, ...own]); }
+      catch (error) {
+        throw new Error(`its ops (the move) were refused: ${String(error?.message ?? error).split("\n")[0].slice(0, 300)} kino's layers in a sketch: ${clips.map((_, index) => `sketch-clip-${index + 1}`).join(", ") || "no clips"}${line ? ", sketch-line" : ""}; cues: ${[clips.length > 1 && !asked.together ? "cut-2.." : null, song ? "beat-1.." : null, line ? "line-in, line-out" : null].filter(Boolean).join(", ") || "none"}.`);
+      }
+    };
+    let ops = base();
+    let built = await withOwn(ops);
     const text = built.scenes[0].layers.find((layer) => layer.name === "sketch-line");
-    const lineIn = lineEntry(song?.beats ?? []);
-    const lineOut = lineExit(song?.beats ?? [], lineIn, seconds);
+    const { start: lineIn, leave: lineOut } = lineWindow({ beats: song?.beats ?? [], seconds, line, type });
     // The line measured over the clip frames behind it; when it is hard to read, the lightest fix
-    // that passes (engine/quality/legible.js). An option with its own text layers is left as it is.
+    // that passes (engine/quality/legible.js). A line on black, or an option with text layers of
+    // its own (not kino's: the line and what its typing or decoding adds), is left as it is.
     let lineFix = null;
-    if (text && !built.scenes[0].layers.some((layer) => layer.type === "text" && layer !== text)) {
-      const fixed = await sketchLineFix(built, text, lineIn, lineOut, (calm) => documentWith({ ...record, document: fresh }, make(calm))).catch(() => null);
+    if (text && !type?.black && !built.scenes[0].layers.some((layer) => layer.type === "text" && !/^sketch-/.test(layer.name ?? ""))) {
+      // A small line (a caption) keeps its picture sharp: a band, a halo or a plate behind it instead.
+      const fixed = await sketchLineFix(built, text, lineIn, lineOut, type?.size === "small" ? null : (calm) => withOwn(base(calm))).catch(() => null);
       const fix = fixed?.legible.fix;
       if (fix?.kind === "picture") {
-        ops = make({ blur: fix.blur, dim: fix.dim });
-        built = await documentWith({ ...record, document: fresh }, ops);
+        ops = base({ blur: fix.blur, dim: fix.dim });
+        built = await withOwn(ops);
       } else if (fixed?.ops.length) {
         built = await documentWith({ ...record, document: built }, fixed.ops);
         ops.push(...fixed.ops);
@@ -3268,8 +3281,8 @@ export function createAgentService(deps) {
       if (fix) lineFix = lineFixText(fixed.legible);
     }
     // basis: what the clip is cached by (the ops kino wrote carry no new ids, the built layers do).
-    return { document: built, basis: { ops, width: scene.width, height: scene.height }, song: songInfo, font: text?.fontFamily ?? asked.font ?? null, line: line || null, lineFrom, cuts: Math.max(0, clips.length - 1),
-      ...(text ? { lineAt: [lineIn, lineOut] } : {}), ...(lineFix ? { lineFix } : {}) };
+    return { document: built, basis: { ops: [...ops, ...own], width: scene.width, height: scene.height }, song: songInfo, font: text?.fontFamily ?? asked.font ?? null, line: line || null, lineFrom, cuts: asked.together ? 0 : Math.max(0, clips.length - 1),
+      ...(text ? { lineAt: [lineIn, lineOut], type: typeText(type ?? {}, typeSaid), typeSet: typeText(type ?? {}).replace(/ \(the words name.*$/, "") } : {}), ...(own.length ? { moveOps: own.length } : {}), ...(lineFix ? { lineFix } : {}) };
   }
 
   // A built sketch's line over the frames behind it (5 frames from its entrance done to its exit,
@@ -3294,7 +3307,7 @@ export function createAgentService(deps) {
     const box = boxAt(item, indexes[Math.floor(indexes.length / 2)]);
     const size = drawnSize(model, item);
     const legible = await legibleFix({ frames: await framesOf(document), box, scene, color: typeof layer.fill === "string" ? layer.fill : "#ffffff", size, fontSize: layer.fontSize, weight: layer.fontWeight ?? 400,
-      renderCalm: async (calm) => framesOf(await rebuild(calm)) });
+      ...(rebuild ? { renderCalm: async (calm) => framesOf(await rebuild(calm)) } : {}) });
     return { legible, ops: legible.fix?.kind === "picture" ? [] : lineFixOps(legible.fix, { box, size, start, frame: scene, lineY: layer.y }) };
   }
 
