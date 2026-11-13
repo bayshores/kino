@@ -1,6 +1,6 @@
 # Direction: the brief and the stops
 
-Contents: When · Asking · Saving · Playing it back · Replies · Stops · Examples
+Contents: When · Asking · Saving · Playing it back · Sketch rounds · Replies · Stops · Examples
 
 ## When
 
@@ -71,7 +71,26 @@ What's wrong or missing?
 
 A correction: save it and play it back again. No revision numbers in the chat. Then, before
 building: 2 saved references, each studied (inspire reference); 5 treatments and the pick of
-the 3 shown, and its signature (techniques reference). Earlier, edits are `order_needed`.
+the 3 shown, and its signature (techniques reference). Earlier, edits are `order_needed`. A
+studied reference prints a `skeleton:` line (its shots, holds, fast runs and change point);
+`borrow_rhythm` lends it (inspire reference).
+
+## Sketch rounds
+
+- With treatments saved, `notes {action:"try", from, to, options:[{treatment:"A", ops}]}` shows
+  2 to 4 sketches of the shown treatments (A to C, D if listed). Each is its ops on a copy over
+  2 to 10 s with sound; nothing is saved. `name` is optional (it defaults to the treatment's
+  move).
+- The person plays one on the dashboard and one click picks. The pick saves that treatment as
+  theirs, as if they had typed it; the inbox line names it with the sketch's ops and `status`
+  `next:` names the step after. Nothing waits on a round. Your own pick
+  (`fields:{treatments:{pick, why}}`) still works. If you save the treatments again before they
+  pick, the pick is not saved and the inbox line says which idea the sketch showed.
+- With no treatments saved, `options:[{name, ops}]` over `from`, `to` makes named sketches with
+  sound. A pick reaches the inbox with its ops.
+- The receipt prints per sketch: render seconds per sketch second, picture changes, median
+  shot, lettering share, LUFS and top colors, then the closest pair and their color overlap.
+  They are facts: kino never warns on them. Details: `library {topic:"rules", name:"sketches"}`.
 
 ## Replies
 
