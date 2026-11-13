@@ -293,7 +293,7 @@ const animationLabel = (animation) => animation.name || animation.effect || anim
 
 // A copy's animations have fresh IDs, so `originals` (copy ID to the list of its original's
 // animations, in the same order) says which ones a recorded move made.
-function delayLayers(document, sceneId, ids, delay, { timed = false, withMoves = false, originals = new Map() } = {}) {
+export function delayLayers(document, sceneId, ids, delay, { timed = false, withMoves = false, originals = new Map() } = {}) {
   const scene = document.scenes.find((item) => item.id === sceneId);
   const end = scene?.duration ?? Infinity;
   const moveIds = (scene?.moves ?? []).map((entry) => entry.id).filter((id) => typeof id === "string");

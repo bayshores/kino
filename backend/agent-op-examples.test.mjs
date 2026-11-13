@@ -81,13 +81,14 @@ test("every op example runs as written on the example project", { timeout: 300_0
   const project = "op-examples";
   const made = await exampleProject(project);
   assert.deepEqual(Object.keys(made.data.created).sort(), ["card", "card.in", "title", "title.in", "title.out"]);
-  // apply_easing and apply_text_effect use an easing and a text effect saved in the workspace.
+  // apply_easing, apply_text_effect and use_piece use an easing, a text effect and a piece saved in the workspace.
   const manage = async (resource, options) => {
     const reply = await agent("project", { action: "manage", id: project, options: { resource, action: "save", ...options } });
     assert.equal(reply.isError, undefined, reply.text);
   };
   await manage("easings", { name: "Snappy", easing: [0.2, 0, 0, 1] });
   await manage("effects", { name: "Pop words", sourceAnimation: made.data.created["title.in"] });
+  await manage("pieces", { name: "Lower third", layers: ["card"] });
 
   const sources = hasMediaTools ? await importMedia() : {};
   const failures = [];

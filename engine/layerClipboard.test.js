@@ -16,6 +16,7 @@ import {
   pasteAnimations,
   pasteLayers,
 } from "./layerClipboard.js";
+import { buildPiece, checkPiece, pieceLine } from "./piece.js";
 
 const IMAGE = "/api/media/0f8fad5b-d9cb-469f-a165-70867728950e.png";
 const FONT_FILE = "/api/media/7c9e6679-7425-40de-944b-e07fc1f90ae7.ttf";
@@ -719,4 +720,17 @@ test("copying a script layer carries the pictures in its image inputs", () => {
   const plot = createLayer("script", { id: "plot", name: "plot", script, inputs: [{ key: "photo", type: "image" }, { key: "empty", type: "image" }], values: { photo: IMAGE, empty: "" } });
   const envelope = throughClipboard(copyLayers(documentWith([plot]), "main", ["plot"]));
   assert.deepEqual(envelope.media.map((item) => [item.src, item.type, item.name]), [[IMAGE, "image", "plot"]]);
+});
+
+test("a piece wraps a clipboard envelope: its line, needs and a trial paste that refuses damaged data", () => {
+  const caption = createLayer("text", { id: "caption", name: "caption", text: "Hi", x: 0, y: 0, width: 100, height: 40, animations: [fade("a1", 0.5)] });
+  const logo = createLayer("image", { id: "logo", name: "logo", src: IMAGE, x: 0, y: 50, width: 40, height: 40 });
+  const envelope = throughClipboard(copyLayers(documentWith([caption, logo]), "main", ["caption", "logo"]));
+  const piece = buildPiece({ name: "Lower third", envelope, canvas: { width: 1920, height: 1080 } });
+  assert.deepEqual([piece.kind, piece.layerCount, piece.length, piece.media.map((item) => item.id)], ["layers", 2, 1, [IMAGE.slice("/api/media/".length)]]);
+  assert.equal(pieceLine(piece), "Lower third (layers caption, logo): 1920x1080, 1s, 2 layers, needs 0 fonts and 1 media");
+  assert.ok(pieceLine({ ...piece, name: "x".repeat(200) }).length <= 120);
+  assert.equal(checkPiece(piece).name, "Lower third");
+  assert.throws(() => checkPiece({ ...piece, envelope: { ...envelope, layers: [{ id: "a", type: "banana" }] } }), /contents are not valid/);
+  assert.throws(() => checkPiece({ ...piece, format: "other" }), /not a kino piece file/);
 });

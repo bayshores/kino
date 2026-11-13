@@ -163,6 +163,7 @@ export const OP_EXAMPLES = {
   copy_scene: { op: { op: "copy_scene", fromScene: "s1" } },
   copy_animations: { op: { op: "copy_animations", sourceAnimations: ["card.in"], layers: ["title"] } },
   // These two use an easing or text effect saved in the workspace (project manage easings/effects).
+  use_piece: { op: { op: "use_piece", piece: "Lower third", scene: "s1", at: 1, x: 100, y: 800 }, saved: "pieces" },
   apply_easing: { op: { op: "apply_easing", name: "Snappy", animationIds: ["title.in"] }, saved: "easings" },
   apply_text_effect: { op: { op: "apply_text_effect", name: "Pop words", layers: ["title"] }, saved: "effects" },
 };

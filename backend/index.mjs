@@ -50,6 +50,7 @@ import { exportBasename } from "../engine/exportNames.js";
 import { createAgentStateStore } from "./agent/state.mjs";
 import { createFrameCache, createLook } from "./agent/look.mjs";
 import { createAgentService } from "./agent/service.mjs";
+import { createPieces } from "./pieces.mjs";
 import { agentToolList } from "./agent/tool-sync.mjs";
 import { createDashboard, editFocus } from "./agent/dashboard.mjs";
 import { cleanKind, createLiveAgents, validSession } from "./agent/live.mjs";
@@ -261,8 +262,11 @@ const footageFinder = createFootageFinder({
 // recording, then the video joins the media library. The dashboard shows one while it runs.
 const recorder = createRecorder({ dataRoot, mediaRoot, addMedia: (...args) => addGeneratedMedia(...args),
   onChange: (recording) => dashboard.publish({ type: "recording", recording }) });
+// Pieces saved in the workspace (<data>/pieces); their media files stay in the shared media folder.
+const pieces = createPieces({ directory: path.join(dataRoot, "pieces"), mediaRoot, workDirectory: path.join(agentDirectory, "tmp"), importMedia: (files) => importPieceMedia(files) });
 const agentService = createAgentService({
   store,
+  pieces,
   // fit_music's song seams (.song beside each file); whisper's vocal spans give the vocal-in seams
   // (measured again once a whisper model is there, when the file was measured without one).
   songShapes: createSongShapeCache({ vocals: (file, seconds) => songVocals(file, { seconds }), vocalsReady: whisperModelReady }),
@@ -386,7 +390,7 @@ const agentService = createAgentService({
       const record = await store.getProject(id);
       if (!record?.trashedAt) throw new Error("Move this project to Trash before deleting it forever.");
       const fonts = await loadProjectFonts({ catalog: fontCatalog, mediaRoot });
-      const references = await store.projectMediaReferences(fonts);
+      const references = [...await store.projectMediaReferences(fonts), ...await pieces.mediaReferences()];
       for (const grant of await shares.list(id)) if (!grant.revokedAt) await shares.revoke(id, grant.id);
       const result = await store.deleteProjectForever(id);
       // Its agent state goes too: the brief holds the person's quoted words and replies.
@@ -757,6 +761,49 @@ async function addGeneratedMedia(file, { name, mime, extra = {}, from = null }) 
     return metadata;
   } catch (error) {
     await rm(target, { force: true });
+    throw error;
+  }
+}
+// Media from a .kinopiece file, stored under the ids it names (random uuids from the machine that
+// made it). Every file is checked like an upload (kind, signature, SVG clean-up, font, LUT) before
+// any is written; a file already here with the same bytes is shared, one with other bytes is refused.
+async function importPieceMedia(files) {
+  const prepared = [];
+  for (const file of files) {
+    const { id, mime, name } = file;
+    const extension = mediaTypes[mime];
+    if (!extension || id.split(".").pop() !== extension)
+      throw new Error(`The piece file's media/${id} is not a kind kino accepts (${String(mime).slice(0, 40)}). Pieces hold images, video, audio, fonts and .cube LUTs.`);
+    let bytes = file.bytes;
+    if (bytes.length > MAX_UPLOAD_BYTES) throw new Error(`The piece file's media/${id} is larger than ${MAX_UPLOAD_BYTES} bytes.`);
+    const plain = mime.startsWith("font/") || mime === "image/svg+xml" || mime === LUT_MIME;
+    if (!plain && !mediaSignatureMatches(mime, bytes.subarray(0, 64))) throw new Error(`The piece file's media/${id} is not really ${mime}: its first bytes do not match.`);
+    const svgAsset = mime === "image/svg+xml" ? prepareSvgAsset(bytes, { fontFiles: [] }) : null;
+    if (svgAsset) bytes = svgAsset.buffer;
+    if (mime.startsWith("font/")) { try { new FontRegistry().register(bytes); } catch { throw new Error(`The piece file's media/${id} does not contain a supported font face.`); } }
+    const lut = mime === LUT_MIME ? parseCubeLut(bytes.toString("utf8")) : null;
+    let existing = null;
+    try { existing = await readFile(path.join(mediaRoot, id)); } catch (error) { if (error.code !== "ENOENT") throw error; }
+    if (existing && !existing.equals(bytes)) throw new Error(`The piece file's media/${id} clashes with a different file of the same name already in the library, so it was not imported.`);
+    prepared.push({ id, mime, name, bytes, svgAsset, lut, exists: existing !== null });
+  }
+  const written = [];
+  try {
+    for (const file of prepared) {
+      if (file.exists) continue;
+      const target = path.join(mediaRoot, file.id);
+      await writeFile(target, file.bytes, { mode: 0o600, flag: "wx" });
+      written.push(file.id);
+      const measurements = file.svgAsset ? { ...file.svgAsset.measurements, measurementVersion: 1, measurementSucceeded: true } : await measureMedia(target, file.mime);
+      if (/^(?:image|video|audio)\//.test(file.mime) && !file.svgAsset && measurements.measurementSucceeded !== true) throw new Error(`The piece file's media/${file.id} could not be read as ${file.mime}.`);
+      const shots = file.mime.startsWith("video/") ? await uploadShots(target, measurements.duration) : {};
+      const metadata = { id: file.id, src: `/api/media/${file.id}`, name: file.name, mime: file.mime, size: file.bytes.length, ...measurements, ...shots,
+        ...(file.lut ? { lut: { type: file.lut.type, size: file.lut.size, ...(file.lut.title ? { title: file.lut.title.slice(0, 200) } : {}) } } : {}) };
+      const release = await acquireFileMutation();
+      try { await writeMediaRecord(mediaRoot, file.id, metadata); } finally { release(); }
+    }
+  } catch (error) {
+    for (const id of written) { await rm(path.join(mediaRoot, id), { force: true }); await rm(path.join(mediaRoot, `${id}.json`), { force: true }); }
     throw error;
   }
 }
@@ -1419,7 +1466,7 @@ const server = http.createServer(async (req, res) => {
           // Resolve every surviving document before removing bytes, including
           // older family-only references never recorded in upload metadata.
           const fonts = await loadProjectFonts({catalog: fontCatalog,  mediaRoot });
-          const references = await store.projectMediaReferences(fonts);
+          const references = [...await store.projectMediaReferences(fonts), ...await pieces.mediaReferences()];
           for (const grant of await shares.list(id)) if (!grant.revokedAt) await shares.revoke(id, grant.id);
           const result = await store.deleteProjectForever(id);
           // Its agent state goes too: the brief holds the person's quoted words and replies.
