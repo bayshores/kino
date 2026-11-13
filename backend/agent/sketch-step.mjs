@@ -2,7 +2,7 @@
 // step after the treatments is a sketch round (tries.mjs, sketches.mjs) whose `next:` call is
 // filled from what kino knows (the shown treatments, their source files, their words), so the
 // agent only chooses a song and a font per treatment. Pure functions; brief.mjs uses them.
-import { readMove, SKETCH_MOVES } from "./sketches.mjs";
+import { readMove, SKETCH_MOVES } from "./sketch-moves.mjs";
 import { LABELS, PICK_QUESTION, OWN_PICK_CALL } from "./treatments.mjs";
 
 // Seconds each sketch lasts.

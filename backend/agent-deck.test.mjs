@@ -367,6 +367,9 @@ test("treatments: 5 saved on the brief, the most typical dropped, the 3 least ty
   assert.equal(treatmentsProblem(oneLook), null);
   const shownTypes = cleanTreatments(oneLook).shown.map((index) => oneLook[index].type);
   assert.deepEqual(shownTypes, ["serif", "serif", "mono"]);
+  // 3 of the 4 left push in: the split screen is shown, so the 3 sketches do not move the same way.
+  const oneMove = FIVE.map((entry, index) => ({ ...entry, move: ["a cut", "push in on the door", "split screen, two rooms", "the log line pushes in", "zoom into the counter"][index], p: [0.6, 0.3, 0.4, 0.1, 0.2][index] }));
+  assert.deepEqual(cleanTreatments(oneMove).shown, [3, 4, 2]);
   // Your own pick says why.
   assert.match(treatmentsProblem({ pick: "B" }, cleaned).message, /^why is 1 to 80 characters, required on your own pick/);
   // The drop stays, but when the origin search found the ask is known for the dropped idea, it is

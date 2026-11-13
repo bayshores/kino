@@ -22,6 +22,7 @@
 //                 why a viewer would retell it). It becomes the idea line, and its move and source
 //                 the style spec's first signature (pickedSignature).
 // Stored as brief.treatments = { list, dropped, shown:[indexes], picked:{label, by, quote?, why?}|null }.
+import { readMove } from "./sketch-moves.mjs";
 import { askWords, forms } from "../../engine/askWords.js";
 import { isRecord } from "../../engine/numbers.js";
 import { onlyWords } from "./subject-edit.mjs";
@@ -118,9 +119,10 @@ function pNumber(value) {
 
 /**
  * The 3 shown of the list, least typical first: the most typical dropped, then one at a time the
- * least typical that adds the most of a new `who` and a new `type` (so the person is not shown 3 of
- * one look, or a 4th story left out for being one more of the same who), ties by p. A list saved
- * without who or type counts each entry as new there, so it shows as before.
+ * least typical that adds the most of a new `who`, a new `type` and a new move (the kino move its
+ * move words name, sketch-moves.mjs), so the person is not shown 3 of one look, 3 sketches that
+ * move the same way, or a 4th story left out for being one more of the same who; ties by p. A
+ * list saved without who or type, or a move that names none of kino's, counts as new there.
  */
 function shownOf(list, dropped) {
   const rest = list.map((entry, index) => ({ entry, index })).filter(({ index }) => index !== dropped)
@@ -128,16 +130,19 @@ function shownOf(list, dropped) {
   const keyOf = ({ entry, index }) => ({
     who: entry.who ? whoKey(entry.who) : `#${index}`,
     type: typeof entry.type === "string" && entry.type.trim() ? entry.type.trim().toLowerCase() : `#${index}`,
+    move: readMove(entry.move) ?? `#${index}`,
   });
   const whos = new Set();
   const types = new Set();
+  const moves = new Set();
   const chosen = [];
   while (chosen.length < Math.min(SHOWN_COUNT, rest.length)) {
-    const score = (item) => { const key = keyOf(item); return (whos.has(key.who) ? 0 : 1) + (types.has(key.type) ? 0 : 1); };
+    const score = (item) => { const key = keyOf(item); return (whos.has(key.who) ? 0 : 1) + (types.has(key.type) ? 0 : 1) + (moves.has(key.move) ? 0 : 1); };
     const next = rest.filter((item) => !chosen.includes(item)).reduce((best, item) => (score(item) > score(best) ? item : best));
     const key = keyOf(next);
     whos.add(key.who);
     types.add(key.type);
+    moves.add(key.move);
     chosen.push(next);
   }
   return rest.filter((item) => chosen.includes(item)).map(({ index }) => index);

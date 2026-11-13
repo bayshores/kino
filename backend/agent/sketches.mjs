@@ -13,11 +13,14 @@ import { createHash } from "node:crypto";
 import { copyFile, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { evaluateScene } from "../../engine/animation.js";
-import { MOVES, MOVE_NAMES } from "../../engine/blocks/moves/index.js";
+import { MOVES } from "../../engine/blocks/moves/index.js";
 import { BUSY_SHARE } from "../../engine/quality/rules/polish.js";
 import { palette, pixelStats } from "../measure/fingerprint.mjs";
 import { ffmpegCommand } from "../media-probe.mjs";
+import { firstNamed, readMove, SKETCH_MOVES } from "./sketch-moves.mjs";
 import { KNOWN_LABEL, LABELS } from "./treatments.mjs";
+
+export { readMove, SKETCH_MOVES };
 
 // Seconds a sketch lasts: long enough to hear a phrase of the song, short enough to watch 3 in a row.
 export const SKETCH_LEAST = 2;
@@ -175,15 +178,6 @@ const APPEAR_PRESET = Object.freeze({ slide: "preset-slide", mask: "preset-mask"
 const APPEAR_MOVE = Object.freeze({ typed: "type-on", decode: "decode", stream: "stream", assemble: "assemble" });
 
 // The key whose words come first in the text, or null. rows: [key, ..., pattern].
-function firstNamed(text, rows) {
-  let found = null;
-  for (const row of rows) {
-    const at = row.at(-1).exec(text)?.index;
-    if (at !== undefined && (!found || at < found.at)) found = { key: row[0], at };
-  }
-  return found?.key ?? null;
-}
-
 /**
  * A type direction in words, read: {appear, size, case, place, black}, each null (false for
  * black) when the words do not say it. `appear` is a key of APPEARS, `size` giant, big or small,
@@ -258,38 +252,6 @@ function twoRows(words) {
 // it on the sketch's layers itself. Without `move`, kino reads one from the treatment's words. An
 // earlier form asked the agent for the move's ops: one run wrote real ones, the next filled the
 // slot with a second copy of the line.
-
-/** The sketch's own moves, beside kino's move library. */
-export const SKETCH_MOVES = Object.freeze({
-  push: "the camera pushes in on each clip (scale, point)",
-  pull: "the camera pulls out of each clip (scale, point)",
-  "fast-cuts": "a cut on every beat through the clips",
-  card: "the line alone on a dark card, then a hard cut to the picture",
-});
-// Plain words for a move, tried after the moves' own names (the first in the words wins).
-const MOVE_WORDS = [
-  ["push", /\b(?:push(?:es|ing)?(?: in)?|zooms? (?:in(?:to)?|from)|falls? away|dolly in)\b/i],
-  ["pull", /\b(?:pulls?[- ]out|pull back|zooms? out|reverse reveal|pulls? away)\b/i],
-  ["split-screen", /\b(?:split|side by side|two panes|beside|next to)\b/i],
-  ["picture-in-picture", /\b(?:inset|picture in picture|in (?:a|the) corner)\b/i],
-  ["count-up", /\b(?:counter|counts?(?: up)?|counting|clock|ticking|tally|timer)\b/i],
-  ["fast-cuts", /\b(?:montage|(?:every|each|per) (?:cut|beat)|faster and faster|beat[- ]cuts?|rapid cuts?|quick cuts?)\b/i],
-  ["card", /\b(?:(?:type|title|text) cards?|on a card|hard[- ]cuts? to)\b/i],
-  ["whip-pan", /\bwhips?\b/i],
-  ["freeze-shutter", /\b(?:freeze\w*|freezes?[- ]frame|stops? dead)\b/i],
-  ["speed-ramp", /\b(?:speed[- ]ramps?|slow[- ]mo\w*|slows? (?:down|into)|ramps?)\b/i],
-  ["beat-repeat", /\b(?:stutters?|repeats? on|replay\w*)\b/i],
-  ["masked-type", /\b(?:made of (?:the )?footage|through the letters|footage inside)\b/i],
-  ["zoom-through", /\bzooms? through\b/i],
-  ["punch-in", /\bpunch(?:es)?[- ]ins?\b/i],
-];
-const MOVE_PATTERNS = [...MOVE_NAMES, ...Object.keys(SKETCH_MOVES)].map((name) => [name, new RegExp(`\\b${name.replace(/-/g, "[- ]")}\\b`, "i")]);
-
-/** The move a treatment's words name: one of kino's moves by its own name, else by plain words, or null. */
-export function readMove(text) {
-  const words = String(text ?? "");
-  return firstNamed(words, MOVE_PATTERNS) ?? firstNamed(words, MOVE_WORDS);
-}
 
 /**
  * How a move sits in a sketch, or null for an unknown name: {name, kind, clips (the fewest it
