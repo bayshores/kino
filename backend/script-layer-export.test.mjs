@@ -11,8 +11,8 @@ import { after, test } from "node:test";
 import { createLayer, createScene } from "../engine/model.js";
 import { exportScene } from "./export.mjs";
 import { hasMediaTools, readImage, readVideoFrames, startTestServer } from "./media.test.support.mjs";
-import { clearScriptFrameCache, closeScriptRenderer, sceneScriptFrames, scriptFrameCacheSize } from "./script-layer-frames.mjs";
-import { makeGlb } from "./glb.test.support.mjs";
+import { clearScriptFrameCache, closeScriptRenderer, sceneScriptFrames, scriptFrameCacheSize, scriptRenderer } from "./script-layer-frames.mjs";
+import { lacksWebgl, makeGlb } from "./glb.test.support.mjs";
 import { jsonBlocks, skillSection } from "./skill.test.support.mjs";
 
 const require = createRequire(import.meta.url);
@@ -62,7 +62,10 @@ test("a Lottie export refuses a script layer, names it and says what to use inst
     /Lottie export cannot hold script layer “bars”: its picture is drawn by code each frame\. Use PNG, video, or GIF export, or hide the layer for Lottie\./);
 });
 
-test("the 3D example in the skill runs as written: an imported .glb shows in a look frame and turns in a draft render", { skip, timeout: 60_000 }, async () => {
+test("the 3D example in the skill runs as written: an imported .glb shows in a look frame and turns in a draft render", { skip, timeout: 60_000 }, async (t) => {
+  // A machine with no graphics card (the CI runners) has no WebGL: the test then only notes what
+  // the agent is told and skips the pixel checks, as the plain WebGL test does.
+  const noWebgl = await lacksWebgl(scriptRenderer());
   server ??= await startTestServer();
   const agent = async (verb, body) => (await server.api(`/api/agent/${verb}`, { method: "POST", body })).json();
   const made = await agent("project", { action: "create", id: "cube", name: "cube", width: 320, height: 180, duration: 1, background: "#000000" });
@@ -75,8 +78,13 @@ test("the 3D example in the skill runs as written: an imported .glb shows in a l
   example.properties = { ...example.properties, x: 70, y: 0, width: 180, height: 180, values: { model: media.src } };
   const edit = await agent("edit", { project: "cube", ops: [example] });
   assert.equal(edit.isError, undefined, edit.text);
-  assert.doesNotMatch(edit.text, /script "cube"/, "the receipt's test draw found no problem");
+  if (!noWebgl) assert.doesNotMatch(edit.text, /script "cube"/, "the receipt's test draw found no problem");
   const look = await agent("look", { project: "cube", mode: "frame", t: 0, width: 320 });
+  if (noWebgl) {
+    t.diagnostic(`without WebGL the edit says: ${edit.text.slice(0, 400)}`);
+    t.diagnostic(`without WebGL look says: ${look.text.slice(0, 400)}`);
+    return t.skip("webgl2 is not available in the hidden window");
+  }
   const image = await readImage(Buffer.from(look.images[0].data, "base64"));
   assert.ok(isRed(image.pixel(160, 90)), `the red cube in the middle: ${image.pixel(160, 90)}`);
   assert.ok(isDark(image.pixel(10, 90)), "the background beside it");

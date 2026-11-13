@@ -8,7 +8,7 @@ import { after, test } from "node:test";
 import { createCanvas, loadImage } from "@napi-rs/canvas";
 import { createScriptRenderer } from "./script-frames.mjs";
 import { checkGlbModel, gltfRefusal } from "./glb-model.mjs";
-import { CUBE_SCRIPT, makeGlb } from "./glb.test.support.mjs";
+import { lacksWebgl, CUBE_SCRIPT, makeGlb } from "./glb.test.support.mjs";
 
 const require = createRequire(import.meta.url);
 function electronSkip() {
@@ -213,7 +213,8 @@ test("an image input arrives as an ImageBitmap the module can draw", { skip }, a
   assert.deepEqual((await pixels(frame.png)).at(20, 10), [0, 0, 255, 255], frame.error?.message);
 });
 
-test("a .glb model input draws with the supplied 3D library: its color, an embedded texture, a turn, no request out", { skip }, async () => {
+test("a .glb model input draws with the supplied 3D library: its color, an embedded texture, a turn, no request out", { skip }, async (t) => {
+  if (await lacksWebgl(renderer)) return t.skip("webgl2 is not available in the hidden window");
   const at = (time) => ({ ...frameAt(time, { model: null }, 2, 80, 60) });
   const [red, turned] = await renderer.render({ script: CUBE_SCRIPT, width: 80, height: 60, frames: [at(0), at(0.25)], models: { model: makeGlb() } });
   const [one, two] = [await pixels(red.png), await pixels(turned.png)];

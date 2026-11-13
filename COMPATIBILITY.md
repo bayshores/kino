@@ -529,7 +529,8 @@ How to read it:
   Evidence: `engine/scriptLayer.test.js`, `backend/agent-script-layer.test.mjs`,
   `backend/script-frames.test.mjs`, `backend/script-layer-export.test.mjs`. 3D: a `model` input (.glb) drawn with
   the bundled 3D library, offline, embedded textures included: import, edit, look and draft render
-  (`script-layer-export.test.mjs`) and the preview's Worker (`script-preview-sandbox.test.mjs`). Live preview: the stage
+  (`script-layer-export.test.mjs`) and the preview's Worker (`script-preview-sandbox.test.mjs`). 3D gap: it needs
+  WebGL; on a machine with no graphics card (the CI runners) these tests skip and 3D is not verified. Live preview: the stage
   and the viewer run each module in a stoppable Worker in a sandboxed frame with no network and paint
   its pictures in place (`tests/script-preview-sandbox.test.mjs`, `frontend/scriptFrames.test.js`,
   `tests/dashboard-browser.test.mjs`). Preview gap: a script layer used as a mask, or drawn again as

@@ -147,7 +147,7 @@ function browserCpuSeconds() {
   }));
 }
 
-test("a 3D module with a .glb model draws in the preview's Worker: the model's color, an embedded texture, a turn, nothing sent out", async () => {
+test("a 3D module with a .glb model draws in the preview's Worker: the model's color, an embedded texture, a turn, nothing sent out", async (t) => {
   const before = otherRequests.length;
   // The library route serves only the two names a script may import, as script text.
   const served = await fetch(`${pageUrl}/api/script-library?name=three`);
@@ -177,6 +177,8 @@ test("a 3D module with a .glb model draws in the preview's Worker: the model's c
     return { plain: await picture(${JSON.stringify(makeGlb().toString("base64"))}, [0, 0.25]),
       textured: await picture(${JSON.stringify(makeGlb({ texture: "#00ff00" }).toString("base64"))}, [0]) };
   })()`, 30_000);
+  // A test browser with no graphics card (the CI runners) cannot make a WebGL context at all.
+  if (/Error creating WebGL context/.test(drawn.plain?.error ?? "")) return t.skip("WebGL is not available in the test browser");
   assert.ok(Array.isArray(drawn.plain), `the plain cube: ${JSON.stringify(drawn.plain)}`);
   assert.ok(Array.isArray(drawn.textured), `the textured cube: ${JSON.stringify(drawn.textured)}`);
   const [first, turned] = drawn.plain;

@@ -22,6 +22,21 @@ function cubeArrays() {
   return { positions: new Float32Array(positions), normals: new Float32Array(normals), uvs: new Float32Array(uvs), indices: new Uint16Array(indices) };
 }
 
+// The smallest WebGL module: it says so when the window it runs in has no WebGL 2.
+export const WEBGL_PROBE = `export default function setup(layer) {
+  if (!layer.canvas.getContext("webgl2")) throw new Error("no webgl2");
+  return () => {};
+}`;
+
+/**
+ * True when `renderer` (script-frames.mjs) cannot make a WebGL 2 context, as on a machine with no
+ * graphics card (the CI runners): the 3D tests skip there, as the plain WebGL test does.
+ */
+export async function lacksWebgl(renderer) {
+  const [frame] = await renderer.render({ script: WEBGL_PROBE, width: 4, height: 4, frames: [{ time: 0, duration: 1, progress: 0, values: {}, width: 4, height: 4 }] });
+  return Boolean(frame.error);
+}
+
 const pad4 = (buffer, fill = 0) => Buffer.concat([buffer, Buffer.alloc((4 - (buffer.length % 4)) % 4, fill)]);
 
 /**
