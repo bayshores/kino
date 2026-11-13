@@ -428,3 +428,8 @@
 .voice.is-away .voice-line { color: var(--fg0); background: none; }
 .voice .voice-button { display: inline-flex; align-items: center; gap: 8px; }
 .voice .voice-button .tool-icon { width: 14px; height: 14px; }
+/* Reveals: an opened row's facts, the looks, and the lines of an opened check (none under reduced
+   motion: the rule in dashboard.css turns every animation off). */
+.screening .agent-call.open > .call-details, .dash .check-list li.open .check-what, .dash .check-list li.open .check-fix, .dash .check-list li.open .check-ask { animation: voice-in var(--quick) var(--ease-out) both; }
+.screening .seen-strip > li { animation: fade-in var(--panel) var(--ease-out) both; }
+.screening .seen-strip > li:nth-last-child(-n + 12) { animation-delay: calc(var(--quick) / 2); }
