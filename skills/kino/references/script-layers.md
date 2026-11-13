@@ -1,5 +1,7 @@
 # Script layers
 
+Contents: The module, Inputs, Pure drawing, three examples (bars, a ring meter, a dot field).
+
 A `script` layer's picture is drawn by a small JavaScript module you write. Its `inputs` are
 typed values that you, and animations, change without touching the code. Use one for a
 picture no preset makes: a chart that grows, a generative pattern, a custom meter.
