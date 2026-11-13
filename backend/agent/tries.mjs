@@ -24,6 +24,8 @@ const LATER_MOST = 8;
 const WORDS_MOST = 120;
 const OPS_MOST = 4000;
 const NOTE_MOST = 500;
+// A name is read whole under its video (two lines at most): as long as a treatment's move may be.
+const NAME_MOST = 60;
 
 const sec = (value) => Math.round(value * 100) / 100;
 const words = (value, most) => String(value ?? "").replace(/\s+/g, " ").trim().slice(0, most);
@@ -50,7 +52,7 @@ export function readTry(input, scenes, { treatments = null, known = false, empty
   // A sketch round: its stretch, and the treatment each option shows (its name defaults to the treatment's move).
   const drawn = sketch ? readSketch(input, scene, treatments, known, built) : null;
   const read = options.map((option, index) => {
-    const name = words(option?.name, 40) || drawn?.names[index] || "";
+    const name = words(option?.name, NAME_MOST) || drawn?.names[index] || "";
     if (!name) throw new Error(`options[${index}] needs a name (a few words the person reads under the video).`);
     const ops = option?.ops ?? [];
     if (!Array.isArray(ops)) throw new Error(`options[${index}].ops is a list of edit ops ([] keeps the video as it is).`);

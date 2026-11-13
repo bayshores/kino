@@ -60,6 +60,10 @@ test("readTry: a sketch round is a 2 to 10 s stretch whose options name shown tr
   // A project with no treatments (a talking video, a product video): named sketches, no treatment pick.
   const named = readTry({ from: 2, to: 8, options: [{ name: "held", ops: [] }, { name: "cut fast", ops: [] }] }, SCENES, {});
   assert.deepEqual([named.sketch, named.options.map((option) => [option.name, option.treatment ?? null])], [true, [["held", null], ["cut fast", null]]]);
+  // The person reads the name under the video: a move of the longest length a treatment allows is kept whole.
+  const longMove = "full-frame canvas crop, then pull back to the whole app view";
+  const long = readTry({ from: 2, to: 8, options: SKETCHES }, SCENES, { treatments: { ...TREATMENTS, list: TREATMENTS.list.map((entry, index) => (index === 3 ? { ...entry, move: longMove } : entry)) } });
+  assert.deepEqual([longMove.length, long.options[0].name], [60, longMove]);
   assert.match(answerText({ ...named, id: "T1", status: "picked", pick: "B", options: named.options }), /picked B \(cut fast\)\. It keeps the video as it is/);
 });
 

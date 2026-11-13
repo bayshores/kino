@@ -295,7 +295,7 @@ export function readSketch(input, scene, treatments, known = false, built = fals
     return letter;
   });
   if (new Set(picked).size !== picked.length) throw new Error("Each sketch shows its own treatment.");
-  return { from: sec(from), to: sec(to), treatments: picked, names: picked.map((letter) => treatmentOf(treatments, letter).move.slice(0, 40)),
+  return { from: sec(from), to: sec(to), treatments: picked, names: picked.map((letter) => treatmentOf(treatments, letter).move),
     ideas: picked.map((letter) => treatmentOf(treatments, letter).idea ?? null), ...extra };
 }
 
