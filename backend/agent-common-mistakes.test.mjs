@@ -384,7 +384,7 @@ test("align or family on a layer added earlier in the same edit is refused as it
 test("size, position and scale: inspect names the fields edit sets, and update_layer takes them at the top level", async () => {
   await project("pairs");
   const shown = await agent("inspect", { project: "pairs", targets: ["title", "box"], fields: ["size", "position", "position.x", "scale"] });
-  assert.equal(shown.text.split("\n").slice(1, -1).join("\n"), [
+  assert.equal(shown.text.split("\n").filter((line) => !line.startsWith("next: ")).slice(1).join("\n"), [
     "L2 title text in s1",
     "  size: on a text layer one number is fontSize and two are width and height. fontSize 96 · width 800 · height 120",
     "  position: the fields are x and y. x 200 · y 400",
@@ -420,7 +420,7 @@ test("inspect and update_layer read every form of size, position and scale the s
   await project("pairs2");
   const shown = await agent("inspect", { project: "pairs2", targets: ["title", "box"],
     fields: ["size", "size.width", "size.height", "size.x", "dimensions.height", "position", "position.y", "position.width", "scale", "scale.x", "scale.y"] });
-  assert.equal(shown.text.split("\n").slice(1, -1).join("\n"), [
+  assert.equal(shown.text.split("\n").filter((line) => !line.startsWith("next: ")).slice(1).join("\n"), [
     "L2 title text in s1",
     "  size: on a text layer one number is fontSize and two are width and height. fontSize 96 · width 800 · height 120",
     "  size.width: the field is width. width 800",
@@ -733,8 +733,8 @@ test("library op shows a working example, and each property preset's values for 
     const tried = await agent("edit", { project: "library", ops: [{ ...example, layer: "title" }], dry_run: true });
     assert.equal(tried.isError, undefined, tried.text);
   }
-  // A lookup, not a refusal: about 1,000 tokens with the rule topics, each preset's values and two examples.
-  assert.ok(estimateTextTokens(answer) < 1200, `${estimateTextTokens(answer)} tokens`);
+  // A lookup, not a refusal: about 1,000 tokens with the rule topics, each preset's values, two examples and the early next line.
+  assert.ok(estimateTextTokens(answer) < 1250, `${estimateTextTokens(answer)} tokens`);
   // Guessed names find the op.
   assert.match((await agent("library", { topic: "op", name: "addLayer" })).text, /^addLayer is add_layer\.\n\nadd_layer \{/);
   // move is the moves library's op and also an animation preset: the answer gives both.
