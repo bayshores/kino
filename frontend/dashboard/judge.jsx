@@ -55,7 +55,7 @@ export function JudgeBox({ projectId, judge, onPick, onLater }) {
       <div className="judge" role="dialog" aria-modal="true" aria-labelledby="judge-title" tabIndex={-1} ref={boxRef}>
         <div className="judge-head">
           <h2 id="judge-title">Which was which</h2>
-          <span className="dim">references {counts.references} · same {counts.same} · yours {counts.yours}</span>
+          <span className="dim">references {counts.references}, same {counts.same}, yours {counts.yours}</span>
         </div>
         <ol className="judge-key">
           {judge.pairs.map((entry) => (

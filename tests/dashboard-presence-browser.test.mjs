@@ -50,6 +50,13 @@ const describedBy = (name) => `(() => {
   return (row?.getAttribute("aria-describedby") ?? "").split(" ").filter(Boolean).map((id) => document.getElementById(id)?.textContent ?? "").join(" ");
 })()`;
 
+/** The shot strip is the default timeline; the layers' rows and the agents' lanes show after "Show every lane and layer". */
+async function fullTimeline() {
+  const toggle = q('.p-timeline .strip-toggle[aria-label="Show every lane and layer"]');
+  if (await browser.evaluate(`!!${toggle}`)) await browser.click(toggle, "Show every lane and layer");
+  await browser.waitFor(`!!document.querySelector(".p-timeline .row-button")`, { what: "the layers' rows" });
+}
+
 /** Waits until no agent's marker is on the stage (each fades 5 s after its call). */
 async function quiet() {
   await browser.waitFor(`document.querySelectorAll(".presence-tag").length === 0`, { timeout: 8000, what: "no live marker on the stage" });
@@ -91,6 +98,7 @@ before(async () => {
   await agent("notes", { action: "release", project: "pulse" });
 
   await dashboard.open();
+  await fullTimeline();
   await quiet();
 });
 
@@ -110,7 +118,7 @@ test("a look puts the agent's named, colored tag over what it looks at, and the 
     const text = ${tagOf(NOVA.id)}.innerText;
     return Math.abs(tag.bottom - box.top) <= 1.5 && Math.abs(tag.left - box.left) <= 1.5 ? { tag, box, stage, text } : null;
   })()`, { what: "Nova's tag just above the title's outline" });
-  assert.match(placed.text, /^Nova · /);
+  assert.match(placed.text, /^Nova: /);
   assert.equal(await browser.evaluate(`getComputedStyle(${tagOf(NOVA.id)}).backgroundColor`), NOVA.color);
   // The outline is the layer's box on the stage, both measured in the same frame (the stage
   // changes size when the live line under it changes).
@@ -264,7 +272,7 @@ test("two agents get two names and colors that read, and one in another scene sh
     // It glides there in 180 ms: wait until it has arrived.
     return Math.abs(place.right - stage.right) <= 1.5 ? { text: tag.innerText, place, stage } : null;
   })()`, { what: "Juno's tag at the stage's right edge and Nova's tag" });
-  assert.equal(edge.text, "Juno · in outro");
+  assert.equal(edge.text, "Juno in outro");
   assert.ok(edge.place.top >= edge.stage.top && edge.place.bottom <= edge.stage.bottom, "inside the stage");
   // Two colors, each with text that reads at 4.5:1 or more (WCAG AA).
   const nova = await browser.evaluate(contrastOf(tagOf(NOVA.id)));
@@ -273,7 +281,7 @@ test("two agents get two names and colors that read, and one in another scene sh
   assert.equal(juno.background, JUNO.color);
   assert.ok(nova.ratio >= 4.5, `Nova's tag reads at ${nova.ratio.toFixed(2)}:1`);
   assert.ok(juno.ratio >= 4.5, `Juno's tag reads at ${juno.ratio.toFixed(2)}:1`);
-  assert.match(await browser.evaluate(`${tagOf(NOVA.id)}.innerText`), /^Nova · /);
+  assert.match(await browser.evaluate(`${tagOf(NOVA.id)}.innerText`), /^Nova: /);
   await browser.shot("presence-two-agents");
 });
 

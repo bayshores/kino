@@ -111,7 +111,7 @@ const places = (list, extra = {}) => tagPlaces(list, { sceneId: "intro", width: 
 
 test("a tag sits just above its outline, inside it at the stage's top, and at the top left without a layer", () => {
   const [above] = places([presence()]);
-  assert.deepEqual([above.text, above.x, above.y, above.edge], ["Nova · look at 1.0–2.0 s", 100, 80 - TAG_PX, false]);
+  assert.deepEqual([above.text, above.x, above.y, above.edge], ["Nova: look at 1.0–2.0 s", 100, 80 - TAG_PX, false]);
   assert.deepEqual(above.box, boxes.title);
   const [top] = places([presence({ target: { sceneId: "intro", layerIds: ["logo"], text: "Logo" } })]);
   assert.deepEqual([top.x, top.y], [20, 0], "kept on the stage");
@@ -120,7 +120,7 @@ test("a tag sits just above its outline, inside it at the stage's top, and at th
   const [missing] = places([presence({ target: { sceneId: "intro", layerIds: ["gone"] } })]);
   assert.deepEqual([missing.x, missing.y], [0, 0], "a layer the stage cannot find");
   const [project] = places([presence({ target: null, verb: "project", label: "list projects" })]);
-  assert.deepEqual([project.text, project.x, project.y], ["Nova · list projects", 0, 0]);
+  assert.deepEqual([project.text, project.x, project.y], ["Nova: list projects", 0, 0]);
   // A done write without a target points at what it changed.
   const [changed] = places([write({ target: null })]);
   assert.deepEqual([changed.x, changed.y], [100, 80 - TAG_PX]);
@@ -138,9 +138,9 @@ test("a cursor points at the middle of what the call is about and stays put when
 
 test("a call about another scene puts the tag at the stage's right edge with the scene's name", () => {
   const [edge] = places([presence({ target: { sceneId: "outro", sceneName: "outro", layerIds: ["title"], text: "Title" } })]);
-  assert.deepEqual([edge.text, edge.x, edge.y, edge.edge, edge.box], ["Nova · in Outro", 640, 0, true, null]);
+  assert.deepEqual([edge.text, edge.x, edge.y, edge.edge, edge.box], ["Nova in Outro", 640, 0, true, null]);
   const [unnamed] = places([presence({ target: { sceneId: "s9", sceneName: "credits", layerIds: [] } })]);
-  assert.equal(unnamed.text, "Nova · in credits", "the server's name when this document does not know the scene");
+  assert.equal(unnamed.text, "Nova in credits", "the server's name when this document does not know the scene");
 });
 
 test("two agents on the same spot stack their tags 18 px apart", () => {
@@ -227,13 +227,13 @@ test("a write that did not run says so: held (you paused writes) or refused (a s
   assert.equal(announceText(write({ held: true, changed: null })), "Nova: move Title, held (nothing changed)");
   assert.equal(announceText(write({ refused: "C1", changed: null })), "Nova: move Title, refused: a stop waits (nothing changed)");
   const [held] = places([write({ held: true, changed: null })]);
-  assert.equal(held.text, "Nova · move Title · held");
+  assert.equal(held.text, "Nova: move Title, held");
   const [refused] = places([write({ refused: "C1", changed: null })]);
-  assert.equal(refused.text, "Nova · move Title · refused");
+  assert.equal(refused.text, "Nova: move Title, refused");
   // The log row: the label, then what happened.
-  assert.equal(callLine({ verb: "edit", label: "move Title", held: true, summary: "held: the person paused agent writes" }), "move Title · held: the person paused agent writes");
-  assert.equal(callLine({ verb: "edit", label: "move Title", waiting: "C1", summary: "waiting for you: C1 rough" }), "move Title · waiting for you: C1 rough");
-  assert.equal(callLine({ verb: "edit", label: "move Title", isError: true, summary: "error: no layer" }), "move Title · error: no layer");
+  assert.equal(callLine({ verb: "edit", label: "move Title", held: true, summary: "held: the person paused agent writes" }), "move Title, held: the person paused agent writes");
+  assert.equal(callLine({ verb: "edit", label: "move Title", waiting: "C1", summary: "waiting for you: C1 rough" }), "move Title, waiting for you: C1 rough");
+  assert.equal(callLine({ verb: "edit", label: "move Title", isError: true, summary: "error: no layer" }), "move Title, error: no layer");
   assert.equal(callLine({ verb: "edit", label: "move Title", summary: "{\"rev\":4}" }), "move Title");
   assert.equal(callLine({ verb: "status", summary: "p1 rev 4" }), "status p1 rev 4");
 });
@@ -244,13 +244,13 @@ test("a call that waits for your approval, or failed, says so: not as if it ran"
   const asked = presence({ verb: "project", label: "share view link", target: null, approval: "Q3" });
   assert.equal(announceText(asked), "Nova: share view link, waits for your approval (not run yet)");
   const [waits] = places([asked]);
-  assert.equal(waits.text, "Nova · share view link · waits for you");
+  assert.equal(waits.text, "Nova: share view link, waits for you");
   const failed = write({ isError: true, changed: null });
   assert.equal(announceText(failed), "Nova: move Title, failed");
   const [broke] = places([failed]);
-  assert.equal(broke.text, "Nova · move Title · failed");
-  assert.equal(places([presence()])[0].text, "Nova · look at 1.0–2.0 s", "a call that ran has no outcome");
-  assert.equal(callLine({ verb: "project", label: "share view link", approval: "Q3", summary: "{\"status\":\"awaiting_approval\"}" }), "share view link · waits for your approval Q3");
+  assert.equal(broke.text, "Nova: move Title, failed");
+  assert.equal(places([presence()])[0].text, "Nova: look at 1.0–2.0 s", "a call that ran has no outcome");
+  assert.equal(callLine({ verb: "project", label: "share view link", approval: "Q3", summary: "{\"status\":\"awaiting_approval\"}" }), "share view link, waits for your approval Q3");
 });
 
 test("the stage draws no building outlines while it plays; the timeline keeps them", () => {

@@ -120,8 +120,8 @@ test("a log row reads its time, the agent's name in its color and the call's lab
     const rows = [...document.querySelectorAll("#section-agents .row")].map((row) => ({ text: row.innerText.replace(/\\s+/g, " ").trim(), color: getComputedStyle(row.querySelector(".agent-name")).color, bot: row.querySelector("svg.bot circle")?.getAttribute("fill"), mood: row.querySelector("svg.bot")?.dataset.mood, hidden: row.querySelector("svg.bot")?.getAttribute("aria-hidden") }));
     return rows.length >= 2 ? rows : null;
   })()`, { what: "the agents in the session pane" });
-  assert.ok(agents.some((row) => /^Nova · claude-code .*working$/.test(row.text) && row.color === rgb("#42c0b6") && row.bot === "#42c0b6" && row.mood === "look"), JSON.stringify(agents));
-  assert.ok(agents.some((row) => /^Juno · claude-code .*(working|idle)$/.test(row.text) && row.color === rgb("#6cb6ff") && row.bot === "#6cb6ff"), JSON.stringify(agents));
+  assert.ok(agents.some((row) => /^Nova claude-code .*Working$/.test(row.text) && row.color === rgb("#42c0b6") && row.bot === "#42c0b6" && row.mood === "look"), JSON.stringify(agents));
+  assert.ok(agents.some((row) => /^Juno claude-code .*(Working|Idle)$/.test(row.text) && row.color === rgb("#6cb6ff") && row.bot === "#6cb6ff"), JSON.stringify(agents));
   assert.ok(agents.every((row) => row.hidden === "true"), "the bots are decoration: the name is the text");
   await browser.shot("live-log");
 });
@@ -132,10 +132,10 @@ test("two agents at work: the top line names both, each in its color; one keeps 
   // Juno first: following the agents, the dashboard ends on Nova's project.
   await juno("status", { project: "side" });
   await nova("status", { project: "live" });
-  // One chip per agent at work on the top line, its name in its color.
+  // One chip per agent at work on the top line, its dot in its color (the name is plain text).
   const names = await browser.waitFor(`(() => {
     const chips = [...document.querySelectorAll(".topline .agent-chip .chip-name")];
-    return chips.length === 2 ? chips.map((name) => ({ name: name.innerText, color: getComputedStyle(name).color })) : null;
+    return chips.length === 2 ? chips.map((name) => ({ name: name.innerText, color: getComputedStyle(name.closest(".agent-chip").querySelector(".chip-dot")).backgroundColor })) : null;
   })()`, { what: "2 agents on the top line" });
   assert.deepEqual(names.map((entry) => entry.name).sort(), ["Juno", "Nova"]);
   assert.equal(names.find((entry) => entry.name === "Juno").color, rgb("#6cb6ff"));
@@ -162,6 +162,8 @@ test("two agents at work: the top line names both, each in its color; one keeps 
 test("pointing: a layer, then a time range by dragging the ruler and by Shift+→; the agent reads the same line, and Esc lets the range go first", async () => {
   await dashboard.open();
   await browser.waitFor(`(document.querySelector(".dash")?.dataset.project === "live")`, { what: "the live project on the stage" });
+  // The shot strip is the default; the layers' rows show after "Show every lane and layer".
+  if (await browser.evaluate(`!!document.querySelector('.p-timeline .strip-toggle[aria-label="Show every lane and layer"]')`)) await browser.click(q('.p-timeline .strip-toggle[aria-label="Show every lane and layer"]'));
   await browser.click(layerButton("card"));
   const layerLine = 'the agent sees "pointing card (you selected it in the dashboard)"';
   await browser.waitFor(`${pointingText} === ${JSON.stringify(layerLine)}`, { what: "the layer's pointing line" });
@@ -269,7 +271,7 @@ test("the quiet notification is off by default, and its checkbox is reached by k
   await browser.click(q('.topline button[aria-label="Settings"]'));
   await browser.waitFor(`!!document.querySelector("#set-quiet")`, { what: "the settings screen" });
   assert.equal(await browser.evaluate(`document.querySelector("#set-quiet").checked`), false);
-  assert.equal(await browser.evaluate(`document.querySelector('label[for="set-quiet"]').innerText`), "tell me when an agent goes quiet");
+  assert.equal(await browser.evaluate(`document.querySelector('label[for="set-quiet"]').innerText`), "Tell me when an agent goes quiet");
   // Tab from the control before it reaches it, the focus ring shows, and Space turns it on and off.
   await browser.evaluate(`(() => {
     const all = [...document.querySelectorAll("section.screen button, section.screen input, section.screen select, section.screen a[href]")].filter((element) => !element.disabled && element.getClientRects().length);
@@ -328,7 +330,7 @@ test("quiet on: 31 s after the agent's last call, with the window in the backgro
     const notes = await browser.waitFor(`window.__notes.length ? window.__notes : null`, { timeout: 8000, what: "the quiet notification" });
     assert.equal(notes.length, 1, JSON.stringify(notes));
     assert.deepEqual({ title: notes[0].title, silent: notes[0].silent }, { title: "kino", silent: true });
-    assert.match(notes[0].body, /^Nova went quiet · look at 1\.5 s/, "the agent and the label of its last call");
+    assert.match(notes[0].body, /^Nova went quiet: look at 1\.5 s/, "the agent and the label of its last call");
     // Once per quiet spell: the next checks tell nothing new.
     await sleep(5600);
     assert.equal(await browser.evaluate(`window.__notes.length`), 1, "told once");

@@ -1,0 +1,126 @@
+/* The settings page (settings.jsx): the section names at the left, and each section as a heading
+   over its rows; one row per setting, its label at the left and its control at the right, a
+   hairline under each row. The stops section (StopSettings in stops.jsx) uses the same rows.
+   Rules start with .dash .screen.settings so they win over the older ones in screens.css. */
+
+.dash .screen-wrap.is-settings { border: 0; margin-top: 0; }
+.dash .screen-wrap > .screen.settings {
+  display: grid; grid-template-columns: 240px minmax(0, 1fr); align-items: start;
+  min-height: 100%; padding-top: 28px; overflow: visible;
+}
+/* The section with the focus shows it; the page itself needs no outline. */
+.dash .screen.settings:focus-visible { outline: none; }
+/* The page's own title is for screen readers: the nav names the sections. */
+.dash .screen.settings > h2 {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+}
+
+/* ---- the section names ---- */
+.set-nav { position: sticky; top: 28px; display: flex; flex-direction: column; align-items: flex-start; min-width: 0; }
+.set-nav-item {
+  appearance: none; display: block; height: 35px; padding: 0; margin: 0; border: 0; background: none; cursor: pointer;
+  font: inherit; font-size: 15px; line-height: 35px; color: var(--fg1); text-align: left;
+  transition: color var(--quick) var(--ease-in);
+}
+.set-nav-item:hover { color: var(--fg0); }
+.set-nav-item[aria-current="true"] { color: var(--fg0); font-weight: 700; }
+.set-nav-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.set-nav-foot { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin-top: 22px; }
+.dash .set-nav .ui-btn { min-height: 30px; padding: 0; border-color: transparent; background: none; color: var(--fg1); font-size: 13px; font-weight: 500; }
+.dash .set-nav .ui-btn:hover:not(:disabled) { background: none; border-color: transparent; color: var(--fg0); }
+.set-saved { display: inline-flex; align-items: center; gap: 6px; min-height: 20px; color: var(--ok); font-size: 13px; }
+.set-saved .ui-icon { width: 14px; height: 14px; }
+
+/* ---- the sections ---- */
+.settings-grid { min-width: 0; }
+.set-pane { scroll-margin-top: 28px; }
+.set-pane + .set-pane { margin-top: 34px; }
+.dash .screen.settings .set-pane > h2 { margin: 0 0 4px; font-size: 22px; line-height: 28px; color: var(--fg0); }
+.set-body { display: flex; flex-direction: column; }
+.dash .screen .set-body p { max-width: none; }
+.set-note { margin: 0; padding: 10px 0 0; color: var(--fg2); font-size: 12px; line-height: 1.5; }
+
+/* ---- one row ---- */
+.set-item { border-bottom: 1px solid var(--line-soft); transition: background-color var(--quick) var(--ease-in); }
+.set-item:has(:focus-visible) { background: var(--well); }
+.set-row {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; column-gap: 24px; row-gap: 6px;
+  min-height: 48px; padding: 7px 0;
+}
+.set-label { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 15px; color: var(--fg0); }
+.set-control { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-wrap: wrap; justify-content: flex-end; }
+.set-control .faint, .set-label .faint { color: var(--fg2); font-size: 13px; }
+.set-warn { display: block; padding: 0 0 10px; color: var(--accent); font-size: 12px; line-height: 1.5; }
+.set-line { display: flex; align-items: center; min-height: 48px; margin: 0; border-bottom: 1px solid var(--line-soft); font-size: 15px; }
+.set-agent { display: flex; align-items: center; gap: 12px; min-height: 48px; margin: 0; border-bottom: 1px solid var(--line-soft); font-size: 15px; }
+.set-agent .grow { flex: 1; }
+.set-agent-last { font-family: var(--mono-ui); font-size: 12px; }
+
+/* ---- controls in a row ---- */
+.dash .screen.settings .set-control .ui-btn { min-height: 30px; padding: 0 12px; font-size: 13px; }
+.set-key, .set-clear { color: var(--fg1); }
+.set-key:hover, .set-clear:hover { color: var(--fg0); }
+
+/* "kino setup" and the copy icon in one box: a click copies it. */
+.set-setup {
+  appearance: none; display: inline-flex; align-items: center; gap: 12px; height: 30px; padding: 0 10px 0 12px; margin: 0;
+  border: 1px solid var(--line); background: none; color: var(--fg0); cursor: pointer;
+  transition: border-color var(--quick) var(--ease-in), background-color var(--quick) var(--ease-in);
+}
+.set-setup:hover { border-color: var(--fg1); background: var(--bg1); }
+.set-setup:active { transform: scale(0.97); }
+.set-setup:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.set-setup code { font-family: var(--mono-ui); font-size: 13px; letter-spacing: 0.04em; }
+.set-setup .ui-icon { width: 14px; height: 14px; color: var(--fg1); }
+.set-config {
+  margin: 0; padding: 10px 12px; border-bottom: 1px solid var(--line-soft); background: var(--well);
+  font-family: var(--mono-ui); font-size: 11px; line-height: 1.6; color: var(--fg1); white-space: pre; overflow-x: auto; scrollbar-width: thin;
+}
+
+/* A choice: one hairline box, the chosen answer solid. */
+.dash .screen.settings .choice { display: inline-flex; flex-wrap: wrap; gap: 0; padding: 2px; border: 1px solid var(--line); border-radius: 0; }
+.dash .screen.settings .choice .chip {
+  min-height: 26px; padding: 0 11px; border: 0; border-radius: 0; background: none; color: var(--fg1); font-size: 13px; font-weight: 500;
+  transition: color var(--quick) var(--ease-in), background-color var(--quick) var(--ease-in);
+}
+.dash .screen.settings .choice .chip:hover { color: var(--fg0); }
+.dash .screen.settings .choice .chip:has(input:checked) { background: var(--solid); color: var(--on-solid); font-weight: 700; }
+.dash .screen.settings .choice .chip:has(input:disabled) { color: var(--fg2); cursor: default; }
+.dash .screen.settings .choice .chip:has(input:checked:disabled) { background: var(--bg2); color: var(--fg1); }
+
+/* Numbers, words and lists. */
+.dash .screen.settings .set-num, .dash .screen.settings .set-text, .dash .screen.settings .set-drop select {
+  height: 30px; min-height: 0; padding: 0 10px; border: 1px solid var(--line); border-radius: 0; background: none;
+  color: var(--fg0); font-size: 13px; font-weight: 500;
+  transition: border-color var(--quick) var(--ease-in);
+}
+.dash .screen.settings .set-num { width: 7ch; font-family: var(--mono-ui); text-align: right; appearance: textfield; }
+.set-num::-webkit-inner-spin-button, .set-num::-webkit-outer-spin-button { appearance: none; margin: 0; }
+.dash .screen.settings .set-text { width: 24ch; }
+.dash .screen.settings .set-folder { width: min(34ch, 100%); font-family: var(--mono-ui); font-size: 12px; }
+.set-text::placeholder { color: var(--fg2); }
+.dash .screen.settings :is(.set-num, .set-text, .set-drop select):hover { border-color: var(--fg1); }
+.dash .screen.settings :is(.set-num, .set-text, .set-drop select):focus-visible { outline: none; border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.set-drop { position: relative; display: inline-flex; max-width: 100%; }
+.dash .screen.settings .set-drop select { appearance: none; padding-right: 30px; max-width: 34ch; cursor: pointer; }
+.set-drop::after { content: "▾"; position: absolute; right: 10px; top: 50%; transform: translateY(-50%); color: var(--fg2); pointer-events: none; }
+.set-path { max-width: 26ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono-ui); font-size: 12px; }
+.set-used { font-family: var(--mono-ui); font-size: 12px; color: var(--fg1); }
+.set-control .meter { width: 72px; height: 4px; border-radius: 0; }
+
+/* The machine line: its cards and encoders, and detect. */
+.set-machine { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 48px; padding: 7px 0; }
+.set-machine .render-devices { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 16px; min-width: 0; margin: 0; font-size: 15px; }
+.set-machine .render-devices .faint { font-size: 13px; color: var(--fg2); }
+
+/* A narrow window: the section names in a line above the sections. */
+@media (max-width: 960px) {
+  .dash .screen-wrap > .screen.settings { grid-template-columns: minmax(0, 1fr); padding-top: 12px; }
+  .set-nav {
+    top: 0; z-index: 1; flex-direction: row; flex-wrap: wrap; align-items: center; column-gap: 18px;
+    margin-bottom: 20px; padding: 4px 0; background: var(--bg0); border-bottom: 1px solid var(--line-soft);
+  }
+  .set-nav-item { height: 32px; line-height: 32px; }
+  .set-nav-foot { flex-direction: row; align-items: center; gap: 14px; margin: 0 0 0 auto; }
+  .set-pane { scroll-margin-top: 64px; }
+}

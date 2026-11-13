@@ -19,7 +19,7 @@ import { fileURLToPath } from "node:url";
 import { createCanvas, loadImage } from "@napi-rs/canvas";
 import { ffmpeg, run, skipWithoutMediaTools } from "../backend/media.test.support.mjs";
 import { BOARD_SKIP_UNDER } from "../backend/stops.test.support.mjs";
-import { button, layerButton, pageHas, q, sleep, slowdown, startDashboard, textOf, until } from "./dashboard-browser.support.mjs";
+import { button, layerButton, pageHas, q, showLanes, sleep, slowdown, startDashboard, textOf, until } from "./dashboard-browser.support.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DOT_PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
@@ -92,9 +92,9 @@ const inboxText = (reply) => (reply.data?.inbox ?? []).map((entry) => (typeof en
 async function share(role = "view") {
   const asked = await agent("project", { action: "share", id: "orbit", role });
   assert.equal(asked.data.status, "awaiting_approval", asked.text);
-  // The request's row is under "needs you", in the agent pane's session view.
+  // The request's row is under "Needs you", in the list's session view.
   if (await browser.evaluate(`!document.querySelector("#panel-session") && !document.querySelector("section.screen") && !document.querySelector(".dash.phone")`)) await showView("session", { focus: false });
-  await browser.waitFor(pageHas(`${asked.data.id} create a share link`), { what: `${asked.data.id} on screen` });
+  await browser.waitFor(`!!document.querySelector('[aria-label^="Approval ${asked.data.id}:"]')`, { what: `${asked.data.id} on screen` });
   return asked.data.id;
 }
 
@@ -118,6 +118,13 @@ async function showScene(scene) {
   await browser.waitFor(sceneShown(scene.name), { what: `the scene ${scene.name} on the stage` });
 }
 
+/** Opens the whole timeline (every lane and layer, the zoom buttons) from the shot strip, if the strip is showing. */
+async function showEveryLane() {
+  const toggle = 'button[aria-label="Show every lane and layer"]';
+  if (await browser.evaluate(`!!${q(toggle)}`)) await browser.click(q(toggle));
+  await browser.waitFor(`!${q(toggle)} && !!${q(".p-timeline .tl-scroll")}`, { what: "the whole timeline" });
+}
+
 /**
  * Shows one of the agent pane's views (agent, session, log, checks, notes, seen) by mouse, its
  * tab, then puts the focus on the pane with its key (2), as a person does before j, k or Enter.
@@ -138,6 +145,20 @@ async function commandByMouse(words) {
   await browser.key(":");
   await browser.waitFor(`document.activeElement?.id === "command-input"`, { what: "the command list" });
   await browser.click(`[...document.querySelectorAll("#command-list [role=option]")].find((item) => item.querySelector(".command-words")?.textContent === ${JSON.stringify(words)})`);
+}
+
+/** Clicks `target` until `done` is true (a click that lands while the page redraws is lost). */
+async function clickUntil(target, done, what) {
+  for (let attempt = 1; ; attempt += 1) {
+    await browser.click(target);
+    try { await browser.waitFor(done, { what, timeout: 3000 }); return; } catch (error) { if (attempt >= 4) throw error; }
+  }
+}
+
+/** The timeline shows the shot strip until "Show every lane and layer" opens every lane and layer. */
+async function openEveryLane() {
+  if (await browser.evaluate(`${q('.p-timeline .strip-toggle[aria-label="Show every lane and layer"]')} !== null`)) await browser.click(q(".p-timeline .strip-toggle"));
+  await browser.waitFor(`!!${q(".p-timeline .row-button")} && !${q(".p-timeline.strip")}`, { what: "every lane and layer on the timeline" });
 }
 
 /** True in the page while project `id` is the one the dashboard shows (its root's data-project). */
@@ -174,25 +195,33 @@ after(async () => {
 
 test("the dashboard is the default view at /, with real frames from the export renderer", async () => {
   await open();
-  // Three panes, as in the design: "stage", the agent's name, "timeline", each title set in its
-  // pane's top border, with no number (the keys 1, 2, 3 still pick them). One has the focus frame.
+  // One column: the stage and the timeline strip are the two panes; the list of calls (the agent
+  // pane) is closed until opened. One pane has the focus frame.
   const titles = await browser.evaluate(paneTitles);
-  assert.equal(titles.length, 3, JSON.stringify(titles));
+  assert.equal(titles.length, 2, JSON.stringify(titles));
   assert.equal(titles.filter((title) => title.focused).length, 1, JSON.stringify(titles));
-  assert.ok(titles.every((title) => !/^\d/.test(title.text)), JSON.stringify(titles));
   assert.match(titles[0].text, /^stage/);
-  assert.match(titles[1].text, /^test-agent|^agent/);
-  assert.match(titles[2].text, /^timeline/);
+  assert.match(titles[1].text, /^timeline/);
+  assert.equal(await browser.evaluate(`!!document.querySelector("#tab-agent")`), false, "the list is closed");
+  // Under the frame: the agent's line, in a sentence.
+  assert.ok(await browser.evaluate(textOf(".voice-line")).then((text) => text.trim().length > 0), "the agent's line says something");
   const frame = await browser.evaluate(`(() => { const image = document.querySelector(".stage img"); return { src: image.getAttribute("src"), width: image.naturalWidth, height: image.naturalHeight }; })()`);
   assert.match(frame.src, /^\/api\/dashboard\/frame\?project=orbit&/);
   assert.equal(frame.width * 360, frame.height * 640, "the frame keeps the scene's shape");
   const response = await server.api(frame.src);
   assert.equal(response.headers.get("content-type"), "image/png");
   // The stage's header says the frame's size, rate, quality and revision; its tooltip says it all.
-  assert.match(await browser.evaluate(textOf(".stage-label")), /^\d+×\d+ · 30fps · draft · rev \d+$/);
+  assert.match(await browser.evaluate(textOf(".stage-label")), /^\d+×\d+\s+30fps\s+draft\s+rev \d+$/);
   assert.match(await browser.evaluate(`${q(".stage-label")}.title`), /^preview \d+×\d+ · 30fps · draft · rev \d+ · exact frame$/);
+  // The list of calls opens from the clock icon beside the agent's line (or a command, or a key).
+  await browser.click(q('button[aria-label="Earlier lines"]'));
+  await browser.waitFor(`${q("#tab-agent")}?.getAttribute("aria-selected") === "true" && !!document.querySelector("#panel-agent")`, { what: "the list open on the agent view" });
   // The agent view: the agent's call that made the headline, and its plan step as its task.
-  await browser.waitFor(pageHas("headline", "#panel-agent"), { what: "the edit in the agent's log" });
+  await browser.waitFor(pageHas("Added rectangle card", "#panel-agent"), { what: "the edit in the agent's log" });
+  // A row shows a sentence; its facts (what it made) show when a click opens the row.
+  await browser.click(q("#panel-agent .agent-call.has-more .call-text"));
+  await browser.waitFor(`!!document.querySelector("#panel-agent .agent-call.open .call-details")`, { what: "the row's facts" });
+  assert.match(await browser.evaluate(textOf("#panel-agent .agent-call.open .call-details")), /headline/);
   // No step is ticked off yet, so the task is the plan's first step.
   assert.equal(await browser.evaluate(textOf("#panel-agent .agent-task")), "brief", "the plan's step now is the agent's task");
   assert.match(await browser.evaluate(textOf("#panel-agent .agent-step")), /^step 1 of 4 · last call \d+s ago$/);
@@ -200,7 +229,7 @@ test("the dashboard is the default view at /, with real frames from the export r
   await showView("seen", { focus: false });
   await browser.waitFor(`document.querySelector(".seen-strip img")?.naturalWidth > 0`, { what: "the image the agent saw" });
   await showView("agent", { focus: false });
-  await browser.waitFor(`/checks \\d+ errors? · \\d+ warnings?/.test(${textOf(".statusline")})`, { what: "the background check" });
+  await browser.waitFor(`/Checks: \\d+ errors?, \\d+ warnings?/.test(${textOf(".statusline")})`, { what: "the background check" });
   await browser.shot("desktop");
 });
 
@@ -211,14 +240,14 @@ test("approvals by keyboard: Tab adds a note, a allows once, A always allows, d 
   assert.match(await browser.evaluate("document.title"), /^1 awaiting · /);
   await showView("session");
   await browser.key("Enter");
-  await browser.waitFor(pageHas(`${id} · create a share link`, ".screen"), { what: "the approval card" });
+  await browser.waitFor(`${textOf(".screen .approval-card h3")} === "Create a share link" && ${q(".screen .approval-card h3")}.title === ${JSON.stringify(id)}`, { what: "the approval card" });
   await browser.waitFor(`document.activeElement?.matches("section.screen")`, { what: "the approval screen to take the focus" });
   await browser.shot("approval-card");
   await browser.key("Tab");
   await browser.waitFor(`document.activeElement?.id === "approval-note-${id}"`);
   await browser.type("ok for the client");
   // From the note, Tab goes on through all four answers; it does not jump back to the note.
-  for (const label of ["[a] allow once", "[A] always allow", "[d] deny", "[D] always deny"]) {
+  for (const label of ["Allow", "Always allow", "Not yet", "Never"]) {
     await browser.key("Tab");
     await browser.waitFor(`document.activeElement?.textContent === ${JSON.stringify(label)}`, { what: `Tab to ${label}` });
   }
@@ -226,7 +255,7 @@ test("approvals by keyboard: Tab adds a note, a allows once, A always allows, d 
   await until(async () => (await approval(id))?.status === "allowed", "allow once");
   assert.equal((await approval(id)).note, "ok for the client");
   assert.match(inboxText(await agent("status")), new RegExp(`${id} allowed · your note: "ok for the client": Created sharing link \\(secret omitted\\)`));
-  await browser.waitFor(pageHas("allowed", ".screen"));
+  await browser.waitFor(pageHas("Allowed", ".screen"));
   assert.equal(await browser.evaluate(`document.querySelector(".screen")?.textContent.includes("#share=")`), false, "the card never shows the URL");
   await browser.key("Escape");
 
@@ -242,7 +271,7 @@ test("approvals by keyboard: Tab adds a note, a allows once, A always allows, d 
 
   const archive = await agent("project", { action: "archive", id: "orbit" });
   assert.equal(archive.data.status, "awaiting_approval");
-  await browser.waitFor(pageHas(`${archive.data.id} archive a project`));
+  await browser.waitFor(`!!document.querySelector('[aria-label^="Approval ${archive.data.id}:"]')`, { what: `${archive.data.id} on screen` });
   await browser.key("d");
   await until(async () => (await approval(archive.data.id))?.status === "denied", "deny");
   assert.ok((await snapshot()).projects.some((project) => project.id === "orbit"), "nothing was archived");
@@ -260,29 +289,29 @@ test("approvals by mouse: deny in the session pane; note, always allow, allow on
   await open();
   let id = await share();
   await showView("session", { focus: false });
-  await browser.click(button("[d] deny", SESSION));
+  await browser.click(button("Not yet", SESSION));
   await until(async () => (await approval(id))?.status === "denied", "deny by click");
 
   id = await share();
   await browser.click(`document.querySelector('[aria-label^="Approval ${id}:"]')`);
   await browser.click(q(`#approval-note-${id}`));
   await browser.type("from the mouse");
-  await browser.click(button("always allow", ".screen"));
+  await browser.click(button("Always allow", ".screen"));
   await until(async () => (await approval(id))?.status === "allowed", "always allow by click");
   assert.equal((await approval(id)).note, "from the mouse");
   assert.equal((await settings()).approvals["share-link"], "allow");
   await asDashboard("settings", { approvals: { "share-link": "ask" } }, "PUT");
-  await browser.click(button("back", ".screen"));
+  await browser.click(button("Back", ".screen"));
 
   id = await share();
   await browser.click(`document.querySelector('[aria-label^="Approval ${id}:"]')`);
-  await browser.click(button("allow once", ".screen"));
+  await browser.click(q('.screen button[aria-label="Allow once"]'));
   await until(async () => (await approval(id))?.status === "allowed", "allow once by click");
-  await browser.click(button("back", ".screen"));
+  await browser.click(button("Back", ".screen"));
 
   id = await share();
   await browser.click(`document.querySelector('[aria-label^="Approval ${id}:"]')`);
-  await browser.click(button("always deny", ".screen"));
+  await browser.click(q('.screen button[aria-label="Always deny"]'));
   await until(async () => (await approval(id))?.status === "denied", "always deny by click");
   assert.equal((await settings()).approvals["share-link"], "deny");
   await asDashboard("settings", { approvals: { "share-link": "ask" } }, "PUT");
@@ -306,7 +335,7 @@ test("an allowed approval whose call then fails shows as a failure, not a succes
   assert.equal(answered.status, "allowed");
   assert.equal(answered.result.isError, true, answered.result.text);
   const card = textOf(".approval-card .err");
-  await browser.waitFor(`${card}.startsWith("allowed ") && ${card}.includes(${JSON.stringify(`but the call failed: ${answered.result.text}`)})`, { what: "the card in the error style" });
+  await browser.waitFor(`${card}.startsWith("Allowed ") && ${card}.includes(${JSON.stringify(`The call failed: ${answered.result.text}`)})`, { what: "the card in the error style" });
   assert.equal(await browser.evaluate(`!!document.querySelector(".approval-card .ok")`), false, "not in the success style");
   const said = `${asked.data.id} allowed, but the call failed: `;
   await browser.waitFor(`[...document.querySelectorAll(".topline .err")].some((element) => element.textContent.startsWith(${JSON.stringify(said)}))`, { what: "the message in the error style" });
@@ -370,13 +399,13 @@ test("a note by mouse: drag on the stage marks a box, a click points at what is 
   let stage = await browser.box(q(".stage"));
   await recordStage();
   await browser.drag({ x: stage.left + stage.width * 0.25, y: stage.top + stage.height * 0.25 }, { x: stage.left + stage.width * 0.6, y: stage.top + stage.height * 0.6 });
-  await browser.waitFor(`${textOf(".note-bubble .note-about")}.includes("this spot")`, { what: "the note bubble about the box" });
+  await browser.waitFor(`(document.querySelector(".note-field #note-text")?.getAttribute("aria-label") ?? "").endsWith("about this spot")`, { what: "the note field about the box" });
   const [down, up] = (await browser.evaluate(`window.stageAtPointer`)).map(inScene);
   // About 35% of the scene each way, from about 25% in.
   assert.ok(up.x - down.x > scene.width * 0.2 && up.y - down.y > scene.height * 0.2, JSON.stringify({ down, up }));
   await browser.click(q("#note-text"));
   await browser.type("Move this block up");
-  await browser.click(button("send", ".note-bubble"));
+  await browser.click(q('.note-field button[aria-label="Send the note"]'));
   const pinned = await noteNamed("Move this block up");
   assert.ok(Math.abs(pinned.area.x - down.x) <= 1 && Math.abs(pinned.area.y - down.y) <= 1, JSON.stringify({ area: pinned.area, down }));
   assert.ok(Math.abs(pinned.area.width - (up.x - down.x)) <= 1 && Math.abs(pinned.area.height - (up.y - down.y)) <= 1, JSON.stringify({ area: pinned.area, down, up }));
@@ -387,16 +416,18 @@ test("a note by mouse: drag on the stage marks a box, a click points at what is 
   await browser.waitFor(`window.stageAtPointer.length === 2`, { what: "the click on the stage" });
   const [point] = (await browser.evaluate(`window.stageAtPointer`)).map(inScene);
   // A click points at the layer under it, or the spot when only the background is there.
-  await browser.waitFor(`!!document.querySelector(".note-bubble .note-about") && document.activeElement?.id === "note-text"`, { what: "the note bubble from a click" });
-  const about = await browser.evaluate(`document.querySelector(".note-bubble .note-about").textContent`);
+  await browser.waitFor(`!!document.querySelector(".note-field") && document.activeElement?.id === "note-text"`, { what: "the note field from a click" });
+  const about = await browser.evaluate(`document.querySelector("#note-text").getAttribute("aria-label")`);
   const under = (await snapshot()).record.document.scenes[0].layers.map((layer) => layer.name);
-  assert.ok(under.some((name) => about.endsWith(` · ${name}`)) || about.endsWith(" · this spot"), JSON.stringify({ about, point }));
-  await browser.click(button("esc", ".note-bubble"));
-  await browser.waitFor(`!document.querySelector(".note-bubble")`, { what: "the note dropped" });
+  assert.ok(under.some((name) => about.endsWith(` about ${name}`)) || about.endsWith(" about this spot"), JSON.stringify({ about, point }));
+  await browser.click(q('.note-field button[aria-label="Drop this note"]'));
+  await browser.waitFor(`!document.querySelector(".note-field")`, { what: "the note dropped" });
 });
 
 test("pointing at a layer, by mouse and by keyboard, shows its values and tells the agent", async () => {
   await open();
+  // The shot strip is the default; the layers show after "Show every lane and layer".
+  await showLanes(browser);
   await browser.click(layerButton("card"));
   await browser.waitFor(`${layerButton("card")}?.getAttribute("aria-pressed") === "true"`);
   await browser.waitFor(pageHas('the agent sees "pointing card (you selected it in the dashboard)"', ".p-timeline"));
@@ -405,7 +436,7 @@ test("pointing at a layer, by mouse and by keyboard, shows its values and tells 
   // A note now points at that layer.
   await browser.key("c");
   const card = (await snapshot()).record.document.scenes[0].layers.find((layer) => layer.name === "card");
-  await browser.waitFor(`(document.querySelector(".note-bubble .note-about")?.textContent ?? "").endsWith(" · card")`, { what: "the note about the selected layer" });
+  await browser.waitFor(`(document.querySelector(".note-field #note-text")?.getAttribute("aria-label") ?? "").endsWith("about card")`, { what: "the note about the selected layer" });
   await browser.keys("Escape", "Escape");
   await browser.waitFor(`${layerButton("card")}?.getAttribute("aria-pressed") === "false"`);
 
@@ -483,6 +514,7 @@ test("play and scrub by mouse: transport buttons, the playhead track, the scene 
   await showScene(firstScene);
   // The agent's lane (in the first scene, which its edits changed): a mark per layer each turn
   // changed, named by its turn. The turn reviews load after the page, so wait for them.
+  await showLanes(browser);
   const marks = ".p-timeline .lane-agent .agent-mark";
   const chips = await browser.waitFor(`(() => { const found = [...new Set([...document.querySelectorAll(${JSON.stringify(marks)})].map((mark) => mark.getAttribute("aria-label").split(":")[0]))]; return found.length ? found : null; })()`, { what: "the agent's lane has its edits" });
   await browser.click(q(marks));
@@ -511,10 +543,10 @@ async function newTurn(width, text) {
   return edit.data;
 }
 
-/** The top bar's hold button, and the hold shown on it and on the status line (its HOLD tag). */
+/** The top bar's hold button, and the hold shown on it and in the agent's line under the frame. */
 const holdButton = q('.topline button[aria-keyshortcuts="h"]');
-const holdOn = `(!!document.querySelector(".statusline .hold") && ${holdButton}.getAttribute("aria-pressed") === "true" && ${holdButton}.innerText.trim() === "release")`;
-const holdOff = `(!document.querySelector(".statusline .hold") && ${holdButton}.getAttribute("aria-pressed") === "false")`;
+const holdOn = `(${textOf(".voice-line")}.includes("On hold") && ${holdButton}.getAttribute("aria-pressed") === "true" && ${holdButton}.innerText.trim().toLowerCase() === "release")`;
+const holdOff = `(!${textOf(".voice-line")}.includes("On hold") && ${holdButton}.getAttribute("aria-pressed") === "false")`;
 
 const cardWidth = async () => (await snapshot()).record.document.scenes[0].layers.find((layer) => layer.name === "card").width;
 
@@ -525,39 +557,34 @@ test("undo by keyboard: u asks first (n keeps it), y reverts, and the agent is t
   await browser.key("2");
   await browser.waitFor(`document.activeElement?.dataset?.pane === "2"`, { what: "pane 2" });
   await browser.key("u");
-  await browser.waitFor(`${textOf('[role="alertdialog"]')}.includes(${JSON.stringify(`Revert ${turn}?`)})`, { what: "the confirm" });
-  // The question holds the focus: Tab moves between its two buttons, and the page behind is
-  // inert, so a click or a focus there does nothing while it is open.
-  assert.equal(await browser.evaluate(`${q('[role="alertdialog"]')}.getAttribute("aria-modal")`), "true");
-  await browser.waitFor(`document.activeElement?.textContent === "[y] revert"`, { what: "the focus on revert" });
-  await browser.key("Tab");
-  await browser.waitFor(`document.activeElement?.textContent === "[n] cancel"`, { what: "Tab to cancel" });
-  await browser.key("Tab");
-  await browser.waitFor(`document.activeElement?.textContent === "[y] revert"`, { what: "Tab back to revert" });
-  assert.equal(await browser.evaluate(`[...document.querySelectorAll(".topline, main, .keyline, .statusline")].every((element) => element.inert)`), true, "the page behind is inert");
+  // On the stage the question is the line under the frame: its answers are two buttons, and the
+  // page behind stays usable (nothing is inert).
+  const asking = `${q(".voice.is-ask")}`;
+  await browser.waitFor(`/^Undo (this turn|T\\d+ and \\d+ later turns?)\\?/.test(${asking}?.querySelector(".voice-line")?.innerText ?? "")`, { what: "the undo question under the frame" });
+  assert.equal(await browser.evaluate(`!!document.querySelector('[role="alertdialog"]')`), false, "no box on the stage");
+  assert.match(await browser.evaluate(`${asking}.innerText`), /Back to rev \d+/);
+  assert.match(await browser.evaluate(`${asking}.innerText`), /The agent is told/);
+  assert.equal(await browser.evaluate(`!!${q(".voice.is-ask .voice-button.primary")} && ${textOf(".voice.is-ask .voice-button.primary")}`), "Undo");
+  assert.equal(await browser.evaluate(textOf(".voice.is-ask .voice-button:not(.primary)")), "Keep");
+  assert.equal(await browser.evaluate(`!!document.querySelector("[inert]")`), false, "the page behind is not inert");
   await browser.shot("confirm-modal");
-  await browser.evaluate(`${holdButton}.focus()`);
-  assert.equal(await browser.evaluate(`document.activeElement?.textContent`), "[y] revert", "a button behind cannot take the focus");
-  // Not browser.click: that waits for the button to be reachable, and inert makes it unreachable.
-  const behind = await browser.box(holdButton);
-  await browser.clickAt(behind.x, behind.y);
-  await sleep(300);
-  assert.equal((await snapshot()).hold.on, false, "a click behind the question does nothing");
-  await browser.key("Tab");
-  await browser.waitFor(`!!document.activeElement?.closest('[role="alertdialog"]')`, { what: "Tab, from wherever the click left the focus, back into the question" });
-  await browser.evaluate(`${button("[n] cancel", '[role="alertdialog"]')}.focus()`);
-  await browser.key("Enter");
-  await browser.waitFor(`!document.querySelector('[role="alertdialog"]')`, { what: "Enter on cancel to close it" });
-  assert.equal((await snapshot()).record.revision, rev, "cancel changed nothing");
-  assert.equal(await browser.evaluate(`document.activeElement?.dataset?.pane`), "2", "the focus goes back to the pane");
-  assert.equal(await browser.evaluate(`!!document.querySelector("[inert]")`), false, "the page works again");
+  // The Keep button answers no.
+  await browser.click(q(".voice.is-ask .voice-button:not(.primary)"));
+  await browser.waitFor(`!document.querySelector(".voice.is-ask")`, { what: "Keep to close the question" });
+  assert.equal((await snapshot()).record.revision, rev, "keep changed nothing");
+  // Esc and n answer no as well.
   await browser.key("u");
-  await browser.waitFor(`!!document.querySelector('[role="alertdialog"]')`);
+  await browser.waitFor(`!!document.querySelector(".voice.is-ask")`);
+  await browser.key("Escape");
+  await browser.waitFor(`!document.querySelector(".voice.is-ask")`, { what: "Esc to close the question" });
+  assert.equal((await snapshot()).record.revision, rev, "Esc changed nothing");
+  await browser.key("u");
+  await browser.waitFor(`!!document.querySelector(".voice.is-ask")`);
   await browser.key("n");
-  await browser.waitFor(`!document.querySelector('[role="alertdialog"]')`);
+  await browser.waitFor(`!document.querySelector(".voice.is-ask")`);
   assert.equal((await snapshot()).record.revision, rev, "n changed nothing");
   await browser.key("u");
-  await browser.waitFor(`!!document.querySelector('[role="alertdialog"]')`);
+  await browser.waitFor(`!!document.querySelector(".voice.is-ask")`);
   await browser.key("y");
   await until(async () => (await snapshot()).record.revision === rev + 1, "the revert");
   assert.equal(await cardWidth(), before);
@@ -577,10 +604,10 @@ test("undo by keyboard: u asks first (n keeps it), y reverts, and the agent is t
   await browser.evaluate(`(() => { window.realNow = Date.now; Date.now = () => window.realNow.call(Date) + 25_000; })()`);
   try {
     await browser.waitFor(`!!${rowOf(restoreTurn)}?.querySelector(".mark.s-reverted.m-reverted svg")`, { what: "the restored mark" });
-    // The ring is orange and a little larger than the tick; a screen reader says "restored".
+    // The ring is the accent color and a little larger than the tick; a screen reader says "restored".
     const marks = await browser.evaluate(`(() => { const size = (row) => { const box = row.querySelector(".mark svg")?.getBoundingClientRect(); return box ? [box.width, box.height] : null; }; const undone = ${rowOf(turn)}; const ring = ${rowOf(restoreTurn)}; const done = [...document.querySelectorAll(".log-row")].find((row) => row.querySelector(".mark.s-done")); const dash = getComputedStyle(document.querySelector(".dash")); return { word: ring.querySelector(".sr-only").textContent, colour: getComputedStyle(ring.querySelector(".mark")).color, accent: dash.getPropertyValue("--accent").trim(), ring: size(ring), tick: done && size(done), undoneWord: undone.querySelector(".sr-only").textContent, undoneText: undone.innerText, undoneColour: getComputedStyle(undone.querySelector(".mark")).color, doneColour: done && getComputedStyle(done.querySelector(".mark")).color }; })()`);
     assert.equal(marks.word, "restored");
-    assert.equal(marks.colour, "rgb(255, 125, 61)", `the ring is the orange accent (${marks.accent})`);
+    assert.equal(marks.colour, await browser.evaluate(token("--accent")), `the ring is the accent color (${marks.accent})`);
     assert.ok(marks.ring[0] >= 9 && marks.ring[0] <= 11 && marks.ring[1] >= 9 && marks.ring[1] <= 11, `the ring is about 10 px: ${marks.ring}`);
     // A done turn's tick is there, about 10 px and not taller than the ring, in the green --ok.
     assert.ok(marks.tick && marks.doneColour, `a done turn's tick is drawn: ${JSON.stringify(marks)}`);
@@ -588,7 +615,7 @@ test("undo by keyboard: u asks first (n keeps it), y reverts, and the agent is t
     assert.equal(marks.doneColour, await browser.evaluate(token("--ok")), "a done tick is green (--ok)");
     assert.equal(marks.undoneWord, "undone");
     assert.match(marks.undoneText, /reverted at rev \d+/);
-    assert.notEqual(marks.undoneColour, marks.colour, "the undone tick is not orange");
+    assert.notEqual(marks.undoneColour, marks.colour, "the undone tick is not the accent color");
     assert.notEqual(marks.undoneColour, marks.doneColour, "the undone tick is dimmer than a done one");
   } finally {
     await browser.evaluate(`(() => { if (window.realNow) Date.now = window.realNow; })()`);
@@ -602,10 +629,10 @@ test("undo by mouse: a log row opens the turn review, its revert button asks, th
   await browser.click(`[...document.querySelectorAll(".log-row")].find((element) => element.innerText.startsWith(${JSON.stringify(turn)}))`);
   await browser.click(button(`review ${turn}`, ".p-log"));
   await browser.waitFor(`[...document.querySelectorAll(".compare img")].filter((image) => image.complete && image.naturalWidth).length === 2`, { what: "before and after frames" });
-  assert.ok(await browser.evaluate(pageHas("changed card", ".screen")));
+  assert.ok(await browser.evaluate(pageHas("Changed card", ".screen")));
   await browser.shot("turn-review");
-  await browser.click(button("revert this turn", ".screen"));
-  await browser.click(button("revert", '[role="alertdialog"]'));
+  await browser.click(button("Revert this turn", ".screen"));
+  await browser.click(button("Revert", '[role="alertdialog"]'));
   await until(async () => (await snapshot()).record.revision === rev + 1, "the revert");
   assert.equal(await cardWidth(), before);
   assert.match(inboxText(await agent("status")), new RegExp(`you reverted ${turn}`));
@@ -633,13 +660,13 @@ test("hold by keyboard and by mouse pauses agent writes, and the agent is told",
 
 const renderRow = (state) => `[...document.querySelectorAll(".p-session div.row")].find((row) => ${state})`;
 const hasRender = (state) => `!!${renderRow(state)}`;
-/** The render row of job `id`. It starts "final R2 r3 mp4". */
-const renderRowOf = (id) => renderRow(`row.querySelector(".grow")?.innerText.trim().split(/\\s+/)[1] === ${JSON.stringify(id)}`);
-/** Waits for a render row with an [x] button, and checks that the button names its render. */
+/** The render row of job `id`. The name's title reads "final R2 r3 mp4". */
+const renderRowOf = (id) => renderRow(`row.querySelector(".render-name")?.title.split(" ")[1] === ${JSON.stringify(id)}`);
+/** Waits for a render row with a cancel button, and checks that the button names its render. */
 async function runningRender() {
-  const running = await browser.waitFor(`(() => { const row = ${renderRow(`!!row.querySelector("button")`)}; return row && { text: row.innerText, name: row.querySelector("button").getAttribute("aria-label") }; })()`,
+  const running = await browser.waitFor(`(() => { const row = ${renderRow(`!!row.querySelector("button")`)}; return row && { title: row.querySelector(".render-name").title, name: row.querySelector("button").getAttribute("aria-label") }; })()`,
     { timeout: 30_000, what: "a running render" });
-  const [quality, id] = running.text.trim().split(/\s+/);
+  const [quality, id] = running.title.trim().split(/\s+/);
   assert.equal(running.name, `Cancel the ${quality} render ${id}`);
   return id;
 }
@@ -679,12 +706,12 @@ test("export, cancel, download and share, by keyboard and by mouse", async () =>
     await browser.key("e");
     const keyed = await runningRender();
     await browser.key("x");
-    await browser.waitFor(`${renderRowOf(keyed)}?.innerText.includes("canceled")`, { timeout: 30_000, what: `${keyed} canceled by x` });
-    await browser.click(button("[e] export", ".p-session"));
+    await browser.waitFor(`${renderRowOf(keyed)}?.innerText.toLowerCase().includes("canceled")`, { timeout: 30_000, what: `${keyed} canceled by x` });
+    await browser.click(button("Render", ".p-session"));
     const clicked = await runningRender();
     assert.notEqual(clicked, keyed);
     await browser.click(q(`.p-session button[aria-label="Cancel the final render ${clicked}"]`));
-    await browser.waitFor(`${renderRowOf(clicked)}?.innerText.includes("canceled")`, { timeout: 30_000, what: `${clicked} canceled by its [x] button` });
+    await browser.waitFor(`${renderRowOf(clicked)}?.innerText.toLowerCase().includes("canceled")`, { timeout: 30_000, what: `${clicked} canceled by its cancel button` });
     // The server agrees, and both were the long 4K render.
     const told = (await snapshot()).renders.filter((job) => [keyed, clicked].includes(job.id)).map(({ id, status, width }) => ({ id, status, width }));
     assert.deepEqual(told, [{ id: keyed, status: "canceled", width: 3840 }, { id: clicked, status: "canceled", width: 3840 }]);
@@ -693,13 +720,16 @@ test("export, cancel, download and share, by keyboard and by mouse", async () =>
     await resize(640, 360);
   }
 
-  // Share: from the dashboard it needs no approval; the link is shown.
-  await browser.click(button("share", ".p-session"));
-  await browser.waitFor(`/^https?:\\/\\//.test(${textOf(".p-session .agent")})`, { what: "the share link" });
-  const first = await browser.evaluate(textOf(".p-session .agent"));
-  await browser.evaluate(`${button("share", ".p-session")}.focus()`);
+  // Share: from the dashboard it needs no approval. The Share button opens the share box, and
+  // Make link shows the link in it.
+  await browser.click(button("Share", ".p-session"));
+  await browser.waitFor(`!!${q("#share-box")}`, { what: "the share box" });
+  await browser.click(button("Make link", "#share-box"));
+  await browser.waitFor(`/^https?:\\/\\//.test(${textOf("#share-box .share-url")})`, { what: "the share link" });
+  const first = await browser.evaluate(textOf("#share-box .share-url"));
+  await browser.evaluate(`${button("Make link", "#share-box")}.focus()`);
   await browser.key("Enter");
-  await browser.waitFor(`${textOf(".p-session .agent")} !== ${JSON.stringify(first)}`, { what: "a second share link" });
+  await browser.waitFor(`${textOf("#share-box .share-url")} !== ${JSON.stringify(first)}`, { what: "a second share link" });
   assert.equal((await snapshot()).approvals.filter((entry) => entry.status === "pending").length, 0);
 });
 
@@ -715,6 +745,9 @@ async function cursorTo(id) {
   throw new Error(`Could not move to ${id}`);
 }
 
+/** True while the project list has a card for project `id` (the cards show names, so the id is in data-id). */
+const inList = (id) => `!!document.querySelector(${JSON.stringify(`.proj-list [data-id="${id}"]`)})`;
+
 const projectIds = async () => (await snapshot()).projects.map((project) => project.id);
 
 test("projects by keyboard: Enter opens, y duplicates, Delete moves to Trash after a confirm", async () => {
@@ -723,21 +756,21 @@ test("projects by keyboard: Enter opens, y duplicates, Delete moves to Trash aft
   await browser.waitFor(`document.activeElement?.id === "command-input"`);
   await browser.type("projects");
   await browser.key("Enter");
-  await browser.waitFor(`${textOf("#screen-title")}.startsWith("projects")`);
+  await browser.waitFor(`${textOf("#screen-title")}.startsWith("Projects")`);
   const before = await projectIds();
   await cursorTo("orbit");
   await browser.key("y");
   const copy = (await until(async () => (await projectIds()).find((id) => !before.includes(id)), "the copy"));
-  await browser.waitFor(pageHas(copy, ".proj-list"));
+  await browser.waitFor(inList(copy));
   await cursorTo(copy);
   await browser.key("Delete");
   await browser.waitFor(`${textOf('[role="alertdialog"]')}.includes(${JSON.stringify(`Move ${copy} to Trash?`)})`);
   await browser.key("y");
   await until(async () => !(await projectIds()).includes(copy), "the copy in Trash");
-  await browser.waitFor(`!${pageHas(copy, ".proj-list")}`);
+  await browser.waitFor(`!${inList(copy)}`);
   await cursorTo("orbit");
   await browser.key("Enter");
-  await browser.waitFor(`!!document.querySelector("section.pane") && ${q(".topline .title")}?.title === "kino: Orbit"`);
+  await browser.waitFor(`!!document.querySelector("section.pane") && ${q("#project-name")}?.innerText.trim() === "Orbit"`);
 });
 
 test("projects by mouse: duplicate, archive with its confirm button, open", async () => {
@@ -746,28 +779,33 @@ test("projects by mouse: duplicate, archive with its confirm button, open", asyn
   const before = await projectIds();
   await browser.click(q('[aria-label="Duplicate orbit"]'));
   const copy = await until(async () => (await projectIds()).find((id) => !before.includes(id)), "the copy");
-  await browser.click(q(`[aria-label="More for ${copy}"]`));
   await browser.click(q(`[aria-label="Move ${copy} to Trash"]`));
-  await browser.click(button("move to Trash", '[role="alertdialog"]'));
+  await browser.click(button("Move to Trash", '[role="alertdialog"]'));
   await until(async () => !(await projectIds()).includes(copy), "the copy in Trash");
-  await browser.waitFor(`!${pageHas(copy, ".proj-list")}`, { what: "the copy to leave the list" });
-  await browser.click(q('[aria-label="Open orbit"]'));
+  await browser.waitFor(`!${inList(copy)}`, { what: "the copy to leave the list" });
+  // The open project has no Open button; its card's picture opens it.
+  await browser.click(q('.proj-row[data-id="orbit"] .proj-open'));
   await browser.waitFor(`!!document.querySelector("section.pane")`);
 });
 
 test("a screen opened from the command list takes the focus, so Enter, j and k act on that screen", async () => {
   await open();
   await commandByMouse("projects");
-  await browser.waitFor(`document.activeElement?.matches("section.screen") && ${textOf("#screen-title")}.startsWith("projects")`, { what: "the focus on the projects screen" });
+  await browser.waitFor(`document.activeElement?.matches("section.screen") && ${textOf("#screen-title")}.startsWith("Projects")`, { what: "the focus on the projects screen" });
   await cursorTo("orbit");
   await browser.key("Enter");
-  await browser.waitFor(`!!document.querySelector("section.pane") && ${q(".topline .title")}?.title === "kino: Orbit"`, { what: "Enter to open orbit, not to press the projects button again" });
-  for (const name of ["variants", "shares", "settings"]) {
+  await browser.waitFor(`!!document.querySelector("section.pane") && ${q("#project-name")}?.innerText.trim() === "Orbit"`, { what: "Enter to open orbit, not to press the projects button again" });
+  for (const name of ["variants", "settings"]) {
     await commandByMouse(name);
     await browser.waitFor(`document.activeElement?.matches("section.screen")`, { what: `the focus on the ${name} screen` });
     await browser.key("Escape");
     await browser.waitFor(`!!document.querySelector("section.pane")`, { what: `Esc from ${name}` });
   }
+  // "shares" is not a screen any more: it opens the share box, which takes the focus and closes with Esc.
+  await commandByMouse("shares");
+  await browser.waitFor(`!!${q("#share-box")} && !!document.activeElement?.closest("#share-box")`, { what: "the focus in the share box" });
+  await browser.key("Escape");
+  await browser.waitFor(`!${q("#share-box")}`, { what: "Esc from the share box" });
 });
 
 test("variants by keyboard: a number key picks, r rejects all with a reason", async () => {
@@ -775,7 +813,7 @@ test("variants by keyboard: a number key picks, r rejects all with a reason", as
   await browser.key(":");
   await browser.type("variants");
   await browser.key("Enter");
-  await browser.waitFor(`${textOf("#screen-title")}.startsWith("variants · 2")`);
+  await browser.waitFor(`${textOf("#screen-title")} === "Variants"`);
   await browser.waitFor(`[...document.querySelectorAll(".variant img")].filter((image) => image.complete && image.naturalWidth).length === 2`, { what: "both variant frames" });
   await browser.shot("variants");
   await browser.key("2");
@@ -790,12 +828,12 @@ test("variants by keyboard: a number key picks, r rejects all with a reason", as
 test("variants by mouse: a pick button, then reject all with a reason", async () => {
   await open();
   await commandByMouse("variants");
-  await browser.click(button("[1] pick", ".screen"));
+  await browser.click(q(`.screen button[aria-label="Pick ${firstScene.name}"]`));
   await noteNamed(`I pick variant 1: ${firstScene.name}`);
-  await browser.click(button("reject all", ".screen"));
+  await browser.click(button("None of these", ".screen"));
   await browser.click(q("#reject-note"));
   await browser.type("more contrast");
-  await browser.click(button("send", ".screen"));
+  await browser.click(button("Send", ".page-ask"));
   await noteNamed("None of the 2 variants work: more contrast");
 });
 
@@ -827,7 +865,7 @@ test("settings by keyboard and by mouse save at once", async () => {
 
     await browser.click(q("#set-channels"));
     await until(async () => (await settings()).channels === false, "channels off by click");
-    await browser.click(button("clear the frame cache", ".screen"));
+    await browser.click(button("Clear the frame cache", ".screen"));
     await browser.waitFor(`document.querySelector('[aria-live="polite"][aria-atomic="true"]')?.textContent === "Frame cache cleared."`);
   } finally {
     // Put them back even if a step failed: the share rule "deny" would refuse later tests' links.
@@ -843,7 +881,7 @@ test("rendering settings by keyboard and by mouse: graphics card, frames at once
     await browser.key("Enter");
     await browser.waitFor(`${textOf("#screen-title")} === "settings"`);
     // The device list has loaded once Auto names what it picks (or says it found no card).
-    await browser.waitFor(`!${q(".render-devices")}?.textContent.includes("looking")`, { what: "the devices" });
+    await browser.waitFor(`!${q(".render-devices")}?.textContent.includes("Looking")`, { what: "the devices" });
     // Each control is described by its hint.
     for (const id of ["set-graphics", "set-frames-at-once", "set-keep-free", "set-render-cache", "set-video-encoder", "set-video-quality"])
       assert.equal(await browser.evaluate(`${q(`#${id}`)}.getAttribute("aria-describedby")`), `${id}-hint`, id);
@@ -884,15 +922,15 @@ test("rendering settings by keyboard and by mouse: graphics card, frames at once
     })()`);
     try {
       await asDashboard("settings", { compute: { graphics: "AMD Radeon Pro 5500M" } }, "PUT");
-      await browser.click(button("detect again", ".screen"));
+      await browser.click(button("Detect again", ".screen"));
       await browser.waitFor(`${q("#set-graphics")}.selectedOptions[0]?.textContent === "AMD Radeon Pro 5500M (acts as Auto here)"`, { what: "the Mac's saved card shown as Auto" });
       assert.match(await browser.evaluate(textOf("#set-graphics-hint")), /A card cannot be chosen by name on this computer, so "AMD Radeon Pro 5500M" acts as Auto\./);
       await browser.shot("settings-rendering-mac");
     } finally {
       await browser.evaluate("window.fetch = window.kinoRealFetch ?? window.fetch");
       await asDashboard("settings", { compute: { graphics: "processor" } }, "PUT");
-      await browser.click(button("detect again", ".screen"));
-      await browser.waitFor(`${q(".render-devices")}?.textContent.includes(${JSON.stringify(devices.graphics.cards.map((entry) => entry.name).join(", ") || "no graphics card found")})`, { what: "this computer's devices again" });
+      await browser.click(button("Detect again", ".screen"));
+      await browser.waitFor(`${q(".render-devices")}?.textContent.includes(${JSON.stringify(devices.graphics.cards.map((entry) => entry.name).join(", ") || "No graphics card found")})`, { what: "this computer's devices again" });
     }
     await browser.evaluate(`${q("#set-video-encoder")}.focus()`);
     await browser.key("s");
@@ -911,10 +949,10 @@ test("rendering settings by keyboard and by mouse: graphics card, frames at once
     await browser.key("Tab");
     await until(async () => (await settings()).compute.renderCacheMegabytes === 300, "a 300 MB render cache");
     await browser.shot("settings-rendering");
-    await browser.click(button("clear the render cache", ".screen"));
+    await browser.click(button("Clear the render cache", ".screen"));
     await browser.waitFor(`document.querySelector('[aria-live="polite"][aria-atomic="true"]')?.textContent.startsWith("Render cache cleared")`);
-    await browser.click(button("detect again", ".screen"));
-    await browser.waitFor(`${button("detect again", ".screen")} !== null`, { what: "detected again" });
+    await browser.click(button("Detect again", ".screen"));
+    await browser.waitFor(`${button("Detect again", ".screen")} !== null`, { what: "detected again" });
   } finally {
     await asDashboard("settings", { exports: { videoEncoder: "auto", videoQuality: "standard" },
       compute: { graphics: "auto", framesAtOnce: 1, keepFreePercent: 20, renderCacheMegabytes: 512 } }, "PUT");
@@ -936,7 +974,7 @@ test("media by mouse (drop a file on the window) and by keyboard (the add files 
   await browser.send("Page.setInterceptFileChooserDialog", { enabled: true });
   const chooser = browser.once((message) => message.event === "Page.fileChooserOpened", 15_000, "the file chooser");
   await showView("session", { focus: false });
-  await browser.evaluate(`${button("add files", ".p-session")}.focus()`);
+  await browser.evaluate(`${button("Add files", ".p-session")}.focus()`);
   await browser.key("Enter");
   const { params } = await chooser;
   await browser.send("DOM.setFileInputFiles", { files: [picked], backendNodeId: params.backendNodeId });
@@ -949,9 +987,9 @@ test("panes, zoom, filter, help, transcript, full frames, follow and the command
   for (const number of ["1", "2", "3"]) {
     await browser.key(number);
     await browser.waitFor(`document.activeElement?.dataset?.pane === "${number}"`, { what: `pane ${number}` });
-    // One pane at a time has the focus frame.
-    const titles = await browser.evaluate(paneTitles);
-    assert.deepEqual(titles.map((title) => title.focused), ["1", "2", "3"].map((each) => each === number));
+    // One pane at a time has the focus frame. Pane 2 (the list) opens when its key is pressed.
+    const focused = await browser.evaluate(`[...document.querySelectorAll("section.pane")].filter((pane) => pane.dataset.focused === "true").map((pane) => pane.dataset.pane)`);
+    assert.deepEqual(focused, [number]);
   }
   // 4 and 5 are no panes now.
   await browser.key("4");
@@ -960,9 +998,9 @@ test("panes, zoom, filter, help, transcript, full frames, follow and the command
   // stage's are its scene menu and transport row) to the key line, and the pane frame follows the focus.
   await browser.key("1");
   await browser.waitFor(`document.activeElement?.dataset?.pane === "1"`);
-  const where = `(() => { const element = document.activeElement; return element?.closest(".keyline") ? "keyline" : element?.closest("section.pane")?.dataset.pane ?? element?.tagName; })()`;
+  const where = `(() => { const element = document.activeElement; return element?.closest(".bottomline") ? "bottomline" : element?.closest("section.pane")?.dataset.pane ?? element?.tagName; })()`;
   const visited = [];
-  while (visited.at(-1) !== "keyline" && visited.length < 300) {
+  while (visited.at(-1) !== "bottomline" && visited.length < 300) {
     await browser.key("Tab");
     visited.push(await browser.evaluate(where));
     if (visited.length === 1) {
@@ -971,7 +1009,7 @@ test("panes, zoom, filter, help, transcript, full frames, follow and the command
     }
   }
   assert.equal(visited[0], "1", `Tab from pane 1 goes into pane 1 (went to ${visited[0]})`);
-  for (const stop of ["1", "2", "3", "keyline"]) assert.ok(visited.includes(stop), `Tab reaches ${stop}: ${visited.join(" ")}`);
+  for (const stop of ["1", "2", "3", "bottomline"]) assert.ok(visited.includes(stop), `Tab reaches ${stop}: ${visited.join(" ")}`);
   await browser.waitFor(`${q('section[data-pane="3"]')}.dataset.focused === "true"`, { what: "the frame on the last pane Tab went through" });
   await browser.key("1");
   await browser.waitFor(`document.activeElement?.dataset?.pane === "1"`);
@@ -982,20 +1020,20 @@ test("panes, zoom, filter, help, transcript, full frames, follow and the command
   await browser.key("/");
   await browser.waitFor(`document.activeElement?.id === "log-filter"`);
   await browser.type("zzz-nothing");
-  await browser.waitFor(pageHas("nothing matches", ".p-log"));
+  await browser.waitFor(pageHas("nothing matches", "#panel-log"));
   await browser.keys("Escape", "Escape");
   await browser.waitFor(`!document.querySelector("#log-filter")`);
   await browser.key("?");
-  await browser.waitFor(`${textOf("#screen-title")} === "keys"`);
-  assert.ok(await browser.evaluate(pageHas("next, previous button or field", ".screen")), "the help says what Tab does");
+  await browser.waitFor(`${textOf("#screen-title")} === "Keys"`);
+  assert.ok(await browser.evaluate(`${textOf(".screen")}.toLowerCase().includes("next, previous button or field")`), "the help says what Tab does");
   await browser.key("Escape");
   await browser.key("t");
-  await browser.waitFor(`${textOf("#screen-title")}.startsWith("raw transcript")`);
+  await browser.waitFor(`${textOf("#screen-title")}.startsWith("Transcript")`);
   await browser.key("Escape");
   await browser.key("o");
-  await browser.waitFor(`${textOf(".stage-label")}.includes("· full ·")`);
+  await browser.waitFor(`(${q(".stage-label")}?.title ?? "").includes("· full ·")`);
   await browser.key("o");
-  await browser.waitFor(`${textOf(".stage-label")}.includes("· draft ·")`);
+  await browser.waitFor(`(${q(".stage-label")}?.title ?? "").includes("· draft ·")`);
   // Follow is on by default and says nothing; turned off, the top line says so.
   assert.equal(await browser.evaluate(`!!document.querySelector(".topline .follow")`), false);
   await browser.key("f");
@@ -1008,8 +1046,8 @@ test("panes, zoom, filter, help, transcript, full frames, follow and the command
   await browser.waitFor(`!document.querySelector("#command-input")`);
 
   // The same by mouse.
-  // The title's label: the rest of the title line lets clicks through to the border.
-  await browser.click(q('section[data-pane="3"] > h2 > span'));
+  // The panes have no title line now: a click on the timeline's ruler puts the frame on pane 3.
+  await browser.click(q('section[data-pane="3"] [role="slider"]'));
   await browser.waitFor(`${q('section[data-pane="3"]')}.dataset.focused === "true"`);
   await browser.click(q("#tab-checks"));
   await browser.waitFor(`${q("#tab-checks")}.getAttribute("aria-selected") === "true" && !!document.querySelector("#panel-checks") && ${q('section[data-pane="2"]')}.dataset.focused === "true"`);
@@ -1019,8 +1057,8 @@ test("panes, zoom, filter, help, transcript, full frames, follow and the command
   await browser.waitFor(`document.activeElement?.id === "command-input"`);
   await browser.type("help");
   await browser.key("Enter");
-  await browser.waitFor(`${textOf("#screen-title")} === "keys"`);
-  await browser.click(button("back", ".screen"));
+  await browser.waitFor(`${textOf("#screen-title")} === "Keys"`);
+  await browser.click(button("Back", ".screen"));
   await browser.key("f");
   await browser.click(button("follow off", ".topline"));
   await browser.waitFor(`!document.querySelector(".topline .follow")`, { what: "follow on by mouse" });
@@ -1084,10 +1122,11 @@ test("stage zoom: the zoom menu draws the frame at 200% in a box that scrolls, a
 
 test("the status line's check counts are a button that opens the checks view", async () => {
   await open();
-  await browser.click(q("#tab-agent"));
+  // The list is closed until it is opened: the clock button beside the agent's line opens it.
+  await browser.click(q('button[aria-label="Earlier lines"]'));
   await browser.waitFor(`${q("#tab-agent")}?.getAttribute("aria-selected") === "true"`, { what: "the activity view" });
   const counts = q(".statusline .s-checks");
-  await browser.waitFor(`/^checks \\d+ errors? · \\d+ warnings?$/.test(${counts}?.innerText.trim() ?? "")`, { what: "the check counts" });
+  await browser.waitFor(`/^Checks: \\d+ errors?, \\d+ warnings?$/.test(${counts}?.innerText.trim() ?? "")`, { what: "the check counts" });
   assert.equal(await browser.evaluate(`${counts}.tagName`), "BUTTON");
   await browser.click(counts);
   await browser.waitFor(`${q("#tab-checks")}?.getAttribute("aria-selected") === "true" && !!${q("#panel-checks")}`, { what: "the checks view open" });
@@ -1136,7 +1175,7 @@ test("session sections open and close by mouse and by keyboard, and stay so afte
     await browser.click(plan);
     await browser.waitFor(`${plan}.getAttribute("aria-expanded") === "false" && ${q("#section-plan")}.hidden`, { what: "the plan closed" });
     assert.ok(!(await browser.evaluate(pageHas("compose title and card", ".p-session"))), "its steps are hidden");
-    assert.match(await browser.evaluate(`${plan}.innerText`), /plan \(\d+\)/, "a closed section says how many things it holds");
+    assert.match(await browser.evaluate(`${plan}.innerText`), /plan\s*\d+/i, "a closed section says how many things it holds");
     // A reload opens the agent pane on its agent view; the session view keeps the plan closed.
     await open();
     await showView("session", { focus: false });
@@ -1144,7 +1183,7 @@ test("session sections open and close by mouse and by keyboard, and stay so afte
     // Keyboard: Enter on the focused section button opens it again.
     await browser.evaluate(`${plan}.focus()`);
     await browser.key("Enter");
-    await browser.waitFor(`${plan}.getAttribute("aria-expanded") === "true" && ${pageHas("compose title and card", ".p-session")}`, { what: "the plan open again" });
+    await browser.waitFor(`${plan}.getAttribute("aria-expanded") === "true" && ${textOf(".p-session")}.toLowerCase().includes("compose title and card")`, { what: "the plan open again" });
     // The header button closes all three, then opens them all.
     assert.equal(await browser.evaluate(`${all}.getAttribute("aria-expanded")`), "true");
     await browser.click(all);
@@ -1156,8 +1195,8 @@ test("session sections open and close by mouse and by keyboard, and stay so afte
   }
 });
 
-test("the film strip: ‹ › scroll it, and a picture picked by mouse or keyboard puts the stage at its moment", async () => {
-  // Pictures enough to fill more than the strip: frames of the outro at whole seconds.
+test("the film strip: the pictures are a grid that scrolls down, and a picture picked by mouse or keyboard puts the stage at its moment", async () => {
+  // Pictures enough to fill more than one row: frames of the outro at whole seconds.
   for (const t of [1, 2, 3, 4, 5, 6, 7, 8]) {
     const looked = await agent("look", { mode: "frame", t, scene: outroScene.id });
     assert.equal(looked.isError, undefined, looked.text);
@@ -1166,89 +1205,35 @@ test("the film strip: ‹ › scroll it, and a picture picked by mouse or keyboa
   // The pictures are the agent pane's seen view.
   await showView("seen", { focus: false });
   const strip = q(".seen-strip");
-  const left = q('button[aria-label="Scroll the pictures left"]');
-  const right = q('button[aria-label="Scroll the pictures right"]');
-  // The newest picture is selected and in view, at the right end.
-  await browser.waitFor(`(() => { const box = ${strip}; return box.querySelectorAll(".thumb").length >= 9 && box.scrollWidth > box.clientWidth + 20 && box.scrollWidth - box.clientWidth - box.scrollLeft < 2; })()`, { what: "a full strip scrolled to its newest picture" });
-  assert.equal(await browser.evaluate(`${right}.disabled && !${left}.disabled`), true, "only ‹ has somewhere to go");
+  await browser.waitFor(`${strip}.querySelectorAll(".thumb").length >= 9`, { what: "the pictures in the grid" });
+  // A grid that scrolls down, not a strip that scrolls sideways: no ‹ › buttons, nothing to scroll sideways.
+  assert.equal(await browser.evaluate(`getComputedStyle(${strip}).display`), "grid");
+  assert.equal(await browser.evaluate(`[...document.querySelectorAll('button[aria-label^="Scroll the pictures"]')].every((button) => getComputedStyle(button).display === "none")`), true, "no sideways scroll buttons");
+  assert.equal(await browser.evaluate(`${strip}.scrollWidth <= ${strip}.clientWidth + 1`), true, "nothing scrolls sideways");
+  // The newest picture is selected.
   assert.equal(await browser.evaluate(`[...${strip}.querySelectorAll(".thumb")].at(-1).getAttribute("aria-current")`), "true");
-  // Every card is the same box: a 72 × 72 px picture, letterboxed on black, over its caption, one
-  // card every 92 px, whatever the picture's shape.
-  const cards = await browser.evaluate(`[...${strip}.querySelectorAll(".thumb")].map((thumb) => { const box = thumb.getBoundingClientRect(); const image = thumb.querySelector("img"); const picture = image.getBoundingClientRect(); return { left: box.left, box: \`\${box.width}×\${box.height} \${picture.width}×\${picture.height} \${getComputedStyle(image).objectFit} \${getComputedStyle(image).backgroundColor}\` }; })`);
-  assert.deepEqual([...new Set(cards.map((card) => card.box))], ["72×92 72×72 contain rgb(0, 0, 0)"]);
-  assert.deepEqual([...new Set(cards.slice(1).map((card, index) => Math.round(card.left - cards[index].left)))], [92]);
-  // A caption fits up to "T99 00:00.00"; a longer one ends in "…" rather than a hard cut. (The
-  // caption's words are swapped and put back in the same step, so React never sees them.)
-  const captions = await browser.evaluate(`(() => {
-    const caption = ${strip}.querySelector(".thumb-caption"), turn = caption.querySelector(".thumb-turn"), time = caption.querySelector(".dim");
-    const keep = [turn.textContent, time.textContent];
-    const cut = (words) => { [turn.textContent, time.textContent] = words; return time.scrollWidth - time.clientWidth; };
-    const result = { short: cut(["T99", "00:00.00"]), long: cut(["T1000", "00:01.00"]), ends: getComputedStyle(time).textOverflow };
-    [turn.textContent, time.textContent] = keep;
-    return result;
-  })()`);
-  assert.ok(captions.short <= 0 && captions.long > 0 && captions.ends === "ellipsis", `captions fit to T99, then end in …: ${JSON.stringify(captions)}`);
-  // No sliver of a cut-off card or its caption shows next to ‹: wherever the strip stops (after
-  // ‹ or ›, at its end, after a resize), every card is either all out of view at the left or
-  // starts at the strip's padding or later.
-  const atRest = async () => {
-    let last = null;
-    for (let tries = 0; tries < 40; tries++) {
-      const now = await browser.evaluate(`${strip}.scrollLeft`);
-      if (now === last) return now;
-      last = now;
-      await sleep(120);
-    }
-    return last;
-  };
-  const sliver = `(() => { const box = ${strip}.getBoundingClientRect(); return [...${strip}.querySelectorAll(".thumb")].map((thumb) => thumb.getBoundingClientRect()).filter((card) => card.right > box.left && card.left < box.left + 5).map((card) => card.left - box.left); })()`;
-  const end = await atRest();
-  assert.deepEqual(await browser.evaluate(sliver), [], "at the newest picture");
-  await browser.click(left);
-  await browser.waitFor(`${strip}.scrollLeft < ${end - 40} && !${right}.disabled`, { what: "the strip scrolled left" });
-  assert.ok((await atRest()) % 92 === 0, "‹ stops at a card");
-  assert.deepEqual(await browser.evaluate(sliver), [], "after ‹");
-  await browser.click(right);
-  await browser.waitFor(`${strip}.scrollLeft > ${end - 2} && ${right}.disabled`, { what: "the strip scrolled back right" });
-  await atRest();
-  assert.deepEqual(await browser.evaluate(sliver), [], "after ›");
-  // By keyboard: Enter on the focused ‹ button.
-  await browser.evaluate(`${left}.focus()`);
-  await browser.key("Enter");
-  await browser.waitFor(`${strip}.scrollLeft < ${end - 40}`, { what: "‹ by Enter" });
-  await atRest();
-  assert.deepEqual(await browser.evaluate(sliver), [], "after ‹ by Enter");
-  // A narrower window and back: the strip still stops at a card.
-  for (const width of [1100, 1440]) {
-    await browser.send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: false });
-    await browser.waitFor(`innerWidth === ${width}`);
-    await atRest();
-    assert.deepEqual(await browser.evaluate(sliver), [], `in a ${width}-wide window`);
-  }
-  // Scrolled to the newest picture, the strip ends on a whole card at every window width: the
-  // last card ends at the strip's 6 px padding, and › comes right after it. Before, up to a
-  // card's width of empty strip showed there (61 px at 1100, 85 px at 1400).
-  const ending = `(() => {
-    const box = ${strip};
-    const rect = box.getBoundingClientRect();
-    const last = [...box.querySelectorAll(".thumb")].at(-1).getBoundingClientRect();
-    return { overflows: box.scrollWidth > box.clientWidth + 1, atEnd: box.scrollLeft + box.clientWidth >= box.scrollWidth - 1,
-      empty: Math.round(rect.right - last.right), toButton: Math.round(${right}.getBoundingClientRect().left - rect.right) };
+  // At every window width the cards are one size, in rows of at least two, with no card over
+  // another and none past the grid's right edge; each caption sits inside its card.
+  const layout = `(() => {
+    const box = ${strip}.getBoundingClientRect();
+    const cards = [...${strip}.querySelectorAll(".thumb")].map((thumb) => { const rect = thumb.getBoundingClientRect(); const caption = thumb.querySelector(".thumb-caption").getBoundingClientRect(); return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, width: rect.width, height: rect.height, captionIn: caption.bottom <= rect.bottom + 1 && caption.top >= rect.top - 1 }; });
+    const rows = new Set(cards.map((card) => Math.round(card.top)));
+    const overlaps = cards.filter((card, index) => cards.some((other, at) => at < index && card.left < other.right - 1 && card.right > other.left + 1 && card.top < other.bottom - 1 && card.bottom > other.top + 1)).length;
+    return { count: cards.length, widthSpread: Math.max(...cards.map((card) => card.width)) - Math.min(...cards.map((card) => card.width)), heightSpread: Math.max(...cards.map((card) => card.height)) - Math.min(...cards.map((card) => card.height)), rows: rows.size, perRow: cards.filter((card) => Math.round(card.top) === Math.round(cards[0].top)).length, overlaps, pastRight: cards.filter((card) => card.right > box.right + 1).length, captionsIn: cards.every((card) => card.captionIn) };
   })()`;
-  const endings = [];
-  for (let width = 1100; width <= 1450; width += 50) {
+  for (const width of [1100, 1250, 1440]) {
     await browser.send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: false });
     await browser.waitFor(`innerWidth === ${width}`);
-    await browser.evaluate(`${strip}.scrollLeft = ${strip}.scrollWidth`);
-    await atRest();
-    endings.push({ width, ...(await browser.evaluate(ending)), sliver: await browser.evaluate(sliver) });
+    await sleep(300);
+    const grid = await browser.evaluate(layout);
+    assert.ok(grid.widthSpread < 1.5 && grid.heightSpread < 1.5, `one card size in a ${width}-wide window: ${JSON.stringify(grid)}`);
+    assert.ok(grid.perRow >= 2 && grid.rows >= 2, `rows of at least two cards, more than one row: ${JSON.stringify(grid)}`);
+    assert.equal(grid.overlaps, 0, `no card over another at ${width}: ${JSON.stringify(grid)}`);
+    assert.equal(grid.pastRight, 0, `no card past the grid's edge at ${width}: ${JSON.stringify(grid)}`);
+    assert.equal(grid.captionsIn, true, `each caption inside its card at ${width}`);
   }
-  assert.ok(endings.filter((each) => each.overflows).length >= 6, `more pictures than fit at most widths: ${JSON.stringify(endings)}`);
-  assert.deepEqual(endings.filter((each) => each.overflows && (!each.atEnd || each.empty > 6 || each.toButton > 6 || each.sliver.length)), [],
-    `no empty slot after the newest picture: ${JSON.stringify(endings)}`);
   await browser.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
   await browser.waitFor("innerWidth === 1440");
-  await atRest();
 
   // A click on a picture selects it and puts the stage at its scene and time.
   const thumb = (at) => `[...document.querySelectorAll(".seen-strip .thumb")].find((element) => element.getAttribute("aria-label").includes(${JSON.stringify(` ${at}: `)}))`;
@@ -1263,6 +1248,7 @@ test("the film strip: ‹ › scroll it, and a picture picked by mouse or keyboa
 test("timeline zoom: − and + by mouse and by keyboard, the zoom menu back to Fit, and the ruler follows", async () => {
   await open();
   await showScene(outroScene);
+  await showEveryLane();
   const ruler = q('.p-timeline [role="slider"]');
   const scroller = q(".p-timeline .tl-scroll");
   const zoomIn = q('button[aria-label="Zoom the timeline in"]');
@@ -1330,16 +1316,16 @@ test("full size keeps the film strip, the stage and the timeline as they were; t
   const [sheet, again, once] = await browser.evaluate(`${thumbs}.slice(-3).reverse().map((thumb) => thumb.querySelector("img").getAttribute("src"))`);
   assert.equal(again, once, "the two looks at one frame gave one file, and the strip shows it twice");
   assert.notEqual(sheet, again);
-  assert.equal(await browser.evaluate(`${thumbs}.at(-1).querySelector(".thumb-caption .dim").innerText.trim()`), "sheet", "the caption names the look, with no colon");
+  assert.equal(await browser.evaluate(`${thumbs}.at(-1).querySelector(".thumb-caption .dim").textContent.trim()`), "sheet", "the caption names the look, with no colon");
 
   // Full size, in the agent pane: the strip stays under the picture, the picture fits, and the
   // stage and the timeline keep their heights.
-  const full = button("full size", ".p-seen");
+  const full = button("Full size", ".p-seen");
   await browser.click(full);
   await browser.waitFor(`(() => { const image = document.querySelector(".seen-full img"); return !!(image && image.complete && image.naturalWidth) && document.querySelector("main.panes").classList.contains("seen-open"); })()`, { what: "the picture at full size" });
   const at = await browser.evaluate(`(() => {
     const box = (selector) => document.querySelector(selector).getBoundingClientRect();
-    const body = box(".p-seen"), strip = box(".p-seen .filmstrip"), image = box(".seen-full img");
+    const body = box(".p-seen"), strip = box(".p-seen .seen-strip"), image = box(".seen-full img");
     return { body: [body.top, body.bottom], strip: [strip.top, strip.bottom], image: [image.top, image.bottom] };
   })()`);
   const [stageAfter, timelineAfter] = await browser.evaluate(panes);
@@ -1352,11 +1338,12 @@ test("full size keeps the film strip, the stage and the timeline as they were; t
   await browser.waitFor(`!document.querySelector(".seen-full") && !document.querySelector("main.panes").classList.contains("seen-open")`, { what: "full size closed" });
 });
 
-test("the focus never falls to the page: − and + at their last level, ‹ at the strip's end, now, and an answered request", async () => {
+test("the focus never falls to the page: − and + at their last level, now, and an answered request", async () => {
   await open();
   const active = (expression) => `document.activeElement === ${expression}`;
   // − and +: the one that is turned off at its last level hands the focus to the other.
   await showScene(outroScene);
+  await showEveryLane();
   const zoomIn = q('button[aria-label="Zoom the timeline in"]');
   const zoomOut = q('button[aria-label="Zoom the timeline out"]');
   await browser.evaluate(`${zoomIn}.focus()`);
@@ -1371,27 +1358,10 @@ test("the focus never falls to the page: − and + at their last level, ‹ at t
   }
   await browser.waitFor(`${zoomOut}.disabled && ${active(zoomIn)}`, { what: "the focus on + once − is off" });
 
-  // ‹: pressed until the strip's oldest end, it hands the focus to the oldest picture.
-  await showView("seen", { focus: false });
-  const strip = q(".seen-strip");
-  const left = q('button[aria-label="Scroll the pictures left"]');
-  const settled = () => browser.waitFor(`(async () => { const was = ${strip}.scrollLeft; await new Promise((resolve) => setTimeout(resolve, 150)); return was === ${strip}.scrollLeft; })()`, { what: "the strip to stop scrolling" });
-  // The film strip test looks at enough pictures to fill the strip; run on its own, this test does.
-  if (await browser.evaluate(`${strip}.querySelectorAll(".thumb").length < 8`)) {
-    for (const t of [1, 2, 3, 4, 5, 6, 7, 8]) assert.equal((await agent("look", { mode: "frame", t, scene: outroScene.id })).isError, undefined);
-  }
-  await browser.waitFor(`${strip}.scrollWidth > ${strip}.clientWidth + 20 && !${left}.disabled`, { what: "a strip with more to the left" });
-  await settled();
-  await browser.evaluate(`${left}.focus()`);
-  for (let press = 0; press < 12 && await browser.evaluate(active(left)); press += 1) {
-    await browser.key("Enter");
-    await settled();
-  }
-  await browser.waitFor(`${left}.disabled && ${active(`${strip}.querySelector(".thumb")`)}`, { what: "the focus on the oldest picture once ‹ is off" });
-
   // now: the button goes once pressed, and the focus goes to the stage pane. (A turn's mark is on
   // the agent's lane of a scene it changed: the first scene, where the card and headline are.)
   await showScene(firstScene);
+  await showEveryLane();
   await browser.click(q(".p-timeline .agent-mark"));
   const now = q('.p-stage button[aria-label^="Back to now"]');
   await browser.waitFor(`!!${now}`, { what: "a checkpoint and its now button" });
@@ -1424,23 +1394,32 @@ test("a closed needs you opens again for a new request; with it closed, a answer
     await browser.waitFor(`${caret}.getAttribute("aria-expanded") === "false"`, { what: "needs you closed" });
     const asked = await agent("project", { action: "share", id: "orbit", role: "view" });
     const id = asked.data.id;
-    await browser.waitFor(`${caret}.getAttribute("aria-expanded") === "true" && ${pageHas(`${id} create a share link`, ".p-session")}`, { what: "needs you open again for the new request" });
+    await browser.waitFor(`${caret}.getAttribute("aria-expanded") === "true" && !!document.querySelector('.p-session [aria-label^="Approval ${id}:"]')`, { what: "needs you open again for the new request" });
     await browser.click(caret);
     await browser.waitFor(`${caret}.getAttribute("aria-expanded") === "false"`, { what: "needs you closed again" });
-    // The request is never unseen: the whole top line is orange and says who asks and what for,
-    // with the a key's words, in every view of the agent pane.
+    // The request is never unseen: the agent's line under the frame says who asks and what for,
+    // with the a key's answer as its first button, in every view of the agent pane.
     await showView("agent", { focus: false });
-    await browser.waitFor(`${q(".topline")}.classList.contains("asking") && ${pageHas("needs you", ".topline .needs-chip")} && ${pageHas("allow", ".topline .needs-chip .chip-answer")}`, { what: "the orange top line" });
+    await browser.waitFor(`${q(".voice.is-need")} && ${pageHas("Allow", ".voice.is-need .voice-answers .voice-button.primary")}`, { what: "the agent's line asking" });
     await browser.key("1");
     await browser.key("a");
     await until(async () => (await approval(id))?.status === "allowed", "a allows what the top line names");
-    await browser.waitFor(`!${q(".topline")}.classList.contains("asking")`, { what: "the top line back to normal" });
+    await browser.waitFor(`!${q(".voice.is-need")}`, { what: "the agent's line back to normal" });
   } finally {
     await browser.evaluate(`localStorage.removeItem("kino.dashboard.sections")`);
   }
 });
 
 test("in [3] ← and k pick the older picture, → and j the newer; the focus moves with them; a picture reached by Tab is in view; the key line's [ and ]", async () => {
+  // The strip must hold more pictures than fit; run on its own, this test looks at enough scenes first.
+  for (let t = 1; t <= 8 && (await snapshot()).events.filter((call) => call.by !== "you").flatMap((call) => call.images ?? []).length < 12; t += 1) {
+    assert.equal((await agent("look", { mode: "frame", t, scene: outroScene.id })).isError, undefined);
+  }
+  // The undo button under the frame shows the turn before the agent's last call, so an edit comes
+  // before the last look.
+  const edited = await agent("edit", { ops: [{ op: "update_layer", layer: "card", properties: { radius: 14 } }] });
+  assert.equal(edited.isError, undefined, edited.text);
+  assert.equal((await agent("look", { mode: "frame", t: 0.4, scene: firstScene.id })).isError, undefined);
   await open();
   const thumbs = `[...document.querySelectorAll(".seen-strip .thumb")]`;
   const current = `${thumbs}.findIndex((thumb) => thumb.getAttribute("aria-current") === "true")`;
@@ -1480,49 +1459,40 @@ test("in [3] ← and k pick the older picture, → and j the newer; the focus mo
   await browser.evaluate(`${thumbs}[${count - 1}].focus()`);
   await browser.key("ArrowLeft");
   await browser.waitFor(`${current} === ${count - 2} && document.activeElement === ${thumbs}[${count - 2}]`, { what: "the focus on the older picture" });
-  // Tab reaches the selected picture only (one stop for the strip) and scrolls it into view as
-  // little as needed, in whole cards: no jump to the start, and no centring.
-  const strip = q(".seen-strip");
-  const left = q('button[aria-label="Scroll the pictures left"]');
-  const fullSize = button("full size", ".p-seen");
+  // Tab reaches the selected picture only (one stop for the pictures) and the grid scrolls as
+  // little as needed to show it whole, under the facts line that stays at the top.
+  const panel = q("#panel-seen");
+  const fullSize = button("Full size", ".p-seen");
   assert.deepEqual(await browser.evaluate(`${thumbs}.map((thumb) => thumb.tabIndex).filter((index) => index === 0).length`), 1, "one picture in the Tab order");
-  const where = `(() => { const box = ${strip}.getBoundingClientRect(); const thumb = document.activeElement; const rect = thumb.getBoundingClientRect(); return { selected: thumb.matches(".thumb") && thumb.getAttribute("aria-current") === "true", index: ${thumbs}.indexOf(thumb), left: rect.left - box.left, right: box.right - rect.right, scrollLeft: ${strip}.scrollLeft, most: ${strip}.scrollWidth - ${strip}.clientWidth }; })()`;
+  assert.equal(await browser.evaluate(`getComputedStyle(${q(".seen-strip")}).display`), "grid", "the pictures are a grid");
+  const edges = (thumb) => `(() => { const box = ${panel}.getBoundingClientRect(); const facts = ${q(".seen-facts")}.getBoundingClientRect(); const rect = ${thumb}.getBoundingClientRect(); return { above: Math.round(rect.top - facts.bottom), below: Math.round(box.bottom - rect.bottom) }; })()`;
+  const whole = (thumb) => `(() => { const at = ${edges(thumb)}; return at.above >= -1 && at.below >= -1; })()`;
+  const where = `(() => { const thumb = document.activeElement; return { selected: thumb.matches(".thumb") && thumb.getAttribute("aria-current") === "true", ...${edges("thumb")}, scrollTop: ${panel}.scrollTop }; })()`;
   // The scroll position over the next ten frames: it must not move again after the Tab.
-  const frames = `new Promise((done) => { const seen = []; const step = () => { seen.push(${strip}.scrollLeft); if (seen.length < 10) requestAnimationFrame(step); else done(seen); }; requestAnimationFrame(step); })`;
-  // (1) The selected picture is the third oldest, out of view at the left; Tab from ‹ brings it
-  // in at the left edge, not to the start.
-  await browser.evaluate(`${thumbs}[2].click()`);
-  await browser.waitFor(`${current} === 2`, { what: "the third oldest picture selected" });
-  await browser.evaluate(`${strip}.scrollLeft = ${strip}.scrollWidth`);
-  await browser.waitFor(`!${left}.disabled && ${thumbs}[2].getBoundingClientRect().right < ${strip}.getBoundingClientRect().left`, { what: "the selected picture out of view at the left" });
-  await browser.evaluate(`${left}.focus()`);
-  await browser.key("Tab");
-  await browser.waitFor(`document.activeElement === ${thumbs}[2]`, { what: "Tab from ‹ on the selected picture" });
-  let seen = await browser.evaluate(frames);
-  let view = await browser.evaluate(where);
-  assert.ok(view.selected && Math.abs(view.left - 6) < 1 && view.scrollLeft === 2 * 92, `in view at the left edge, two cards in: ${JSON.stringify(view)}`);
-  assert.deepEqual([...new Set(seen)], [view.scrollLeft], "no jump after the Tab");
-  // (2) The selected picture is the second newest, out of view at the right; Tab from "full
-  // size" (‹ is off at the start) brings it in at the right, clear of the fade, by whole cards.
-  await browser.evaluate(`${thumbs}[${count - 2}].click()`);
-  await browser.waitFor(`${current} === ${count - 2}`, { what: "the second newest picture selected" });
-  await browser.evaluate(`${strip}.scrollLeft = 0`);
-  await browser.waitFor(`${left}.disabled && ${thumbs}[${count - 2}].getBoundingClientRect().left > ${strip}.getBoundingClientRect().right`, { what: "the selected picture out of view at the right" });
-  await browser.evaluate(`${fullSize}.focus()`);
-  await browser.key("Tab");
-  await browser.waitFor(`document.activeElement === ${thumbs}[${count - 2}]`, { what: "Tab from full size on the selected picture" });
-  seen = await browser.evaluate(frames);
-  view = await browser.evaluate(where);
-  assert.ok(view.selected && view.left >= 5 && (view.right >= 15 || view.scrollLeft >= view.most - 1), `in view and clear of the fade: ${JSON.stringify(view)}`);
-  assert.ok(view.right < 16 + 92 && view.scrollLeft % 92 === 0, `scrolled no further than needed, by whole cards: ${JSON.stringify(view)}`);
-  assert.deepEqual([...new Set(seen)], [view.scrollLeft], "no jump after the Tab");
+  const frames = `new Promise((done) => { const seen = []; const step = () => { seen.push(${panel}.scrollTop); if (seen.length < 10) requestAnimationFrame(step); else done(seen); }; requestAnimationFrame(step); })`;
+  assert.ok(await browser.evaluate(`${panel}.scrollHeight > ${panel}.clientHeight + 20`), "more rows of pictures than fit");
+  // (1) The selected picture is the third oldest, in the top row, and the grid is at its end;
+  // (2) it is the second newest, in the last row, and the grid is at its start.
+  for (const [index, scrollTo, what] of [[2, `${panel}.scrollHeight`, "the third oldest picture"], [count - 2, "0", "the second newest picture"]]) {
+    await browser.evaluate(`${thumbs}[${index}].click()`);
+    await browser.waitFor(`${current} === ${index}`, { what: `${what} selected` });
+    await browser.evaluate(`${fullSize}.focus()`);
+    await browser.evaluate(`${panel}.scrollTop = ${scrollTo}`);
+    await browser.waitFor(`!${whole(`${thumbs}[${index}]`)}`, { what: `${what} not whole in view` });
+    await browser.key("Tab");
+    await browser.waitFor(`document.activeElement === ${thumbs}[${index}]`, { what: `Tab from Full size on ${what}` });
+    const seen = await browser.evaluate(frames);
+    const view = await browser.evaluate(where);
+    assert.ok(view.selected && view.above >= -1 && view.below >= -1, `${what} is whole in view: ${JSON.stringify(view)}`);
+    assert.deepEqual([...new Set(seen)], [view.scrollTop], "no jump after the Tab");
+  }
 
-  // The key line: undo turn only (play and note are under the frame and in the rail), in words, in the quieter text
-  // (--fg-mid); each key is in its button's tooltip and aria-keyshortcuts, and each button does
-  // what its key does.
-  const keyButtons = await browser.evaluate(`[...document.querySelectorAll(".keyline .tb")].map((item) => ({ word: item.innerText.trim(), key: item.getAttribute("aria-keyshortcuts"), title: item.title, colour: getComputedStyle(item).color }))`);
-  assert.deepEqual(keyButtons.map((entry) => [entry.word, entry.key, entry.title]), [["undo turn", "u", "undo turn (u)"]], "the key line's buttons");
-  const quiet = await browser.evaluate(token("--fg-mid"));
+  // The key buttons (the bottom key line is gone): undo is the only one with a key left under the
+  // frame, in words, in the quieter text (--fg1); its key is in its tooltip and aria-keyshortcuts,
+  // and the button does what its key does.
+  const keyButtons = await browser.evaluate(`[...document.querySelectorAll(".voice-before [aria-keyshortcuts]")].map((item) => ({ word: item.getAttribute("aria-label"), key: item.getAttribute("aria-keyshortcuts"), title: item.title, colour: getComputedStyle(item).color }))`);
+  assert.deepEqual(keyButtons.map((entry) => [entry.word, entry.key, entry.title]), [["Undo the last turn", "u", "Undo the last turn (u)"]], "the key buttons");
+  const quiet = await browser.evaluate(token("--fg1"));
   for (const entry of keyButtons) assert.equal(entry.colour, quiet, `${entry.word} is quiet text: ${JSON.stringify(keyButtons)}`);
   // The status line draws no ▶ or ‖ before the time; a screen reader says the state as a word.
   assert.equal(await browser.evaluate(`${q(".play-time .sr-only")}.textContent`), ", paused");
@@ -1530,9 +1500,11 @@ test("in [3] ← and k pick the older picture, → and j the newer; the focus mo
 });
 
 test("a drop-down list taller than its room stays in the window and scrolls", async () => {
+  // The first frame can only load in a window of normal height (the stage has no room at 120 px), so open first, then shrink.
+  await open();
   await browser.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 120, deviceScaleFactor: 1, mobile: false });
   try {
-    await open();
+    await browser.waitFor("innerHeight === 120");
     const zoomButton = q("#stage-zoom");
     await browser.evaluate(`${zoomButton}.scrollIntoView({ block: "center" })`);
     await browser.click(zoomButton);
@@ -1555,9 +1527,9 @@ test("a long project name gives way to the nav; the zoomed lanes follow the play
   const renamed = await agent("edit", { ops: [{ op: "rename_project", name: long }] });
   assert.equal(renamed.isError, undefined, renamed.text);
   try {
-    // The whole name is in the title's tooltip and the project menu's name; the menu shows it cut.
-    await browser.waitFor(`${q(".topline .title")}?.title === ${JSON.stringify(`kino: ${long}`)} && ${q("#project-menu")}?.getAttribute("aria-label") === ${JSON.stringify(`Project: ${long}`)}`, { what: "the long name in the top line" });
-    const top = await browser.evaluate(`(() => { const nav = document.querySelector(".topline .top-right").getBoundingClientRect(); const shown = document.querySelector("#project-menu .menu-value"); return { right: nav.right, width: innerWidth, shown: shown.innerText.trim(), scroll: document.documentElement.scrollWidth }; })()`);
+    // The whole name is in the title's tooltip and the project name button's label; the button shows it cut.
+    await browser.waitFor(`${q(".topline .title")}?.title === ${JSON.stringify(`kino: ${long}`)} && ${q("#project-name")}?.getAttribute("aria-label") === ${JSON.stringify(`Project: ${long}. Its brief.`)}`, { what: "the long name in the top line" });
+    const top = await browser.evaluate(`(() => { const nav = document.querySelector(".topline .top-right").getBoundingClientRect(); const shown = document.querySelector("#project-name"); return { right: nav.right, width: innerWidth, shown: shown.innerText.trim(), scroll: document.documentElement.scrollWidth }; })()`);
     assert.ok(top.right <= top.width + 0.5, `share, settings and render end inside the window (${top.right} of ${top.width})`);
     assert.ok(top.shown.endsWith("…") && top.shown.length < long.length, `the name is cut short: ${top.shown}`);
     assert.ok(top.scroll <= top.width, "no sideways scrolling");
@@ -1566,8 +1538,7 @@ test("a long project name gives way to the nav; the zoomed lanes follow the play
     assert.equal(back.isError, undefined, back.text);
   }
 
-  // The timeline is a quarter of the window tall (225 px at 900) whatever the scene's layers,
-  // and its tracks end short of the border.
+  // The timeline strip keeps its height whatever the scene's layers, and its tracks end short of the border.
   const measure = () => browser.evaluate(`(() => {
     const pane = document.querySelector('section.pane[data-pane="3"]').getBoundingClientRect();
     const ruler = document.querySelector('.p-timeline [role="slider"]').getBoundingClientRect();
@@ -1575,18 +1546,20 @@ test("a long project name gives way to the nav; the zoomed lanes follow the play
   })()`);
   await showScene(firstScene);
   const layered = await measure();
-  assert.ok(Math.abs(layered.height - 225) < 2, `a quarter of the window: ${layered.height} px`);
-  assert.ok(layered.margin >= 12, `the tracks end ${layered.margin} px from the border`);
+  // The shot strip is a fixed band now (74 px), no longer a quarter of the window.
+  assert.ok(Math.abs(layered.height - 74) < 2, `the strip's band: ${layered.height} px`);
   await showScene(outroScene);
   assert.ok(Math.abs((await measure()).height - layered.height) < 1, "a scene with no layers keeps the height");
 
   // Zoomed in, the lanes scroll to keep the playhead in view.
+  await showEveryLane();
+  assert.ok((await measure()).margin >= 12, `the tracks end ${(await measure()).margin} px from the border (the shot strip fills its column, the whole timeline keeps a margin)`);
   const scroller = q(".p-timeline .tl-scroll");
   const slider = q('.p-timeline [role="slider"]');
   await browser.click(q("#timeline-zoom"));
   await browser.click(menuItem("8×"));
   await browser.waitFor(`${textOf("#timeline-zoom")}.trim() === "8×" && ${scroller}.scrollWidth > ${scroller}.clientWidth * 4`, { what: "the timeline at 8×" });
-  const inView = `(() => { const lanes = ${scroller}.getBoundingClientRect(); const label = ${scroller}.querySelector(".tl-corner").offsetWidth; const head = document.querySelector(".p-timeline .playhead").getBoundingClientRect(); return head.left >= lanes.left + label - 1 && head.left <= lanes.right + 1; })()`;
+  const inView = `(() => { const lanes = ${scroller}.getBoundingClientRect(); const label = ${scroller}.querySelector(".tl-corner").offsetWidth; const head = document.querySelector(".p-timeline .playhead").getBoundingClientRect(); return head.left >= lanes.left + label - 2 && head.left <= lanes.right + 1; })()`;
   await browser.evaluate(`${slider}.focus({ preventScroll: true })`);
   await browser.key("End");
   await browser.waitFor(`${pausedAt("00:15.00")} && ${inView}`, { what: "the playhead at the end, in view" });
@@ -1631,6 +1604,8 @@ test("reduced motion: the working spinner stands still; without it, it turns", a
   try {
     await open();
     assert.equal(await browser.evaluate(`matchMedia("(prefers-reduced-motion: reduce)").matches`), true);
+    // The agent view's working spinner is in the list, which is closed until opened.
+    await showView("agent", { focus: false });
     await agent("status");
     await browser.waitFor(`(${spinner}) === "…"`, { what: "the still spinner" });
     assert.deepEqual([...await samples()], ["…"]);
@@ -1643,7 +1618,9 @@ test("reduced motion: the working spinner stands still; without it, it turns", a
 
 test("the accessibility tree: landmarks, named panes and controls, a log, live regions", async () => {
   await open();
-  await browser.waitFor(`/checks \\d+ errors? · /.test(${textOf(".statusline")})`);
+  // The agent pane is the list under the frame; it is closed until opened.
+  await showView("agent", { focus: false });
+  await browser.waitFor(`/Checks: \\d+ errors?, \\d+ warnings?/.test(${textOf(".statusline")})`);
   const { nodes } = await browser.send("Accessibility.getFullAXTree");
   const shown = nodes.filter((node) => !node.ignored);
   const role = (node) => node.role?.value;
@@ -1651,7 +1628,7 @@ test("the accessibility tree: landmarks, named panes and controls, a log, live r
   const live = (node) => node.properties?.find((property) => property.name === "live")?.value?.value;
   assert.ok(shown.some((node) => role(node) === "main" && name(node) === "Dashboard"), "a main landmark");
   assert.ok(shown.some((node) => role(node) === "contentinfo" && name(node) === "Status"), "the status line");
-  assert.ok(shown.some((node) => role(node) === "navigation" && name(node) === "Actions"), "the key line");
+  assert.ok(shown.some((node) => role(node) === "navigation" && name(node) === "Views"), "the views nav (the key line is gone)");
   const regions = shown.filter((node) => role(node) === "region").map(name);
   // The panes are regions named by their titles, with no number: "stage · 00:00.00"...
   for (const start of ["stage", "timeline"])
@@ -1664,8 +1641,8 @@ test("the accessibility tree: landmarks, named panes and controls, a log, live r
   assert.ok(shown.some((node) => role(node) === "log" && name(node).endsWith("'s calls")), "the agent's log of calls");
   assert.ok(shown.some((node) => role(node) === "image" && name(node).startsWith("preview ")) || shown.some((node) => role(node) === "img" && name(node).startsWith("preview ")), "the stage image");
   assert.ok(shown.some((node) => role(node) === "slider" && name(node) === "Playhead"), "the playhead");
-  // The agent pane's views are tabs: activity, notes, checks, seen, session (log opens from ⌘K).
-  assert.equal(shown.filter((node) => role(node) === "tab").length, 5);
+  // The list's views are tabs: All, Edits, Looks, Checks, Notes, Session.
+  assert.equal(shown.filter((node) => role(node) === "tab").length, 6);
   assert.ok(nodes.some((node) => live(node) === "polite"), "a polite live region");
   assert.ok(nodes.some((node) => role(node) === "alert" && live(node) === "assertive"), "an assertive alert region");
 });
@@ -1678,7 +1655,7 @@ test("the phone layout puts approvals first and an approval is answered with a t
     await browser.waitFor(`!!document.querySelector(".phone-stack")`);
     const asked = await agent("project", { action: "share", id: "orbit", role: "view" });
     const id = asked.data.id;
-    await browser.waitFor(`${q(".phone-stack")}.firstElementChild?.matches("article.approval-card") && ${pageHas(id, ".phone-stack .approval-card")}`, { what: "the approval card first" });
+    await browser.waitFor(`${q(".phone-stack")}.firstElementChild?.matches("article.approval-card") && !!document.querySelector(${JSON.stringify(`.phone-stack .approval-card h3[title="${id}"]`)})`, { what: "the approval card first" });
     assert.ok(await browser.evaluate("document.documentElement.scrollWidth <= 390"), "no sideways scrolling");
     // The status line wraps to more rows on a phone, and no row starts with a separator bar
     // (before, rows 2 and 3 did: each item but the first drew one before it).
@@ -1694,7 +1671,7 @@ test("the phone layout puts approvals first and an approval is answered with a t
     const page = await browser.evaluate(`(() => { const tall = document.documentElement.scrollHeight; window.scrollTo(0, 2000); const moved = window.scrollY; window.scrollTo(0, 0); return { tall, moved }; })()`);
     assert.ok(page.tall <= 844 && page.moved === 0, `the page does not scroll: ${JSON.stringify(page)}`);
     await browser.shot("phone-approval");
-    await browser.tap(button("allow once", ".phone-stack"));
+    await browser.tap(button("Allow", ".phone-stack .approval-card"));
     await until(async () => (await approval(id))?.status === "allowed", "the tap");
     assert.match(inboxText(await agent("status")), new RegExp(`${id} allowed: Created sharing link \\(secret omitted\\)`), "the inbox line never holds the URL");
     await browser.waitFor(`!${q(".phone-stack")}.firstElementChild?.matches("article.approval-card")`, { what: "the card to leave" });
@@ -1743,10 +1720,10 @@ test("the brief shows read only: you said with the agent's quote, guessed, missi
     });
     await browser.waitFor(pageHas("r1 · not confirmed yet", "#section-brief"), { what: "brief r1 on screen" });
     const shown = await browser.evaluate(`${section}.innerText`);
-    for (const words of ['never · you said "no meme text please"', "→ no meme text", "plays on · guessed: TikTok, 9:16, 24 s", "your replies 1 of 10",
+    for (const words of ['never you said "no meme text please"', "→ no meme text", "plays on guessed: TikTok, 9:16, 24 s", "your replies 1 of 10",
       "missing: message, made from, look and sound, about", "a line is wrong? tell your agent in the chat", "quotes and replies recorded by the agent; kino cannot check them"])
       assert.ok(shown.includes(words), `the brief shows ${JSON.stringify(words)}: ${shown}`);
-    assert.ok(shown.indexOf("plays on ·") < shown.indexOf("never ·"), "the lines come in the brief's order");
+    assert.ok(shown.indexOf("plays on guessed") < shown.indexOf("never you said"), "the lines come in the brief's order");
     await browser.waitFor(`${polite} === "Brief revision 1 saved by the agent."`, { what: "the polite announcement of r1" });
 
     // The person answered the playback in the chat: the brief is confirmed, again without a reload.
@@ -1783,7 +1760,7 @@ test("the brief shows read only: you said with the agent's quote, guessed, missi
     assert.equal(await browser.evaluate(`document.activeElement === ${caret}`), true, "Tab reaches the brief's caret");
     await browser.key("Enter");
     await browser.waitFor(`${caret}.getAttribute("aria-expanded") === "false" && ${section}.hidden`, { what: "the brief closed by Enter" });
-    assert.match(await browser.evaluate(`${caret}.innerText`), /brief \(2 lines, confirmed in chat\)/, "a closed brief says how many lines it holds and its state");
+    assert.match(await browser.evaluate(`${caret}.innerText`), /^Brief\s+2 lines, confirmed in chat$/, "a closed brief says how many lines it holds and its state");
     await browser.key(" ");
     await browser.waitFor(`${caret}.getAttribute("aria-expanded") === "true" && !${section}.hidden`, { what: "the brief opened by space" });
     // ... and by mouse.
@@ -1807,7 +1784,7 @@ test("the brief shows read only: you said with the agent's quote, guessed, missi
     await brief({ fields: { ask: quote, look_sound: { text: "raw and bright; street sound, no synth", by: "you", quote } }, log: [{ q: "What should it look and sound like?", a: quote }] });
     await browser.waitFor(pageHas("r2 · not confirmed yet", "#section-brief"), { what: "brief r2 not confirmed" });
     await browser.waitFor(`${polite} === "Brief revision 2 saved by the agent."`, { what: "the polite announcement of r2" });
-    assert.ok(await browser.evaluate(pageHas(`look and sound · you said "${quote}"`, "#section-brief")), "the whole quote shows, never cut");
+    assert.ok(await browser.evaluate(pageHas(`look and sound you said "${quote}"`, "#section-brief")), "the whole quote shows, never cut");
     assert.ok(await browser.evaluate(`${section}.scrollWidth <= ${section}.clientWidth`), "the long word wraps in the session pane");
 
     // "Just start" in the chat: the agent goes on with no playback, and the panel says so in words.
@@ -1852,7 +1829,7 @@ test("the brief shows read only: you said with the agent's quote, guessed, missi
         controls: [...card.querySelectorAll("button, input, select, textarea, a[href], [contenteditable], [tabindex]")].map((element) => element.getAttribute("aria-controls")) };
     })()`);
     assert.deepEqual(place, { page: true, stack: 0, card: 0, inside: true, controls: ["brief-card-lines"] }, `the open card's size and controls: ${JSON.stringify(place)}`);
-    assert.ok(await browser.evaluate(pageHas(`look and sound · you said "${quote}"`, ".phone-stack .brief-card")), "the whole quote shows on the phone");
+    assert.ok(await browser.evaluate(pageHas(`look and sound you said "${quote}"`, ".phone-stack .brief-card")), "the whole quote shows on the phone");
     await browser.shot("brief-phone");
     // A video started without a brief shows no card on the phone: there is nothing to show and none to come.
     await agent("project", { action: "open", id: "orbit" });
@@ -2042,17 +2019,18 @@ test("a view link opens the viewer read only: no comment box, no pins, and the s
 test("the shares screen makes a link and revokes it, and the revoked link stops working", async () => {
   await open();
   await commandByMouse("shares");
-  await browser.waitFor(`${textOf("#screen-title")}.startsWith("share")`);
-  await browser.waitFor(`!!document.querySelector('.share-list[aria-labelledby="shares-title"]')`, { what: "the links made by the earlier tests" });
+  await browser.waitFor(`!!document.querySelector('#share-box[role="dialog"] .share-list[aria-label="Links"]')`, { what: "the links made by the earlier tests" });
   await browser.click(q("#share-label"));
   await browser.type("for Bo");
-  await browser.click(button("make link", ".share-form"));
+  // The new box starts on a watch link; this test needs a comment link.
+  await browser.click(`[...document.querySelectorAll("#share-box .ui-seg-item")].find((item) => item.innerText === "Comment")`);
+  await browser.click(button("Make link", ".share-form"));
   const url = await browser.waitFor(`${q(".share-made .share-url")}?.innerText`, { what: "the new link" });
   const token = url.split("#share=")[1];
   assert.ok(token, url);
   const made = await until(async () => (await (await server.api("/api/projects/orbit/shares")).json()).shares.find((entry) => entry.label === "for Bo"), "the link on the server");
   assert.equal(made.role, "comment");
-  await browser.waitFor(`[...document.querySelectorAll(".share-list .share-row")].some((row) => row.innerText.includes("for Bo") && row.innerText.includes("works"))`, { what: "the row" });
+  await browser.waitFor(`[...document.querySelectorAll(".share-list li")].some((row) => row.innerText.includes("for Bo") && row.innerText.includes("Comment") && !row.classList.contains("revoked"))`, { what: "the row" });
   await browser.shot("shares-screen");
 
   await openViewer(token);
@@ -2062,11 +2040,12 @@ test("the shares screen makes a link and revokes it, and the revoked link stops 
   await browser.key(":");
   await browser.type("shares");
   await browser.key("Enter");
+  await browser.waitFor(`!!document.querySelector('#share-box')`, { what: "the share box" });
   await browser.click(q(`[aria-label='Revoke the comment link "for Bo"']`));
   await browser.waitFor(`${textOf('[role="alertdialog"]')}.includes('Revoke the comment link "for Bo"?')`);
   await browser.key("y");
   await until(async () => (await (await server.api("/api/projects/orbit/shares")).json()).shares.find((entry) => entry.id === made.id)?.revokedAt, "the revoke");
-  await browser.waitFor(`[...document.querySelectorAll(".share-list .share-row")].some((row) => row.innerText.includes("for Bo") && row.innerText.includes("revoked"))`, { what: "the revoked row" });
+  await browser.waitFor(`[...document.querySelectorAll(".share-list li")].some((row) => row.innerText.includes("for Bo") && row.innerText.includes("revoked"))`, { what: "the revoked row" });
 
   await openViewer(token, pageHas("This link no longer works."));
   await browser.shot("revoked-link");
@@ -2080,17 +2059,17 @@ test("Trash on the projects screen restores an archived project", async () => {
   const copy = await until(async () => (await projectIds()).find((id) => !before.includes(id)), "the copy");
   await open();
   await commandByMouse("projects");
-  await browser.click(q(`[aria-label="More for ${copy}"]`));
   await browser.click(q(`[aria-label="Move ${copy} to Trash"]`));
   await browser.waitFor(`${textOf('[role="alertdialog"]')}.includes("It can be restored from Trash on this screen.")`);
-  await browser.click(button("move to Trash", '[role="alertdialog"]'));
+  await browser.click(button("Move to Trash", '[role="alertdialog"]'));
   await until(async () => !(await projectIds()).includes(copy), "the copy in Trash");
-  await browser.click(`[...document.querySelectorAll(".ui-seg-item")].find((item) => item.innerText.startsWith("trash"))`, "the trash view");
+  await browser.click(`[...document.querySelectorAll(".ui-seg-item")].find((item) => item.innerText.startsWith("Trash"))`, "the trash view");
   await browser.click(q(`[aria-label="Restore ${copy} from Trash"]`));
   await until(async () => (await projectIds()).includes(copy), "the restore");
   await browser.waitFor(`!document.querySelector(${JSON.stringify(`[aria-label="Restore ${copy} from Trash"]`)}) `, { what: "the restore button gone" });
-  await browser.click(`[...document.querySelectorAll(".ui-seg-item")].find((item) => item.innerText.startsWith("mine"))`, "the mine view");
-  await browser.waitFor(pageHas(copy, '.proj-list[aria-label="Projects"]'), { what: "the copy back in the list" });
+  await browser.click(`[...document.querySelectorAll(".ui-seg-item")].find((item) => item.innerText.startsWith("Mine"))`, "the mine view");
+  // The rows show a project's name; its id is on the row's data-id.
+  await browser.waitFor(`!!document.querySelector('.proj-list[aria-label="Projects"] li[data-id="${copy}"]')`, { what: "the copy back in the list" });
 });
 
 test("variants shows the set the variants operation made, and a pick asks the agent for pick_variant", async () => {
@@ -2103,11 +2082,14 @@ test("variants shows the set the variants operation made, and a pick asks the ag
   assert.equal(members.length, 3, "the original and two variants");
   await open();
   await commandByMouse("variants");
-  await browser.waitFor(`${textOf("#screen-title")}.startsWith("variants · 3")`);
-  await browser.waitFor(pageHas(`Variant set ${members[0].variant.set}`, ".screen"));
+  await browser.waitFor(`${textOf("#screen-title")}.startsWith("Variants")`);
+  // The screen no longer prints the set's id: a real set says "Pick one", a bare list of scenes does not.
+  await browser.waitFor(pageHas("Pick one. Your agent gets the pick as a note.", ".screen"));
   await browser.waitFor(`[...document.querySelectorAll(".variant img")].filter((image) => image.complete && image.naturalWidth).length === 3`, { what: "three variant frames" });
-  assert.match(await browser.evaluate(textOf(".variant figcaption")), /\[1\] .* · original ·/);
-  assert.match(await browser.evaluate(`document.querySelectorAll(".variant figcaption")[1].innerText`), /layout variant/);
+  // Each caption's name carries what the scene is (original or the varied thing) as its title.
+  assert.equal(await browser.evaluate(`document.querySelectorAll(".variant figcaption b")[0].title`), "Original");
+  assert.equal(await browser.evaluate(`document.querySelectorAll(".variant figcaption b")[1].title`), "layout variant");
+  assert.equal(await browser.evaluate(`document.querySelectorAll(".variant figcaption button").length`), 3, "a Pick button on each of the three");
   await browser.shot("variant-set");
   await browser.key("2");
   const note = await until(async () => (await snapshot()).agent.notes.find((entry) => entry.text.includes("Run pick_variant")), "the pick note");
@@ -2142,7 +2124,8 @@ test("live playback: Space plays the scene in real time with the export's sound;
   await browser.send("Network.enable");
   await browser.send("WebAudio.enable");
   const status = textOf(".statusline");
-  const label = textOf(".stage-label");
+  // The label's facts are separate spans now; the tooltip holds the whole label with its " · " joins.
+  const label = `(${q(".stage-label")}?.title ?? "")`;
   // The status line's time ("00:01.23/…") and the page's own clock, read together.
   const sample = async () => {
     const { text, now } = await browser.evaluate(`({ text: ${playText}, now: performance.now() })`);
@@ -2166,6 +2149,8 @@ test("live playback: Space plays the scene in real time with the export's sound;
     await browser.key(" ");
     await browser.waitFor(`!!document.querySelector(".stage .stage-live .scene-svg svg") && ${label}.startsWith("live · ")`, { what: "the live picture" });
     await browser.waitFor(`${label}.includes("sound on")`, { what: "the sound playing" });
+    // The clock runs a little slow while the picture gets ready and then catches up: the speed is read from the steady part.
+    await browser.waitFor(`(() => { const found = ${playText}.match(/^(\\d\\d):(\\d\\d\\.\\d\\d)\\//); return !!found && Number(found[1]) * 60 + Number(found[2]) >= 0.7; })()`, { what: "the clock past the start" });
     const first = await sample();
     await sleep(2000);
     const second = await sample();
@@ -2208,7 +2193,8 @@ test("live playback: Space plays the scene in real time with the export's sound;
     const shownAt = Number(new URL(frame, appUrl).searchParams.get("t"));
     assert.ok(Math.abs(shownAt * 30 - Math.round(shownAt * 30)) < 0.05, `the frame at ${shownAt} s is on the 30 fps grid`);
     assert.ok(Math.abs(shownAt - paused.time) < 0.006, `the frame at ${shownAt} s is the paused time ${paused.time} s`);
-    assert.match(await browser.evaluate(label), /^\d+×\d+ · 30fps · draft · rev \d+$/);
+    // The shown facts are one span each (no dots drawn between them); joined, they are the old text.
+    assert.match(await browser.evaluate(`[...document.querySelectorAll(".stage-label > span")].map((fact) => fact.innerText).join(" · ")`), /^\d+×\d+ · 30fps · draft · rev \d+$/);
     assert.match(await browser.evaluate(`${q(".stage-label")}.title`), /^preview \d+×\d+ · 30fps · draft · rev \d+ · exact frame$/);
     await browser.shot("paused-exact-frame");
 
@@ -2397,7 +2383,7 @@ test("at 1100×760 and 1280×800 the log ends on a whole row, shows its scroll b
   })()`;
   const newest = inView(`[...panel.querySelectorAll(".log-row")].at(-1)`);
   const picked = inView(`panel.querySelector(".log-row.selected")`);
-  const facts = `(() => { const label = ${q(".stage-label")}; return { text: label.innerText, cut: label.scrollWidth > label.clientWidth + 1 }; })()`;
+  const facts = `(() => { const label = ${q(".stage-label")}; return { text: [...label.children].map((fact) => fact.innerText).join(" · "), cut: label.scrollWidth > label.clientWidth + 1 }; })()`;
   try {
     for (const [width, height] of [[1100, 760], [1280, 800]]) {
       await browser.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 2, mobile: false });
@@ -2612,8 +2598,10 @@ test("light rays play at a lower resolution on a large 2× stage; no older or un
   };
 
   const status = textOf(".statusline");
-  const label = textOf(".stage-label");
-  const exactFrame = `(() => { const image = document.querySelector(".stage img"); return image?.complete && image.naturalWidth ? { src: image.getAttribute("src"), naturalWidth: image.naturalWidth } : null; })()`;
+  // The label's facts are separate spans now; the tooltip holds the whole label with its " · " joins.
+  const label = `(${q(".stage-label")}?.title ?? "")`;
+  const shownFacts = `[...document.querySelectorAll(".stage-label > span")].map((fact) => fact.innerText).join(" · ")`;
+  const exactFrame =`(() => { const image = document.querySelector(".stage img"); return image?.complete && image.naturalWidth ? { src: image.getAttribute("src"), naturalWidth: image.naturalWidth } : null; })()`;
   const stageBox = `(() => { const box = document.querySelector(".stage").getBoundingClientRect(); return { left: box.left, top: box.top, width: box.width, height: box.height, viewport: innerWidth, viewportHeight: innerHeight }; })()`;
   const picture = `(() => { const element = [...document.querySelectorAll(".stage-live .live-picture")].find((item) => item.style.transform.startsWith("scale(")); if (!element) return null; const box = element.getBoundingClientRect(); return { willChange: getComputedStyle(element).willChange, transform: element.style.transform, width: box.width, height: box.height, layoutWidth: element.offsetWidth, transition: getComputedStyle(element).transitionDuration }; })()`;
   const reducedNow = `(() => { const now = ${picture}; return now?.willChange === "transform" && ${label}.includes("drawn at") ? now : null; })()`;
@@ -2660,14 +2648,18 @@ test("light rays play at a lower resolution on a large 2× stage; no older or un
     await browser.waitFor(`!!document.querySelector('.pane.is-zoomed[data-pane="1"]')`, { what: "the stage zoomed" });
     await browser.waitFor(`(() => { const frame = ${exactFrame}; return frame && new URL(frame.src, location.href).searchParams.get("w") === "1920"; })()`, { what: "the 1920-wide exact frame of the zoomed stage" });
     const stage = await browser.evaluate(stageBox);
+    const room = await browser.evaluate(`(() => { const box = ${q(".stage-wrap")}.getBoundingClientRect(); return { top: box.top, height: box.height }; })()`);
     assert.ok(stage.width * 2 * stage.height * 2 > 2 * 1280 * 720, `the stage is ${stage.width}×${stage.height} CSS pixels at 2×`);
     // The stage in a window 100 pixels shorter, for the resize while playing.
     await size(800);
     const shorter = await browser.waitFor(`(() => { const box = ${stageBox}; return box.viewportHeight === 800 && box.height < ${stage.height - 20} ? box : null; })()`, { what: "the smaller stage in the shorter window" });
     assert.ok(shorter.height < stage.height - 20, `the stage is smaller in the shorter window: ${shorter.width}×${shorter.height}`);
+    // The stage sits in the middle of its room. When the window grows, it can paint one frame
+    // before the stage has its new size: the shorter stage, in the middle of the taller room.
+    const growing = { ...shorter, top: room.top + (room.height - shorter.height) / 2, viewportHeight: 900 };
     await size(900);
     await browser.waitFor(`(() => { const box = ${stageBox}; return box.viewportHeight === 900 && Math.abs(box.height - ${stage.height}) < 1; })()`, { what: "the stage back at its size in the 900-high window" });
-    const exact = await browser.waitFor(exactFrame, { what: "the exact frame before playing" });
+    const exact =await browser.waitFor(exactFrame, { what: "the exact frame before playing" });
     // After the resize the window can take a moment to paint the exact frame again.
     let before;
     for (let attempt = 0; attempt < 10; attempt++) {
@@ -2735,7 +2727,7 @@ test("light rays play at a lower resolution on a large 2× stage; no older or un
     assert.ok(Math.abs(Number(drawn[1]) - 1280) <= 1 && Math.abs(Number(drawn[2]) - 720) <= 1, drawn[0]);
     // That size and the measured rate are on screen in the stage's header row, whole (not cut off
     // with "…"); the tooltip says why the picture is drawn smaller.
-    const facts = await browser.evaluate(`(() => { const element = ${q(".stage-label")}; const box = element.getBoundingClientRect(); const row = element.closest(".pane").getBoundingClientRect(); return { text: element.innerText, title: element.title, cut: element.scrollWidth > element.clientWidth + 1, inRow: box.width > 0 && box.left >= row.left && box.right <= row.right }; })()`);
+    const facts = await browser.evaluate(`(() => { const element = ${q(".stage-label")}; const box = element.getBoundingClientRect(); const row = element.closest(".pane").getBoundingClientRect(); return { text: [...element.children].map((fact) => fact.innerText).join(" · "), title: element.title, cut: element.scrollWidth > element.clientWidth + 1, inRow: box.width > 0 && box.left >= row.left && box.right <= row.right }; })()`);
     assert.match(facts.text, /^live · (\d+|…)\/30fps · drawn at \d+×\d+ · rev \d+/);
     assert.ok(!facts.cut && facts.inRow, `the stage's facts fit their row: ${JSON.stringify(facts)}`);
     assert.match(facts.title, /^live · (\d+|…)\/30fps · drawn at \d+×\d+ while playing \(light rays\) · rev \d+/);
@@ -2780,7 +2772,7 @@ test("light rays play at a lower resolution on a large 2× stage; no older or un
     const frame = await browser.waitFor(exactFrame, { what: "the exact frame" });
     assert.equal(frame.naturalWidth, 1920);
     assert.notEqual(frame.src, exact.src, "the exact frame of the paused time");
-    assert.match(await browser.evaluate(label), /^1920×1080 · 30fps · draft · rev \d+$/);
+    assert.match(await browser.evaluate(shownFacts), /^1920×1080 · 30fps · draft · rev \d+$/);
     assert.match(await browser.evaluate(`${q(".stage-label")}.title`), /^preview 1920×1080 · 30fps · draft · rev \d+ · exact frame$/);
     // When the agent turned the rays back on, the full-resolution picture kept its last drawing
     // until the smaller one was ready: drawn with the rays it took seconds a frame on Linux CI.
@@ -2792,7 +2784,7 @@ test("light rays play at a lower resolution on a large 2× stage; no older or un
     // enlarged), and the marker never moves back: the stage never went back to the exact frame
     // from before the play or to any other older picture, from the play to the pause.
     const frames = [];
-    for (const { data } of painted) frames.push(await raysFrame(Buffer.from(data, "base64"), [stage, shorter]));
+    for (const { data } of painted) frames.push(await raysFrame(Buffer.from(data, "base64"), [stage, shorter, growing]));
     const markers = frames.map((item) => item.markerX ?? null);
     // Pairs (earlier, later) in arrival order whose drawn times agree; a frame is checked against
     // the frames before it in such pairs.
@@ -2988,7 +2980,8 @@ test("light rays playing in a 1440 to 1512 px window: the stage's facts give way
     return {
       title: h2.innerText, left: Math.round(box.left - inside.left), right: Math.round(box.right - inside.left), width: Math.round(inside.width),
       menuWhole: menu.scrollWidth <= menu.clientWidth + 1, clickable: menu.contains(hit), lineScroll: line.scrollLeft,
-      text: label.innerText, tooltip: label.title, stageName: ${q(".stage")}.getAttribute("aria-label"),
+      // The facts are separate pieces now; joined here as the tooltip joins them.
+      text: [...label.children].map((fact) => fact.innerText).join(" · "), tooltip: label.title, stageName: ${q(".stage")}.getAttribute("aria-label"),
       factsCut: label.scrollWidth > label.clientWidth + 1, paneClass: h2.closest("section").className,
     };
   })()`;
@@ -3056,6 +3049,7 @@ test("more lanes than fit: the timeline ends on a whole lane and shows its scrol
   try {
     await open();
     await browser.waitFor(`${onProject("lanes")}`, { what: "the lanes project on the stage" });
+    await openEveryLane();
 
     // The lanes box ends on a lane's lower edge (below the head rows, --tl-head: the ruler, story,
     // shots, voice, audio and agent lanes; a layer lane is 14.6 px), so no lane is cut in half,
@@ -3080,7 +3074,7 @@ test("more lanes than fit: the timeline ends on a whole lane and shows its scrol
       const top = box.getBoundingClientRect().top, bottom = top + box.clientHeight;
       const inView = (element) => { const rect = element?.getBoundingClientRect(); return !!rect && rect.top >= top - 0.5 && rect.bottom <= bottom + 0.5; };
       return { scrolled: box.scrollTop, lane: inView(${q(".p-timeline .lane-agent")}), label: inView(${q(".p-timeline .agent-lane-label")}),
-        said: !!document.querySelector(".p-agent .agent-said"), notSaid: document.querySelector(".p-agent").innerText.includes("not said") };
+        said: !!document.querySelector(".p-agent .agent-said"), notSaid: (document.querySelector(".p-agent")?.innerText ?? "").includes("not said") };
     })()`);
     assert.ok(pinned.scrolled > 0 && pinned.lane && pinned.label, `the agent's lane stays in view: ${JSON.stringify(pinned)}`);
     assert.deepEqual([pinned.said, pinned.notSaid], [false, false], "no why and next rows when the agent said neither");
@@ -3115,20 +3109,23 @@ test("more lanes than fit: the timeline ends on a whole lane and shows its scrol
 
     // The checks tab: one line a finding. Only the mark is red (error) or orange (warning); the
     // rule, the layer, the time and the message are plain text, the fix is words, not JSON.
-    await browser.click(q("#tab-checks"));
-    await browser.waitFor(`document.querySelectorAll("#panel-checks .check-row .mark.err").length >= 1 && document.querySelectorAll("#panel-checks .check-row .mark.warn").length >= 1`, { what: "an error and a warning in the checks tab" });
-    assert.match(await browser.evaluate(textOf(".check-summary")), /^rev \d+ · \d+ errors? · \d+ warnings?/);
+    await showView("checks", { focus: false });
+    await browser.waitFor(`document.querySelectorAll("#panel-checks .check-row .check-mark.err").length >= 1 && document.querySelectorAll("#panel-checks .check-row .check-mark.warn").length >= 1`, { what: "an error and a warning in the checks tab" });
+    assert.match(await browser.evaluate(textOf(".check-summary")), /^Rev \d+: \d+ errors?, \d+ warnings?/);
     const rows = await browser.evaluate(`(() => {
       const colour = (element) => getComputedStyle(element).color;
       const grey = (value) => { const [r, g, b] = value.match(/\\d+/g).map(Number); return Math.max(r, g, b) - Math.min(r, g, b) <= 24; };
       return [...document.querySelectorAll("#panel-checks .check-row")].map((row) => ({
-        text: row.querySelector(".check-text").innerText, title: row.title, expanded: row.getAttribute("aria-expanded"), word: row.querySelector(".sr-only").textContent,
-        kind: row.querySelector(".mark").classList.contains("err") ? "error" : "warning", mark: colour(row.querySelector(".mark")), drawn: !!row.querySelector(".mark svg"),
+        text: row.querySelector(".check-text").textContent, message_text: row.querySelector(".check-line").textContent, title: row.title, expanded: row.getAttribute("aria-expanded"), word: row.querySelector(".sr-only").textContent,
+        what: row.querySelector(".check-what")?.textContent.trim() ?? "", fix: row.querySelector(".check-fix")?.textContent.replace(/^fix: /, "") ?? "",
+        time: row.querySelector(".check-at").textContent, shown: row.querySelector(".check-text").innerText,
+        kind: row.querySelector(".check-mark").classList.contains("err") ? "error" : "warning", mark: colour(row.querySelector(".check-mark")), drawn: row.querySelector(".check-mark").matches("svg") || !!row.querySelector(".check-mark svg"),
         message: colour(row.querySelector(".check-line")), coloured: [...row.querySelectorAll(".check-text, .check-text *")].map(colour).filter((value) => !grey(value)),
         cut: [...row.querySelectorAll(".check-line")].some((line) => line.scrollWidth > line.clientWidth + 1 && getComputedStyle(line).textOverflow === "ellipsis"),
       }));
     })()`);
-    const [error, accent, text] = [await browser.evaluate(token("--err")), await browser.evaluate(token("--accent")), await browser.evaluate(token("--fg0"))];
+    // The error mark is the recording red (--rec) now, no longer --err.
+    const [error, accent, text] = [await browser.evaluate(token("--rec")), await browser.evaluate(token("--accent")), await browser.evaluate(token("--fg0"))];
     for (const row of rows) {
       assert.equal(row.mark, row.kind === "error" ? error : accent, `the mark's colour: ${JSON.stringify(row)}`);
       assert.ok(row.drawn, "the mark is drawn");
@@ -3136,11 +3133,14 @@ test("more lanes than fit: the timeline ends on a whole lane and shows its scrol
       assert.equal(row.message, text, `the message is normal text: ${JSON.stringify(row)}`);
       assert.deepEqual(row.coloured, [], `nothing but the mark has a colour: ${JSON.stringify(row)}`);
       assert.doesNotMatch(row.text, /[{}]/, `no JSON on screen: ${row.text}`);
-      assert.doesNotMatch(row.text.split("\nfix: ")[1] ?? "", /["[\]]/, `the fix in words: ${row.text}`);
+      assert.doesNotMatch(row.fix, /["[\]]/, `the fix in words: ${row.text}`);
+      assert.match(row.time, /^(\d\d:\d\d\.\d\d)?$/, "the time as a clock, not @7.87s");
+      // Closed, a row shows the time, the mark and the message only: the rule, the layer and the fix wait for a click.
+      assert.equal(row.shown.trim(), row.message_text.trim(), `a closed row shows only its message: ${JSON.stringify(row.shown)}`);
     }
-    const contrast = rows.find((row) => row.text.startsWith("contrast title"));
-    assert.ok(contrast, rows.map((row) => row.text).join("\n"));
-    assert.match(contrast.text, /\nfix: update_layer title · fill #[0-9a-f]{6} \(auto\)$/);
+    const contrast = rows.find((row) => row.what.startsWith("contrast title"));
+    assert.ok(contrast, rows.map((row) => row.what).join("\n"));
+    assert.match(contrast.fix, /^update_layer title · fill #[0-9a-f]{6} \(auto\)$/);
     // A long line ends in "…"; its tooltip has all of it, and a click opens it to full length.
     const long = rows.findIndex((row) => row.cut);
     assert.ok(long >= 0, `a line long enough to be cut: ${rows.map((row) => row.text).join(" | ")}`);
@@ -3167,7 +3167,8 @@ test("more lanes than fit: the timeline ends on a whole lane and shows its scrol
     assert.ok(notes.length >= 1, "the checks tab has a note (this project sets no video type)");
     assert.ok(notes.some((note) => note.lines >= 2), `a note long enough to need more than one line: ${JSON.stringify(notes)}`);
     for (const note of notes) {
-      assert.match(note.text, /^note: \S/);
+      assert.match(note.text, /^\S/);
+      assert.doesNotMatch(note.text, /^note: /, "a check note has no note: prefix");
       assert.ok(!note.cut && !note.ellipsis && note.inside, `the whole note shows, wrapped inside the tab: ${JSON.stringify(note)}`);
     }
     await browser.shot("checks-tab");
@@ -3260,7 +3261,9 @@ async function openOn(project) {
   await open();
   await browser.waitFor(`${onProject(project)}`, { what: `the ${project} project on the dashboard` });
   // Stops are listed under "needs you" in the session view of the agent pane.
-  if (await browser.evaluate(`!!document.querySelector(".p-agent .view-tabs") && !document.querySelector("#panel-session")`)) await showView("session", { focus: false });
+  // The list (every earlier line) is closed until opened; showView opens it.
+  // On a phone the stack has no list to open.
+  if (await browser.evaluate(`!document.querySelector("#panel-session") && !document.querySelector(".dash.phone")`)) await showView("session", { focus: false });
 }
 
 /**
@@ -3312,27 +3315,25 @@ test("a waiting stop: needs you lists it first, the status line and the title sa
     return { button: open.innerText.replace(/\\s+/g, " ").trim(), label: open.getAttribute("aria-label"), dim: first.querySelector(".dim")?.innerText.trim() ?? "",
       actions: [...first.querySelectorAll("button")].filter((button) => button !== open).map((button) => [button.textContent.trim(), button.classList.contains("allow")]) };
   })()`, { what: "C1 first in needs you" });
-  assert.deepEqual(row, { button: "C1 rough cut", label: "Stop C1: the rough cut waits for you. Open its sheet.", dim: asked.ask.split("\n")[0],
-    actions: [["[a] approve", true], ["[d] redo", false]] }, JSON.stringify(row));
-  // The status line, left of the project; its ◉ is only drawn.
-  const status = await browser.waitFor(`(() => {
-    const item = [...document.querySelectorAll(".statusline .s-needs-you")].find((element) => element.innerText.includes("C1 rough cut waits for you"));
-    return item ? { text: item.innerText.replace(/\\s+/g, " ").trim(), mark: [...item.querySelectorAll('[aria-hidden="true"]')].map((element) => element.textContent).join("") } : null;
-  })()`, { what: "the stop on the status line" });
-  assert.deepEqual(status, { text: `◉ C1 rough cut waits for you · asked ${clock}`, mark: "◉" });
-  // The status line sits in the bottom line on the right, and the whole top line is orange and
-  // names who asks and for what.
-  assert.ok(await browser.evaluate(`!!document.querySelector(".bottomline .statusline .s-needs-you")`), "the stop is on the bottom line's status");
-  await browser.waitFor(`${q(".topline")}.classList.contains("asking") && ${pageHas("needs you", ".topline .needs-chip")}`, { what: "the orange top line for C1" });
+  assert.deepEqual(row, { button: "Rough cut C1", label: "Stop C1: the rough cut waits for you. Open its sheet.", dim: asked.ask.split("\n")[0],
+    actions: [["Approve", true], ["Redo", false]] }, JSON.stringify(row));
+  // On a wide window the line under the frame names what to do and holds the answers, and the
+  // Crew tab counts the stop (the status line and the orange top line are no longer drawn there).
+  const said = await browser.waitFor(`(() => {
+    const line = ${q(".voice .voice-line")}, answers = [...document.querySelectorAll(".voice .voice-answers .voice-button")];
+    return line && answers.length ? { line: line.innerText.trim(), answers: answers.map((button) => button.textContent.trim()) } : null;
+  })()`, { what: "the stop on the line under the frame" });
+  assert.deepEqual(said, { line: "Look at the rough cut, then approve it or ask for a redo.", answers: ["Approve rough cut", "Redo"] });
+  await browser.waitFor(`${q('.tabs [aria-label=", 1 waiting for you"]')} !== null`, { what: "the Crew tab counts the stop" });
   // The agents section marks the agent that asked as needing you.
-  await browser.waitFor(`[...document.querySelectorAll("#section-agents .row")].some((element) => element.innerText.includes("test-agent") && element.innerText.includes("needs you"))`, { what: "test-agent needs you" });
+  await browser.waitFor(`[...document.querySelectorAll("#section-agents .row")].some((element) => element.innerText.includes("test-agent") && element.innerText.toLowerCase().includes("needs you"))`, { what: "test-agent needs you" });
   // A closed "needs you" counts the stop.
   const caret = q('.p-session button[aria-controls="section-needs-you"]');
   try {
-    await browser.click(caret);
-    await browser.waitFor(`${caret}.getAttribute("aria-expanded") === "false" && ${caret}.innerText.includes("needs you (1)")`, { what: "the closed section counts the stop" });
-    await browser.click(caret);
-    await browser.waitFor(`${caret}.getAttribute("aria-expanded") === "true"`, { what: "needs you open again" });
+    // The list has just opened and the frame glides to its new size (240 ms): let it settle.
+    await sleep(600);
+    await clickUntil(caret, `${caret}.getAttribute("aria-expanded") === "false" && /^needs you\\s*1$/i.test(${caret}.innerText.trim())`, "the closed section counts the stop");
+    await clickUntil(caret, `${caret}.getAttribute("aria-expanded") === "true"`, "needs you open again");
   } finally {
     await browser.evaluate(`localStorage.removeItem("kino.dashboard.sections")`);
   }
@@ -3351,15 +3352,16 @@ test("a waiting stop: needs you lists it first, the status line and the title sa
     const card = ${q("article.stop-card")};
     const heading = document.getElementById("stop-C1");
     return { heading: heading.innerText.replace(/\\s+/g, " ").trim(), hidden: [...heading.querySelectorAll('[aria-hidden="true"]')].map((element) => element.textContent).join(""),
-      text: card.innerText, ask: [...card.querySelectorAll("p")].map((line) => line.innerText.trim()) };
+      text: card.innerText, ask: [...card.querySelectorAll("p")].map((line) => line.innerText.trim()), meta: [...card.querySelectorAll(".stop-meta li")].map((item) => item.innerText.trim()) };
   })()`);
-  assert.equal(card.heading, "◉ C1 · the rough cut · waits for you");
-  assert.equal(card.hidden, "◉");
-  assert.ok(card.text.includes(`asked ${clock} by test-agent · rev ${asked.rev}`), card.text);
+  assert.equal(card.heading, "C1, the rough cut, waits for you");
+  assert.equal(card.hidden, "", "no drawn ◉ any more");
+  assert.deepEqual(card.meta, [clock, "Test-agent", `Rev ${asked.rev}`], "when, who and which revision asked");
   for (const line of asked.ask.split("\n")) assert.ok(card.ask.includes(line), `the ask's line ${JSON.stringify(line)}, one paragraph each: ${JSON.stringify(card.ask)}`);
   assert.deepEqual(asked.offer, ["color", "sound"]);
-  assert.ok(card.text.includes(`the agent's ask offers "stop asking" for the color and sound checks; that answer is given in the chat`), card.text);
-  assert.ok(card.text.includes("A and D are off on stops: set a stop to allow in settings. The agent hears your answer with its next call."), card.text);
+  assert.ok(card.text.includes(`The ask offers "stop asking" for the color and sound checks, answered in the chat`), card.text);
+  // The footnote about A and D is gone from the card (they are still off, and say so when pressed: next test).
+  assert.ok(!card.text.includes("A and D are off on stops"), card.text);
   await browser.key("Escape");
   await browser.waitFor(`!document.querySelector("article.stop-card") && !!${stopRow("C1")}`, { what: "back on the main screen" });
 });
@@ -3423,8 +3425,8 @@ test("Tab on a stop approves with a note; A and D are off; the approve-with-a-no
   const stills = `[...document.querySelectorAll(".stop-card img")]`;
   await browser.waitFor(`${stills}.length === 4 && ${stills}.every((image) => image.complete && image.naturalWidth > 0)`, { timeout: 30_000, what: "4 stills loaded" });
   const shown = await browser.evaluate(`${stills}.map((image) => ({ alt: image.alt, src: new URLSearchParams(image.getAttribute("src").split("?")[1]) })).map(({ alt, src }) => [alt, src.get("project"), src.get("rev"), src.get("w")])`);
-  assert.deepEqual(shown, [3, 9, 15, 21].map((seconds) => [`rev ${asked.rev} at ${seconds.toFixed(1)} s`, "stops-a", String(asked.rev), "160"]), JSON.stringify(shown));
-  assert.ok(await browser.evaluate(pageHas(`stills of rev ${asked.rev}, the revision you answer`, ".stop-card")), "the stills' caption");
+  assert.deepEqual(shown, [3, 9, 15, 21].map((seconds) => [`Rev ${asked.rev} at ${seconds.toFixed(1)} s`, "stops-a", String(asked.rev), "480"]), JSON.stringify(shown));
+  assert.ok(await browser.evaluate(`!!${q(`.stop-card .stills-grid[aria-label="Stills of rev ${asked.rev}"]`)}`), "the stills are labeled with the revision you answer");
   assert.equal(await browser.evaluate(pageHas(`offers "stop asking"`, ".stop-card")), false, "only the first of rough, color and sound offers it");
   await browser.shot("stop-screen");
   // A on the stop screen says the same; C2 still waits.
@@ -3436,19 +3438,19 @@ test("Tab on a stop approves with a note; A and D are off; the approve-with-a-no
   assert.equal((await settings()).approvals["checkpoint-color"], "ask", "and set nothing");
   // By mouse: the button with an empty note focuses the note, in its approve-with-notes mode, inside
   // the click itself (a phone opens its keyboard only for a focus inside the tap).
-  await browser.click(q("#stop-C2"));
-  assert.equal(await browser.evaluate(`(() => { ${button("[Tab] approve with a note", ".stop-card")}.click(); return document.activeElement === ${stopNote}; })()`), true, "the note focused inside the click");
+  await browser.click(q(".stop-card .stop-meta"));
+  assert.equal(await browser.evaluate(`(() => { ${button("Approve with note", ".stop-card")}.click(); return document.activeElement === ${stopNote}; })()`), true, "the note focused inside the click");
   await browser.waitFor(`document.activeElement === ${stopNote}`, { what: "the note focused by the button" });
-  assert.equal(await browser.evaluate(noteLabel), "note for approve with notes");
-  assert.equal(await browser.evaluate(`${stopNote}.placeholder`), "Enter approves with this note");
+  assert.equal(await browser.evaluate(noteLabel), "Note for approve with notes");
+  assert.equal(await browser.evaluate(`${stopNote}.placeholder`), "Note. Enter approves with it");
   assert.equal(await browser.evaluate(`${stopNote}.maxLength`), 2000);
   assert.equal((await stopsOf("stops-a")).waiting?.id, "C2", "an empty note sent nothing");
   // By keyboard: from nothing focused, Tab goes to the note; Enter approves with it.
-  await browser.click(q("#stop-C2"));
+  await browser.click(q(".stop-card .stop-meta"));
   await browser.waitFor(`document.activeElement !== ${stopNote}`, { what: "the note no longer focused" });
   await browser.key("Tab");
   await browser.waitFor(`document.activeElement === ${stopNote}`, { what: "idle Tab focuses the note" });
-  assert.equal(await browser.evaluate(noteLabel), "note for approve with notes");
+  assert.equal(await browser.evaluate(noteLabel), "Note for approve with notes");
   await browser.type("warmer");
   await browser.key("Enter");
   const round = await until(async () => { const found = await roundOf("stops-a", "C2"); return found?.status === "answered" ? found : null; }, "C2 approved with notes");
@@ -3463,10 +3465,10 @@ test("d on a stop asks for a redo with a note: an empty note is refused, the red
   assert.match(inboxText(asked.reply), /C2 color approved by the person in kino, with notes: "warmer"\. Make those changes, then go on\./);
   await openOn("stops-a");
   // By mouse: the row's redo opens the stop screen with the redo note focused.
-  await browser.click(`[...(${stopRow("C3")})?.querySelectorAll("button") ?? []].find((element) => element.textContent.trim() === "[d] redo")`, "C3's [d] redo");
+  await browser.click(`[...(${stopRow("C3")})?.querySelectorAll("button") ?? []].find((element) => element.textContent.trim() === "Redo")`, "C3's Redo");
   await browser.waitFor(`document.activeElement === ${stopNote}`, { what: "the redo note focused from the row" });
-  assert.equal(await browser.evaluate(noteLabel), "what to redo");
-  assert.equal(await browser.evaluate(`${stopNote}.placeholder`), "Enter sends the redo");
+  assert.equal(await browser.evaluate(noteLabel), "What to redo");
+  assert.equal(await browser.evaluate(`${stopNote}.placeholder`), "What to redo. Enter sends it");
   // Esc leaves the note first, then the screen.
   await browser.key("Escape");
   await browser.waitFor(`document.activeElement !== ${stopNote} && !!document.querySelector("article.stop-card")`, { what: "Esc leaves the note" });
@@ -3476,7 +3478,7 @@ test("d on a stop asks for a redo with a note: an empty note is refused, the red
   await showView("session");
   await browser.key("d");
   await browser.waitFor(`document.activeElement === ${stopNote} && !!document.querySelector('article.stop-card[aria-labelledby="stop-C3"]')`, { what: "d opens C3 with its redo note focused" });
-  assert.equal(await browser.evaluate(noteLabel), "what to redo");
+  assert.equal(await browser.evaluate(noteLabel), "What to redo");
   // Enter on an empty redo says what to do and sends nothing.
   await browser.key("Enter");
   await browser.waitFor(`${topMessage} === "Say what to redo first: type it in the note, then press Enter." && !!${q(".topline .message.err")}`, { what: "the empty redo refused" });
@@ -3488,7 +3490,7 @@ test("d on a stop asks for a redo with a note: an empty note is refused, the red
   await browser.waitFor(`document.activeElement !== ${stopNote}`, { what: "Esc leaves the note" });
   await browser.key("Tab");
   await browser.waitFor(`document.activeElement === ${stopNote}`, { what: "Tab back into the note" });
-  assert.equal(await browser.evaluate(noteLabel), "what to redo", "Tab keeps a typed redo note a redo");
+  assert.equal(await browser.evaluate(noteLabel), "What to redo", "Tab keeps a typed redo note a redo");
   await browser.key("Enter");
   const round = await until(async () => { const found = await roundOf("stops-a", "C3"); return found?.status === "answered" ? found : null; }, "C3 redo");
   assert.deepEqual([round.answer.via, round.answer.read_as, round.answer.words], ["dashboard", "redo", "the ding is too loud"]);
@@ -3529,7 +3531,7 @@ test("reopen asks first (n keeps the answer), then reopens a chat answer, and th
   const label = `Reopen C4: the agent recorded "${words}" as approve with notes. kino tells it to ask you again.`;
   const reopen = `document.querySelector(${JSON.stringify(`#section-stops button[aria-label=${JSON.stringify(label)}]`)})`;
   await browser.waitFor(`!!${reopen}`, { what: "C4's reopen button" });
-  assert.equal(await browser.evaluate(`${reopen}.textContent.trim()`), "reopen");
+  assert.equal(await browser.evaluate(`${reopen}.textContent.trim()`), "Reopen");
   // Only answered rounds with no later round of their kind have one: C1 and C2 here, not C3 (redo, then C4).
   assert.deepEqual(await browser.evaluate(`[...document.querySelectorAll("#section-stops button")].map((element) => element.getAttribute("aria-label") ?? "").filter((name) => name.startsWith("Reopen ")).map((name) => name.split(":")[0]).sort()`),
     ["Reopen C1", "Reopen C2", "Reopen C4"]);
@@ -3539,7 +3541,7 @@ test("reopen asks first (n keeps the answer), then reopens a chat answer, and th
   await browser.evaluate(`${reopen}.focus()`);
   await browser.key("Enter");
   const question = `Reopen C4 (the sound pass)? The agent recorded "${words}" as approve with notes. kino tells it to ask you again.`;
-  await browser.waitFor(`${textOf('[role="alertdialog"]')}.includes(${JSON.stringify(question)}) && !!${button("[y] reopen", '[role="alertdialog"]')}`, { what: "the reopen question" });
+  await browser.waitFor(`${textOf('[role="alertdialog"]')}.includes(${JSON.stringify(question)}) && !!${button("Reopen", '[role="alertdialog"]')}`, { what: "the reopen question" });
   await browser.key("n");
   await browser.waitFor(`!document.querySelector('[role="alertdialog"]')`, { what: "n closes the question" });
   await sleep(300);
@@ -3576,7 +3578,7 @@ test("keep asking undoes the \"stop asking\" the agent recorded from the chat, a
   const recorded = await agent("notes", { project: "stops-b", action: "answer", id: "C1", rev: asked.rev, words, read_as: "stop asking" });
   assert.equal(recorded.isError, undefined, recorded.text);
   await browser.waitFor(pageHas(`stop asking: rough, color and sound pass for this video · said in chat: "${words}" · recorded by the agent`, "#section-stops"), { what: "the stop asking line" });
-  const keep = `[...document.querySelectorAll("#section-stops button")].find((element) => element.textContent.trim() === "keep asking")`;
+  const keep = `[...document.querySelectorAll("#section-stops button")].find((element) => element.textContent.trim() === "Keep asking")`;
   await browser.waitFor(`!!${keep}`, { what: "the keep asking button" });
   const named = (await readNodes()).filter((node) => node.role === "button" && node.name.toLowerCase().includes("keep asking"));
   assert.equal(named.length, 1, "a screen reader hears one keep asking button");
@@ -3607,7 +3609,7 @@ test("stop settings by keyboard and by mouse: ask or allow and skip-under for ea
     await browser.waitFor(`!!${stopField("set-stop-rough")}`, { what: "the stops section" });
     // The stops come before the approvals: they hold a final render, so they must not be missed.
     const pane = await browser.evaluate(`${q('.set-pane[data-pane="2"]')}.innerText`);
-    assert.match(pane, /^stops/, "pane 2 is the stops");
+    assert.match(pane, /^Stops/, "pane 2 is the stops");
     assert.ok(pane.replace(/\s+/g, " ").includes("\"stop asking\" in chat skips the rough cut, color and sound stops for one video."), pane);
     // Each stop: ask or allow, and its skip-under length, with the owner's defaults.
     const STOPS = { board: ["storyboard", 8], rough: ["rough cut", 15], color: ["color pass", 15], sound: ["sound pass", 15] };
@@ -3631,7 +3633,8 @@ test("stop settings by keyboard and by mouse: ask or allow and skip-under for ea
     await browser.type("20");
     await sleep(200);
     assert.equal((await settings()).limits.skipRoughUnder, 15, "nothing saved while typing");
-    await browser.click(q("#screen-title"));
+    // The page title is visually hidden now: a click on the stops section's heading takes the focus away.
+    await browser.click(q("#set-pane-2"));
     await until(async () => (await settings()).limits.skipRoughUnder === 20, "the rough cut skips under 20 s");
     const saved = await settings();
     assert.deepEqual(Object.fromEntries(Object.entries(saved.approvals).filter(([kind]) => kind.startsWith("checkpoint-"))),
@@ -3686,11 +3689,11 @@ test("the phone puts a waiting stop's card first; a tap approves it, and the sto
         buttons: [...card.querySelectorAll("button")].filter((element) => element.getClientRects().length).map((element) => [element.textContent.trim(), Math.round(element.getBoundingClientRect().height)]) };
     })()`);
     assert.ok(place.page <= 390 && place.card <= 0, `no sideways scrolling: ${JSON.stringify(place)}`);
-    for (const label of ["[a] approve", "[Tab] approve with a note", "[d] redo with a note"])
+    for (const label of ["Approve", "Approve with note", "Redo"])
       assert.ok(place.buttons.some(([text, height]) => text === label && height >= 44), `${label} is at least 44 px tall: ${JSON.stringify(place.buttons)}`);
     await browser.waitFor(`[...document.querySelectorAll(".phone-stack .stop-card img")].filter((image) => image.complete && image.naturalWidth > 0).length === 4`, { timeout: 30_000, what: "the stills on the phone" });
     await browser.shot("stop-phone");
-    await browser.tap(button("[a] approve", ".phone-stack .stop-card"));
+    await browser.tap(button("Approve", ".phone-stack .stop-card"));
     const round = await until(async () => { const found = await roundOf("stops-a", "C5"); return found?.status === "answered" ? found : null; }, "C5 approved by a tap");
     assert.deepEqual([round.answer.via, round.answer.read_as, round.answer.words], ["dashboard", "approve", null]);
     const clock = await pageClock(round.answer.at);
@@ -3726,30 +3729,22 @@ test("a screen reader hears the stop: its row, the status line, the card, its th
   assert.ok(names("button").includes("Reopen C5: take back your answer (approve). kino tells the agent to ask you again."), "reopen on a dashboard answer");
   assert.ok(names("button").includes("Reopen C2: take back your answer (approve with notes). kino tells the agent to ask you again."), "reopen on a dashboard answer with a note");
   assert.deepEqual(nodes.filter((node) => node.name.includes("◉")).map((node) => node.name), [], "the drawn ◉ is never read");
-  // The status line reads the stop in words.
-  const byId = new Map((await browser.send("Accessibility.getFullAXTree")).nodes.map((node) => [node.nodeId, node]));
-  const footer = nodes.find((node) => node.role === "contentinfo" && node.name === "Status");
-  const heard = [];
-  const walk = (node) => {
-    if (!node) return;
-    if (!node.ignored && node.role?.value === "StaticText" && node.name?.value) heard.push(node.name.value);
-    for (const id of node.childIds ?? []) walk(byId.get(id));
-  };
-  walk(byId.get(footer.node.nodeId));
-  assert.ok(heard.join("").replace(/\s+/g, " ").includes(`C6 rough cut waits for you · asked ${clock}`), `the status line: ${heard.join(" | ")}`);
+  // On a wide window the line under the frame reads the stop in words (the status line no longer does).
+  assert.ok(nodes.some((node) => node.role === "region" && node.name === "test-agent needs you"), `the agent's line is a region that says who needs you: ${names("region").join(" | ")}`);
+  assert.ok(nodes.some((node) => node.name === "Look at the rough cut, then approve it or ask for a redo."), "the line under the frame says what to do");
   // The card on the stop screen.
   await browser.click(stopOpen("C6"));
   await browser.waitFor(`!!document.querySelector('article.stop-card[aria-labelledby="stop-C6"]')`, { what: "C6's card" });
   nodes = await readNodes();
-  assert.ok(nodes.some((node) => node.role === "article" && node.name === "C6 · the rough cut · waits for you"), `the card: ${names("article").join(" | ")}`);
+  assert.ok(nodes.some((node) => node.role === "article" && node.name === "C6, the rough cut, waits for you"), `the card: ${names("article").join(" | ")}`);
   assert.ok(nodes.some((node) => node.name === "What the agent sends you"), "the ask's block is named");
-  for (const [label, keys] of [["[a] approve", "a"], ["[Tab] approve with a note", "Tab"], ["[d] redo with a note", "d"]]) {
+  for (const [label, keys] of [["Approve", "a"], ["Approve with note", "Tab"], ["Redo", "d"]]) {
     const found = nodes.find((node) => node.role === "button" && node.name === label);
-    assert.ok(found, `the ${label} button: ${names("button").filter((name) => /approve|redo/.test(name)).join(" | ")}`);
+    assert.ok(found, `the ${label} button: ${names("button").filter((name) => /approve|redo/i.test(name)).join(" | ")}`);
     assert.equal(await browser.evaluate(`${button(label, ".stop-card")}.getAttribute("aria-keyshortcuts")`), keys, `${label}'s key`);
   }
-  assert.ok(nodes.some((node) => node.role === "textbox" && node.name === "note for approve with notes"), `the note by its label: ${names("textbox").join(" | ")}`);
-  assert.ok(nodes.some((node) => node.role === "image" || node.role === "img") && nodes.some((node) => ["image", "img"].includes(node.role) && node.name === `rev ${asked.rev} at 3.0 s`), "the stills by their revision and time");
+  assert.ok(nodes.some((node) => node.role === "textbox" && node.name === "Note for approve with notes"), `the note by its label: ${names("textbox").join(" | ")}`);
+  assert.ok(nodes.some((node) => node.role === "image" || node.role === "img") && nodes.some((node) => ["image", "img"].includes(node.role) && node.name === `Rev ${asked.rev} at 3.0 s`), "the stills by their revision and time");
   await browser.key("Escape");
   // The settings fields.
   await browser.key(":");
@@ -3762,7 +3757,7 @@ test("a screen reader hears the stop: its row, the status line, the card, its th
   // The keys screen lists the stop's keys.
   await browser.key("Escape");
   await browser.key("?");
-  await browser.waitFor(pageHas("on a stop: approve, approve with a note, redo with a note, a note on one shot (A, D off)", ".screen"), { what: "the stop's keys on the keys screen" });
+  await browser.waitFor(pageHas("On a stop: approve, approve with a note, redo with a note, a note on one shot (A, D off)", ".screen"), { what: "the stop's keys on the keys screen" });
   await browser.key("Escape");
 });
 
@@ -3778,7 +3773,7 @@ test("reduced motion: nothing on the stop card moves, and the card is answered b
     assert.equal(moving, 0, "no animation or transition on the stop card under reduced motion");
     const card = await browser.evaluate(`(() => { const style = getComputedStyle(${q(".stop-card")}); return [style.animationName, style.transitionDuration]; })()`);
     assert.deepEqual(card, ["none", "0s"]);
-    await browser.click(button("[a] approve", ".stop-card"));
+    await browser.click(button("Approve", ".stop-card"));
     const round = await until(async () => { const found = await roundOf("stops-a", "C6"); return found?.status === "answered" ? found : null; }, "C6 approved by a click");
     assert.deepEqual([round.answer.via, round.answer.read_as, round.answer.words], ["dashboard", "approve", null]);
     await browser.waitFor(`${politeText} === ${JSON.stringify(`C6 approved.${GO_ON}`)}`, { what: "the polite announcement" });
@@ -3809,7 +3804,7 @@ test("on the stop screen d and a answer by key; after a redo the screen moves to
   // d on the stop screen puts the cursor in the note for a redo.
   await browser.key("d");
   await browser.waitFor(`document.activeElement === ${stopNote}`, { what: "d focuses the redo note" });
-  assert.equal(await browser.evaluate(noteLabel), "what to redo");
+  assert.equal(await browser.evaluate(noteLabel), "What to redo");
   await browser.type("make the title bigger");
   await browser.key("Enter");
   const redo = await until(async () => { const found = await roundOf("stops-r", "C1"); return found?.status === "answered" ? found : null; }, "C1 redo");
@@ -3821,7 +3816,7 @@ test("on the stop screen d and a answer by key; after a redo the screen moves to
   await stopCheck("stops-r");
   const second = await askStop("stops-r", "rough");
   assert.equal(second.id, "C2", second.reply.text);
-  await browser.waitFor(`!!document.querySelector('article.stop-card[aria-labelledby="stop-C2"]') && ${textOf("#screen-title")}.includes("stop · C2")`, { what: "the stop screen moves to C2" });
+  await browser.waitFor(`!!document.querySelector('article.stop-card[aria-labelledby="stop-C2"]') && ${textOf("#screen-title")}.includes("Rough cut, C2")`, { what: "the stop screen moves to C2" });
   await browser.evaluate("document.activeElement?.blur()");
   await browser.key("a");
   const approved = await until(async () => { const found = await roundOf("stops-r", "C2"); return found?.status === "answered" ? found : null; }, "C2 approved by a");
@@ -3830,7 +3825,7 @@ test("on the stop screen d and a answer by key; after a redo the screen moves to
   await browser.key("Escape");
 });
 
-test("with needs you closed the orange top line still names a stop and nothing is answered; the row's [a] approve button approves by mouse; reopen keeps the focus on the line", async () => {
+test("with needs you closed the line under the frame still names a stop and nothing is answered; the row's Approve button approves by mouse; reopen keeps the focus on the line", async () => {
   // The rough cut was approved on this revision, so the color would merge into it: a real edit asks the color on its own.
   await agent("edit", { project: "stops-r", ops: [moveTitle(780)] });
   await stopCheck("stops-r");
@@ -3841,14 +3836,14 @@ test("with needs you closed the orange top line still names a stop and nothing i
   const caret = q('.p-session button[aria-controls="section-needs-you"]');
   await browser.click(caret, "the needs you caret");
   await browser.waitFor(`${caret}.getAttribute("aria-expanded") === "false"`, { what: "needs you closed" });
-  // Closed, the stop is still never unseen: the whole top line is orange and names it, with the
-  // a key's word. Closing the section answers nothing.
-  await browser.waitFor(`${q(".topline")}.classList.contains("asking") && ${pageHas("needs you", ".topline .needs-chip")} && ${pageHas("approve", ".topline .needs-chip .chip-answer")}`, { what: "the orange top line for C3" });
+  // Closed, the stop is still never unseen: the line under the frame names it, with the a key's
+  // word. Closing the section answers nothing.
+  await browser.waitFor(`${pageHas("Look at the color pass, then approve it or ask for a redo.", ".voice .voice-line")} && ${pageHas("Approve color pass", ".voice .voice-answers")}`, { what: "the line under the frame for C3" });
   await sleep(300);
   assert.equal((await stopsOf("stops-r")).waiting?.id, "C3", "closing needs you answered nothing");
   await browser.click(caret, "the needs you caret");
   await browser.waitFor(`${caret}.getAttribute("aria-expanded") === "true" && !!${stopRow("C3")}`, { what: "needs you open again" });
-  await browser.click(`[...(${stopRow("C3")})?.querySelectorAll("button") ?? []].find((element) => element.textContent.trim() === "[a] approve")`, "C3's [a] approve");
+  await browser.click(`[...(${stopRow("C3")})?.querySelectorAll("button") ?? []].find((element) => element.textContent.trim() === "Approve")`, "C3's Approve");
   const round = await until(async () => { const found = await roundOf("stops-r", "C3"); return found?.status === "answered" ? found : null; }, "C3 approved by the row's button");
   assert.deepEqual([round.answer.via, round.answer.read_as], ["dashboard", "approve"]);
   // The row and its button are gone, and no other row waits: the focus goes to the section's caret.
@@ -3887,7 +3882,7 @@ test("at phone width a chat answer to a stop keeps its line, with reopen and the
     assert.ok(place.page <= 390, "no sideways scrolling");
     assert.equal(await browser.evaluate(topMessage), 'C4 approved in chat (recorded by the agent): "ok".', "the top line says what the agent recorded");
     await browser.shot("stop-phone-chat-answer");
-    await browser.tap(button("dismiss", ".phone-stack .stop-done"));
+    await browser.tap(button("Dismiss", ".phone-stack .stop-done"));
     await browser.waitFor(`!document.querySelector(".phone-stack .stop-done")`, { what: "dismissed" });
   } finally {
     await browser.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
@@ -3904,7 +3899,8 @@ test("a stop waiting in a project that is not open shows in needs you, the statu
   const asked = await askStop("stops-x", "rough");
   assert.equal(asked.id, "C1", asked.reply.text);
   const row = `document.querySelector('#section-needs-you [aria-label^="Stop C1 in stops-x:"]')`;
-  await browser.waitFor(`!!${row} && ${textOf(".statusline")}.includes("C1 rough cut waits for you in stops-x") && document.title.startsWith("1 awaiting")`, { what: "C1 of stops-x in needs you, the status line and the title" });
+  // On a wide window the status line no longer names the stop: the Crew tab counts it.
+  await browser.waitFor(`!!${row} && ${q('.tabs [aria-label=", 1 waiting for you"]')} !== null && document.title.startsWith("1 awaiting")`, { what: "C1 of stops-x in needs you, the Crew tab and the title" });
   assert.ok(await browser.evaluate(`${onProject("stops-r")}`), "stops-r stays open");
   assert.match(await browser.evaluate(assertiveText), /^C1 needs you in stops-x: the rough cut is ready\./);
   // a does not answer it unseen: it says how to open it.
@@ -4034,9 +4030,9 @@ const boardSeen = `(() => {
   const row = ${boardPanel};
   const box = (element) => ["x", "y", "width", "height"].map((name) => Number(element.getAttribute(name)));
   return {
-    shot: row.dataset.shot, notes: row.hasAttribute("data-notes"), head: row.querySelector(".board-row-head").innerText.replace(/\\s+/g, " ").trim(),
+    shot: row.dataset.shot, notes: row.hasAttribute("data-notes"), why: row.querySelector(".board-why")?.textContent.trim() ?? null, head: row.querySelector(".board-row-head").innerText.replace(/\\s+/g, " ").trim(),
     frames: [...row.querySelectorAll(".shot-frames figure")].map((figure) => [new URL(figure.querySelector("img")?.src ?? "http://x/").searchParams.get("part"), figure.querySelector("figcaption").textContent.trim()]),
-    length: row.querySelector(".shot-length output, .shot-length p:not(.faint)")?.textContent.trim() ?? null,
+    length: row.querySelector(".shot-length output, .shot-length .shot-length-value")?.textContent.trim() ?? null,
     lines: Object.fromEntries([...row.querySelectorAll(".board-lines > div")].map((line) => [line.querySelector("dt").textContent.trim(), line.querySelector("dd").textContent.trim()])),
     tags: [...row.querySelectorAll(".board-tags li")].map((tag) => tag.textContent.trim()),
     options: [...row.querySelectorAll(".board-option")].map((option) => [option.querySelector(".option-letter").textContent, option.querySelector(".option-why").textContent, option.getAttribute("aria-pressed")]),
@@ -4060,6 +4056,12 @@ const pageHeight = `({ window: innerHeight, page: document.scrollingElement.scro
 /** The font sizes the board's words are drawn at (the rough cut's text is drawn at the video's size). */
 const boardFontSizes = `[...new Set([...document.querySelectorAll(".board .board-title, .board-head p, .board-chips li, .cut-clock, .board-row-head, .board-why, .board-tags li, .board-lines dt, .board-lines dd, .board-label, .board figcaption, .board-covered, .board-section, .board-list li, .board summary, .board-note label, [data-note-open], .option-why, .stepper output, .board-lane-name, .board-lane-item, .board-lane-empty, .clip-role, .answer-chips li")].map((element) => getComputedStyle(element).fontSize))]`;
 
+/** The redesign draws the board's words in a small scale (12 to 15 px) where the old card had one size (13 px). */
+async function inBoardScale(what) {
+  const sizes = await browser.evaluate(boardFontSizes);
+  assert.ok(sizes.length > 0 && sizes.every((size) => ["12px", "13px", "14px", "15px"].includes(size)), `${what}: ${JSON.stringify(sizes)}`);
+}
+
 async function atPhone(run) {
   await browser.send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
   await browser.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 });
@@ -4078,14 +4080,16 @@ async function openBoardStop(id, stop = "C1") {
   await openOn(id);
   await browser.waitFor(`!!${stopRow(stop)}`, { what: `${stop} in needs you` });
   await browser.click(stopOpen(stop));
-  await browser.waitFor(`!!document.querySelector('article.stop-card[aria-labelledby="stop-${stop}"]') && ${boardClips}.length === 5 && !!${boardPanel}`, { what: `${stop}'s card with its 5 shots` });
+  await browser.waitFor(`!!document.querySelector('article.stop-card[aria-labelledby="stop-${stop}"]') && ${boardClips}.length === 5`, { what: `${stop}'s card with its 5 shots` });
 }
 
-test("storyboard screen: the rough cut, the shot panel and the timeline show every layer; a approves it, and kino keeps the board it showed", { skip: skipWithoutMediaTools }, async () => {
+test("storyboard screen: the rough cut, the shot box and the shot stills show every layer; a approves it, and kino keeps the board it showed", { skip: skipWithoutMediaTools }, async () => {
   const id = "board-layers";
   const { asked } = await boardVideo(id);
   const data = await (await server.api(`/api/dashboard/board-data?project=${id}&stop=C1`)).json();
   await openBoardStop(id);
+  // The shot box (the rough cut and the shot) is closed until a still is clicked.
+  await pickShot("S1");
   const card = await browser.evaluate(`(() => {
     const card = ${q("article.stop-card")};
     return {
@@ -4099,55 +4103,54 @@ test("storyboard screen: the rough cut, the shot panel and the timeline show eve
       videos: [...document.querySelectorAll(".board-cut video")].map((video) => [video.muted, video.paused, new URL(video.src).pathname]),
       clips: [...card.querySelectorAll(".board-clip")].map((clip) => clip.dataset.shot),
       roles: [...card.querySelectorAll(".clip-role")].map((role) => role.textContent),
-      text: [...card.querySelectorAll(".board-lane-words:not(.board-lane-sound) .board-lane-item")].map((item) => item.textContent),
-      sound: card.querySelector(".board-lane-sound").textContent,
+      title: card.querySelector(".board-title")?.textContent.trim() ?? null,
       answers: [...card.querySelectorAll(".stop-answer button")].map((button) => button.innerText.trim()),
       stills: card.querySelectorAll(".stills-grid img").length, watch: !!card.querySelector(".stop-watch"),
     };
   })()`);
-  assert.equal(card.heading, "◉ C1 · the storyboard · waits for you");
-  assert.deepEqual(card.head, ["C1 · board r1"], "no purpose line: the brief has none");
-  assert.deepEqual(card.chips, ["5 shots", "8.8 s", "9:16", "vertical", "no music", "fresh eyes: not reported"]);
-  assert.deepEqual(card.calls, ["agent's calls (1)", false, [["the dragon first: it is the news", "false"]]], "folded away; each call takes a no");
-  assert.deepEqual(card.cut, { play: "Play the rough cut (no sound)", clock: "0:00.0 / 0:08.8", covered: ["", "app (unverified)"] }, "the rough cut, with the app's covered areas on it");
+  assert.equal(card.heading, "C1, the storyboard, waits for you");
+  assert.deepEqual(card.head, [], "no purpose line: the brief has none");
+  assert.equal(card.title, "C1, board r1");
+  assert.deepEqual(card.chips, ["5 shots", "8.8 s", "9:16", "Vertical", "No music", "Fresh eyes: not reported"]);
+  assert.deepEqual(card.calls, ["Agent's calls\n1", false, [["the dragon first: it is the news", "false"]]], "folded away; each call takes a no");
+  assert.deepEqual(card.cut, { play: "Play the rough cut (no sound)", clock: "0:00.0 / 0:08.8", covered: ["", "App (unverified)"] }, "the rough cut, with the app's covered areas on it");
   assert.deepEqual(card.videos, [[true, true, data.shots[0].media.src]], "one file, muted, still until play");
   assert.deepEqual(card.clips, ["S1", "S2", "S3", "S4", "S5"]);
-  assert.deepEqual(card.roles, data.shots.map((shot) => shot.role).filter(Boolean), "the story roles kino picks moves for");
-  assert.deepEqual([card.text, card.sound], [["The dragon is back", "Look up"], "no music or sound yet"]);
-  assert.deepEqual(card.answers, ["approve"], "no changes yet: only approve");
+  assert.deepEqual(card.roles, data.shots.map((shot, index) => (shot.role ? `${index + 1} ${shot.role[0].toUpperCase()}${shot.role.slice(1)}` : null)).filter(Boolean), "the story roles kino picks moves for, in the number chip");
+  assert.deepEqual(card.answers, ["Approve", "Change"], "no changes yet: approve, and Change (which presses redo)");
   assert.deepEqual([card.stills, card.watch], [0, false], "no stills of the stage and no watch line: nothing is built yet");
 
-  // Shot 1 in the panel: its first and last frame, its length, its layers, kino's numbers.
+  // Shot 1 in the box: its first and last frame, its length, its layers, kino's numbers.
   await browser.waitFor(boardPictures, { timeout: 60_000, what: "shot 1's pictures" });
   assert.equal(await browser.evaluate(openCropDetails), 1);
   await browser.waitFor(sourceDrawn, { what: "shot 1's source frame" });
   const one = await browser.evaluate(boardSeen);
-  assert.deepEqual([one.shot, one.notes, one.head, one.frames, one.tags, one.options, one.buttons],
-    ["S1", true, "shot 1 the dragon over the village", [["still", "0 s"], ["last", "1.3 s"]], ["zoom through"], [], ["remove shot", "note on shot 1"]]);
+  assert.deepEqual([one.shot, one.notes, one.head, one.why, one.frames, one.tags, one.options, one.buttons],
+    ["S1", true, "Shot 1 Hook", "The dragon over the village", [["still", "0 s"], ["last", "1.3 s"]], ["Zoom through"], [], ["Remove shot", "Note"]]);
   assert.match(one.length, /^1\.3 s$/);
-  assert.equal(one.lines.footage, "sintel-village-dragon.mp4 from 0 s · crop 24 × 76% at 20, 12");
-  assert.equal(one.lines.subject, "the dragon · box by the agent");
-  assert.match(one.lines.measured, /^\d+% in the crop · (edge \d+%|touches the edge) · eyes \d+% from the top$/);
-  assert.deepEqual([one.lines.follow, one.lines.pacing, one.lines.text, one.lines.sound, one.lines.why], ["steady", "free", "none", "none", "the dragon over the village"]);
+  assert.equal(one.lines.Footage, "sintel-village-dragon.mp4 from 0 s, crop 24 × 76% at 20, 12");
+  assert.equal(one.lines.Subject, "the dragon, box by the agent");
+  assert.match(one.lines.Measured, /^\d+% in the crop, (edge \d+%|touches the edge), eyes \d+% from the top$/);
+  assert.deepEqual([one.lines.Follow, one.lines.Pacing, one.lines.Text, one.lines.Sound, one.lines.Why], ["steady", "free", "none", "none", "the dragon over the village"]);
   assert.deepEqual([one.crop, one.subjects, one.eyes, one.labels], [[20, 12, 24, 76], [[24, 30, 14, 30]], true, ["crop", "agent", "eyes"]], "the boxes in % of the source frame");
   await browser.shot("board-desktop-top");
   // A press on a shot's clip puts it in the panel and the playhead at its start.
   await pickShot("S2");
   await browser.evaluate(openCropDetails);
   const two = await browser.evaluate(boardSeen);
-  assert.ok(two.tags.includes("subject touches the crop edge"), JSON.stringify(two.tags));
-  assert.ok(two.lines["look at"].includes("subject touches the crop edge"), JSON.stringify(two.lines));
+  assert.ok(two.tags.includes("Subject touches the crop edge"), JSON.stringify(two.tags));
+  assert.ok(two.lines["Look at"].includes("subject touches the crop edge"), JSON.stringify(two.lines));
   await pickShot("S4");
   assert.equal(await browser.evaluate(textOf(".cut-clock")), "0:04.4 / 0:08.8");
   await browser.evaluate(openCropDetails);
   // A slow runner draws the title card's "no footage" line a moment after the panel.
   await browser.waitFor(`${boardPanel}?.dataset.shot === "S4" && !!${boardPanel}.querySelector(".board-missing")`, { what: "shot 4's no footage line" });
   const four = await browser.evaluate(boardSeen);
-  assert.deepEqual([four.frames, four.tags, four.lines.footage, four.lines.subject, four.missing, four.crop],
-    [[["still", "title card"]], ['"The dragon is back"', "zoom through"], "none", "none", "no footage", null]);
-  assert.match(four.lines.text, /^"The dragon is back" · Inter \d00 · \d+ px · y \d+%$/);
+  assert.deepEqual([four.frames, four.tags, four.lines.Footage, four.lines.Subject, four.missing, four.crop],
+    [[["still", "Title card"]], ['"The dragon is back"', "Zoom through"], "none", "none", "No footage", null]);
+  assert.match(four.lines.Text, /^"The dragon is back", Inter \d00, \d+ px, y \d+%$/);
   assert.equal(await browser.evaluate(textOf(".cut-text")), "The dragon is back", "the rough cut draws the title card's text");
-  assert.deepEqual(await browser.evaluate(boardFontSizes), ["13px"], "every word at the card's own size");
+  await inBoardScale("every word at the card's own sizes");
   const tall = await browser.evaluate(pageHeight);
   assert.ok(tall.page <= tall.window, `the page itself does not scroll: ${JSON.stringify(tall)}`);
   // The answers stay at the bottom of the window while the board scrolls under them.
@@ -4173,7 +4176,7 @@ test("storyboard screen: the rough cut, the shot panel and the timeline show eve
     assert.ok(overflow.scroll <= overflow.width && !overflow.past.length, JSON.stringify(overflow));
     const phoneTall = await browser.evaluate(pageHeight);
     assert.ok(phoneTall.page <= phoneTall.window, `the page itself does not scroll at 390 px: ${JSON.stringify(phoneTall)}`);
-    assert.deepEqual(await browser.evaluate(boardFontSizes), ["13px"]);
+    await inBoardScale("every word at the card's own sizes at 390 px");
     await browser.waitFor(boardPictures, { timeout: 60_000, what: "the panel's pictures at 390 px" });
     await browser.shot("board-phone-stop-screen");
   });
@@ -4209,19 +4212,19 @@ test("storyboard screen: c leaves a note on shot 2 and Enter sends it with the c
   await browser.waitFor(`document.activeElement === ${boardRow("S2")}`, { what: "j: shot 2 again" });
   await browser.key("c");
   await browser.waitFor(`document.activeElement?.id === "board-note-S2"`, { what: "c: shot 2's note" });
-  assert.equal(await browser.evaluate(`document.activeElement.labels[0].textContent`), "note on shot 2");
+  assert.equal(await browser.evaluate(`document.activeElement.labels[0].textContent`), "Note on shot 2");
   assert.equal(await browser.evaluate(`document.activeElement.maxLength`), 500);
-  assert.equal(await browser.evaluate(`document.activeElement.placeholder`), "Enter or Esc keeps it; it goes with your answer");
+  assert.equal(await browser.evaluate(`document.activeElement.placeholder`), "Goes with your answer");
   await browser.type("tighter");
   await browser.key("Escape");
   await browser.waitFor(`document.activeElement === ${boardRow("S2")}`, { what: "Esc: back on shot 2" });
   assert.equal(await browser.evaluate(`${q("#board-note-S2")}.value`), "tighter", "Esc keeps the note");
-  await browser.waitFor(`${textOf(".answer-chips")}.startsWith("shot 2: note")`, { what: "the note's chip in the answer bar" });
-  assert.equal(await browser.evaluate(`[...document.querySelectorAll(".stop-answer .actions button")].map((button) => button.innerText.trim()).join(" | ")`), "approve | send 1 change");
+  await browser.waitFor(`${textOf(".answer-chips")}.startsWith("Shot 2: note")`, { what: "the note's chip in the answer bar" });
+  assert.equal(await browser.evaluate(`[...document.querySelectorAll(".stop-answer .actions button")].map((button) => button.innerText.trim()).join(" | ")`), "Approve | Send 1 change");
   // Tab on the panel goes to the card's note, not back into the shot's.
   await browser.key("Tab");
   await browser.waitFor(`document.activeElement?.id === "stop-note-C1"`, { what: "Esc, then Tab: the card's note" });
-  assert.equal(await browser.evaluate(`document.activeElement.placeholder`), "note");
+  assert.equal(await browser.evaluate(`document.activeElement.placeholder`), "Note for the agent");
   await browser.waitFor(boardPictures, { timeout: 60_000, what: "shot 2's pictures" });
   await browser.shot("board-note-desktop");
   await atPhone(async () => {
@@ -4234,14 +4237,18 @@ test("storyboard screen: c leaves a note on shot 2 and Enter sends it with the c
   await browser.key("Enter");
   const round = await until(async () => { const found = await roundOf(id, "C1"); return found?.status === "answered" ? found : null; }, "C1 answered");
   assert.deepEqual([round.answer.read_as, round.answer.words, round.answer.shots], ["approve with notes", "warmer", [{ id: "S2", n: 2, words: "tighter" }]]);
-  const line = await browser.waitFor(`(() => { const text = ${textOf(".stop-lines")}; return text.includes("note on shot 2") && text; })()`, { what: "C1's line names the note on shot 2" });
-  assert.match(line, /^C1 storyboard · approved with notes on the dashboard: "warmer" · note on shot 2 · \d+ s after asking · \d\d:\d\d/);
+  // The answered board's status line says how it was answered and when; the card's note is its own
+  // line, and the shot with a note has the note mark on its still (the seconds after asking are no longer drawn).
+  const line = await browser.waitFor(`(() => { const text = ${textOf(".board-status .voice-line")}; return text.startsWith("Answered") && text; })()`, { what: "C1's board status line" });
+  assert.match(line, /^Answered: approved with notes on the dashboard at \d\d:\d\d/);
+  assert.equal(await browser.evaluate(textOf(".board-answer-note")), 'Your note: "warmer"');
+  assert.equal(await browser.evaluate(`${boardClips}.filter((clip) => clip.querySelector(".mark-note")).map((clip) => clip.dataset.shot).join()`), "S2", "the note on shot 2 is marked on its still");
   const heard = await agent("status", { project: id });
   assert.ok(inboxText(heard).includes('C1 board approved by the person in kino, with notes: "warmer"; on shot 2 (S2): "tighter". Make those changes (shot 2), then go on.'), inboxText(heard));
   // Answered: the board shows read only, with the notes it got.
   await browser.waitFor(`${boardClips}.length === 5 && !document.querySelector("[data-notes], [data-note-open], .stop-card")`, { what: "C1's board read only" });
   await pickShot("S2");
-  assert.equal(await browser.evaluate(textOf(`article.board-shot[data-shot="S2"] .board-your-note`)), 'your note on shot 2: "tighter"');
+  assert.equal(await browser.evaluate(textOf(`article.board-shot[data-shot="S2"] .board-your-note`)), 'Your note: "tighter"');
   await browser.key("Escape");
 });
 
@@ -4254,19 +4261,19 @@ test("storyboard screen: an option, a new length and remove shot are sent as cha
   await pickShot("S2");
   await browser.waitFor(`${boardPanel}.querySelectorAll(".board-option").length === 2`, { what: "shot 2's options" });
   await browser.click(`${boardPanel}.querySelectorAll(".board-option")[1]`);
-  await browser.click(`${boardPanel}.querySelector('.stepper button[aria-label^="longer"]')`);
-  await browser.click(`${boardPanel}.querySelector('.stepper button[aria-label^="longer"]')`);
+  await browser.click(`${boardPanel}.querySelector('.stepper button[aria-label^="Longer"]')`);
+  await browser.click(`${boardPanel}.querySelector('.stepper button[aria-label^="Longer"]')`);
   const two = await browser.evaluate(boardSeen);
-  assert.deepEqual([two.options, two.length, two.frames], [[["A", "the dragon over the village", "false"], ["✓", "wider, the roofs too", "true"]], "2.3 s", [["alt1", "1.3 s"]]]);
-  assert.equal(await browser.evaluate(textOf(".shot-length .board-change")), "was 2.1 s");
+  assert.deepEqual([two.options, two.length, two.frames], [[["A", "The dragon over the village", "false"], ["", "Wider, the roofs too", "true"]], "2.3 s", [["alt1", "1.3 s"]]]);
+  assert.equal(await browser.evaluate(textOf(".shot-length .board-change")), "Was 2.1 s");
   await pickShot("S3");
-  await browser.click(button("remove shot", "article.board-shot"));
+  await browser.click(button("Remove shot", "article.board-shot"));
   await browser.waitFor(`${q(".board-clip.removed")}?.dataset.shot === "S3"`, { what: "shot 3 removed on the timeline" });
   // The rough cut plays the board as directed: 0.2 s longer, 1.1 s shorter.
   assert.equal(await browser.evaluate(textOf(".cut-clock")).then((text) => text.split(" / ")[1]), "0:07.9");
   const bar = await browser.evaluate(`({ chips: [...document.querySelectorAll(".answer-chips li")].map((chip) => chip.firstChild.textContent.trim()),
     buttons: [...document.querySelectorAll(".stop-answer .actions button")].map((button) => button.innerText.trim()) })`);
-  assert.deepEqual(bar, { chips: ["shot 2: wider, the roofs too", "shot 2: 2.3 s", "shot 3: remove"], buttons: ["approve", "send 3 changes"] });
+  assert.deepEqual(bar, { chips: ["Shot 2: wider, the roofs too", "Shot 2: 2.3 s", "Shot 3: remove"], buttons: ["Approve", "Send 3 changes"] });
   await browser.waitFor(boardPictures, { timeout: 60_000, what: "shot 3's pictures" });
   await browser.shot("board-directed-desktop");
   // × takes one back; d sends the rest as a redo.
@@ -4287,11 +4294,13 @@ test("storyboard screen: an option, a new length and remove shot are sent as cha
   const again = await askStop(id, "board");
   assert.equal(again.id, "C2", again.reply.text);
   // The open stop screen follows the new ask.
-  await browser.waitFor(`!!document.querySelector('article.stop-card[aria-labelledby="stop-C2"]') && ${pageHas("C2 · board r2", ".board-title")}`, { what: "C2's card" });
+  await browser.waitFor(`!!document.querySelector('article.stop-card[aria-labelledby="stop-C2"]') && ${pageHas("C2, board r2", ".board-title")}`, { what: "C2's card" });
   const head = await browser.evaluate(`[...document.querySelectorAll(".board-head .board-change")].map((line) => line.innerText.trim())`);
-  assert.deepEqual(head, ["changed as you asked in C1: shot 2", "changed without being asked: shot 1 (text)", "named but not changed: shot 3"]);
+  assert.deepEqual(head, ["Changed as you asked in C1: shot 2", "Changed without being asked: shot 1 (text)", "Named but not changed: shot 3"]);
+  // The shot box is closed (or on another shot) after the new ask: open shot 1's.
+  if (!(await browser.evaluate(`${boardPanel}?.dataset.shot === "S1"`))) await pickShot("S1");
   await browser.evaluate(openCropDetails);
-  assert.equal((await browser.evaluate(boardSeen)).lines.change, "changed without being asked: text");
+  assert.equal((await browser.evaluate(boardSeen)).lines.Change, "changed without being asked: text");
   assert.match(await browser.evaluate(`${q("#board-S1")}.textContent`), / Changed without being asked: text\.$/, "a screen reader hears it too");
   assert.equal(await browser.evaluate(`${boardClips}.filter((clip) => clip.querySelector(".mark-change")).length`), 3, "shots 1, 2 and 3 are marked on the timeline");
   await browser.waitFor(boardPictures, { timeout: 60_000, what: "C2's first pictures" });
@@ -4304,11 +4313,13 @@ test("storyboard screen: an option, a new length and remove shot are sent as cha
   await browser.key("Escape");
 });
 
-test("storyboard screen: on a phone the card stacks the rough cut, the panel and the timeline; approve is near and nothing scrolls sideways at 390 px", { skip: skipWithoutMediaTools }, async () => {
+test("storyboard screen: on a phone the card stacks the shot stills, the shot box and the rough cut; approve is near and nothing scrolls sideways at 390 px", { skip: skipWithoutMediaTools }, async () => {
   const id = await boardViewVideo();
   await openOn(id);
   await atPhone(async () => {
     await browser.waitFor(`${q(".phone-stack article.stop-card")} && ${boardClips}.length === 5`, { what: "the phone's card with the board" });
+    // The shot box is closed until a still is tapped.
+    await pickShot("S1");
     await browser.waitFor(boardPictures, { timeout: 60_000, what: "the panel's pictures" });
     // Review round 1 of B4b: the approve button was 3,507 px below the card's top (over 4 screens).
     const reach = await browser.evaluate(`(() => {
@@ -4321,10 +4332,10 @@ test("storyboard screen: on a phone the card stacks the rough cut, the panel and
     assert.ok(overflow.scroll <= overflow.width && !overflow.past.length, JSON.stringify(overflow));
     const tall = await browser.evaluate(pageHeight);
     assert.ok(tall.page <= tall.window, `the page itself does not scroll, only the stack: ${JSON.stringify(tall)}`);
-    assert.deepEqual(await browser.evaluate(boardFontSizes), ["13px"], "no word smaller than the card's");
+    await inBoardScale("no word smaller than the card's");
     await browser.shot("board-phone-card");
-    await browser.evaluate(`${q(".phone-stack .board-timeline")}.scrollIntoView({ block: "start" })`);
-    await browser.shot("board-phone-card-timeline");
+    await browser.evaluate(`${q(".phone-stack .board-grid")}.scrollIntoView({ block: "start" })`);
+    await browser.shot("board-phone-card-stills");
   });
 });
 
@@ -4376,7 +4387,11 @@ test("storyboard screen: a screen reader hears the shot as one sentence and not 
   const data = await (await server.api(`/api/dashboard/board-data?project=${id}&stop=C1`)).json();
   const { shotSentence } = await import("../frontend/dashboard/boardRows.js");
   await openBoardStop(id);
-  assert.equal(await browser.evaluate("document.getAnimations().length"), 0, "nothing on the board moves, even without reduced motion");
+  // A finished entrance fade (the line under the frame, kept by its fill) is not motion: nothing is running.
+  // The line under the frame fades in as the screen opens (240 ms): let it finish, then nothing runs.
+  const running = `document.getAnimations().filter((animation) => animation.playState !== "finished").map((animation) => animation.animationName ?? animation.transitionProperty)`;
+  await browser.waitFor(`${running}.length === 0`, { what: "the entrance fade finished", timeout: 3000 }).catch(() => {});
+  assert.deepEqual(await browser.evaluate(running), [], "nothing on the board moves, even without reduced motion");
   await browser.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
   try {
     assert.equal(await browser.evaluate(`matchMedia("(prefers-reduced-motion: reduce)").matches`), true);
@@ -4393,13 +4408,13 @@ test("storyboard screen: a screen reader hears the shot as one sentence and not 
       const walk = (nodeId) => { if (all.has(nodeId)) inShot.push(all.get(nodeId)); for (const child of children.get(nodeId) ?? []) walk(child); };
       for (const entry of nodes.filter((node) => node.role === "article")) walk(entry.node.nodeId);
       assert.ok(inShot.length > 1, "the panel has parts");
-      for (const word of ["agent", "eyes", "app (unverified)", "zoom through", `shot ${shot.n}`]) assert.ok(!inShot.some((node) => node.name === word), `${word} is not read on its own`);
+      for (const word of ["agent", "eyes", "App (unverified)", "Zoom through", `Shot ${shot.n}`]) assert.ok(!inShot.some((node) => node.name === word), `${word} is not read on its own`);
       // Its buttons are read: they are outside the hidden parts.
-      assert.ok(nodes.some((node) => node.role === "button" && node.name === `note on shot ${shot.n}`), `shot ${shot.n}'s note button`);
-      assert.ok(nodes.some((node) => node.role === "button" && node.name === "next shot"), "the next shot button");
+      assert.ok(nodes.some((node) => node.role === "button" && node.name === "Note"), `shot ${shot.n}'s note button`);
+      assert.ok(nodes.some((node) => node.role === "button" && node.name === "Next shot"), "the next shot button");
     }
     assert.equal(await browser.evaluate(`${boardPanel}.getAttribute("aria-labelledby")`), "board-S2");
-    assert.equal(await browser.evaluate(`[...document.querySelectorAll(".shot-frames, .board-tags, .board-lane-words")].every((part) => part.getAttribute("aria-hidden") === "true")`), true);
+    assert.equal(await browser.evaluate(`[...document.querySelectorAll(".shot-frames, .board-tags")].every((part) => part.getAttribute("aria-hidden") === "true")`), true);
     await browser.waitFor(boardPictures, { timeout: 60_000, what: "the pictures" });
     const still = await browser.evaluate(`({ animations: document.getAnimations().length, playing: [...document.querySelectorAll("video")].filter((video) => !video.paused).length,
       transitions: [...new Set([...document.querySelectorAll(".board, .board *")].map((element) => getComputedStyle(element).transitionDuration))] })`);
@@ -4440,20 +4455,21 @@ test("storyboard screen: a board that could not be read says so and try again re
   // The agent's ask shows in the board's place (review round 1 of B4b): approve stays, and what
   // it approves is there in words.
   const sent = await browser.evaluate(`${q('.board-error [role=group][aria-label="What the agent sends you"]')}?.innerText`);
-  assert.match(sent ?? "", /^what the agent sends you \(the board in words\):\n+The storyboard is ready \(C1\): 5 shots/, sent);
+  assert.match(sent ?? "", /^The storyboard is ready \(C1\): 5 shots/, sent);
   assert.match(sent, /\n+Reply: approve · approve with notes: \.\.\. · redo: \.\.\.$/);
   assert.ok(nodes.some((node) => node.role === "group" && node.name === "What the agent sends you"), "a screen reader finds the ask");
   await browser.shot("board-error-desktop");
   await browser.evaluate("window.boardReadFails = false");
-  await browser.click(button("try again", ".board-error"));
+  await browser.click(button("Try again", ".board-error"));
   await browser.waitFor(`${boardClips}.length === 5 && document.activeElement === ${q(".board-title")}`, { what: "the board, with the focus on its first line" });
-  // A picture that fails shows its words in its place and a retry (the source frame is in "crop and numbers").
+  // A picture that fails shows its words in its place and a retry (the source frame is in "Crop and numbers").
+  await pickShot("S1");
   await browser.evaluate(openCropDetails);
   await browser.waitFor(`${sourceDrawn} && ${boardPictures}`, { timeout: 60_000, what: "shot 1's pictures" });
   await browser.evaluate(`${boardRow("S1")}.querySelector(".board-source img").dispatchEvent(new Event("error"))`);
   await browser.waitFor(pageHas("the source frame of shot 1, at 0 s could not be shown", `article.board-shot[data-shot="S1"]`), { what: "the failed picture's words" });
   await browser.shot("board-picture-failed");
-  await browser.evaluate(`${button("retry the pictures of shot 1")}.focus()`);
+  await browser.evaluate(`${button("Retry pictures")}.focus()`);
   await browser.key("Enter");
   // The button goes away with the failure: the focus goes to the panel, not the page.
   await browser.waitFor(`document.activeElement === ${boardRow("S1")}`, { what: "the focus on shot 1's panel after retry" });
@@ -4476,18 +4492,19 @@ test("storyboard screen: :board shows the board not asked yet, read only; after 
   assert.equal(bare.isError, undefined, bare.text);
   await openOn("board-none");
   await command("board");
-  await browser.waitFor(`${textOf("#screen-title")} === "storyboard" && ${pageHas("No storyboard yet.", ".screen")}`, { what: "no storyboard yet" });
+  await browser.waitFor(`${textOf("#screen-title")} === "Storyboard" && ${pageHas("No storyboard yet.", ".screen")}`, { what: "no storyboard yet" });
   await browser.key("Escape");
 
   const id = "board-readonly";
   await boardVideo(id, { ask: false });
   await openOn(id);
   await command("board");
-  await browser.waitFor(`${textOf("#screen-title")} === "storyboard" && ${boardClips}.length === 5`, { what: "the board not asked yet" });
-  const before = await browser.evaluate(`({ head: [...document.querySelectorAll(".board-head p")].slice(0, 2).map((line) => line.innerText.trim()),
+  await browser.waitFor(`${textOf("#screen-title")} === "Storyboard" && ${boardClips}.length === 5`, { what: "the board not asked yet" });
+  const before = await browser.evaluate(`({ head: [document.querySelector(".board-facts .board-title").innerText.trim(), document.querySelector(".board-status .voice-line").innerText.trim()],
     directs: document.querySelectorAll("[data-notes], [data-note-open], .board-note, .stepper, button.board-option, .shot-actions button").length, answers: document.querySelectorAll(".stop-card").length })`);
-  assert.deepEqual(before, { head: ["not asked yet · board r1", "not asked yet: the agent has not shown you this board"], directs: 0, answers: 0 });
+  assert.deepEqual(before, { head: ["Not asked yet, board r1", "Not asked yet: the agent has not shown you this board"], directs: 0, answers: 0 });
   assert.equal(await browser.evaluate(`document.querySelectorAll(".call-no").length`), 0, "no no on a board not asked yet");
+  await pickShot("S1");
   await browser.waitFor(boardPictures, { timeout: 60_000, what: "shot 1's pictures" });
   await browser.shot("board-not-asked-desktop");
   await browser.key("Escape");
@@ -4496,18 +4513,19 @@ test("storyboard screen: :board shows the board not asked yet, read only; after 
   const asked = await askStop(id, "board");
   await stopGap(asked.at);
   await asDashboard("stops", { project: id, action: "answer", id: asked.id, rev: asked.rev, read_as: "approve" });
+  await showView("session", { focus: false });
   await browser.waitFor(`${textOf("#section-stops")}.includes("C1 storyboard · approved on the dashboard")`, { what: "C1 answered" });
   await command("board");
-  await browser.waitFor(`${textOf("#screen-title")} === "stop · C1" && ${boardClips}.length === 5`, { what: "C1's screen with the board" });
-  const after = await browser.evaluate(`({ status: document.querySelectorAll(".board-head p")[1].innerText.trim(), directs: document.querySelectorAll("[data-notes], [data-note-open], .board-note, .stepper").length,
+  await browser.waitFor(`${textOf("#screen-title")} === "Storyboard, C1" && ${boardClips}.length === 5`, { what: "C1's screen with the board" });
+  const after = await browser.evaluate(`({ status: document.querySelector(".board-status .voice-line").innerText.trim(), directs: document.querySelectorAll("[data-notes], [data-note-open], .board-note, .stepper").length,
     answers: document.querySelectorAll(".stop-card, .stop-card button").length })`);
-  assert.match(after.status, /^answered: approved on the dashboard at \d\d:\d\d$/);
+  assert.match(after.status, /^Answered: approved on the dashboard at \d\d:\d\d$/);
   assert.deepEqual([after.directs, after.answers], [0, 0]);
   await pickShot("S2");
   await browser.evaluate(`${boardRow("S2")}.focus()`);
   await browser.key("c");
   await sleep(200);
-  assert.equal(await browser.evaluate(`document.querySelectorAll("input[id^=board-note]").length`), 0, "c leaves no note on an answered board");
+  assert.equal(await browser.evaluate(`document.querySelectorAll("[id^=board-note]").length`), 0, "c leaves no note on an answered board");
   await browser.shot("board-read-only-desktop");
   await atPhone(async () => {
     await browser.waitFor(`${boardClips}.length === 5`, { what: "the board at 390 px" });
@@ -4517,4 +4535,23 @@ test("storyboard screen: :board shows the board not asked yet, read only; after 
     await browser.shot("board-read-only-phone");
   });
   await browser.key("Escape");
+});
+
+test("the theme switch changes the page's colors, the choice is kept after a reload, and :theme sets it back", async () => {
+  await open();
+  const theme = "document.documentElement.dataset.theme";
+  const page = `getComputedStyle(${q(".dash")}).backgroundColor`;
+  const first = await browser.evaluate(theme);
+  const other = first === "light" ? "dark" : "light";
+  const colorBefore = await browser.evaluate(page);
+  await browser.click(q(".theme-switch"));
+  await browser.waitFor(`${theme} === ${JSON.stringify(other)} && ${page} !== ${JSON.stringify(colorBefore)}`, { what: `the ${other} theme and its page color` });
+  assert.equal(await browser.evaluate(`${q(".theme-switch")}.getAttribute("aria-pressed")`), String(other === "light"), "the switch says which theme is on");
+  await open();
+  await browser.waitFor(`${theme} === ${JSON.stringify(other)}`, { what: "the kept theme after a reload" });
+  await browser.key(":");
+  await browser.waitFor(`document.activeElement?.id === "command-input"`, { what: "the command list" });
+  await browser.type(`theme ${first}`);
+  await browser.key("Enter");
+  await browser.waitFor(`${theme} === ${JSON.stringify(first)} && ${page} === ${JSON.stringify(colorBefore)}`, { what: `the ${first} theme from the command` });
 });

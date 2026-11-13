@@ -1,9 +1,10 @@
 // The F1 stage screen's facts about one agent, as plain functions (tested in
 // frontend/dashboardAgentView.test.js). The React side is agentPane.jsx (the right pane: the agent's
 // bot, task, plan step, log, why and next) and the top line in Dashboard.jsx.
-import { callAgent, agentRows, needsYouRows, recommendedOption, WORKING_MS } from "./state.js";
+import { callAgent, agentRows, needsYouRows, recommendedOption, WORKING_MS, timeText } from "./state.js";
 import { callLine, cut, timeOfDay } from "./format.js";
 import { APPROVAL_WORDS, STOP_WORDS } from "./words.js";
+import { agoWords } from "./timeline.js";
 
 // The verbs that change the project are drawn in the agent's color; reads in the text color.
 const WRITE_VERBS = new Set(["edit", "history", "render", "project", "notes"]);
@@ -119,7 +120,7 @@ export function agentLog(data, agent, limit = 40) {
       before.details = [];
       return;
     }
-    rows.push({ key: `${call.at ?? ""}/${index}`, at, until: at, verb: call.verb, kind: verbKind(call.verb, call.isError), text, result, details: usefulDetails(call.details), count: 1, current: false, rev: Number.isSafeInteger(call.rev) && ops ? call.rev : null, images: (call.images ?? []).length });
+    rows.push({ key: `${call.at ?? ""}/${index}`, said: call.why ?? "", at, until: at, verb: call.verb, kind: verbKind(call.verb, call.isError), text, result, details: usefulDetails(call.details), count: 1, current: false, rev: Number.isSafeInteger(call.rev) && ops ? call.rev : null, images: (call.images ?? []).length });
   });
   for (const row of rows) {
     if (row.count > 1 && row.until && row.until !== row.at) row.at = `${row.at}–${row.until}`;
@@ -129,7 +130,7 @@ export function agentLog(data, agent, limit = 40) {
   const presence = data?.live?.latest?.[agent.id];
   if (presence?.phase === "start") {
     shown.push({ key: `running/${presence.call}`, at: presence.at ? timeOfDay(presence.at) : "", verb: presence.verb, kind: verbKind(presence.verb),
-      text: presence.label ?? presence.verb, result: { mark: "running", text: "" }, details: [], count: 1, current: true });
+      said: presence.why ?? "", text: presence.label ?? presence.verb, result: { mark: "running", text: "" }, details: [], count: 1, current: true });
   }
   return shown;
 }
@@ -221,6 +222,9 @@ export function needWords(row, nameOf = () => null) {
     };
   }
   const round = row.round ?? {};
+  // Sketches or options to pick from: the agent's question; a opens them.
+  if (row.type === "try")
+    return { who: "the agent", color: null, agentId: null, todo: round.question || "pick one of these", allow: round.sketch ? "see the sketches" : "see the options", deny: null, key: "allow", spec: "", summary: "", watch: false };
   const word = STOP_WORDS[round.kind] ?? round.kind ?? "stop";
   if (row.type === "elsewhere") return { who: row.name, color: null, agentId: null, todo: `the ${word} waits in ${row.name}: open it there`, allow: null, deny: null, key: null, spec: "", summary: "", watch: false };
   // A storyboard has nothing built to watch on the stage: a opens the board, where it is approved.
@@ -355,5 +359,120 @@ export function renderDock(data, now = Date.now()) {
   return { job, total, done: total == null ? null : Math.round(total * fraction), fraction, left, agent: job.by === "you" || !call ? null : callAgent(call) };
 }
 
+// A finished render is said under the frame for this long.
+export const READY_MS = 60_000;
+
+/**
+ * The open project's newest render when it is done and ended less than READY_MS ago, else null:
+ * the line under the frame says it is ready, with its length, size and file facts.
+ */
+export function renderReady(data, now = Date.now()) {
+  const job = [...(data?.renders ?? [])].reverse().find((entry) => !data?.projectId || entry.projectId === data.projectId);
+  const ended = Date.parse(job?.finishedAt ?? "");
+  if (!job || job.status !== "done" || !Number.isFinite(ended) || now - ended > READY_MS || now < ended - 5_000) return null;
+  const megabytes = Number.isFinite(job.size) && job.size > 0 ? `${(job.size / 1e6).toFixed(job.size < 1e7 ? 1 : 0)} MB` : "";
+  return { job, facts: [[Number.isFinite(job.duration) ? `${Number.isInteger(job.duration) ? job.duration : timeText(job.duration)} s` : "", job.width && job.height ? `${job.width} by ${job.height}` : ""].filter(Boolean).join(", "), [megabytes, String(job.format ?? "").toUpperCase()].filter(Boolean).join(", ")].filter(Boolean) };
+}
+
 /** "0:41" from seconds, or "". */
 export const leftWords = (seconds) => (seconds == null ? "" : `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`);
+
+// ---- the agent's line under the frame (voice.jsx) ----------------------------------------------
+
+// A call's first word as it reads while the call runs and once it is done: [running, done].
+const TENSES = {
+  look: ["Looking", "Looked"], edit: ["Editing", "Edited"], check: ["Checking", "Checked"], render: ["Rendering", "Rendered"],
+  add: ["Adding", "Added"], make: ["Making", "Made"], set: ["Setting", "Set"], read: ["Reading", "Read"], study: ["Studying", "Studied"],
+  find: ["Finding", "Found"], cut: ["Cutting", "Cut"], build: ["Building", "Built"], time: ["Timing", "Timed"], move: ["Moving", "Moved"],
+  fix: ["Fixing", "Fixed"], wait: ["Waiting", "Waited"], pick: ["Picking", "Picked"], import: ["Importing", "Imported"], open: ["Opening", "Opened"],
+  create: ["Creating", "Created"], write: ["Writing", "Wrote"], show: ["Showing", "Showed"], record: ["Recording", "Recorded"], undo: ["Undoing", "Undid"],
+  restore: ["Restoring", "Restored"], search: ["Searching", "Searched"], save: ["Saving", "Saved"], load: ["Loading", "Loaded"], start: ["Starting", "Started"],
+  place: ["Placing", "Placed"], mark: ["Marking", "Marked"], update: ["Updating", "Updated"], delete: ["Deleting", "Deleted"], remove: ["Removing", "Removed"],
+  inspect: ["Inspecting", "Inspected"], plan: ["Planning", "Planned"], ask: ["Asking", "Asked"], lay: ["Laying", "Laid"], sync: ["Syncing", "Synced"],
+  list: ["Listing", "Listed"], compare: ["Comparing", "Compared"], export: ["Exporting", "Exported"], style: ["Styling", "Styled"], try: ["Trying", "Tried"],
+  resolve: ["Resolving", "Resolved"], change: ["Changing", "Changed"], answer: ["Answering", "Answered"], replace: ["Replacing", "Replaced"],
+};
+// A tool whose label does not start with a verb gets these words first.
+const TOOL_TENSES = {
+  edit: TENSES.edit, look: ["Looking at", "Looked at"], check: TENSES.check, render: TENSES.render, inspect: TENSES.inspect,
+  status: ["Reading", "Read"], library: ["Looking up", "Looked up"], notes: ["Noting", "Noted"], project: ["Setting up", "Set up"], history: ["Going back to", "Went back to"],
+};
+
+/**
+ * A call's words as one sentence: "look at the source of smirk" running is "Looking at the source
+ * of smirk.", done "Looked at the source of smirk.". A label that does not start with a verb gets
+ * its tool's ("footage behind 4 sections" of an edit: "Edited footage behind 4 sections."). Text
+ * that already ends a sentence keeps its end.
+ */
+export function asSentence(text, { verb = "", running = false } = {}) {
+  const words = String(text ?? "").replace(/\s+/g, " ").trim().replace(/[\s.…·]+$/, "");
+  if (!words) return "";
+  const [first, ...rest] = words.split(" ");
+  const tense = TENSES[first.toLowerCase()];
+  const at = running ? 0 : 1;
+  let line;
+  if (tense) line = [tense[at], ...rest].join(" ");
+  // A look at one frame is labelled by its time alone ("at 0.0 s"): it is the frame at that time.
+  else if (verb === "look" && first === "at") line = `${TOOL_TENSES.look[at]} the frame ${words}`;
+  else if (TOOL_TENSES[verb] && first === first.toLowerCase()) line = `${TOOL_TENSES[verb][at]} ${words}`;
+  else line = first.charAt(0).toUpperCase() + first.slice(1) + (rest.length ? ` ${rest.join(" ")}` : "");
+  return /[?!]$/.test(line) ? line : `${line}.`;
+}
+
+/** A log row (agentLog) as one sentence: what the agent said it was for, else the call's own words. */
+export const rowSentence = (row, running = Boolean(row?.current)) => (row.said ? asSentence(row.said, { running }) : asSentence(row.text, { verb: row.verb, running }));
+
+/** What waits for you, as a sentence: its words as they are (no tense), with a capital and an end. */
+export function asAsk(text) {
+  const words = String(text ?? "").replace(/\s+/g, " ").trim().replace(/[\s…·]+$/, "");
+  if (!words) return "";
+  const line = words.charAt(0).toUpperCase() + words.slice(1);
+  return /[.?!]$/.test(line) ? line : `${line}.`;
+}
+
+/**
+ * The line under the frame: what the shown agent does now, as one sentence, and the line before it.
+ *   {state, verb, text, facts: [words], before: {verb, text, rev} | null}
+ * `state` is "need" (something waits for you; `need` holds its words and row), "hold" (your hold
+ * is on), "recording" (an agent records the screen), "render" (a render runs; `render` holds renderDock's facts), "working" (a call runs or
+ * ended a moment ago), "idle" (its last call, in the past), "ready" (a render just ended), "away"
+ * (the agent of the saved calls is not connected now) or "empty" (no agent has called yet).
+ */
+export function voiceLine(data, agent, now = Date.now(), nameOf = () => null) {
+  const rows = agent ? agentLog(data, agent, 12) : [];
+  const last = rows.at(-1) ?? null;
+  // A failed call says so: "Checked the video. It failed."
+  const line = (row, running) => `${rowSentence(row, running)}${row.result?.mark === "failed" ? " It failed." : ""}`;
+  const before = (skip) => {
+    const row = rows.slice(0, skip ? -1 : undefined).at(-1);
+    return row ? { verb: row.verb, kind: row.kind, text: line(row, false), rev: row.rev ?? null } : null;
+  };
+  const needs = needsYouRows(data);
+  const need = needs.find((row) => row.type !== "elsewhere") ?? null;
+  if (need) {
+    const words = needWords(need, nameOf);
+    return { state: "need", verb: "ask", text: asAsk(words.todo), facts: [words.spec, words.summary].filter(Boolean), before: before(false), need: { row: need, words, more: needs.length - 1 } };
+  }
+  if (data?.hold?.on) return { state: "hold", verb: "hold", text: `On hold. ${agent?.name ?? "The agent"} waits for you.`, facts: [], before: before(false) };
+  // An agent records the screen: said under the frame, with Stop (the top line has one too).
+  if (data?.recording) {
+    const seconds = Math.max(0, Math.floor((now - data.recording.startedAt) / 1000));
+    return { state: "recording", verb: "record", text: "Recording the screen.", facts: [`${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`, "Typed text is never kept", "Stays on this Mac"], before: before(false) };
+  }
+  const dock = renderDock(data, now);
+  if (dock) {
+    const text = dock.total ? `Rendering frame ${dock.done} of ${dock.total}.` : `Rendering, ${Math.round(dock.fraction * 100)}%.`;
+    return { state: "render", verb: "render", text, facts: [dock.left == null ? "" : `${leftWords(dock.left)} left`, String(dock.job.format ?? "").toUpperCase()].filter(Boolean), before: before(false), render: dock };
+  }
+  // A render that just ended, unless the agent is in a call now.
+  const ready = last?.current ? null : renderReady(data, now);
+  if (ready) return { state: "ready", verb: "check", text: `The ${ready.job.quality === "final" ? "final" : "draft"} is ready.`, facts: ready.facts, before: before(false), ready };
+  if (!agent || !last) return { state: "empty", verb: "plug", text: "Waiting for an agent.", facts: [], before: null };
+  // The agent of the saved calls is not connected now (kino restarted, or its session ended): say
+  // so, and that nothing is lost. The line before stays its last call.
+  if (!(data?.agents ?? []).some((entry) => entry.id === agent.id) && !last.current) {
+    return { state: "away", verb: "plug", text: `${agent.name ?? "The agent"} is not connected.`, facts: [agent.lastAt ? `Last call ${agoWords(agent.lastAt, now)}` : "", "All of it is saved"].filter(Boolean), before: before(false) };
+  }
+  const working = isWorking(data, agent, now);
+  return { state: working ? "working" : "idle", verb: last.verb, kind: last.kind, text: line(last, Boolean(last.current)), facts: [], before: before(true) };
+}

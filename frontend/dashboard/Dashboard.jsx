@@ -5,6 +5,8 @@
 // Data flow: api.snapshot() → state.fromSnapshot → stream events → state.applyEvent → panes.
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import "./dashboard.css";
+import "./stage.css";
+import "./page.css";
 import * as server from "./api.js";
 import { accessHeaders } from "../client.js";
 import { createPictureClock, createPlaybackClock, createTimeStore, decodeSound, frameStart } from "./playbackClock.js";
@@ -18,6 +20,8 @@ import { desktopServiceLine, openStream } from "./stream.js";
 import { tickWhileShown } from "./visibleClock.js";
 import { applyEvent, openTryOf, attention, backgroundCheckInput, briefRows, fromSnapshot, keyTarget, movedNeedWords, needKey, needsShift, needsYouRows, noteRows, otherStops, pendingApprovals, pointRange, quietToTell, recommendedOption, seenImages, stopAnswer, stopAnswered, stopChanges, stopRows, timelineRows, turnChips, turnRows, variantChoices, videoLayers, waitingStopOf, withRecord } from "./state.js";
 import { isTyping, keyAction } from "./keys.js";
+import { otherTheme, showTheme, startTheme, switchTheme } from "./theme.js";
+import { PageFoot, ToolIcon, Voice } from "./voice.jsx";
 
 // Whether the stage draws its outlines: the check's boxes (findings) and the agents' marks
 // (building marks, change flashes, what a call is on). Both are on until the person turns them off.
@@ -33,7 +37,7 @@ function keepOutlines({ findings, marks }) {
 import { listenForEditCommands } from "../desktopEdit.js";
 import { askForNotifications, notify, showCount } from "./notify.js";
 import { clock, cut } from "./format.js";
-import { Icon, KeyLine, LogPane, lookMoment, Menu, SeenPane, SessionPane, StagePane, StatusLine, TimelinePane, useSections } from "./panes.jsx";
+import { Icon, LogPane, lookMoment, Menu, SeenPane, SessionPane, StagePane, StatusLine, TimelinePane, useSections } from "./panes.jsx";
 import { agentChips, idleLine, renderAgent, runningRender } from "./topbar.js";
 import { usePreviewList } from "./previewCache.jsx";
 import { AgentPane } from "./agentPane.jsx";
@@ -44,7 +48,9 @@ import { markTimelineSeen } from "./timeline.jsx";
 import { PresenceAnnouncer } from "./presence.jsx";
 import { followStart, newestPresence, serverNow } from "./presence.js";
 import { BriefCard } from "./brief.jsx";
-import { ApprovalCard, ApprovalScreen, CommandLine, ConfirmBox, HelpScreen, ProjectsScreen, SharesScreen, TranscriptScreen, TurnScreen, VariantsScreen } from "./screens.jsx";
+import { BriefScreen } from "./briefPage.jsx";
+import { ShareBox } from "./shareBox.jsx";
+import { ApprovalCard, ApprovalScreen, CommandLine, ConfirmBox, HelpScreen, ProjectsScreen, TranscriptScreen, TurnScreen, VariantsScreen } from "./screens.jsx";
 import { SettingsScreen } from "./settings.jsx";
 import { StopCard, StopDone, StopElsewhere, StopScreen, StopsCard, StopSettings } from "./stops.jsx";
 import { BoardScreen } from "./board.jsx";
@@ -187,7 +193,7 @@ function useDashboardData() {
         },
         onResync() {
           buffer.current = [];
-          load().then(() => { if (dropped.current) showStatus("live", "reconnected · re-read everything", true); dropped.current = false; });
+          load().then(() => { if (dropped.current) showStatus("live", "reconnected, re-read everything", true); dropped.current = false; });
         },
         onStatus(status) {
           if (status.state === "reconnecting") {
@@ -196,7 +202,7 @@ function useDashboardData() {
             if (!serviceStopped.current) showStatus("reconnecting", "reconnecting…");
             return;
           }
-          if (status.replayed !== undefined && dropped.current) { dropped.current = false; showStatus("live", `reconnected · replayed ${status.replayed} events`, true); return; }
+          if (status.replayed !== undefined && dropped.current) { dropped.current = false; showStatus("live", `reconnected, replayed ${status.replayed} events`, true); return; }
           if (!dropped.current) showStatus("live", "live");
         },
       });
@@ -238,6 +244,24 @@ export function Dashboard() {
   const now = useNow(1000);
 
   const [screen, setScreen] = useState({ name: "main" });
+  // The theme, dark or light (theme.js): the top line's sun or moon button switches it.
+  const [theme, setTheme] = useState(() => startTheme());
+  useLayoutEffect(() => { showTheme(theme); }, []);
+  const toggleTheme = (event) => {
+    const next = otherTheme(theme);
+    const box = event?.currentTarget?.getBoundingClientRect?.();
+    switchTheme(next, { origin: box ? { x: box.left + box.width / 2, y: box.top + box.height / 2 } : null, still });
+    setTheme(next);
+  };
+  // The "theme" command (the command list, or typed): the same switch, opening from the middle.
+  const themeNow = useRef(theme);
+  themeNow.current = theme;
+  const commandTheme = (wanted) => {
+    const next = wanted ?? otherTheme(themeNow.current);
+    if (next === themeNow.current) return;
+    switchTheme(next, { origin: { x: window.innerWidth / 2, y: window.innerHeight / 2 }, still });
+    setTheme(next);
+  };
   const [commandOpen, setCommandOpen] = useState(false);
   const [confirm, setConfirm] = useState(null);
   // The judge round you put off (esc: later) and the done one you are looking at (judge.jsx).
@@ -253,7 +277,39 @@ export function Dashboard() {
   // The places j and k move, by list: 1 "needs you" (session view), 3 the pictures (seen view),
   // 4 the turns or the notes (log and notes views), 5 the timeline's layers.
   const [cursors, setCursors] = useState({ 1: 0, 3: 0, 4: 0, 5: 0, projects: 0, variants: 0 });
-  const [agentView, setAgentView] = useState("agent");
+  const [agentView, setAgentViewOnly] = useState("agent");
+  // The earlier lines (the agent pane's views) open under the frame, which steps back to make
+  // room; picking a view opens them. The strip under the stage opens to the whole timeline.
+  const [listOpen, setListOpenOnly] = useState(false);
+  const [stripOpen, setStripOpen] = useState(false);
+  // The frame glides to its new place and size when the list opens or closes: where it was is
+  // noted before the change, and once the stage has its new size it starts from there.
+  const frameWas = useRef(null);
+  const setListOpen = useCallback((open) => {
+    setListOpenOnly((old) => {
+      if (old !== open) frameWas.current = window.document.querySelector(".screening .stage")?.getBoundingClientRect() ?? null;
+      return open;
+    });
+  }, []);
+  useEffect(() => {
+    const from = frameWas.current;
+    frameWas.current = null;
+    const frame = window.document.querySelector(".screening .stage");
+    if (still || !from?.width || !frame || typeof frame.animate !== "function" || typeof ResizeObserver !== "function") return undefined;
+    const observer = new ResizeObserver(() => {
+      const to = frame.getBoundingClientRect();
+      if (!to.width || (to.width === from.width && to.top === from.top)) return;
+      observer.disconnect();
+      frame.animate([
+        { transformOrigin: "0 0", transform: `translate(${from.left - to.left}px, ${from.top - to.top}px) scale(${from.width / to.width})` },
+        { transformOrigin: "0 0", transform: "none" },
+      ], { duration: 240, easing: "cubic-bezier(0.05, 0.7, 0.1, 1)" });
+    });
+    observer.observe(frame);
+    const timer = setTimeout(() => observer.disconnect(), 500);
+    return () => { clearTimeout(timer); observer.disconnect(); };
+  }, [listOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+  const setAgentView = useCallback((value) => { setAgentViewOnly(value); setListOpen(true); }, []);
   // The log, checks and notes were the tabs of a pane of their own; now they are views.
   const logTab = agentView;
   const setLogTab = setAgentView;
@@ -296,6 +352,7 @@ export function Dashboard() {
   // the top of the stack, where its card was, until dismissed or the next stop waits.
   const [recentStop, setRecentStop] = useState(null);
   const [share, setShare] = useState("");
+  const [shareOpen, setShareOpen] = useState(false);
   const [enlarged, setEnlarged] = useState(null);
   const [sections, setSections] = useSections();
   const [rejecting, setRejecting] = useState(false);
@@ -640,6 +697,7 @@ export function Dashboard() {
 
   // ---- actions -------------------------------------------------------------------------------------
   const focusPane = useCallback((number) => {
+    if (number === 2) setListOpen(true);
     setPane(number);
     setScreen({ name: "main" });
     requestAnimationFrame(() => window.document.querySelector(`[data-pane="${number}"]`)?.focus());
@@ -731,7 +789,6 @@ export function Dashboard() {
     const layer = extra.layer !== undefined ? extra.layer : area ? null : selectedLayer ?? null;
     setDraft((value) => ({ text: value?.text ?? "", urgent: false, layer, sceneId: scene.id, time: Math.round(at * 100) / 100, area, point: extra.point ?? null, onStage: !phone }));
     if (phone) { setLogTab("notes"); setPane(4); }
-    else setPane(2);
     setScreen({ name: "main" });
     if (focus) requestAnimationFrame(() => noteRef.current?.focus());
   }, [scene, selectedLayer, time, say, stopPlaying, phone]);
@@ -777,10 +834,10 @@ export function Dashboard() {
     try {
       const { approval } = await server.answerApproval(id, { decision, always, note: approvalNotes[id] ?? "" });
       setApprovalNotes((value) => ({ ...value, [id]: "" }));
-      const rule = always ? ` · from now on always ${decision}` : "";
+      const rule = always ? `, from now on always ${decision}` : "";
       // Allowed, but the call it let through failed: that is an error, not a success.
       if (approval.result?.isError) say(`${id} allowed${rule}, but the call failed: ${cut(approval.result.text, 120)}. The agent is told in its next answer.`, true);
-      else say(`${id} ${approval.status}${rule}${approval.result ? ` · ${cut(approval.result.text, 120)}` : ""}. The agent is told in its next answer.`);
+      else say(`${id} ${approval.status}${rule}${approval.result ? `: ${cut(approval.result.text, 120)}` : ""}. The agent is told in its next answer.`);
     } catch (cause) { fail(cause); }
   }, [approvalNotes, say, fail]);
 
@@ -920,12 +977,17 @@ export function Dashboard() {
     setConfirm({
       text: `Revert ${affected[0].id}${later.length ? ` and every later turn (${later.join(", ")})` : ""}? The project goes back to how it was at rev ${before}, as a new revision. The agent is told in its next answer.`,
       yes: "revert",
+      // On the stage the question is the line under the frame, not a box.
+      ask: {
+        text: later.length ? `Undo ${affected[0].id} and ${later.length} later ${later.length === 1 ? "turn" : "turns"}?` : "Undo this turn?",
+        yes: "Undo", no: "Keep", facts: [`Back to rev ${before}`, "The agent is told"], from: data.record?.revision ?? null, to: before,
+      },
       async run() {
         try {
           const result = await server.undoTurn(projectId, turnId);
           const done = result.reverted.map((entry) => entry.turn).join(", ");
           if (result.failed) say(`${done ? `Reverted ${done}. ` : ""}${result.failed.turn} could not be reverted: ${result.failed.reason}`, true);
-          else say(`Reverted ${done} · now rev ${result.reverted.at(-1)?.rev}. The agent is told in its next answer.`);
+          else say(`Reverted ${done}, now rev ${result.reverted.at(-1)?.rev}. The agent is told in its next answer.`);
           setCheckpoint(null);
         } catch (cause) { fail(cause); }
       },
@@ -959,7 +1021,7 @@ export function Dashboard() {
     try {
       const reply = await server.act("render", { project: projectId, scene: scene.id, quality: options.quality ?? "final", ...(options.format ? { format: options.format } : {}) });
       // A refusal (stops_open, check_failed) says why and what to do, not its JSON.
-      say(reply.isError && reply.data?.reason ? [reply.data.reason, reply.data.next].filter(Boolean).join(" ") : reply.text.split("\n")[0], reply.isError);
+      say(reply.isError && reply.data?.reason ? [reply.data.reason, reply.data.next].filter(Boolean).join(" ") : reply.text.split("\n")[0].replace(/\s+render \{.*$/, ""), reply.isError);
     } catch (cause) { fail(cause); }
   }, [projectId, scene, say, fail]);
 
@@ -975,12 +1037,12 @@ export function Dashboard() {
       const reply = await server.act("project", { action: "share", id: projectId, role: "view", name: "made on the dashboard" });
       if (reply.isError) { say(reply.text, true); return; }
       setShare(reply.data.url);
-      try { await navigator.clipboard.writeText(reply.data.url); say("View link made and copied. Revoke it on the shares screen."); }
-      catch { say("View link made. Revoke it on the shares screen."); }
+      try { await navigator.clipboard.writeText(reply.data.url); say("View link made and copied. Revoke it in the share box."); }
+      catch { say("View link made. Revoke it in the share box."); }
     } catch (cause) { fail(cause); }
   }, [projectId, say, fail]);
 
-  // The shares screen: make a link of any access, or revoke one (asks first).
+  // The share box: make a link of any access, or revoke one (asks first).
   const makeLink = useCallback(async (role, label) => {
     try {
       // Without a label the server would name the link "made by an agent".
@@ -1140,7 +1202,8 @@ export function Dashboard() {
   const runCommand = useCallback((command) => {
     setCommandOpen(false);
     switch (command.action) {
-      case "projects": case "crew": case "inspire": case "library": case "shares": case "settings": case "help": case "transcript": case "variants": setScreen({ name: command.action }); return;
+      case "shares": setShareOpen(true); return;
+      case "projects": case "crew": case "inspire": case "library": case "settings": case "help": case "transcript": case "variants": setScreen({ name: command.action }); return;
       // The blind pick box comes back (put off with esc).
       case "picks": setScreen({ name: "main" }); setPicksLater(null); return;
       // Try options (tries.jsx): the open round, else the newest.
@@ -1170,6 +1233,7 @@ export function Dashboard() {
       case "mark-seen": markTimelineSeen(); return;
       // A view of the agent pane: the pane gets the focus with it.
       case "view": setAgentView(command.value); focusPane(2); return;
+      case "theme": commandTheme(command.value); return;
       default: say("That command does nothing here.", true);
     }
   }, [data, time, fps, player, scene, sendNote, toggleHold, openProject, exportScene, cancelRender, focusPane, say, fail]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1182,10 +1246,11 @@ export function Dashboard() {
     ...[["agent", "the agent at work: its task, calls, why and next"], ["session", "needs you, agents, brief, stops, plan, media, renders"], ["log", "the agent's turns"],
       ["checks", "the quality findings"], ["notes", "your notes and share-link comments"], ["seen", "the pictures the agent looked at"]]
       .map(([id, hint]) => ({ id: `view-${id}`, words: id, hint, command: { action: "view", value: id } })),
-    { id: "crew", words: "crew", hint: "every agent (F2)", keys: "F2", command: { action: "crew" } },
-    { id: "inspire", words: "inspire", hint: "references (F3)", keys: "F3", command: { action: "inspire" } },
-    { id: "library", words: "library", hint: "everything the agent can use (F4)", keys: "F4", command: { action: "library" } },
+    { id: "crew", words: "crew", hint: "every agent", keys: "F2", command: { action: "crew" } },
+    { id: "inspire", words: "inspire", hint: "references", keys: "F3", command: { action: "inspire" } },
+    { id: "library", words: "library", hint: "everything the agent can use", keys: "F4", command: { action: "library" } },
     { id: "projects", words: "projects", hint: "open, duplicate, Trash", command: { action: "projects" } },
+    { id: "theme", words: "theme", hint: "dark or light", command: { action: "theme", value: null } },
     { id: "variants", words: "variants", hint: "compare and pick a variant", command: { action: "variants" } },
     { id: "picks", words: "picks", hint: "blind A or B", command: { action: "picks" } },
     { id: "storyboard", words: "storyboard", hint: "the board, read only", command: { action: "board" } },
@@ -1376,6 +1441,7 @@ export function Dashboard() {
         if (point) { pointAt(null); return; }
         if (checkpoint) { setCheckpoint(null); say("Showing now."); return; }
         if (selectedLayer) { selectLayer(null); return; }
+        if (listOpen && !phone) { setListOpen(false); focusPane(1); return; }
         if (zoomed) setZoomed(false);
         return;
       default:
@@ -1462,7 +1528,9 @@ export function Dashboard() {
   // The pick box: pairs the sitting still takes, less the ones picked here the server has not dropped yet.
   const picks = data.picks ? { ...data.picks, pairs: data.picks.pairs.filter((pair) => !picksDone.includes(pair.pair_id)) } : null;
   const picksShown = Boolean(picks?.pairs.length && screen.name === "main" && !judgeShown && picksLater !== picks.queued);
-  const waiting = Boolean(confirm) || judgeShown || picksShown;
+  // A question asked on the stage is the line under the frame: nothing is inert for it.
+  const askInline = Boolean(confirm?.ask) && !phone && screen.name === "main" && !draft;
+  const waiting = (Boolean(confirm) && !askInline) || judgeShown || picksShown;
   const stageRev = checkpoint?.rev ?? data.record?.revision;
   const sceneLayers = scene?.layers ?? [];
 
@@ -1486,26 +1554,26 @@ export function Dashboard() {
     </form>
   ) : null;
 
-  // The note bubble on the stage (StagePane places it beside its dot): the words, then one quiet
-  // line with the time and what the note is about. Enter sends, ⌘Enter sends it as urgent,
-  // Shift+Enter is a new line, Esc drops it.
+  // The note field under the frame, in the place of the agent's line: the words, the time (and
+  // the layer) the note is about, drop and send. The stage shows its dot or its area. Enter
+  // sends, ⌘Enter sends it as urgent, Shift+Enter is a new line, Esc drops it.
   const layerName = (id) => sceneLayers.find((layer) => layer.id === id)?.name || id;
   const about = draft ? (draft.layer ? layerName(draft.layer) : draft.area ? "this spot" : "the whole frame") : "";
   const dropDraft = () => { setDraft(null); say("Note discarded."); };
-  const noteBubble = draft && !phone ? (
-    <form className="note-bubble" aria-label="New note" onSubmit={(event) => { event.preventDefault(); submitDraft(); }}>
-      <textarea id="note-text" ref={noteRef} rows={2} value={draft.text} maxLength={2000} aria-label={`Note at ${clock(draft.time)} about ${about}`}
-        placeholder={draft.layer ? `what should change in ${about}?` : "what should change here?"}
-        onChange={(event) => { const text = event.target.value; setDraft((value) => (value ? { ...value, text } : value)); }}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); submitDraft(event.metaKey || event.ctrlKey); }
-          if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); dropDraft(); }
-        }} />
-      <div className="note-bubble-meta">
-        <span className="note-about">{clock(draft.time)} · {about}</span>
-        <button type="button" className="tb" onClick={dropDraft} aria-keyshortcuts="Escape" title="Drop this note (Esc)">esc</button>
-        <button type="button" className="tb" onClick={() => submitDraft(true)} aria-keyshortcuts="Meta+Enter" title="Send it marked urgent (⌘Enter)">⌘↵ urgent</button>
-        <button type="submit" className="tb note-send" aria-keyshortcuts="Enter" title="Send (Enter)">↵ send</button>
+  const noteField = draft && !phone ? (
+    <form className="note-field" aria-label="New note" onSubmit={(event) => { event.preventDefault(); submitDraft(); }}>
+      <div className="note-field-box">
+        <ToolIcon name="notes" />
+        <textarea id="note-text" ref={noteRef} rows={1} value={draft.text} maxLength={2000} aria-label={`Note at ${clock(draft.time)} about ${about}`}
+          placeholder={draft.layer ? `What should change in ${about}?` : "What should change here?"}
+          onChange={(event) => { const text = event.target.value; setDraft((value) => (value ? { ...value, text } : value)); }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); submitDraft(event.metaKey || event.ctrlKey); }
+            if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); dropDraft(); }
+          }} />
+        <span className="note-field-at" title={`At ${clock(draft.time)}, about ${about}`}><ToolIcon name="pin" />{clock(draft.time)}{draft.layer ? <span className="note-field-layer">{cut(about, 18)}</span> : null}</span>
+        <button type="button" className="voice-icon" onClick={dropDraft} aria-keyshortcuts="Escape" aria-label="Drop this note" title="Drop this note (Esc)"><ToolIcon name="x" /></button>
+        <button type="submit" className="note-field-send" aria-keyshortcuts="Enter" aria-label="Send the note" title="Send (Enter). ⌘Enter sends it marked urgent."><ToolIcon name="up" /></button>
       </div>
     </form>
   ) : null;
@@ -1516,7 +1584,7 @@ export function Dashboard() {
     <form className="message-box" aria-label={`Message to ${messageTo}`} onSubmit={(event) => { event.preventDefault(); sendMessage(); }}>
       <div className="message-field">
         <textarea id="message-text" rows={1} value={messageText} maxLength={2000} aria-label={`Message to ${messageTo} about the whole video`}
-          placeholder={`note for ${messageTo}`}
+          placeholder={`Note for ${messageTo}`}
           onChange={(event) => setMessageText(event.target.value)}
           onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); sendMessage(event.metaKey || event.ctrlKey); } }} />
         <button type="submit" className="tb message-send" aria-label="Send" title="Send (Enter; ⌘Enter marks it urgent)">↵</button>
@@ -1541,14 +1609,10 @@ export function Dashboard() {
   const renderBy = rendering ? renderAgent(data, rendering) : null;
   const renderPercent = rendering ? Math.round((rendering.progress ?? 0) * 100) : null;
   // The project menu: the open project first, then the others (newest first), then all projects.
-  const projectOptions = [
-    ...(data.projects ?? []).filter((entry) => !entry.archived).slice(0, 8).map((entry) => ({ value: entry.id, label: cut(entry.name || entry.id, 28) })),
-    { value: "@projects", label: "all projects…" },
-  ];
   const renderOptions = [
-    { value: "final", label: "final mp4" }, { value: "draft", label: "draft mp4" },
-    { value: "gif", label: "final gif" }, { value: "webm", label: "final webm" }, { value: "mov", label: "final mov" },
-    ...(rendering ? [{ value: "@cancel", label: "cancel render" }] : []),
+    { value: "final", label: "Final MP4" }, { value: "draft", label: "Draft MP4" },
+    { value: "gif", label: "Final GIF" }, { value: "webm", label: "Final WebM" }, { value: "mov", label: "Final MOV" },
+    ...(rendering ? [{ value: "@cancel", label: "Cancel render" }] : []),
   ];
   const pickRender = (value) => {
     if (value === "@cancel") cancelRender();
@@ -1560,80 +1624,93 @@ export function Dashboard() {
       <Icon name={icon} /><span className="tab-word">{word}</span>{extra}
     </button>
   );
+  // The top line: kino (all projects), the project, then at the right the views, hold, share,
+  // settings, the theme and render. What the agent does and what waits for you are under the
+  // frame, not here.
+  // One chip per agent at work: its color, its name and what it does in a few words.
+  const chipsAtWork = (
+    <span className="agent-chips" aria-label="Agents at work">
+      {workChips.map((chip) => (
+        <span key={chip.id} className={`agent-chip s-${chip.status}`} style={chip.color ? { "--who": chip.color } : undefined}
+          title={`${chip.name}: ${data.live?.latest?.[chip.id]?.label ?? chip.doing}`}>
+          <span className="chip-dot" aria-hidden="true" /><span className="chip-name">{chip.name}</span> <span className="chip-doing">{chip.id === renderBy?.id && rendering ? `render ${renderPercent}%` : chip.doing}</span>
+        </span>
+      ))}
+    </span>
+  );
   const topline = (
-    <header className={`topline${asking && !phone ? " asking" : ""}`} inert={waiting}>
+    <header className="topline" inert={waiting}>
       <span className="title" title={projectName ? `kino: ${projectName}` : undefined}>
-        <span className="brand"><span className="brand-mark" aria-hidden="true" />kino</span>
+        <button type="button" className="brand" onClick={() => setScreen({ name: "projects" })} title="All projects" aria-label="kino: all projects">kino</button>
         {projectName ? <><span className="sr-only">, </span>
-          <Menu id="project-menu" label={cut(projectName, 28)} ariaLabel={`Project: ${projectName}`} listLabel="Projects" title="Open another project"
-            value={projectId} options={projectOptions} className="project-menu"
-            onPick={(value) => (value === "@projects" ? setScreen({ name: "projects" }) : value !== projectId ? openProject(value) : null)} /></> : null}
+          <button type="button" id="project-name" className={`project-name${screen.name === "brief" ? " current" : ""}`} aria-current={screen.name === "brief" ? "page" : undefined}
+            onClick={() => setScreen({ name: "brief" })} title="The brief, plan and media of this video" aria-label={`Project: ${projectName}. Its brief.`}>{cut(projectName, 28)}</button></> : null}
       </span>
-      {/* The views: the stage (F1), the crew (F2; it counts what waits for you), inspire (F3) and the library (F4). */}
-      <nav className="tabs" aria-label="Views">
-        {tab("main", "monitor", "stage", () => run("stage"), "F1")}
-        {tab("crew", "users", "crew", () => setScreen({ name: "crew" }), "F2",
-          needs.length ? <span className="tab-count" aria-label={`, ${needs.length} waiting for you`}>{needs.length}</span> : null)}
-        {tab("inspire", "compass", "inspire", () => setScreen({ name: "inspire" }), "F3")}
-        {tab("library", "library", "library", () => setScreen({ name: "library" }), "F4")}
-      </nav>
       <div className={`topbar${asking ? " asking" : ""}`}>
-        {asking ? (
-          // Something waits for you: one urgent chip says who asks and what, and its answer button.
+        {!phone ? (
+          // On a wide window the line under the frame says what the agent does and what waits for
+          // you; here only several agents at work get their chips.
+          workChips.length > 1 ? chipsAtWork : null
+        ) : asking ? (
+          // Something waits for you: one chip says who asks and what, and its answer button.
           <span className="needs-chip" role="status">
             {askingAgent ? <Bot color={askingAgent.color} mood="wait" size={14} still={still} /> : <span className="chip-dot" aria-hidden="true" />}
-            <strong>{asking.who} needs you</strong> <span className="asking-what">{need?.todo ?? asking.what}{asking.more ? ` · +${asking.more} more` : ""}</span>
+            <strong>{asking.who} needs you</strong> <span className="asking-what">{need?.todo ?? asking.what}{asking.more ? `, ${asking.more} more` : ""}</span>
             {asking.keys.length ? <button type="button" className="tb chip-answer" onClick={() => run("allow")} aria-keyshortcuts="a" title={`${asking.keys[0][1]} (a)`}>{asking.keys[0][1]}</button> : null}
             {phone && asking.keys[1] ? <button type="button" className="tb chip-answer" onClick={() => run("deny")} aria-keyshortcuts="d" title={`${asking.keys[1][1]} (d)`}>{asking.keys[1][1]}</button> : null}
           </span>
-        ) : workChips.length ? (
-          // One chip per agent at work: its color, its name and what it does in a few words.
-          <span className="agent-chips" aria-label="Agents at work">
-            {workChips.map((chip) => (
-              <span key={chip.id} className={`agent-chip s-${chip.status}`} style={chip.color ? { "--who": chip.color } : undefined}
-                title={`${chip.name}: ${data.live?.latest?.[chip.id]?.label ?? chip.doing}`}>
-                <span className="chip-dot" aria-hidden="true" /><span className="chip-name">{chip.name}</span> <span className="chip-doing">{chip.id === renderBy?.id && rendering ? `render ${renderPercent}%` : chip.doing}</span>
-              </span>
-            ))}
-          </span>
-        ) : idleLine(data, now) ? <span className="idle-line">{idleLine(data, now)}</span> : <span className="idle-line">no agent yet</span>}
+        ) : workChips.length ? chipsAtWork : idleLine(data, now) ? <span className="idle-line">{idleLine(data, now)}</span> : <span className="idle-line">no agent yet</span>}
         {/* Follow is on unless you turn it off (f); only "off" is shown, as a reminder. */}
         {!follow || phone ? <button type="button" className={`tb follow${follow ? " on" : ""}`} aria-pressed={follow} aria-keyshortcuts="f" title="Follow the agent (f)" onClick={() => run("follow")}><span className="dot" aria-hidden="true" /><span className="tab-word"> follow {follow ? "on" : "off"}</span></button> : null}
         {message ? <span className={`message ${message.error ? "err" : "dim"}`} title={message.text}>{message.text}</span> : null}
-        <span className="top-right">
-          {data.recording ? (
-            <button type="button" className="tb top-button recording" onClick={stopRecording}
-              title="An agent is recording the screen. Stop it (the recording so far is kept)" aria-label={`Recording the screen, ${recClock(now - data.recording.startedAt)}. Stop recording`}>
-              <span className="rec-dot" aria-hidden="true" />rec {recClock(now - data.recording.startedAt)} · stop</button>
-          ) : null}
-          <button type="button" className={`tb top-button${data.hold?.on ? " held" : ""}`} onClick={() => toggleHold()} aria-keyshortcuts="h" aria-pressed={Boolean(data.hold?.on)}
-            title={data.hold?.on ? "Release: agent writes work again (h)" : "Hold: pause agent writes (h)"}>
-            <Icon name="hold" />{data.hold?.on ? "release" : screen.name === "crew" ? "hold all" : "hold"}</button>
-          {phone ? null : <>
-            <button type="button" className="tb top-button" onClick={makeShare} disabled={!projectId} title="Make a view link and copy it">
-              <Icon name="link" /><span className="tab-word">share</span></button>
-            <button type="button" className="tb top-button icon-only" onClick={() => setScreen({ name: "settings" })} aria-label="Settings" title="Settings">
-              <Icon name="gear" /></button>
-          </>}
-          <span className={`render-split${rendering ? " is-rendering" : ""}`} style={renderBy?.color ? { "--who": renderBy.color } : undefined}>
-            <button type="button" className="tb top-render" onClick={() => (rendering ? setAgentView("session") : exportScene())} aria-keyshortcuts="r" disabled={!scene}
-              title={rendering ? `Rendering ${renderPercent}%${renderBy ? ` for ${renderBy.name}` : ""}: show the renders` : "Render this scene, final mp4 (r)"}
-              aria-label={rendering ? `Rendering, ${renderPercent} percent. Show the renders.` : "Render"}>
-              <Icon name="render" />{rendering ? `${renderPercent}%` : "render"}
-              {rendering ? <span className="render-line" style={{ width: `${renderPercent}%` }} aria-hidden="true" /> : null}
-            </button>
-            <Menu id="render-menu" label="" ariaLabel="Render options" listLabel="Render" title="Render: final, draft, format, cancel"
-              value={null} options={renderOptions} onPick={pickRender} className="render-more" />
-          </span>
-        </span>
       </div>
+      {/* The views: the stage (F1), the crew (F2; it counts what waits for you), inspire (F3) and the library (F4). */}
+      <nav className="tabs" aria-label="Views">
+        {tab("main", "monitor", "Stage", () => run("stage"), "F1")}
+        {tab("crew", "users", "Crew", () => setScreen({ name: "crew" }), "F2",
+          needs.length ? <span className="tab-count" aria-label={`, ${needs.length} waiting for you`}>{needs.length}</span> : null)}
+        {tab("inspire", "compass", "Inspire", () => setScreen({ name: "inspire" }), "F3")}
+        {tab("library", "library", "Library", () => setScreen({ name: "library" }), "F4")}
+      </nav>
+      <span className="top-right">
+        {data.recording ? (
+          <button type="button" className="tb top-button recording" onClick={stopRecording}
+            title="An agent is recording the screen. Stop it (the recording so far is kept)" aria-label={`Recording the screen, ${recClock(now - data.recording.startedAt)}. Stop recording`}>
+            <span className="rec-dot" aria-hidden="true" /><span className="rec-time">{recClock(now - data.recording.startedAt)}</span> Stop</button>
+        ) : null}
+        <button type="button" className={`tb top-button${data.hold?.on ? " held" : ""}`} onClick={() => toggleHold()} aria-keyshortcuts="h" aria-pressed={Boolean(data.hold?.on)}
+          title={data.hold?.on ? "Release: agent writes work again (h)" : "Hold: pause agent writes (h)"}>
+          <Icon name="hold" /><span className="tab-word">{data.hold?.on ? "Release" : screen.name === "crew" ? "Hold all" : "Hold"}</span></button>
+        {phone ? null : <>
+          <button type="button" id="share-button" className={`tb top-button icon-only${shareOpen ? " open" : ""}`} onClick={() => setShareOpen((open) => !open)} disabled={!projectId}
+            aria-label="Share" aria-haspopup="dialog" aria-expanded={shareOpen} aria-controls={shareOpen ? "share-box" : undefined} title="Share: make a link, or revoke one">
+            <Icon name="link" /></button>
+          {shareOpen && projectId ? <ShareBox data={data} now={now} onMake={makeLink} onRevoke={revokeLink}
+            onClose={() => { setShareOpen(false); window.document.getElementById("share-button")?.focus(); }} /> : null}
+          <button type="button" className="tb top-button icon-only" onClick={() => setScreen({ name: "settings" })} aria-label="Settings" title="Settings">
+            <Icon name="gear" /></button>
+        </>}
+        <button type="button" className="tb top-button icon-only theme-switch" onClick={toggleTheme} aria-pressed={theme === "light"}
+          aria-label={theme === "light" ? "Light theme. Switch to dark" : "Dark theme. Switch to light"} title={theme === "light" ? "Switch to the dark theme" : "Switch to the light theme"}>
+          <Icon name={theme === "light" ? "sun" : "moon"} /></button>
+        <span className={`render-split${rendering ? " is-rendering" : ""}`} style={renderBy?.color ? { "--who": renderBy.color } : undefined}>
+          <button type="button" className="tb top-render" onClick={() => (rendering ? setAgentView("session") : exportScene())} aria-keyshortcuts="r" disabled={!scene}
+            title={rendering ? `Rendering ${renderPercent}%${renderBy ? ` for ${renderBy.name}` : ""}: show the renders` : "Render this scene, final mp4 (r)"}
+            aria-label={rendering ? `Rendering, ${renderPercent} percent. Show the renders.` : "Render"}>
+            {rendering ? `${renderPercent}%` : "Render"}
+            {rendering ? <span className="render-line" style={{ width: `${renderPercent}%` }} aria-hidden="true" /> : null}
+          </button>
+          <Menu id="render-menu" label="" ariaLabel="Render options" listLabel="Render" title="Render: final, draft, format, cancel"
+            value={null} options={renderOptions} onPick={pickRender} className="render-more" />
+        </span>
+      </span>
     </header>
   );
 
   const stage = (
     <StagePane {...paneProps(1)} data={data} scene={scene} time={time} rev={stageRev} checkpoint={checkpoint?.turn ?? null} full={full} playing={playing} fps={fps} still={still} previewList={previewList}
       marks={reactions.marks} onUnmark={reactions.remove} onClearMarks={reactions.clear}
-      overlays={overlays} findings={findings} selectedLayer={selectedLayer} onPin={(area, extra) => startNote(area, true, extra)} draft={draft} noteBubble={noteBubble}
+      overlays={overlays} findings={findings} selectedLayer={selectedLayer} onPin={(area, extra) => startNote(area, true, extra)} draft={draft}
       timeStore={timeStore} fontVersion={fontVersion} sound={{ state: soundState, mix: mix.state, error: mix.error, blocked: SOUND_BLOCKED }} onSoundOn={() => player.resume()} soundTime={player.time}
       onToggleOutlines={toggleBoxes} onSeek={(value) => { stopPlaying(); setView((current) => ({ ...current, time: value })); }}
       need={need && !phone && need.allow && need.watch ? { ...need, onAllow: () => run("allow"), onDeny: () => run("deny"), onNote: () => startNote() } : null}
@@ -1656,12 +1733,15 @@ export function Dashboard() {
   const saveSettings = async (change) => { try { await server.saveSettings(change); say("Saved."); } catch (cause) { fail(cause); } };
   // The log, checks and notes: a view of the agent pane on a wide screen (bare), a pane of its
   // own with its own tabs on the phone's stack.
+  const inlineAsk = askInline
+    ? { ...confirm.ask, onYes: () => { const { run: yes } = confirm; setConfirm(null); yes(); }, onNo: () => setConfirm(null) } : null;
   const logProps = {
     data, cursor: list === 4 ? cursors[4] : -1, expanded,
     onToggle: (id) => setExpanded((value) => (value.includes(id) ? value.filter((entry) => entry !== id) : [...value, id])),
     onTurn: (id) => { const index = turns.findIndex((row) => row.id === id); if (index >= 0) setCursors((value) => ({ ...value, 4: index })); selectTurn(id); },
     onReview: (id) => setScreen({ name: "turn", turn: id }), filter, onFilter: setFilter, filterOpen, checks, onCompose: () => startNote(),
     onForwardComment: forwardComment, onNote: noteAct, still, now, time,
+    onSeek: (value) => { stopPlaying(); setView((current) => ({ ...current, time: value })); },
   };
   const log = phone
     ? <LogPane {...paneProps(4)} {...logProps} tab={["log", "checks", "notes"].includes(logTab) ? logTab : "log"} onTab={setLogTab} composer={composer} />
@@ -1672,7 +1752,7 @@ export function Dashboard() {
       cursor={list === 1 ? cursors[1] : -1} onAnswer={answer} onOpenApproval={(id) => setScreen({ name: "approval", id })} onIdeas={() => setScreen({ name: "inspire" })} onJudge={() => setJudgeLater(null)} onTry={() => setScreen({ name: "try" })} onMaterial={answerMaterial}
       onStop={(round, press) => (press === "approve" && round.kind !== "board" ? pressStop(round, "approve") : openStop(round, press === "redo" ? "redo" : null))}
       onReopen={reopenStop} onKeepAsking={keepAsking} onOpenProject={openProject}
-      onCancelRender={cancelRender} onShare={makeShare} onShares={() => setScreen({ name: "shares" })} share={share} onAddFiles={dropFiles} onExport={() => exportScene()} bare />
+      onCancelRender={cancelRender} onShare={makeShare} onShares={() => setShareOpen(true)} share={share} onAddFiles={dropFiles} onExport={() => exportScene()} bare />
   );
 
   let body;
@@ -1697,17 +1777,24 @@ export function Dashboard() {
     );
   } else if (screen.name === "main") {
     body = (
-      <main className={`panes${zoomed ? " zoomed" : ""}${agentView === "seen" && enlarged && seenFiles.includes(enlarged) ? " seen-open" : ""}`} aria-label="Dashboard" inert={waiting}>
+      <main className={`panes screening${listOpen ? " list-open" : ""}${stripOpen ? " strip-open" : ""}${zoomed ? " zoomed" : ""}${listOpen && agentView === "seen" && enlarged && seenFiles.includes(enlarged) ? " seen-open" : ""}`} aria-label="Dashboard" inert={waiting}>
         {stage}
-        <AgentPane {...paneProps(2)} data={data} agent={askingAgent ?? agentShown} still={still} now={now} view={agentView} onView={setAgentView} needs={needs.length} follow={follow} checks={checks} onRun={run} onAnswer={answer} onMaterial={answerMaterial}
-          noteLine={noteLine} views={{
-            session, log, checks: log, notes: log,
-            seen: <SeenPane data={data} cursor={cursors[3]} enlarged={enlarged} onEnlarge={setEnlarged} still={still} onSelect={pickSeen} bare />,
-          }} />
+        {/* The earlier lines, checks, looks and notes: under the frame once it has stepped back. */}
+        {listOpen ? (
+          <AgentPane {...paneProps(2)} data={data} agent={askingAgent ?? agentShown} still={still} now={now} view={agentView} onView={setAgentView} needs={needs.length} follow={follow} checks={checks} onRun={run} onAnswer={answer} onMaterial={answerMaterial}
+            onClose={() => { setListOpen(false); focusPane(1); }} noteLine={noteLine} views={{
+              session, log, checks: log, notes: log,
+              seen: <SeenPane data={data} cursor={cursors[3]} enlarged={enlarged} onEnlarge={setEnlarged} still={still} onSelect={pickSeen} bare />,
+            }} />
+        ) : null}
+        {noteField ?? <Voice data={data} agent={askingAgent ?? agentShown} now={now} scene={scene} time={time} still={still} listOpen={listOpen}
+          onRun={run} onAnswer={answer} onMaterial={answerMaterial} onCancelRender={() => cancelRender()} onStopRecording={stopRecording} ask={inlineAsk} onShare={() => setShareOpen(true)}
+          onHistory={() => { if (listOpen) { setListOpen(false); focusPane(1); } else { setAgentViewOnly("agent"); focusPane(2); } }} />}
         <TimelinePane {...paneProps(3)} data={data} scene={scene} time={time} cursor={list === 5 ? cursors[5] : -1} selectedLayer={selectedLayer}
           onSeek={(value) => { stopPlaying(); setView((current) => ({ ...current, time: value })); }} onSelectLayer={selectLayer} onTurn={selectTurn} viewTurn={checkpoint?.turn ?? null}
           playing={playing} timeStore={timeStore} point={pointedRange ? point : null} onPoint={pointAt} still={still} now={now}
-          needAgent={need?.watch && need.key === "allow" ? need.agentId ?? null : undefined} previewList={previewList} rev={stageRev} />
+          needAgent={need?.watch && need.key === "allow" ? need.agentId ?? null : undefined} previewList={previewList} rev={stageRev}
+          strip={!stripOpen} onStrip={(strip) => setStripOpen(!strip)} />
       </main>
     );
   } else {
@@ -1715,7 +1802,6 @@ export function Dashboard() {
     const screens = {
       projects: () => <ProjectsScreen data={data} cursor={cursors.projects} onCursor={(index) => setCursors((value) => ({ ...value, projects: index }))} onOpen={openProject}
         onDuplicate={(id) => projectAction("duplicate", id)} onArchive={archive} onRestore={restore} onBack={back} />,
-      shares: () => <SharesScreen data={data} now={now} onMake={makeLink} onRevoke={revokeLink} onBack={back} />,
       settings: () => <SettingsScreen data={data} now={now} onBack={back} notificationState={notificationState}
         onAskNotifications={async () => setNotificationState(await askForNotifications())}
         onSave={saveSettings} stops={<StopSettings settings={data.settings} onSave={saveSettings} />}
@@ -1735,7 +1821,7 @@ export function Dashboard() {
         const shown = target?.sceneId ? doc?.scenes.find((entry) => entry.id === target.sceneId) : null;
         if (shown) { stopPlaying(); setView({ sceneId: shown.id, time: Math.max(0, Math.min(Number(shown.duration) || 0, target.time ?? target.range?.[0] ?? 0)) }); }
         setFollow(true);
-        say(shown ? `Follow agent on · showing where ${agent.name} works.` : "Follow agent on.");
+        say(shown ? `Follow agent on, showing where ${agent.name} works.` : "Follow agent on.");
         focusPane(1);
       }} />,
       board: () => <BoardScreen projectId={projectId} document={doc} revision={revision} onBack={back} />,
@@ -1744,6 +1830,8 @@ export function Dashboard() {
       library: () => <LibraryScreen document={doc} shots={doc?.board?.shots ?? []} onBack={back}
         onSend={async (text) => { try { await sendNote(text); say("Sent to the agent."); } catch (cause) { fail(cause); throw cause; } }} />,
       inspire: () => <InspireScreen data={data} projectId={projectId} now={now} onBack={back} say={say} keysRef={inspireKeys} still={still} />,
+      brief: () => <BriefScreen data={data} brief={brief} document={doc} onNote={() => startNote()} onAddFiles={dropFiles} onReopen={reopenStop} onKeepAsking={keepAsking}
+        onExport={() => exportScene()} onCancelRender={cancelRender} />,
       help: () => <HelpScreen onBack={back} />,
       transcript: () => <TranscriptScreen data={data} onBack={back} />,
     };
@@ -1757,6 +1845,8 @@ export function Dashboard() {
       onDrop={(event) => { if (!event.dataTransfer?.files?.length) return; event.preventDefault(); setDragging(false); dropFiles([...event.dataTransfer.files]); }}>
       {topline}
       {body}
+      {/* A page beside the stage keeps the cut and the agent's line in view, at its foot. */}
+      {!phone && screen.name !== "main" && screen.name !== "try" && projectId && doc ? <PageFoot data={data} agent={askingAgent ?? agentShown} now={now} scene={scene} time={time} onStage={() => focusPane(1)} /> : null}
       {judgeShown ? <JudgeBox key={judge.id} projectId={projectId} judge={judge}
         onPick={(pair, pick) => {
           if (judge.pairs.filter((entry) => !entry.pick && entry.n !== pair).length === 0) setJudgeReview(judge.id);
@@ -1769,13 +1859,12 @@ export function Dashboard() {
           server.act("notes", { action: "judge", pair_id: pairId, pick, words, ...(note ? { note } : {}) }).then((reply) => { if (reply.isError) { setPicksDone((value) => value.filter((id) => id !== pairId)); say(reply.text, true); } }, fail);
         }}
         onLater={() => setPicksLater(picks.queued)} /> : null}
-      {confirm ? <ConfirmBox text={confirm.text} yes={confirm.yes} onYes={() => { const { run: yes } = confirm; setConfirm(null); yes(); }} onNo={() => setConfirm(null)} /> : null}
+      {confirm && !inlineAsk ? <ConfirmBox text={confirm.text} yes={confirm.yes} onYes={() => { const { run: yes } = confirm; setConfirm(null); yes(); }} onNo={() => setConfirm(null)} /> : null}
       {commandOpen ? <CommandLine onRun={runCommand} onClose={() => setCommandOpen(false)} inert={waiting} items={commandItems} /> : null}
       {phone ? <StatusLine data={data} scene={scene} time={time} playing={playing} timeStore={timeStore} checks={checks} onChecks={showChecks} connection={connection} still={still} now={now} inert={waiting} /> : (
-        // The bottom line: the keys on the left, what the top line and panes do not say on the right.
+        // The bottom line: what the top line and the line under the frame do not say (tokens,
+        // checks, the connection). Mouse first: no row of keys; the help screen lists them.
         <div className="bottomline">
-          {/* The crew and inspire screens draw their own key lines. */}
-          {screen.name !== "inspire" && screen.name !== "crew" ? <KeyLine onKey={run} inert={waiting} need={need?.allow ? need : null} playing={playing} empty={!scene} /> : null}
           <StatusLine data={data} scene={scene} time={time} playing={playing} timeStore={timeStore} checks={checks} onChecks={showChecks} connection={connection} still={still} now={now} inert={waiting} compact />
         </div>
       )}

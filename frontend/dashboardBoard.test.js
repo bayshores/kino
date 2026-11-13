@@ -332,7 +332,7 @@ test("try options: the round shown, the rounds and planned topics on the left, t
   assert.equal(shownRound({ rounds: [done], later: [] }).id, "T1", "else the newest");
   assert.deepEqual(roundList(tries, open).map((entry) => [entry.mark, entry.text, entry.current]),
     [["✓", "framing", false], ["●", "the cut into 2", true], ["○", "color", false], ["○", "sound", false]]);
-  assert.deepEqual([answerWords(done), answerWords({ ...done, pick: "none" }), answerWords({ ...done, pick: "skip" }), answerWords(open)], ["B · wide", "none of these", "skipped", null]);
+  assert.deepEqual([answerWords(done), answerWords({ ...done, pick: "none" }), answerWords({ ...done, pick: "skip" }), answerWords(open)], ["B, wide", "none of these", "to skip", null]);
   const rows = needsYouRows({ projectId: "p1", agent: { tries }, approvals: [] });
   assert.deepEqual(rows.map((row) => [row.type, needKey(row)]), [["try", "try/p1/T2"]]);
 });
@@ -352,7 +352,7 @@ test("the library: a group, a kind or a search; what this video uses and on whic
   assert.deepEqual([shotsUsing(zoom, shots), shotWords([2]), shotWords([1, 4, 6])], [[2, 4], "shot 2", "shots 1, 4 and 6"]);
   const embers = catalog.entries.find((entry) => entry.id === "effect:embers");
   const asks = withAsk(withAsk(withAsk([], zoom, 1), embers), zoom, 2);
-  assert.deepEqual(asks.map(askChip), ["embers", "zoom through · shot 2"], "asking again moves it to the new shot");
+  assert.deepEqual(asks.map(askChip), ["embers", "zoom through, shot 2"], "asking again moves it to the new shot");
   assert.equal(askNote(asks, "warm, at the end"), "From the library, use: effect embers; move zoom-through on shot 2. warm, at the end");
   assert.equal(askNote([], "just words"), "just words");
   // Shadow and stroke stacks are static layer fields, not animations, and the note names the field.

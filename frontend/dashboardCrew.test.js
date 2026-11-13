@@ -176,6 +176,7 @@ test("F2 opens the crew screen and F1 the stage, from any screen; the command li
   assert.equal(keyAction({ key: "Escape" }, { screen: "crew" }), "back");
   // The crew screen's own letters (h x s t r H) are not the dashboard's there.
   for (const key of ["h", "x", "s", "t", "r", "H"]) assert.equal(keyAction({ key }, { screen: "crew" }), null);
+  assert.deepEqual([parseCommand("theme"), parseCommand("theme light"), parseCommand("dark")], [{ action: "theme", value: null }, { action: "theme", value: "light" }, { action: "theme", value: "dark" }]);
   assert.deepEqual(parseCommand("crew"), { action: "crew" });
 });
 
@@ -223,6 +224,6 @@ test("an agent card: the plan's step bars for a lead on the open project, and wh
   assert.deepEqual(plan.map((step) => step.done), [true, false, false]);
   assert.equal(planOf(juno, data), null, "a helper has no plan of its own");
   assert.equal(planOf({ ...nova, projectId: "other" }, data), null, "nor a lead on another project");
-  assert.deepEqual(crewCard(nova, plan), { steps: ["done", "now", "next"], stepText: "step 2/3", now: "edit · edit hero-5 caption" });
+  assert.deepEqual(crewCard(nova, plan), { steps: ["done", "now", "next"], stepText: "step 2/3", now: "edit: edit hero-5 caption" });
   assert.deepEqual(crewCard({ ...nova, state: "idle", stateWords: "idle" }, null), { steps: null, stepText: "", now: "idle" });
 });

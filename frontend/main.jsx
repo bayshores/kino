@@ -3,7 +3,12 @@ import { createRoot } from "react-dom/client";
 import {EditorBoundary} from "./components/EditorBoundary.jsx";
 import { api, shareToken } from "./client.js";
 import { accessShell } from "./viewerNavigation.js";
+import { showTheme, startTheme } from "./dashboard/theme.js";
 import "./base.css";
+
+// The owner's dashboard opens in its theme (dark or light) from the first frame; a share link's
+// viewer keeps its own look.
+if (!shareToken()) showTheme(startTheme());
 
 function Startup() {
   const [ready, setReady] = useState(null);

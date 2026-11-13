@@ -18,6 +18,9 @@ import { noteNumber } from "./noteSpot.js";
 
 // The lanes' heights in px (the grid's rows; TimelinePane adds them up).
 export const LANE_PX = { shots: 44, voice: 16, audio: 16, agent: 22, you: 22 };
+// As the strip under the stage (TimelinePane's `strip`): the shots, the music's wave and, in no
+// room of its own, a bar under the shots an agent works on; the other lanes take no room.
+export const STRIP_PX = { shots: 58, voice: 0, audio: 0, music: 20, agent: 0, you: 0 };
 
 /** The server's shots and spoken sentences of a scene, read again for each new revision. */
 export function useSceneLanes(projectId, sceneId, rev) {
@@ -52,7 +55,7 @@ function usePeaks(ids) {
  * Which lanes there are, and their data, for TimelinePane: {rows: [{kind, id, height}], ...}.
  * Kept in one place so the pane can size its grid before it draws the lanes.
  */
-export function useLanes({ data, scene, duration, entries, spanOf }) {
+export function useLanes({ data, scene, duration, entries, spanOf, strip = false }) {
   const lanes = useSceneLanes(data.projectId, scene?.id, data.record?.revision);
   const groups = useMemo(() => soundRows(scene, { spoken: Array.isArray(lanes?.voice) ? lanes.voice : [], captions: captionBlocks(scene) }), [lanes, scene]);
   const voice = groups.voice?.blocks ?? [];
@@ -63,14 +66,15 @@ export function useLanes({ data, scene, duration, entries, spanOf }) {
     .map((lane) => ({ ...lane, agent: known.find((row) => row.id === lane.agent.id) ?? lane.agent }));
   // Your notes with a time in this scene: the "you" lane, a numbered dot each.
   const notes = (data.agent?.notes ?? []).filter((note) => note.time != null && (!note.sceneId || note.sceneId === scene?.id));
+  const px = strip ? STRIP_PX : LANE_PX;
   const rows = [
-    { kind: "shots", id: "shots", height: LANE_PX.shots },
-    ...(voice.length ? [{ kind: "voice", id: "voice", height: LANE_PX.voice }] : []),
-    ...sounds.map((sound) => ({ kind: "audio", id: sound.id, height: LANE_PX.audio })),
-    ...(notes.length ? [{ kind: "you", id: "you", height: LANE_PX.you }] : []),
-    ...agents.map((lane) => ({ kind: "agent", id: lane.agent.id, height: LANE_PX.agent })),
+    { kind: "shots", id: "shots", height: px.shots },
+    ...(voice.length ? [{ kind: "voice", id: "voice", height: px.voice }] : []),
+    ...sounds.map((sound) => ({ kind: "audio", id: sound.id, height: strip && sound === groups.music ? px.music : px.audio })),
+    ...(notes.length ? [{ kind: "you", id: "you", height: px.you }] : []),
+    ...agents.map((lane) => ({ kind: "agent", id: lane.agent.id, height: px.agent })),
   ];
-  return { rows, shots: lanes?.shots ?? null, voice, voiceNames: groups.voice?.names ?? [], sounds, agents, notes, duration };
+  return { rows, strip, shots: lanes?.shots ?? null, voice, voiceNames: groups.voice?.names ?? [], sounds, agents, notes, duration };
 }
 
 /**
@@ -81,7 +85,7 @@ function ShotTile({ tile, src, ready, percent, onSeek, duration }) {
   const [failed, setFailed] = useState(false);
   return (
     <span className="shot-tile" role="listitem" style={{ left: percent(tile.start), width: `calc(${percent(tile.end)} - ${percent(tile.start)})` }}
-      title={`shot ${tile.shot} · ${spanText([tile.start, tile.end], duration)}`} onClick={(event) => { event.stopPropagation(); onSeek(tile.time); }}>
+      title={`Shot ${tile.shot}, ${spanText([tile.start, tile.end], duration)}`} onClick={(event) => { event.stopPropagation(); onSeek(tile.time); }}>
       {failed || !ready ? null : <img src={src} alt="" draggable={false} onError={() => setFailed(true)} />}
     </span>
   );
@@ -112,7 +116,12 @@ function Wave({ bars }) {
  * TimelinePane; `last` the timeline's who-changed-it-last ({layerId: {who, at, turn}}).
  */
 export function TimelineLanes({ model, data, scene, percent, trackWidth, onSeek, onTurn, viewTurn, last, still, now, pinTop = 0 }) {
-  const { rows, shots, voice, voiceNames = [], sounds, agents, notes = [], duration } = model;
+  const { rows, strip = false, shots, voice, voiceNames = [], sounds, agents, notes = [], duration } = model;
+  const shotsHeight = rows.find((row) => row.kind === "shots")?.height ?? LANE_PX.shots;
+  // In the strip a lane without room is not drawn (its cells stay, so the grid keeps its rows),
+  // and an agent's bar sits right under the shots: above its own row by the lanes between them.
+  const off = (row) => (strip && !row.height && row.kind !== "agent" ? " lane-off" : "");
+  const underShots = rows.slice(1).filter((row) => row.kind !== "agent").reduce((sum, row) => sum + row.height, 0);
   const peaksOf = usePeaks(sounds.flatMap((group) => group.sounds).map((sound) => mediaId(sound.src)).filter(Boolean));
   const peakOf = (sound) => { const id = mediaId(sound.src); return id ? peaksOf(id) : null; };
   // The agents' lanes, pinned in this order: each one's place from the top (under the ruler) and
@@ -125,7 +134,7 @@ export function TimelineLanes({ model, data, scene, percent, trackWidth, onSeek,
   // A cut line per shot change, at least 4 px apart (a fast edit would draw a solid bar).
   const cuts = spaced((shots ?? []).slice(1).map((shot) => shot.start), { duration, width: trackWidth || 800, gap: 4 });
   const aspect = scene ? scene.width / scene.height : 16 / 9;
-  const tiles = shotTiles(shots, { duration, width: trackWidth || 800, height: LANE_PX.shots - 4, aspect });
+  const tiles = shotTiles(shots, { duration, width: trackWidth || 800, height: strip ? shotsHeight : shotsHeight - 4, aspect });
   const ratio = typeof window === "undefined" ? 1 : window.devicePixelRatio || 1;
   const tileWidth = tiles.length ? ((tiles[0].end - tiles[0].start) / duration) * (trackWidth || 800) : 64;
   const frameWidth = Math.max(64, Math.min(320, Math.ceil((tileWidth * ratio) / 32) * 32));
@@ -173,8 +182,8 @@ export function TimelineLanes({ model, data, scene, percent, trackWidth, onSeek,
         );
         if (row.kind === "voice") return (
           <React.Fragment key="voice">
-            <span className="tl-label lane-label" style={{ height: row.height }} title={voiceNames.join(", ")}>voice</span>
-            <div ref={voiceRef} className="track lane-voice" style={{ height: row.height }} role="listbox" tabIndex={0}
+            <span className={`tl-label lane-label${off(row)}`} style={{ height: row.height }} title={voiceNames.join(", ")}>voice</span>
+            <div ref={voiceRef} className={`track lane-voice${off(row)}`} style={{ height: row.height }} role="listbox" tabIndex={0}
               aria-label={voice.some((block) => block.text) ? `Spoken sentences, ${voice.length}: ← and → read them` : `Voice clips, ${voice.length}: ← and → go through them`} aria-activedescendant={picked !== null ? `voice-${picked}` : undefined}
               onClick={seek} onPointerLeave={() => setCard(null)} onBlur={() => setCard(null)}
               onKeyDown={(event) => {
@@ -199,8 +208,8 @@ export function TimelineLanes({ model, data, scene, percent, trackWidth, onSeek,
           const names = group.sounds.map((sound) => sound.name);
           return (
             <React.Fragment key={`a${row.id}`}>
-              <span className="tl-label lane-label" style={{ height: row.height }} title={names.join(", ")}>{cutName(group.name)}</span>
-              <div className="track lane-audio" style={{ height: row.height }} onClick={seek} role="img"
+              <span className={`tl-label lane-label${off(row)}`} style={{ height: row.height }} title={names.join(", ")}>{cutName(group.name)}</span>
+              <div className={`track lane-audio${off(row)}`} style={{ height: row.height }} onClick={seek} role="img"
                 aria-label={`${group.name}: ${group.sounds.map((sound) => `${group.sounds.length > 1 || sound.name !== group.name ? `${sound.name} ` : ""}plays ${spanText([sound.start, sound.end], duration)}`).join("; ")}`}>
                 {group.sounds.map((sound) => <span key={sound.id} className="audio-span" style={{ left: percent(sound.start), width: `calc(${percent(sound.end)} - ${percent(sound.start)})` }} />)}
                 <Wave bars={mixBars(group.sounds, peakOf, { duration, count: bars })} />
@@ -210,8 +219,8 @@ export function TimelineLanes({ model, data, scene, percent, trackWidth, onSeek,
         }
         if (row.kind === "you") return (
           <React.Fragment key="you">
-            <span className="tl-label lane-label you-lane-label" style={{ height: row.height }}><span className="you-square" aria-hidden="true" />you</span>
-            <div className="track lane-you" style={{ height: row.height }} role="group" aria-label={`Your notes: ${notes.length}`} onClick={seek}>
+            <span className={`tl-label lane-label you-lane-label${off(row)}`} style={{ height: row.height }}><span className="you-square" aria-hidden="true" />you</span>
+            <div className={`track lane-you${off(row)}`} style={{ height: row.height }} role="group" aria-label={`Your notes: ${notes.length}`} onClick={seek}>
               {notes.map((note) => (
                 <button key={note.id} type="button" className={`tb note-dot${note.status === "resolved" ? " done" : ""}`} style={{ left: percent(note.time) }}
                   title={note.text} aria-label={`${note.id}${note.status === "resolved" ? ", done" : ""}, at ${spanText([note.time, note.time], duration)}: ${note.text}. Go to it.`}
@@ -235,12 +244,12 @@ export function TimelineLanes({ model, data, scene, percent, trackWidth, onSeek,
             <span className="tl-label lane-label agent-lane-label pinned" style={{ height: row.height, color: agent.color ?? undefined, top: pin.top, bottom: pin.bottom }}>
               <span className="lane-dot" aria-hidden="true" style={{ background: agent.color ?? undefined }} /><span className="lane-name">{agent.name}</span>
             </span>
-            <div className="track lane-agent pinned" style={{ height: row.height, "--who": agent.color ?? undefined, top: pin.top, bottom: pin.bottom }} role="group" aria-label={`${agent.name}'s edits`} onClick={seek}>
+            <div className="track lane-agent pinned" style={{ height: row.height, "--who": agent.color ?? undefined, "--under-shots": `${underShots}px`, top: pin.top, bottom: pin.bottom }} role="group" aria-label={`${agent.name}'s edits`} onClick={seek}>
               {first !== null ? <span className="agent-line" style={{ left: percent(first), width: `calc(${percent(lastMark)} - ${percent(first)})` }} aria-hidden="true" /> : null}
               {render ? (
                 <span className="lane-render" aria-label={`${agent.name} renders ${render.id ?? ""}: ${Math.round(renderShare * 100)}%`} role="img">
                   <span className="lane-render-done" style={{ width: `${renderShare * 100}%` }} />
-                  <span className="lane-render-text" style={{ left: `${renderShare * 100}%` }}>{`${render.id ?? "render"} · ${Math.round(renderShare * 100)}%`}</span>
+                  <span className="lane-render-text" style={{ left: `${renderShare * 100}%` }}>{`${render.id ?? "render"} ${Math.round(renderShare * 100)}%`}</span>
                 </span>
               ) : null}
               {lane.marks.map((mark, index) => {
@@ -248,15 +257,15 @@ export function TimelineLanes({ model, data, scene, percent, trackWidth, onSeek,
                 seenTurns.add(mark.turn);
                 return (
                   <button key={`${mark.turn}/${index}`} type="button" className={`tb agent-mark${viewTurn === mark.turn ? " current" : ""}`} tabIndex={firstOfTurn ? 0 : -1}
-                    style={{ left: percent(mark.at) }} aria-pressed={viewTurn === mark.turn} title={`${mark.turn} · ${spanText([mark.at, mark.end], duration)}`}
+                    style={{ left: percent(mark.at) }} aria-pressed={viewTurn === mark.turn} title={`${mark.turn}, ${spanText([mark.at, mark.end], duration)}`}
                     aria-label={`${mark.turn}: ${agent.name} changed the scene at ${spanText([mark.at, mark.end], duration)}. Show this checkpoint.`}
                     onClick={(event) => { event.stopPropagation(); onTurn(mark.turn); }} />
                 );
               })}
               {block ? (
                 <span className="lane-now" style={{ left: percent(block.start), width: `calc(${percent(Math.min(duration, block.end))} - ${percent(block.start)})` }}
-                  title={`${agent.name} · ${block.label} · ${spanText([block.start, block.end], duration)}`} aria-label={`${agent.name} works on ${spanText([block.start, block.end], duration)} now`} role="img">
-                  <span className="lane-now-text">{block.label ? `${block.label} · now` : "now"}</span>
+                  title={`${agent.name}: ${block.label}, ${spanText([block.start, block.end], duration)}`} aria-label={`${agent.name} works on ${spanText([block.start, block.end], duration)} now`} role="img">
+                  <span className="lane-now-text">{block.label ? `${block.label}, now` : "now"}</span>
                 </span>
               ) : null}
             </div>

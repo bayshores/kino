@@ -95,7 +95,7 @@ export function PickBox({ picks, onPick, onLater }) {
     <div className="judge picks" role="dialog" aria-modal="true" aria-labelledby="picks-question" tabIndex={-1} ref={boxRef}>
       <div className="judge-head">
         <h2 id="picks-question">which is better?</h2>
-        <span className="judge-count">{picks.picked + 1}/{picks.most}{audioOnly ? " · sound only" : pictureOnly ? " · picture only" : ""}</span>
+        <span className="judge-count">{picks.picked + 1}/{picks.most}{audioOnly ? ", sound only" : pictureOnly ? ", picture only" : ""}</span>
       </div>
       <div className="judge-pair">
         {SIDES.map(([side, name]) => (

@@ -1,0 +1,155 @@
+/* The pages beside the stage (brief, crew, inspire, library, settings, projects): one column as
+   wide as the stage's frame, no boxes around panes, and a foot line with the cut and the agent's
+   line. Also the shared controls (controls.jsx) in the same look: square, one hairline, the
+   chosen option solid. Loaded after dashboard.css and screens.css; colors come from .dash. */
+
+.dash { --gutter: clamp(24px, 12.7vw, 183px); }
+
+/* ---- the page column ---- */
+.dash .screen-wrap { margin: 0; border: 0; border-radius: 0; }
+.dash .screen-wrap > .screen { padding: 20px var(--gutter) 28px; }
+.dash .screen h2 { font-size: 22px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.25; margin: 0 0 14px; }
+.dash .screen h3 { font-size: 18px; font-weight: 700; color: var(--fg0); letter-spacing: -0.01em; margin: 28px 0 8px; }
+
+/* ---- shared controls ---- */
+.dash .ui-btn {
+  min-height: 34px; padding: 0 14px; gap: 8px; font-size: 13px; font-weight: 600; border-radius: 0; background: none;
+  transition: background-color var(--quick) var(--ease-in), border-color var(--quick) var(--ease-in), transform var(--quick) var(--ease-in);
+}
+.dash .ui-btn:hover:not(:disabled) { background: var(--bg1); border-color: var(--fg1); }
+.dash .ui-btn:active:not(:disabled) { transform: scale(0.97); }
+.dash .ui-btn.primary { background: var(--solid); border-color: var(--solid); color: var(--on-solid); }
+.dash .ui-btn.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--solid) 86%, var(--bg0)); }
+.dash .ui-btn.quiet { border-color: transparent; }
+.dash .ui-btn.icon-only { width: 34px; padding: 0; }
+.dash .ui-icon { width: 16px; height: 16px; }
+
+.dash .ui-seg { border-radius: 0; padding: 2px; gap: 0; }
+.dash .ui-seg-item { min-height: 28px; padding: 0 12px; font-size: 13px; border-radius: 0; transition: color var(--quick) var(--ease-in), background-color var(--quick) var(--ease-in); }
+.dash .ui-seg-item.on, .dash .ui-seg-item.ok.on { background: var(--solid); color: var(--on-solid); font-weight: 700; }
+.dash .ui-seg-item.on .ui-seg-n { color: inherit; }
+
+/* A switch: a square that slides to the right and turns yellow when on. */
+.dash .ui-switch { width: 38px; height: 20px; }
+.dash .ui-switch-track { border-radius: 0; background: none; box-shadow: inset 0 0 0 1px var(--line); }
+.dash .ui-switch-track > span { top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 0; background: var(--fg2); transition: transform var(--quick) var(--ease-in), background-color var(--quick) var(--ease-in); }
+.dash .ui-switch input:checked + .ui-switch-track { background: none; }
+.dash .ui-switch input:checked + .ui-switch-track > span { left: 3px; transform: translateX(18px); background: var(--yellow); }
+
+.dash .ui-stepper { border-radius: 0; height: 30px; }
+.dash .ui-stepper input { font-family: var(--mono-ui); font-size: 13px; font-weight: 500; }
+.dash .ui-chip { border-radius: 0; min-height: 20px; padding: 0 8px; font-size: 12px; }
+.dash .ui-chip.accent { background: var(--yellow); border-color: var(--yellow); color: var(--on-yellow); }
+.dash .ui-field { min-height: 44px; padding: 0 14px; gap: 12px; border-radius: 0; background: none; }
+.dash .ui-field input { font-size: 15px; }
+.dash .ui-field:focus-within { border-color: var(--fg0); }
+
+/* A titled box is a heading over its content: no frame. */
+.dash .ui-box { border: 0; }
+.dash .ui-box > .ui-box-title { position: static; padding: 0; margin: 0 0 10px; background: none; font-size: 18px; line-height: 1.3; font-weight: 700; letter-spacing: -0.01em; }
+.dash .ui-box > .ui-box-body { padding: 0; }
+
+/* ---- the foot line: the cut, small, and what the agent does; a click goes back to the stage ---- */
+.page-foot {
+  all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 22px; height: 73px; padding: 0 24px; cursor: pointer;
+  border-top: 1px solid var(--line-soft); min-width: 0; transition: background-color var(--quick) var(--ease-in);
+}
+.page-foot:hover { background: var(--well); }
+.page-foot:focus-visible { outline: 1px solid var(--accent); outline-offset: -2px; }
+.page-foot img { display: block; width: 96px; height: 54px; object-fit: cover; background: var(--bg1); flex: none; }
+.page-foot .voice-line { font-size: 18px; line-height: 26px; gap: 10px; padding: 2px 8px; animation: none; }
+.page-foot .voice-line .tool-icon { width: 18px; height: 18px; }
+.page-foot.is-idle .voice-line, .page-foot.is-empty .voice-line, .page-foot.is-away .voice-line { color: var(--fg-mid); background: none; font-weight: 500; }
+.page-foot-time { font-family: var(--mono-ui); font-size: 12px; color: var(--fg2); flex: none; }
+.dash .ui-field input:focus-visible { outline: none; }
+
+/* ---- the older full screens (screens.jsx): keys, turn, variants, approval, transcript ---- */
+.dash .screen:focus-visible { outline: none; }
+.dash .screen > h2.row { display: flex; align-items: center; gap: 10px; white-space: normal; }
+.dash .screen-count { margin-left: 10px; font-family: var(--mono-ui); font-size: 12px; font-weight: 500; color: var(--fg1); letter-spacing: 0; }
+.dash .screen .mono { font-family: var(--mono-ui); font-size: 12px; font-variant-numeric: tabular-nums; }
+.dash .page-facts { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 20px; margin: 0 0 16px; color: var(--fg1); font-size: 14px; }
+.dash kbd { display: inline-grid; place-items: center; box-sizing: border-box; min-width: 22px; height: 22px; padding: 0 6px; font-family: var(--mono-ui); font-size: 12px; font-weight: 500; color: var(--fg0); box-shadow: inset 0 0 0 1px var(--line); }
+
+/* Keys: three columns of hairline rows, the key caps on the left. */
+.dash .help-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 0 40px; margin: 12px 0 0; }
+.dash .help-grid > div { display: grid; grid-template-columns: 116px minmax(0, 1fr); gap: 12px; align-items: start; padding: 7px 0; border-bottom: 1px solid var(--line-soft); }
+.dash .help-grid dt { display: flex; flex-wrap: wrap; gap: 4px; }
+.dash .help-grid dd { margin: 0; padding-top: 2px; color: var(--fg1); font-size: 13px; line-height: 1.4; }
+.dash .help-grid dd::first-letter { text-transform: uppercase; }
+.dash .help-commands { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.dash .help-commands li { padding: 3px 8px; font-family: var(--mono-ui); font-size: 12px; color: var(--fg1); box-shadow: inset 0 0 0 1px var(--line-soft); }
+
+/* Before and after, and variants: pictures side by side with one caption line each. */
+.dash .compare { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; margin: 16px 0 0; }
+.dash .compare figure { margin: 0; min-width: 0; }
+.dash .compare img { display: block; width: 100%; height: auto; border: 0; background: var(--well, var(--bg1)); box-shadow: inset 0 0 0 1px var(--line-soft); }
+.dash .compare figcaption { display: flex; align-items: center; gap: 14px; min-height: 40px; margin-top: 8px; color: var(--fg1); font-size: 14px; white-space: normal; }
+.dash .compare figcaption b { color: var(--fg0); font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dash .compare figcaption .grow { flex: 1; }
+.dash .variant { cursor: pointer; }
+.dash .variant[aria-selected="true"] img { outline: 2px solid var(--fg0); outline-offset: -2px; }
+.dash .variant.picked img { outline: 2px solid var(--yellow); outline-offset: -2px; }
+.dash .turn-changes { margin: 0 0 4px; padding: 0; list-style: none; font-size: 15px; line-height: 1.5; }
+.dash .page-ask { display: flex; align-items: center; gap: 10px; max-width: 640px; margin: 14px 0 0; }
+.dash .page-ask .ui-field { flex: 1; }
+.dash .page-ask .ui-btn { min-height: 44px; }
+
+/* Calls: a turn's calls, and the transcript. Time, who or verb, words, cost. */
+.dash .call-rows, .dash .transcript { margin: 0; padding: 0; list-style: none; }
+.dash .call-rows li { display: grid; grid-template-columns: 72px 88px minmax(0, 1fr) auto; gap: 14px; align-items: baseline; min-height: 32px; padding: 6px 0; border-bottom: 1px solid var(--line-soft); font-size: 13px; }
+.dash .call-at, .dash .call-cost { font-family: var(--mono-ui); font-size: 12px; color: var(--fg2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dash .call-verb { font-family: var(--mono-ui); font-size: 12px; font-weight: 500; color: var(--fg0); }
+.dash .call-words { color: var(--fg1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dash .call-rows li.failed .call-words, .dash .transcript-line.failed .call-answer { color: var(--err); }
+.dash .call-words .ui-icon { width: 12px; height: 12px; margin-right: 6px; vertical-align: -1px; }
+.dash .transcript-line { display: grid; grid-template-columns: 72px 112px minmax(0, 1fr) auto; gap: 4px 14px; align-items: baseline; padding: 10px 0; border-bottom: 1px solid var(--line-soft); font-size: 13px; white-space: normal; }
+.dash .call-who { color: var(--fg1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dash .call-who.you { color: var(--fg0); font-weight: 700; }
+.dash .call-turn { margin-left: 8px; color: var(--fg2); font-weight: 400; }
+.dash .call-input, .dash .call-answer { grid-column: 3 / -1; min-width: 0; word-break: break-word; }
+.dash .call-input { font-family: var(--mono-ui); font-size: 12px; color: var(--fg2); }
+.dash .call-answer { color: var(--fg1); }
+
+/* An approval: what is asked, who asks, a note, and the four answers on one line. */
+.dash .approval-card { max-width: 720px; margin: 0; padding: 0; border: 0; border-radius: 0; }
+.dash .approval-card h3 { margin: 0 0 6px; font-size: 26px; line-height: 1.2; font-weight: 600; letter-spacing: -0.02em; }
+.dash .approval-card p { margin: 0; }
+.dash .approval-summary { font-size: 15px; color: var(--fg0); }
+.dash .approval-who { margin-top: 4px; font-size: 13px; color: var(--fg1); }
+.dash .approval-card .approval-note { display: flex; margin: 16px 0 0; }
+.dash .approval-card .approval-note input { flex: 1; border: 0; background: none; padding: 0; }
+.dash .approval-card .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.dash .approval-card .actions .ui-btn { min-height: 40px; padding: 0 16px; }
+.dash .approval-answer { margin-top: 12px; font-size: 14px; }
+.dash .approval-card.compact { padding: 12px 16px; box-shadow: inset 0 0 0 1px var(--line); }
+.dash .approval-card.compact h3 { font-size: 18px; }
+
+/* ---- the command list and the confirm box: boxes over the dashboard ---- */
+.dash .command-backdrop { background: color-mix(in srgb, var(--bg0) 60%, transparent); animation: over-fade var(--quick) var(--ease-in); }
+.dash .command-box { top: 96px; width: min(620px, calc(100vw - 32px)); background: var(--bg0); border: 1px solid var(--line); box-shadow: 0 24px 64px rgb(0 0 0 / 0.3); animation: over-in var(--panel) var(--ease-out); }
+.dash .command-box .command-line { gap: 12px; min-height: 52px; padding: 0 8px 0 18px; border-bottom: 1px solid var(--line-soft); flex-wrap: nowrap; }
+.dash .command-box .command-line label { display: inline-flex; color: var(--fg1); }
+.dash .command-box .command-line input { font-family: var(--sans); font-size: 17px; }
+.dash .command-box .command-line .err { font-size: 12px; white-space: nowrap; }
+.dash .command-box .command-line .err:empty { display: none; }
+.dash .command-list { max-height: min(56vh, 476px); padding: 6px 0; margin: 0; list-style: none; }
+.dash .command-list li { grid-template-columns: 148px minmax(0, 1fr) auto; column-gap: 14px; align-items: center; min-height: 34px; padding: 0 18px; line-height: 1.3; font-size: 14px; }
+.dash .command-list li.picked { background: var(--bg1); box-shadow: inset 3px 0 0 var(--yellow); }
+.dash .command-words { color: var(--fg0); font-weight: 600; }
+.dash .command-words::first-letter, .dash .command-hint::first-letter { text-transform: uppercase; }
+.dash .command-hint { color: var(--fg1); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dash .command-list kbd { color: var(--fg1); }
+.dash .command-list .command-none { color: var(--fg1); }
+.dash .command-list .command-none:empty { display: none; }
+.dash .confirm {
+  position: fixed; z-index: 70; top: 28vh; left: 50%; translate: -50% 0; width: min(440px, calc(100vw - 32px)); box-sizing: border-box; margin: 0; padding: 22px 22px 18px;
+  background: var(--bg0); border: 1px solid var(--line); border-radius: 0; box-shadow: 0 24px 64px rgb(0 0 0 / 0.3), 0 0 0 100vmax color-mix(in srgb, var(--bg0) 60%, transparent);
+  animation: over-in var(--panel) var(--ease-out);
+}
+.dash .confirm p { margin: 0; max-width: none; white-space: normal; }
+.dash .confirm #confirm-text { font-size: 18px; font-weight: 600; line-height: 1.35; letter-spacing: -0.01em; }
+.dash .confirm .confirm-answers { display: flex; gap: 8px; margin-top: 18px; }
+.dash .confirm .ui-btn { min-height: 40px; padding: 0 18px; }
+@keyframes over-in { from { opacity: 0; transform: translateY(-8px) scale(0.985); } }
+@keyframes over-fade { from { opacity: 0; } }

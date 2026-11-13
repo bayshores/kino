@@ -1,56 +1,71 @@
-/* The try options screen (tries.jsx): the rounds on the left, the question, the options side by
-   side on one clock, then none of these and skip, and the shots with the moment marked. Orange is
-   the round open and the picked option, teal the moment, green a round picked. Nothing moves
-   until play is pressed. */
-.try-place { margin-right: 2ch; font-weight: 400; }
-.try-body { display: grid; grid-template-columns: minmax(16ch, 24ch) minmax(0, 1fr); gap: 1lh 3ch; align-items: start; }
-.try-rounds { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
-.try-rounds li { padding: 0 1ch; border-left: 2px solid transparent; color: var(--fg-mid); }
-.try-rounds li.current { border-left-color: var(--accent); background: var(--bg1); color: var(--fg0); font-weight: 700; }
-.try-mark { display: inline-block; width: 2ch; color: var(--fg1); }
-.try-mark.mark-done { color: var(--ok); }
-.try-mark.mark-open { color: var(--accent); }
-.try-round { display: grid; gap: 0.75lh; min-width: 0; }
-.try-screen .try-question { margin: 0; font: inherit; font-weight: 700; color: var(--fg0); }
-.try-options { display: grid; grid-template-columns: repeat(var(--count, 4), minmax(0, 1fr)); gap: 1ch; }
-.try-options.count-2 { --count: 2; max-width: 90ch; }
-.try-options.count-3 { --count: 3; }
-.try-option { display: grid; gap: 2px; margin: 0; min-width: 0; }
-.try-video { position: relative; display: grid; place-items: center; aspect-ratio: 9 / 16; max-height: 52vh; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius); background: #000; }
-.try-video video { display: block; width: 100%; height: 100%; object-fit: contain; }
-.try-option:hover .try-video { border-color: var(--fg1); }
-.try-option.picked .try-video { border-color: var(--accent); }
-.try-letter { position: absolute; top: 6px; left: 6px; min-width: 2.5ch; padding: 0 0.5ch; border-radius: 2px; background: rgb(11 14 18 / 0.85); color: var(--fg0); font-weight: 700; text-align: center; }
-.try-option.picked .try-letter { background: var(--accent); color: var(--bg0); }
-.try-missing { color: var(--fg1); }
-/* The pick button shows on hover and focus (always on a touch screen). */
-.try-pick { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); background: rgb(11 14 18 / 0.85); border-color: var(--accent); opacity: 0; }
-.try-option:hover .try-pick, .try-pick:focus-visible { opacity: 1; }
-@media (hover: none) { .try-pick { opacity: 1; } }
-.try-option figcaption { color: var(--fg-mid); overflow-wrap: anywhere; }
-.try-controls { display: flex; align-items: center; gap: 2ch; }
-.try-scrub { position: relative; flex: 1; display: flex; align-items: center; }
-.try-scrub input { width: 100%; accent-color: var(--accent); }
-.try-moment { position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; background: var(--agent); pointer-events: none; }
-.try-clock { color: var(--fg-mid); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.try-screen .try-answers { display: flex; justify-content: center; gap: 3ch; }
-.try-answers .tb { color: var(--fg-mid); }
-.try-answer { margin: 0; color: var(--fg-mid); text-align: center; }
-.try-shots { display: grid; grid-template-columns: 6ch minmax(0, 1fr); gap: 1ch; align-items: center; padding: 0.5lh 1ch; border-top: 1px solid var(--line); background: var(--lane); }
-.try-strip { position: relative; height: 1.5lh; }
-.try-shot { position: absolute; top: 0; bottom: 0; padding: 0 0.5ch; border: 1px solid var(--line); border-radius: 2px; background: var(--bg1); color: var(--fg-mid); overflow: hidden; }
-.try-at { position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; background: var(--accent); }
-/* Sketch rounds: each clip keeps its own shape, and the whole clip is its play button (with sound,
-   one at a time). The icon shows while paused, on hover and on focus; nothing moves by itself. */
-.try-sketches .try-video { aspect-ratio: auto; }
-.try-sketches .try-video video { height: auto; max-height: 52vh; }
-.try-play { position: absolute; inset: 0; display: grid; place-items: center; padding: 0; border: 0; background: transparent; color: var(--fg0); font: inherit; font-size: 1.6em; cursor: pointer; }
-.try-play span { padding: 0.2em 0.6em; border-radius: var(--radius); background: rgb(11 14 18 / 0.7); }
-.try-play[aria-pressed="true"] span { opacity: 0; }
-.try-play[aria-pressed="true"]:hover span, .try-play:focus-visible span { opacity: 1; }
+/* The sketch screen (tries.jsx): small steps for the rounds on top, the versions side by side (a
+   sketch round shows one large and the others small, a clip round all the same size), and the
+   agent's question under them with "None of these" and "Skip". Nothing moves until play is
+   pressed. Colors come from .dash. */
+.dash .screen-wrap > .screen.try-screen { display: flex; flex-direction: column; gap: 14px; height: 100%; box-sizing: border-box; padding: 12px 24px 16px; overflow: auto; }
+
+/* ---- the rounds ---- */
+.try-rounds { display: flex; flex-wrap: wrap; gap: 4px 18px; margin: 0; padding: 0; list-style: none; font-size: 13px; color: var(--fg2); }
+.try-rounds li { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.try-rounds li.is-done { color: var(--fg1); }
+.try-rounds li.current { color: var(--fg0); font-weight: 700; }
+.try-step { display: inline-grid; place-items: center; width: 20px; height: 20px; flex: none; font-family: var(--mono-ui); font-size: 11px; font-weight: 500; box-shadow: inset 0 0 0 1px var(--line); }
+.try-step .tool-icon { width: 12px; height: 12px; }
+.try-rounds li.current .try-step { background: var(--yellow); color: var(--on-yellow); box-shadow: none; }
+.try-topic { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 28ch; }
+.try-none { margin: auto; max-width: 44ch; text-align: center; color: var(--fg1); font-size: 15px; }
+
+/* ---- the versions ---- */
+.try-round { display: flex; flex-direction: column; justify-content: center; flex: 1; min-height: 0; min-width: 0; }
+.try-options { display: flex; align-items: flex-end; justify-content: center; gap: 16px; flex: none; min-height: 0; }
+.try-option { flex: 1 1 0; min-width: 0; margin: 0; display: flex; flex-direction: column; transition: flex-grow var(--panel) var(--ease-out); }
+.try-video { position: relative; display: grid; place-items: center; overflow: hidden; background: #000; box-shadow: inset 0 0 0 1px var(--line-soft); }
+.try-video video { display: block; width: 100%; height: auto; max-height: calc(100vh - 330px); object-fit: contain; }
+.try-option.picked .try-video { outline: 2px solid var(--yellow); outline-offset: -2px; }
+.try-missing { padding: 28% 0; color: var(--fg1); font-size: 13px; }
+.try-option figcaption { display: flex; align-items: center; gap: 14px; height: 40px; margin-top: 12px; min-width: 0; color: var(--fg1); font-size: 15px; }
+.try-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: color var(--quick) var(--ease-in); }
+.try-option figcaption .ui-btn { min-height: 40px; padding: 0 18px; flex: none; }
+.try-clock { flex: none; font-family: var(--mono-ui); font-size: 12px; color: var(--fg1); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* A sketch round: the one shown is large, in the middle of the line of sight. */
+.try-sketches .try-option.shown { flex-grow: 2.86; }
+.try-sketches .try-option:not(.shown) .try-video { opacity: 0.72; transition: opacity var(--quick) var(--ease-in); }
+.try-sketches .try-option:not(.shown):hover .try-video { opacity: 1; }
+.try-sketches .try-option.shown .try-name { color: var(--fg0); font-size: 24px; font-weight: 700; letter-spacing: -0.015em; }
+/* The whole sketch is its play button. The icon shows while paused, on hover and on focus. */
+.try-play { position: absolute; inset: 0; display: grid; place-items: center; padding: 0; border: 0; background: transparent; color: #fff; cursor: pointer; }
+.try-play-icon { width: 16px; height: 16px; fill: currentColor; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.try-play .try-play-icon { box-sizing: content-box; padding: 14px; background: rgb(0 0 0 / 0.55); transition: opacity var(--quick) var(--ease-in), transform var(--quick) var(--ease-in); }
+.try-option:not(.shown) .try-play .try-play-icon { padding: 9px; }
+.try-play:active .try-play-icon { transform: scale(0.94); }
+.try-play[aria-pressed="true"] .try-play-icon { opacity: 0; }
+.try-play[aria-pressed="true"]:hover .try-play-icon, .try-play:focus-visible .try-play-icon { opacity: 1; }
 .try-play:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-.try-option.playing .try-video { border-color: var(--agent); }
-.try-sketches .try-pick { z-index: 1; }
-/* A phone: the rounds over the options, two options a row. */
-.phone .try-body { grid-template-columns: minmax(0, 1fr); }
-.phone .try-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.try-progress { position: absolute; left: 0; bottom: 0; height: 3px; background: var(--yellow); pointer-events: none; }
+
+/* A clip round: all the same size, one clock under them. */
+.try-clips .try-options { align-items: flex-start; flex: none; }
+.try-clips .try-video video { max-height: calc(100vh - 420px); }
+.try-controls { display: flex; align-items: center; gap: 16px; margin-top: 10px; }
+.try-all { all: unset; box-sizing: border-box; display: inline-grid; place-items: center; width: 36px; height: 36px; flex: none; cursor: pointer; color: var(--fg0); box-shadow: inset 0 0 0 1px var(--line); }
+.try-all:hover { background: var(--bg1); }
+.try-all:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+.try-scrub { position: relative; flex: 1; display: flex; align-items: center; }
+.try-scrub input { width: 100%; accent-color: var(--yellow); }
+.try-moment { position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; background: var(--yellow); pointer-events: none; }
+.try-shots { position: relative; height: 22px; margin-top: 10px; }
+.try-shot { position: absolute; top: 0; bottom: 0; box-sizing: border-box; padding: 0 4px; box-shadow: inset 0 0 0 1px var(--line-soft); color: var(--fg2); font-family: var(--mono-ui); font-size: 11px; line-height: 22px; overflow: hidden; }
+.try-at { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: var(--yellow); }
+
+/* ---- the question ---- */
+.try-ask { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 10px 20px; min-height: 76px; padding-top: 14px; flex: none; min-width: 0; }
+.try-ask .voice-line { max-width: 100%; }
+.try-ask.answered .voice-line { color: var(--fg-mid); background: none; font-weight: 500; }
+.try-heard { color: var(--fg1); font-size: 13px; }
+
+/* A phone: the versions under each other, two a row in a clip round. */
+.phone .try-options { flex-wrap: wrap; align-items: flex-start; }
+.phone .try-sketches .try-option, .phone .try-sketches .try-option.shown { flex: 1 1 100%; }
+.phone .try-clips .try-option { flex: 1 1 40%; }
+@media (prefers-reduced-motion: reduce) { .try-option { transition: none; } }

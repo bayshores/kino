@@ -132,8 +132,8 @@ export function baseName(file) {
  */
 export function callLine(call) {
   if (!call?.label) return `${call?.verb ?? ""} ${callSummary(call)}`;
-  if (call.approval && !call.isError) return `${call.label} · waits for your approval ${call.approval}`;
-  return call.held || call.waiting || call.isError ? `${call.label} · ${callSummary(call)}` : call.label;
+  if (call.approval && !call.isError) return `${call.label}, waits for your approval ${call.approval}`;
+  return call.held || call.waiting || call.isError ? [call.label, callSummary(call)].filter(Boolean).join(", ") : call.label;
 }
 
 /** One line about a call. Edit receipts are JSON, so they become "card, headline → rev 2". */

@@ -39,7 +39,7 @@ export function idleLine(data, now = Date.now()) {
   if (!calls.length && !(data?.agents ?? []).length) return null;
   const edit = [...calls].reverse().find((call) => call.verb === "edit" && !call.isError);
   const at = Date.parse(edit?.at ?? "");
-  return Number.isFinite(at) ? `all idle · last edit ${agoWords(now - at)}` : "all idle";
+  return Number.isFinite(at) ? `all idle, last edit ${agoWords(now - at)}` : "all idle";
 }
 
 /** The newest render of the open project that still runs, or null. */

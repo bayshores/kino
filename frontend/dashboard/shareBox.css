@@ -1,0 +1,22 @@
+/* The share box under the Share button of the top line (shareBox.jsx). Colors come from .dash. */
+.share-box {
+  position: fixed; top: 58px; right: 24px; z-index: 60; width: 340px; max-width: calc(100vw - 32px); box-sizing: border-box;
+  padding: 16px; background: var(--bg0); border: 1px solid var(--line); box-shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
+  transform-origin: top right; animation: share-box-in var(--panel) var(--ease-out);
+}
+@keyframes share-box-in { from { opacity: 0; transform: translateY(-6px) scale(0.98); } }
+.share-box .share-form { display: flex; flex-direction: column; align-items: stretch; gap: 12px; margin: 0; padding: 0; background: none; }
+.share-box .ui-seg { align-self: flex-start; }
+.share-box .ui-field { min-width: 0; }
+.share-box .ui-btn.primary { min-height: 40px; justify-content: center; }
+.share-made { display: flex; align-items: center; gap: 8px; margin: 12px 0 0; padding: 0 0 0 10px; background: var(--voice-bg); color: var(--voice); min-width: 0; }
+.share-made .share-url { flex: 1; min-width: 0; font-family: var(--mono-ui); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.share-made .ui-btn { color: inherit; }
+.share-box .share-list { list-style: none; margin: 14px 0 0; padding: 8px 0 0; border-top: 1px solid var(--line-soft); display: block; max-height: 240px; overflow: auto; }
+.share-box .share-list li { display: flex; align-items: center; gap: 10px; min-height: 32px; min-width: 0; }
+.share-box .share-list li.revoked { color: var(--fg2); }
+.share-box .share-list li.revoked .share-who { text-decoration: line-through; }
+.share-box .share-who { margin: 0; font-size: 13px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; min-width: 0; }
+.share-box .share-meta { margin: 0; flex: 1; font-size: 12px; color: var(--fg1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.share-box .share-list .ui-btn { min-height: 28px; width: 28px; flex: none; }
+.top-right .top-button.open { color: var(--fg0); background: var(--bg1); }

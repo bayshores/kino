@@ -170,7 +170,7 @@ test("an agent goes quiet 30 s after its last call in this turn ended, once, and
   assert.deepEqual(quietAgents(state, T0 + 29_000), [], "29 s: not yet");
   const [row] = quietAgents(state, T0 + 31_000);
   assert.equal(row.agent.id, "a1");
-  assert.equal(row.text, "Nova went quiet · look at 1.0–2.0 s");
+  assert.equal(row.text, "Nova went quiet: look at 1.0–2.0 s");
   assert.deepEqual(quietAgents(state, T0 + 120_000), [], "2 min: the turn is over");
   // Once per quiet spell: the same call is told one time.
   const told = new Set();

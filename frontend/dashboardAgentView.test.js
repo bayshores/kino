@@ -3,7 +3,7 @@
 // the orange "needs you" line and the action strip under the stage.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { agentGoal, agentLog, agentOfCalls, agentSaid, agentTask, CREW_MS, crewAgents, crewFeed, currentCall, DETAIL_CHARS, leftWords, paneIdle, railAgents, renderDock, SEEN_MS, seenNow, minutes, needWords, planStep, shownAgent, specWords, stepWords, turnWords, usefulDetails, verbKind } from "./dashboard/agentView.js";
+import { agentGoal, agentLog, asAsk, asSentence, agentOfCalls, agentSaid, agentTask, CREW_MS, crewAgents, crewFeed, currentCall, DETAIL_CHARS, leftWords, paneIdle, railAgents, renderDock, SEEN_MS, seenNow, minutes, needWords, planStep, shownAgent, specWords, stepWords, turnWords, usefulDetails, verbKind, voiceLine } from "./dashboard/agentView.js";
 
 const NOW = Date.parse("2026-10-26T10:00:30Z");
 const nova = { id: "a1", name: "Nova", kind: "claude-code", color: "#42c0b6", lastAt: "2026-10-26T10:00:20Z" };
@@ -146,6 +146,9 @@ test("a waiting render reads as who asks, what to do, the keys' words and the re
   assert.deepEqual([board.allow, board.key, board.deny], ["review storyboard", "review", "redo"]);
   const elsewhere = needWords({ type: "elsewhere", name: "Other", round: { kind: "storyboard" } });
   assert.equal(elsewhere.allow, null, "a stop in another project is answered there");
+  // A sketch round asks its own question; "see the sketches" opens them, and there is nothing to deny.
+  const sketch = needWords({ type: "try", round: { id: "T1", sketch: true, question: "Three ways to open. Pick one." } });
+  assert.deepEqual([sketch.todo, sketch.allow, sketch.deny], ["Three ways to open. Pick one.", "see the sketches", null]);
   assert.equal(needWords(null), null);
 });
 
@@ -185,4 +188,27 @@ test("live panels: the seen drawer while a look runs or just ended, the render d
   assert.deepEqual([dock.total, dock.done, dock.left, dock.agent.name], [300, 150, 20, "Nova"]);
   assert.equal(leftWords(dock.left), "0:20");
   assert.equal(renderDock(data({ renders: [{ ...job, status: "done" }] }), NOW), null);
+});
+
+test("the line under the frame: the call as a sentence, the line before it, and what waits for you first", () => {
+  assert.equal(asSentence("look at the source of smirk", { running: true }), "Looking at the source of smirk.");
+  assert.equal(asSentence("sheet 0:00 to 1:00", { verb: "look" }), "Looked at sheet 0:00 to 1:00.");
+  assert.equal(asSentence("at 0.0 s", { verb: "look" }), "Looked at the frame at 0.0 s.");
+  assert.equal(asSentence("Which cut?"), "Which cut?");
+  assert.equal(asAsk("look at the stop, then approve it …"), "Look at the stop, then approve it.", "a request stays in the present tense");
+  const recording = voiceLine(data({ recording: { id: "R1", startedAt: NOW - 65_000 } }), nova, NOW);
+  assert.deepEqual([recording.state, recording.text, recording.facts[0]], ["recording", "Recording the screen.", "1:05"]);
+  const idle = voiceLine(data(), nova, NOW);
+  assert.equal(idle.verb, "check");
+  assert.equal(idle.text, "Checked the video. It failed.");
+  assert.equal(idle.before.text, "Looked at sheet 0:00–1:00.");
+  assert.equal(voiceLine(data({ hold: { on: true } }), nova, NOW).state, "hold");
+  // A render that ended under a minute ago is said to be ready, with its facts.
+  const ready = voiceLine(data({ renders: [{ id: "R2", projectId: "walk", status: "done", quality: "final", format: "mp4", width: 1920, height: 1080, duration: 14, size: 12_400_000, finishedAt: new Date(NOW - 5_000).toISOString() }] }), nova, NOW);
+  assert.deepEqual([ready.state, ready.text, ready.facts], ["ready", "The final is ready.", ["14 s, 1920 by 1080", "12 MB, MP4"]]);
+  assert.notEqual(voiceLine(data({ renders: [{ id: "R2", projectId: "walk", status: "done", finishedAt: new Date(NOW - 90_000).toISOString() }] }), nova, NOW).state, "ready");
+  const asked = voiceLine(data({ approvals: [{ id: "Q16", status: "pending", kind: "final-render", agent: { id: "a1", name: "Nova" } }] }), nova, NOW);
+  assert.equal(asked.state, "need");
+  assert.equal(asked.need.row.approval.id, "Q16");
+  assert.deepEqual(voiceLine(data({ calls: [] }), null, NOW), { state: "empty", verb: "plug", text: "Waiting for an agent.", facts: [], before: null });
 });

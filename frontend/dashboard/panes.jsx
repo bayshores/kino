@@ -4,6 +4,7 @@
 // left, facts and controls on the right.
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ResolveImage } from "./resolve.jsx";
+import { Icon as ControlIcon } from "./controls.jsx";
 import { createPortal, flushSync } from "react-dom";
 import { ScenePreview } from "../components/ScenePreview.jsx";
 import { layerBounds } from "../layerBounds.js";
@@ -24,12 +25,14 @@ import { thumbnails } from "./thumbnails.js";
 import { NO_PICK, previewPick, readyRuns } from "./previewPick.js";
 import { PreviewVideos } from "./previewCache.jsx";
 import { minutes, shownAgent } from "./agentView.js";
-import { bubbleSide, noteCursorRows, noteDot, noteGroups, noteNumber, noteStatus, notesForYou, snapNote } from "./noteSpot.js";
+import { noteCursorRows, noteDot, noteGroups, noteNumber, noteStatus, notesForYou, snapNote } from "./noteSpot.js";
 import { hoverLines, newMarks, onScreenRanges, storyParts } from "./timeline.js";
 import { BriefLines } from "./brief.jsx";
 import { StopLines } from "./stops.jsx";
 import { APPROVAL_WORDS, STOP_WORDS } from "./words.js";
 import { MaterialChoices, RenderDock, SeenDrawer } from "./live.jsx";
+
+const capital = (text) => String(text ?? "").replace(/^./, (letter) => letter.toUpperCase());
 
 /** A spinner that stands still (…) under reduced motion. */
 export function Spinner({ still }) {
@@ -114,6 +117,9 @@ const ICONS = {
   "mark-good": <g fill="none" stroke="currentColor" strokeWidth="1.3"><path d="M2.5 7.2h2.4v6.3H2.5zM4.9 7.2 7.6 2.6c1 0 1.6.7 1.4 1.8l-.4 2.2h3.9c.8 0 1.3.7 1.1 1.4l-1.2 4.4c-.2.6-.7 1.1-1.3 1.1H4.9" /></g>,
   "mark-bad": <g fill="none" stroke="currentColor" strokeWidth="1.3"><path d="M2.5 8.8h2.4V2.5H2.5zM4.9 8.8l2.7 4.6c1 0 1.6-.7 1.4-1.8l-.4-2.2h3.9c.8 0 1.3-.7 1.1-1.4L12.4 3.6c-.2-.6-.7-1.1-1.3-1.1H4.9" /></g>,
   close: <path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" strokeWidth="1.4" />,
+  // The theme switch: the moon in the dark theme, the sun in the light one.
+  moon: <path d="M13.4 9.4A5.7 5.7 0 1 1 6.6 2.6a4.5 4.5 0 0 0 6.8 6.8z" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />,
+  sun: <g fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"><circle cx="8" cy="8" r="2.7" /><path d="M8 1.6v1.5M8 12.9v1.5M1.6 8h1.5M12.9 8h1.5M3.5 3.5l1 1M11.5 11.5l1 1M3.5 12.5l1-1M11.5 4.5l1-1" /></g>,
 };
 export function Icon({ name }) {
   return <svg className="icon" viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true" focusable="false">{ICONS[name]}</svg>;
@@ -145,6 +151,25 @@ export function Mark({ kind, className = "" }) {
  * so a pane's own scrolling or clipping never cuts it off; a list taller than the room it has
  * scrolls.
  */
+/**
+ * The stage with no video yet. Before any agent has called kino it shows the one command that
+ * connects one, with a copy button; after that, that the agent's first video appears here.
+ */
+function FirstRun({ connected }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => { try { await navigator.clipboard.writeText("kino setup"); setCopied(true); } catch { setCopied(false); } };
+  return (
+    <div className="first-run">
+      {connected ? null : (
+        <button type="button" className="first-run-copy" onClick={copy} aria-label={copied ? "Copied kino setup" : "Copy kino setup"} title="Copy">
+          <code>kino setup</code><ControlIcon name={copied ? "check" : "copy"} />
+        </button>
+      )}
+      <p>{connected ? "No video yet. When your agent makes one, it shows up here." : "Run this in your agent's terminal. Your first video shows up here."}</p>
+    </div>
+  );
+}
+
 export function Menu({ id, label, ariaLabel, listLabel, title, value, options, onPick, className = "" }) {
   const [place, setPlace] = useState(null);
   const buttonRef = useRef(null);
@@ -268,7 +293,7 @@ function Section({ name, label, open, onToggle, count, urgent, children }) {
     <div className={`session-section${urgent ? " urgent" : ""}`}>
       <h3 className="section-head">
         <button type="button" className="tb caret-button" aria-expanded={open} aria-controls={`section-${name}`} onClick={() => onToggle(name)}>
-          <span className="caret" aria-hidden="true">{open ? "▾" : "▸"}</span> {label}{!open && count ? <span className={urgent ? "s-needs-you" : "dim"}> ({count})</span> : null}
+          <ControlIcon name="chevron" className={`caret${open ? " open" : ""}`} /><span>{label}</span>{!open && count ? <span className="section-count">{count}</span> : null}
         </button>
       </h3>
       <div id={`section-${name}`} hidden={!open}>{children}</div>
@@ -325,8 +350,8 @@ export function SessionPane({ data, still, cursor, sections: open, onSections: s
   // at the top instead of in a pane title.
   const body = (
     <>
-      <Section name="needs-you" label="needs you" open={open["needs-you"]} onToggle={toggle} count={needs.length} urgent={needs.length > 0}>
-        {needs.length === 0 ? <p className="faint indent">nothing</p> : needs.map((row, index) => {
+      <Section name="needs-you" label="Needs you" open={open["needs-you"]} onToggle={toggle} count={needs.length} urgent={needs.length > 0}>
+        {needs.length === 0 ? <p className="faint indent">Nothing waits for you.</p> : needs.map((row, index) => {
           // A stop in a project that is not open: open that project to see and answer it.
           if (row.type === "elsewhere") {
             const { round } = row;
@@ -334,11 +359,11 @@ export function SessionPane({ data, still, cursor, sections: open, onSections: s
             return (
               <div key={needId(row)} className={`needs-you stop-row${cursor === index ? " selected" : ""}`}>
                 <button type="button" className="tb row-button" onClick={() => onOpenProject(row.projectId)} aria-label={`Stop ${round.id} in ${row.name}: the ${word} waits for you. Open ${row.name} to answer it.`}>
-                  <span className="dot s-needs-you" aria-hidden="true" /><span className="grow"><strong>{round.id}</strong> {word} · in {row.name}</span>
+                  <span className="grow"><strong>{capital(word)}</strong> in {row.name}</span><span className="need-id">{round.id}</span>
                 </button>
                 <p className="dim indent">{cut(String(round.ask ?? "").split("\n")[0], 80)}</p>
                 <div className="actions">
-                  <button type="button" className="tb allow" onClick={() => onOpenProject(row.projectId)}>[<span className="key">Enter</span>] open {row.name}</button>
+                  <button type="button" className="ui-btn primary allow" onClick={() => onOpenProject(row.projectId)}>Open {row.name}</button>
                 </div>
               </div>
             );
@@ -349,11 +374,11 @@ export function SessionPane({ data, still, cursor, sections: open, onSections: s
             return (
               <div key={ideas.id} className={`needs-you${cursor === index ? " selected" : ""}`}>
                 <button type="button" className="tb row-button" onClick={onIdeas} aria-label={`${ideas.by?.name ?? "The agent"} found ${ideas.take.length} ideas in ${ideas.title ?? ideas.ref}. Open the inspire screen to pick them.`}>
-                  <span className="dot s-needs-you" aria-hidden="true" /><span className="grow"><strong>{ideas.id}</strong> {ideas.take.length} ideas · {cut(ideas.title ?? ideas.ref, 40)}</span>
+                  <span className="grow"><strong>{ideas.take.length} ideas</strong> from {cut(ideas.title ?? ideas.ref, 40)}</span><span className="need-id">{ideas.id}</span>
                 </button>
-                <p className="dim indent">pick the ones to use, then allow</p>
+                <p className="dim indent">Pick the ones to use, then allow.</p>
                 <div className="actions">
-                  <button type="button" className="tb allow" onClick={onIdeas}>[<span className="key">a</span>] pick ideas</button>
+                  <button type="button" className="ui-btn primary allow" onClick={onIdeas}>Pick ideas</button>
                 </div>
               </div>
             );
@@ -364,10 +389,10 @@ export function SessionPane({ data, still, cursor, sections: open, onSections: s
             return (
               <div key={row.judge.id} className={`needs-you${cursor === index ? " selected" : ""}`}>
                 <button type="button" className="tb row-button" onClick={onJudge} aria-label={`Judge ${row.judge.id}: ${left} pairs left. Open it.`}>
-                  <span className="dot s-needs-you" aria-hidden="true" /><span className="grow"><strong>{row.judge.id}</strong> which looks more finished · {left} left</span>
+                  <span className="grow"><strong>Which looks more finished?</strong> {left} left</span><span className="need-id">{row.judge.id}</span>
                 </button>
                 <div className="actions">
-                  <button type="button" className="tb allow" onClick={onJudge}>[<span className="key">a</span>] pick</button>
+                  <button type="button" className="ui-btn primary allow" onClick={onJudge}>Pick</button>
                 </div>
               </div>
             );
@@ -375,14 +400,15 @@ export function SessionPane({ data, still, cursor, sections: open, onSections: s
           // A try round (agent/tries.mjs): opens the try options screen.
           if (row.type === "try") {
             const ready = row.round.options.filter((option) => option.ready).length;
-            const state = row.round.status === "rendering" ? `making ${ready} of ${row.round.options.length}` : `${row.round.options.length} options`;
+            const state = row.round.status === "rendering" ? `Making ${ready} of ${row.round.options.length}` : `${row.round.options.length} ${row.round.sketch ? "sketches" : "options"}`;
             return (
               <div key={`try-${row.round.id}`} className={`needs-you${cursor === index ? " selected" : ""}`}>
                 <button type="button" className="tb row-button" onClick={onTry} aria-label={`Try ${row.round.id}: ${row.round.question}, ${state}. Open it.`}>
-                  <span className="dot s-needs-you" aria-hidden="true" /><span className="grow"><strong>{row.round.id}</strong> {row.round.question} · {state}</span>
+                  <span className="grow"><strong>{row.round.question}</strong></span><span className="need-id">{row.round.id}</span>
                 </button>
+                <p className="dim indent">{state}</p>
                 <div className="actions">
-                  <button type="button" className="tb allow" onClick={onTry}>[<span className="key">a</span>] try options</button>
+                  <button type="button" className="ui-btn primary allow" onClick={onTry}>{row.round.sketch ? "See the sketches" : "See the options"}</button>
                 </div>
               </div>
             );
@@ -394,10 +420,10 @@ export function SessionPane({ data, still, cursor, sections: open, onSections: s
             return (
               <div key={need.id} className={`needs-you material-row${cursor === index ? " selected" : ""}`}>
                 <p className="row" title={need.why}>
-                  <span className="dot s-needs-you" aria-hidden="true" /><span className="grow"><strong>{need.id}</strong> {cut(need.ask, 90)}</span>
+                  <span className="grow"><strong>{cut(need.ask, 90)}</strong></span><span className="need-id">{need.id}</span>
                 </p>
                 <div className="actions" role="group" aria-label={`Answer ${need.id}: ${need.ask}`}>
-                  <MaterialChoices need={need} onPick={pick} />
+                  <MaterialChoices need={need} onPick={pick} className="ui-btn" recommendedClass="primary allow" />
                 </div>
               </div>
             );
@@ -408,12 +434,12 @@ export function SessionPane({ data, still, cursor, sections: open, onSections: s
             return (
               <div key={round.id} className={`needs-you stop-row${cursor === index ? " selected" : ""}`}>
                 <button type="button" className="tb row-button" onClick={() => onStop(round, "open")} aria-label={`Stop ${round.id}: the ${word} waits for you. Open its sheet.`}>
-                  <span className="dot s-needs-you" aria-hidden="true" /><span className="grow"><strong>{round.id}</strong> {word}</span>
+                  <span className="grow"><strong>{capital(word)}</strong></span><span className="need-id">{round.id}</span>
                 </button>
                 <p className="dim indent">{cut(String(round.ask ?? "").split("\n")[0], 80)}</p>
                 <div className="actions">
-                  <button type="button" className="tb allow" onClick={() => approve(round, index)}>[<span className="key">a</span>] approve</button>
-                  <button type="button" className="tb" onClick={() => onStop(round, "redo")}>[<span className="key">d</span>] redo</button>
+                  <button type="button" className="ui-btn primary allow" onClick={() => approve(round, index)}>Approve</button>
+                  <button type="button" className="ui-btn" onClick={() => onStop(round, "redo")}>Redo</button>
                 </div>
               </div>
             );
@@ -422,68 +448,66 @@ export function SessionPane({ data, still, cursor, sections: open, onSections: s
           return (
             <div key={approval.id} className={`needs-you${cursor === index ? " selected" : ""}`}>
               <button type="button" className="tb row-button" onClick={() => onOpenApproval(approval.id)} aria-label={`Approval ${approval.id}: ${approval.summary}. Open the approval card.`}>
-                <span className="dot s-needs-you" aria-hidden="true" /><span className="grow"><strong>{approval.id}</strong> {APPROVAL_WORDS[approval.kind] ?? approval.kind}</span>
+                <span className="grow"><strong>{capital(APPROVAL_WORDS[approval.kind] ?? approval.kind)}</strong></span><span className="need-id">{approval.id}</span>
               </button>
               <p className="dim indent">{cut(approval.summary, 80)}</p>
               <div className="actions">
-                <button type="button" className="tb allow" onClick={() => reply(approval, index, "allow")}>[<span className="key">a</span>] allow</button>
-                <button type="button" className="tb" onClick={() => reply(approval, index, "deny")}>[<span className="key">d</span>] deny</button>
+                <button type="button" className="ui-btn primary allow" onClick={() => reply(approval, index, "allow")}>Allow</button>
+                <button type="button" className="ui-btn" onClick={() => reply(approval, index, "deny")} aria-label="Not yet (deny)">Not yet</button>
               </div>
             </div>
           );
         })}
       </Section>
-      <Section name="agents" label="agents" open={open.agents} onToggle={toggle} count={agents.length}>
-        {agents.length === 0 ? <p className="faint indent">none yet: start one from F2 crew, or connect one in settings</p> : agents.map((agent) => (
+      <Section name="agents" label="Agents" open={open.agents} onToggle={toggle} count={agents.length}>
+        {agents.length === 0 ? <p className="faint indent">None yet. Start one on the Crew page.</p> : agents.map((agent) => (
           <p key={agent.id} className="row agent-row">
             <span className="agent-bot"><Bot color={agent.color} mood={moodOfRow(data, agent, now)} size={14} still={still} /></span>
-            <span className="grow"><AgentName agent={agent} />{agent.kind && agent.kind !== agent.name ? <span className="dim"> · {agent.kind}</span> : null}{agent.offline ? <span className="dim"> · not connected now</span> : null}</span>
+            <span className="grow agent-words"><AgentName agent={agent} />{agent.kind && agent.kind !== agent.name ? <span className="dim">{agent.kind}</span> : null}{agent.offline ? <span className="dim">Not connected</span> : null}</span>
             <Status status={agent.status} still={still} />
           </p>
         ))}
       </Section>
-      <Section name="brief" label="brief" open={open.brief} onToggle={toggle} count={brief.short}>
+      <Section name="brief" label="Brief" open={open.brief} onToggle={toggle} count={brief.short}>
         <BriefLines rows={brief} />
       </Section>
-      <Section name="stops" label="stops" open={open.stops} onToggle={toggle} count={stops.length}>
+      <Section name="stops" label="Stops" open={open.stops} onToggle={toggle} count={stops.length}>
         <StopLines rows={stops} onReopen={onReopen} onKeepAsking={onKeepAsking} />
       </Section>
-      <Section name="plan" label="plan" open={open.plan} onToggle={toggle} count={plan.length}>
-        {plan.length === 0 ? <p className="faint indent">no plan yet</p> : plan.map((step, index) => (
+      <Section name="plan" label="Plan" open={open.plan} onToggle={toggle} count={plan.length}>
+        {plan.length === 0 ? <p className="faint indent">No plan yet.</p> : plan.map((step, index) => (
           <p key={index} className={`row plan-step ${step.state}`}>
-            <span className="cell" aria-hidden="true">{step.state === "done" ? "✓" : step.state === "current" ? "▶" : "▸"}</span><span className="grow">{step.text}</span><span className="sr-only">({step.state})</span>
+            <span className="plan-mark" aria-hidden="true">{step.state === "done" ? <ControlIcon name="check" /> : null}</span><span className="grow">{step.text}</span><span className="sr-only">({step.state})</span>
           </p>
         ))}
       </Section>
       <div className="session-section">
-        <h3 className="section-head">media</h3>
+        <h3 className="section-head plain">Media</h3>
         <p className="row">
-          <button type="button" className="tb" onClick={() => fileRef.current?.click()} disabled={!data.projectId}>add files…</button>
+          <button type="button" className="ui-btn" title="Or drop files on the window" onClick={() => fileRef.current?.click()} disabled={!data.projectId}><ControlIcon name="plus" />Add files</button>
           <input ref={fileRef} type="file" multiple hidden aria-label="Add media files" data-testid="media-input"
             onChange={(event) => { const files = [...event.target.files]; event.target.value = ""; if (files.length) onAddFiles(files); }} />
         </p>
-        <p className="faint">or drop files on the window</p>
       </div>
       <div className="session-section">
-        <h3 className="section-head">renders</h3>
+        <h3 className="section-head plain">Renders</h3>
         <p className="row">
-          <button type="button" className="tb" onClick={onExport} disabled={!data.projectId}>[<span className="key">e</span>] export</button>
-          <button type="button" className="tb" onClick={onShare} disabled={!data.projectId}>share</button>
-          <button type="button" className="tb" onClick={onShares} disabled={!data.projectId}>links…</button>
+          <button type="button" className="ui-btn" aria-keyshortcuts="e" onClick={onExport} disabled={!data.projectId}><ControlIcon name="film" />Render</button>
+          <button type="button" className="ui-btn" onClick={onShares} disabled={!data.projectId}><ControlIcon name="link" />Share</button>
         </p>
         {share ? <p className="agent" style={{ wordBreak: "break-all", whiteSpace: "normal" }}>{share}</p> : null}
-        {renders.length === 0 ? <p className="faint">none yet (e exports)</p> : renders.map((job) => (
+        {renders.length === 0 ? <p className="faint">None yet.</p> : renders.map((job) => (
           <div key={job.id} className="row render-row">
             {/* The revision and format drop out (to a hidden second line) when the column is narrow. */}
-            <span className="grow render-name" title={`${job.quality} ${job.id} r${job.rev} ${job.format}`}><span>{job.quality} {job.id}</span> <span className="dim">r{job.rev} {job.format}</span></span>
+            <span className="grow render-name" title={`${job.quality} ${job.id} r${job.rev} ${job.format}`}><span>{capital(job.quality)}</span> <span className="need-id">{job.id} r{job.rev} {job.format}</span></span>
             {job.status === "done" ? <>
-              <span className="s-done">● done</span>
-              <a href={renderFileUrl(job.id)} download className="tb">download</a>
+              <span className="ui-chip">Done</span>
+              <a href={renderFileUrl(job.id)} download className="ui-btn quiet icon-only" aria-label={`Download the ${job.quality} render ${job.id}`} title="Download"><ControlIcon name="download" /></a>
             </> : !RENDER_FINISHED.includes(job.status) ? <>
-              <span className="braille" style={{ width: "5ch" }} aria-hidden="true">{progressBar(job.progress ?? 0)}</span>
-              <span>{Math.round((job.progress ?? 0) * 100)}%</span>
-              <button type="button" className="tb" onClick={() => onCancelRender(job.id)} aria-label={`Cancel the ${job.quality} render ${job.id}`}>[<span className="key">x</span>]</button>
-            </> : <span className={job.status === "canceled" ? "dim" : "s-failed"}>{job.status === "canceled" ? "canceled" : `✕ ${job.status}`}</span>}
+              <span className="render-bar" aria-hidden="true"><span style={{ width: `${Math.round((job.progress ?? 0) * 100)}%` }} /></span>
+              <span className="need-id">{Math.round((job.progress ?? 0) * 100)}%</span>
+              <button type="button" className="ui-btn quiet icon-only" onClick={() => onCancelRender(job.id)} aria-keyshortcuts="x" title="Cancel" aria-label={`Cancel the ${job.quality} render ${job.id}`}><ControlIcon name="x" /></button>
+            </> : <span className={job.status === "canceled" ? "dim" : "s-failed"}>{capital(job.status)}</span>}
           </div>
         ))}
       </div>
@@ -623,7 +647,7 @@ function stopLoading(image) {
 }
 
 export function StagePane({ data, scene, time, rev, checkpoint, full, playing, fps, overlays, findings, selectedLayer, onPin, onFrameShown, timeStore, fontVersion, sound, onSoundOn, still, onToggleOutlines,
-  onKey, onScene, onZoomPane, onNow, phone, onSeek, need = null, draft = null, noteBubble = null, previewList = null, soundTime = null,
+  onKey, onScene, onZoomPane, onNow, phone, onSeek, need = null, draft = null, previewList = null, soundTime = null,
   marks = [], onUnmark, onClearMarks, ...pane }) {
   const wrapRef = useRef(null);
   const labelRef = useRef(null);
@@ -932,7 +956,8 @@ export function StagePane({ data, scene, time, rev, checkpoint, full, playing, f
       {hasMenu ? <Menu id="scene-menu" label={sceneName} ariaLabel={`Scene: ${sceneName}`} listLabel="Scenes" title="Show another scene ({ and })"
         value={scene.id} options={scenes.map((entry) => ({ value: entry.id, label: cut(entry.name || entry.id, 24) }))} onPick={onScene} className="scene-menu" />
         : <span className="scene-name">{sceneName}</span>}
-      <span className="stage-label" title={label}>{facts}</span>
+      {/* Each fact is its own word group: no dots between them. */}
+      <span className="stage-label" title={label}>{String(facts).split(" · ").map((fact, index) => <span key={index}>{fact}</span>)}</span>
       {checkpoint ? <button type="button" className="tb tb-box" aria-label={`Back to now from the ${checkpoint} checkpoint (Esc)`} title="Back to now (Esc)"
         onClick={(event) => {
           // The button goes once it is pressed: the focus goes to the stage pane, not to the page.
@@ -966,7 +991,7 @@ export function StagePane({ data, scene, time, rev, checkpoint, full, playing, f
       <div className={`stage-wrap${scrolls ? " scrolls" : ""}`} ref={wrapRef} style={{ "--stage-aspect": aspect }}
         {...(scrolls ? { tabIndex: 0, role: "region", "aria-label": `The frame at ${zoomLabel}: the arrow keys scroll it`, onKeyDown: pan } : {})}>
         <div className="stage-group" style={scene ? { width: displayWidth } : undefined}>
-          {!scene ? <p className="stage-empty">No project yet. When an agent creates one, it appears here.</p> : (
+          {!scene ? <FirstRun connected={Boolean(data?.agents?.length)} /> : (
             <div className="stage" style={{ width: displayWidth, height: displayHeight }}
               role="img" aria-label={`${label}. Click something to write a note about it, or drag a box.`}
               onPointerDown={(event) => { if (event.button !== 0) return; event.currentTarget.setPointerCapture(event.pointerId); const at = toScene(event); setDrag({ from: at, to: at }); }}
@@ -1031,15 +1056,9 @@ export function StagePane({ data, scene, time, rev, checkpoint, full, playing, f
                 {draftDot ? <div className="note-pin drafting" style={dotStyle(draftDot)} /> : null}
                 {drag ? <div className="drag-box" style={boxStyle({ x: Math.min(drag.from.x, drag.to.x), y: Math.min(drag.from.y, drag.to.y), width: Math.abs(drag.to.x - drag.from.x), height: Math.abs(drag.to.y - drag.from.y) })} /> : null}
               </div>
-              {!playing && wanted && wanted !== shown && !failed ? <span className="rendering" role="status">rendering…</span> : null}
+              {!playing && wanted && wanted !== shown && !failed ? <span className="rendering" role="status">Rendering</span> : null}
             </div>
           )}
-          {/* The note bubble: beside its dot on the frame, outside the frame's picture so it can be
-              typed in (the frame itself is one image to a screen reader). */}
-          {scene && drafting && noteBubble ? (
-            <div className={`note-bubble-at side-${bubbleSide(draftDot, scene)}`}
-              style={draftDot ? dotStyle(draftDot) : undefined}>{noteBubble}</div>
-          ) : null}
           <div ref={labelRef}>
             {failed || (scene && sound?.mix === "error") ? (
               <p className="stage-notes">
@@ -1098,7 +1117,8 @@ export function StagePane({ data, scene, time, rev, checkpoint, full, playing, f
           <span className="transport-marks" role="group" aria-label="Your marks">
             <button type="button" className="tb icon-button mark-chip good" onClick={() => onKey("mark-good")} aria-label="Good moment" aria-keyshortcuts="m" title="Good moment (m)"><Icon name="mark-good" /></button>
             <button type="button" className="tb icon-button mark-chip bad" onClick={() => onKey("mark-bad")} aria-label="Bad moment" aria-keyshortcuts="Shift+M" title="Bad moment (M)"><Icon name="mark-bad" /></button>
-            {marks.length ? <button type="button" className="tb icon-button" onClick={() => onClearMarks?.()} aria-label="Clear my marks and viewing" title="Clear my marks and viewing"><Icon name="close" /></button> : null}
+            <button type="button" className="tb icon-button mark-chip note" onClick={() => onKey("note")} aria-label="Leave a note here" aria-keyshortcuts="n" title="Leave a note at this time (n)"><Icon name="note" /></button>
+            {marks.length ? <button type="button" className="tb icon-button mark-clear" onClick={() => onClearMarks?.()} aria-label="Clear my marks and viewing" title="Clear my marks and viewing"><Icon name="close" /></button> : null}
           </span>
           {/* The time under the frame (the status line has it on a phone): it says "playing" or
               "paused" to a screen reader, and its data-state says the same. */}
@@ -1212,8 +1232,17 @@ export function SeenPane({ data, cursor, enlarged, onEnlarge, onSelect, still, b
     const item = strip?.querySelector('[aria-current="true"]')?.closest("li");
     measureEnds();
     if (strip && item) keepCardInView(strip, item);
+    // A grid of pictures (the wide window) scrolls down, not sideways: the selected row stays in view.
+    const box = strip?.closest(".view-panel");
+    if (box && item) {
+      const card = item.getBoundingClientRect();
+      const view = box.getBoundingClientRect();
+      if (card.top < view.top + 40) box.scrollTop -= view.top + 40 - card.top;
+      else if (card.bottom > view.bottom) box.scrollTop += card.bottom - view.bottom + 6;
+    }
     measureEnds();
-  }, [cursor, images.length, measureEnds]);
+    // Full size turns the grid into one row (and back), so the selected picture is found again.
+  }, [cursor, images.length, measureEnds, enlarged]);
   // Moved with the arrow keys while a picture has the focus: the focus moves with the selection.
   useEffect(() => {
     const strip = stripRef.current;
@@ -1260,9 +1289,9 @@ export function SeenPane({ data, cursor, enlarged, onEnlarge, onSelect, still, b
   }, [ends]);
   const facts = selected ? (
     <>
-      <span className="facts-text">{describe(selected.file)} · {selected.call.verb} {ago(selected.call.at)} ago</span>
+      <span className="facts-text">{imageKind(baseName(selected.file))}{sizes[selected.file] ? ` ${sizes[selected.file].width}×${sizes[selected.file].height}` : ""}, {ago(selected.call.at)} ago</span>
       <button type="button" className="tb tb-box" aria-pressed={enlarged === selected.file} onClick={() => onEnlarge(enlarged === selected.file ? null : selected.file)}
-        title="Show the selected picture at full size (Enter)">full size</button>
+        title="Show the selected picture at full size (Enter)">Full size</button>
     </>
   ) : null;
   const big = enlarged ? images.find((image) => image.file === enlarged) : null;
@@ -1272,7 +1301,7 @@ export function SeenPane({ data, cursor, enlarged, onEnlarge, onSelect, still, b
     : <Pane {...pane} number={3} name="what the agent saw" className="p-seen" labelId="pane-3-title" facts={facts}>{children}</Pane>);
   return wrap(
     <>
-      {images.length === 0 ? <p className="faint">no images yet: they appear when the agent calls look</p> : (
+      {images.length === 0 ? <p className="faint seen-none">Nothing yet. Pictures the agent looks at show here.</p> : (
         <>
           {big ? (
             <figure className="seen-full">
@@ -1353,7 +1382,8 @@ export function topWaivers(waivedFindings) {
  * fix is in plain words (fixWords). A long line ends with "…": its tooltip has all of it, and a
  * click or Enter opens it to full length.
  */
-function CheckList({ checks }) {
+function CheckList({ checks, onSeek, onAsk }) {
+  const [asked, setAsked] = useState([]);
   const [open, setOpen] = useState([]);
   const toggle = (key) => setOpen((value) => (value.includes(key) ? value.filter((entry) => entry !== key) : [...value, key]));
   const data = checks.data;
@@ -1364,6 +1394,7 @@ function CheckList({ checks }) {
       rule: String(finding.rule ?? ""),
       ref: String(finding.ref ?? ""),
       at: atWords(finding.at),
+      time: Number.isFinite(Number(finding.at)) && finding.at != null && finding.at !== "" ? Number(finding.at) : null,
       message: String(finding.message ?? ""),
       fix: `${fixWords(finding.fix)}${finding.auto && finding.fix ? " (auto)" : ""}`,
     }))
@@ -1378,7 +1409,7 @@ function CheckList({ checks }) {
     <>
       {checks.error ? null : (
         <p className="check-summary">
-          {data?.rev != null ? `rev ${data.rev} · ` : ""}{errors} {errors === 1 ? "error" : "errors"} · {warnings} {warnings === 1 ? "warning" : "warnings"}{data?.waived ? ` · ${data.waived} waived` : ""}
+          {data?.rev != null ? `Rev ${data.rev}: ` : ""}{errors} {errors === 1 ? "error" : "errors"}, {warnings} {warnings === 1 ? "warning" : "warnings"}{data?.waived ? `, ${data.waived} waived` : ""}
         </p>
       )}
       {waivedTop.length ? (
@@ -1397,26 +1428,31 @@ function CheckList({ checks }) {
           const what = [row.rule, row.ref, row.at].filter(Boolean).join(" ");
           const word = row.severity === "error" ? "error" : "warning";
           return (
-            <li key={key}>
-              <button type="button" className="tb check-row" aria-expanded={isOpen} onClick={() => toggle(key)}
+            <li key={key} className={isOpen ? "open" : undefined}>
+              <button type="button" className="tb check-row" aria-expanded={isOpen} onClick={(event) => { const item = event.currentTarget.parentElement; toggle(key); if (!isOpen && row.time != null) onSeek?.(row.time); if (!isOpen) requestAnimationFrame(() => item.scrollIntoView({ block: "nearest" })); }}
                 title={`${word}${what ? ` ${what}` : ""}: ${row.message}${row.fix ? `\nfix: ${row.fix}` : ""}`}>
-                <Mark kind={row.severity === "error" ? "failed" : "warning"} className={row.severity === "error" ? "err" : "warn"} />
+                <span className="check-at">{row.time != null ? clock(row.time) : ""}</span>
+                <ControlIcon name={row.severity === "error" ? "x" : "warning"} className={`check-mark ${row.severity === "error" ? "err" : "warn"}`} />
                 <span className="sr-only">{word}: </span>
                 <span className="check-text">
-                  <span className="check-line">
-                    {row.rule ? <span className="check-rule">{row.rule}</span> : null}{row.ref ? <> {row.ref}</> : null}{row.at ? <span className="dim"> {row.at}</span> : null}{what ? " " : ""}{row.message}
-                  </span>
-                  {row.fix ? <span className="check-line check-fix"><span className="dim">fix:</span> {row.fix}</span> : null}
+                  <span className="check-line">{row.message}</span>
+                  {row.rule || row.ref ? <span className="check-line check-what">{row.rule ? <span className="check-rule">{row.rule}</span> : null}{row.ref ? <> {row.ref}</> : null}</span> : null}
+                  {row.fix ? <span className="check-line check-fix"><span className="sr-only">fix: </span>{row.fix}</span> : null}
                 </span>
               </button>
+              {isOpen && onAsk && !checks.error ? (
+                <button type="button" className="ui-btn check-ask" disabled={asked.includes(key)} onClick={() => { setAsked((value) => [...value, key]); onAsk(row); }}>
+                  <ControlIcon name={asked.includes(key) ? "check" : "message"} />{asked.includes(key) ? "Asked" : "Ask to fix"}
+                </button>
+              ) : null}
             </li>
           );
         })}
       </ul>
-      {rows.length === 0 && !checks.error ? <p className="faint">nothing found</p> : null}
+      {rows.length === 0 && !checks.error ? <p className="faint check-none">Nothing found.</p> : null}
       {data?.more ? <p className="dim">+{data.more} more, not shown</p> : null}
       {/* A note says why a check did not run and how to turn it on: it wraps, so all of it shows. */}
-      {(data?.notes ?? []).map((note, index) => <p key={index} className="check-note dim">note: {note}</p>)}
+      {(data?.notes ?? []).map((note, index) => <p key={index} className="check-note dim">{note}</p>)}
     </>
   );
 }
@@ -1598,7 +1634,7 @@ function NoteThread({ data, notes, cursor, now, onNote }) {
   );
 }
 
-export function LogPane({ data, tab, onTab, cursor, expanded, onToggle, onTurn, onReview, filter, onFilter, filterOpen, checks, onCompose, composer, onForwardComment, onNote, still, now, bare = false, ...pane }) {
+export function LogPane({ data, tab, onTab, cursor, expanded, onToggle, onTurn, onReview, filter, onFilter, filterOpen, checks, onCompose, composer, onForwardComment, onNote, onSeek, still, now, bare = false, ...pane }) {
   const turns = useMemo(() => turnRows(data, now), [data, now]);
   const shown = filter ? turns.filter((row) => `${row.id} ${row.summary} ${row.calls.map((call) => `${call.verb} ${callSummary(call)} ${call.summary}`).join(" ")}`.toLowerCase().includes(filter.toLowerCase())) : turns;
   // Turns that were already there when the log opened; a newer one slides in once (dashboard.css).
@@ -1671,7 +1707,7 @@ export function LogPane({ data, tab, onTab, cursor, expanded, onToggle, onTurn, 
         </div>
       ) : tab === "checks" ? (
         <div role="tabpanel" id="panel-checks" aria-labelledby="tab-checks">
-          {!checks ? <p className="faint">checking…</p> : <CheckList checks={checks} />}
+          {!checks ? <p className="faint">Checking</p> : <CheckList checks={checks} onSeek={onSeek} onAsk={(row) => onNote?.({ action: "add", text: `Fix this check finding: ${row.message}${row.rule ? ` (${[row.rule, row.ref].filter(Boolean).join(" ")})` : ""}`, ...(row.time != null ? { t: row.time } : {}) }, "Asked. The agent gets it with its next call.")} />}
         </div>
       ) : (
         <div role="tabpanel" id="panel-notes" aria-labelledby="tab-notes">
@@ -1739,13 +1775,15 @@ function Playhead({ timeStore, playing, time, duration, marker }) {
 const RULER_PX = 30;
 const STORY_PX = 18;
 const LAYERS_HEAD_PX = 16;
+// As the strip under the stage: a thin row for the marks over the shots, then the shots.
+const STRIP_RULER_PX = 16;
 
 /**
  * [3] The timeline: the ruler, the story row, the lanes (shots, voice, sounds, agents) and a row
  * per layer. `needAgent` is the agent a "needs you" row waits for (null: none named), or
  * undefined when nothing waits: then the range that wait is about is outlined.
  */
-export function TimelinePane({ data, scene, time, cursor, selectedLayer, onSeek, onSelectLayer, onTurn, viewTurn, playing, timeStore, point = null, onPoint, still, now, needAgent, previewList = null, rev = null, ...pane }) {
+export function TimelinePane({ data, scene, time, cursor, selectedLayer, onSeek, onSelectLayer, onTurn, viewTurn, playing, timeStore, point = null, onPoint, still, now, needAgent, previewList = null, rev = null, strip = false, onStrip = null, ...pane }) {
   const rows = timelineRows(scene);
   const duration = Math.max(0.01, Number(scene?.duration) || 0.01);
   const scrollRef = useRef(null);
@@ -1771,7 +1809,7 @@ export function TimelinePane({ data, scene, time, cursor, selectedLayer, onSeek,
     observer.observe(element);
     measure();
     return () => observer.disconnect();
-  }, [Boolean(scene)]);
+  }, [Boolean(scene), strip]);
   const visible = Math.max(0, room.width - room.label - room.end);
   const trackWidth = visible * zoom;
   // After a zoom the playhead is in the middle of the tracks (the browser keeps the scroll in range).
@@ -1902,8 +1940,11 @@ export function TimelinePane({ data, scene, time, cursor, selectedLayer, onSeek,
     setZoom(next);
   };
   // The lanes between the story row and the layers (lanes.jsx), and the grid rows they take.
-  const lanes = useLanes({ data, scene, duration, entries: changes.entries ?? [], spanOf });
-  const headRows = [RULER_PX, ...(parts.length ? [STORY_PX] : []), ...lanes.rows.map((row) => row.height), LAYERS_HEAD_PX];
+  const lanes = useLanes({ data, scene, duration, entries: changes.entries ?? [], spanOf, strip });
+  const rulerPx = strip ? STRIP_RULER_PX : RULER_PX;
+  // The strip has no story row and no layer rows.
+  const story = parts.length > 0 && !strip;
+  const headRows = [rulerPx, ...(story ? [STORY_PX] : []), ...lanes.rows.map((row) => row.height), ...(strip ? [] : [LAYERS_HEAD_PX])];
   const headPx = headRows.reduce((sum, value) => sum + value, 0);
   const need = needAgent !== undefined && scene ? needRange(lanes.agents, needAgent, duration) : null;
   const facts = scene ? (<>
@@ -1916,9 +1957,14 @@ export function TimelinePane({ data, scene, time, cursor, selectedLayer, onSeek,
     </span>
   </>) : null;
   return (
-    <Pane {...pane} number={3} name="timeline" className="p-timeline" labelId="pane-3-title" facts={facts}>
-      {!scene ? <p className="faint">no scene</p> : (
-        <div className={`tl-scroll${zoom > 1 ? " wide" : ""}${parts.length ? " has-story" : ""}`} ref={scrollRef} style={{ "--tl-head": `${headPx}px` }}>
+    <Pane {...pane} number={3} name="timeline" className={`p-timeline${strip ? " strip" : ""}`} labelId="pane-3-title" facts={facts}>
+      {/* The strip opens to the whole timeline (every lane and layer) and closes again. */}
+      {onStrip && scene ? (
+        <button type="button" className="tb icon-button strip-toggle" aria-pressed={!strip} onClick={() => onStrip(!strip)}
+          aria-label={strip ? "Show every lane and layer" : "Back to the shot strip"} title={strip ? "Show every lane and layer" : "Back to the shot strip"}><Icon name={strip ? "up" : "down"} /></button>
+      ) : null}
+      {!scene ? <p className="tl-none"><span className="sr-only">No video yet.</span></p> : (
+        <div className={`tl-scroll${zoom > 1 ? " wide" : ""}${story ? " has-story" : ""}`} ref={scrollRef} style={{ "--tl-head": `${headPx}px` }}>
           <div className="tl-content" style={{ ...(trackWidth ? { "--tl-track": `${trackWidth}px` } : {}), gridTemplateRows: headRows.map((value) => `${value}px`).join(" ") }}>
             <span className="tl-label tl-corner" ref={labelRef} aria-hidden="true" />
             <div className="track ruler" {...rulerPointer} onClick={(event) => { if (dragged.current) { dragged.current = false; return; } seek(event); }}
@@ -1960,13 +2006,13 @@ export function TimelinePane({ data, scene, time, cursor, selectedLayer, onSeek,
               ))}
               <Playhead timeStore={timeStore} playing={playing} time={time} duration={duration} marker />
             </div>
-            {parts.length ? <StoryRow parts={parts} percent={percent} timeStore={timeStore} playing={playing} time={time} duration={duration} /> : null}
+            {story ? <StoryRow parts={parts} percent={percent} timeStore={timeStore} playing={playing} time={time} duration={duration} /> : null}
             <TimelineLanes model={lanes} data={data} scene={scene} percent={percent} trackWidth={trackWidth || 800} onSeek={onSeek} onTurn={onTurn}
-              viewTurn={viewTurn} last={changes.last} still={still} now={now} pinTop={RULER_PX} />
+              viewTurn={viewTurn} last={changes.last} still={still} now={now} pinTop={rulerPx} />
             {/* The scene's layers, one row each: pick one to point the agent at it. */}
-            <span className="tl-label layers-head" aria-hidden="true">layers</span>
-            <span className="track layers-head" aria-hidden="true"><span className="dim">{rows.length}</span></span>
-            {rows.map((row, index) => (
+            {strip ? null : <><span className="tl-label layers-head" aria-hidden="true">layers</span>
+            <span className="track layers-head" aria-hidden="true"><span className="dim">{rows.length}</span></span></>}
+            {(strip ? [] : rows).map((row, index) => (
               <React.Fragment key={row.id}>
                 <button type="button" className={`tb tl-label row-button${selectedLayer === row.id ? " selected" : ""}${cursor === index ? " on" : ""}`} style={row.depth ? { paddingLeft: `calc(var(--tl-pad) + ${row.depth}ch)` } : undefined}
                   aria-pressed={selectedLayer === row.id} onClick={() => onSelectLayer(selectedLayer === row.id ? null : row.id)}
@@ -1985,9 +2031,9 @@ export function TimelinePane({ data, scene, time, cursor, selectedLayer, onSeek,
                 </div>
               </React.Fragment>
             ))}
-            <div className="tl-lines" aria-hidden="true" style={{ top: RULER_PX }}>
+            <div className="tl-lines" aria-hidden="true" style={{ top: rulerPx }}>
               {rangeStyle ? <span className="tl-range" style={rangeStyle} /> : null}
-              {need ? <span className="tl-need" style={{ left: percent(need.start), width: `calc(${percent(need.end)} - ${percent(need.start)})`, top: (parts.length ? STORY_PX : 0), height: LANE_PX.shots }} /> : null}
+              {need ? <span className="tl-need" style={{ left: percent(need.start), width: `calc(${percent(need.end)} - ${percent(need.start)})`, top: (story ? STORY_PX : 0), height: lanes.rows[0]?.height ?? LANE_PX.shots }} /> : null}
               <Playhead timeStore={timeStore} playing={playing} time={time} duration={duration} />
               <TimelinePresence live={data.live} sceneId={scene.id} duration={duration} trackWidth={trackWidth} still={still} hold={Boolean(data.hold?.on)} />
             </div>
@@ -2020,26 +2066,6 @@ function layerValues(layer) {
 
 // ---- the key line and the status line --------------------------------------------------------
 
-/**
- * The bottom line's key hints: while working, undo a turn; while
- * something waits for you (`need`), its answers first. Every hint is a button.
- */
-export function KeyLine({ onKey, inert = false, need = null, playing = false, empty = false }) {
-  // [key, word, action, icon]: the key goes in the tooltip, not on the label.
-  const keys = need
-    ? [...(need.allow ? [["a", need.key === "approve" ? "approve" : need.key === "pick" || need.key === "review" ? need.allow : "allow", "allow", null]] : []), ...(need.deny ? [["d", need.deny, "deny", null]] : []), ["n", "note", "note", "note"]]
-    // Play and note are under the frame and in the side rail; the line keeps what is only here.
-    : [["u", "undo turn", "undo", "undo"]];
-  return (
-    <nav className="keyline" aria-label="Actions" inert={inert}>
-      {keys.map(([key, word, action, icon]) => (
-        <button key={key} type="button" className={`tb${action === "allow" ? " key-allow" : ""}`} onClick={() => onKey(action)} disabled={empty && !need} aria-keyshortcuts={key === "space" ? "Space" : key}
-          title={`${word} (${key})`}>{icon ? <Icon name={icon} /> : null}{word}</button>
-      ))}
-    </nav>
-  );
-}
-
 // "00:01.20/00:05.00": the stage's time (and the phone's status line's). It reads the played time itself, so only it
 // redraws on each played frame. It shows no play or pause sign (the stage's transport has one);
 // screen readers hear "playing" or "paused" after the time, and data-state says the same.
@@ -2062,14 +2088,17 @@ export function StatusLine({ data, scene, time, playing, timeStore, checks, onCh
   const lastTurn = turnRows(data, now).at(-1);
   const plural = (count, word) => `${count} ${word}${count === 1 ? "" : "s"}`;
   // No project: nothing to check. A check that failed says so instead of waiting forever.
-  const counts = checks?.data ? `checks ${plural(checks.data.errors ?? 0, "error")} · ${plural(checks.data.warnings ?? 0, "warning")}` : !data.projectId ? "checks" : checks?.error ? "checks failed" : "checks …";
+  // The wide window's line is quieter: "Checks: 0 errors, 2 warnings".
+  const counts = checks?.data ? (compact ? `Checks: ${plural(checks.data.errors ?? 0, "error")}, ${plural(checks.data.warnings ?? 0, "warning")}` : `checks ${plural(checks.data.errors ?? 0, "error")} · ${plural(checks.data.warnings ?? 0, "warning")}`)
+    : !data.projectId ? (compact ? "Checks" : "checks") : checks?.error ? (compact ? "Checks failed" : "checks failed") : compact ? "Checking" : "checks …";
   const project = data.projects.find((entry) => entry.id === data.projectId);
   const stop = waitingStopOf(data);
   // A stop waiting in a project that is not open shows here too.
   const other = stop ? null : otherStops(data)[0];
   return (
     <footer className={`statusline${compact ? " compact" : ""}`} aria-label="Status" inert={inert}>
-      {data.hold?.on ? <span className="hold">HOLD · agent writes paused</span> : null}
+      {/* On a wide window the line under the frame and the top line's button say the hold and the stop. */}
+      {data.hold?.on && !compact ? <span className="hold">HOLD · agent writes paused</span> : null}
       {compact ? null : many ? (
         // The spinner only while one of them works; an agent that waits for you or failed says so.
         <span className="status-agents" title={many}>
@@ -2078,8 +2107,8 @@ export function StatusLine({ data, scene, time, playing, timeStore, checks, onCh
           ))}
         </span>
       ) : <span>{agent ? <><Bot className="status-bot" color={agent.color} mood={moodOfRow(data, agent, now)} size={14} still={still} /><Status status={agent.status} still={still} /> <AgentName agent={agent} before="· " /></> : <span className="s-idle">○ no agent yet</span>}</span>}
-      {stop ? <span className="s-needs-you"><span aria-hidden="true">◉</span> {stopName(stop)} waits for you · asked {timeOfDay(stop.askedAt)}</span> : null}
-      {other ? <span className="s-needs-you"><span aria-hidden="true">◉</span> {stopName(other.round)} waits for you in {other.name} · asked {timeOfDay(other.round.askedAt)}</span> : null}
+      {stop && !compact ? <span className="s-needs-you"><span aria-hidden="true">◉</span> {stopName(stop)} waits for you · asked {timeOfDay(stop.askedAt)}</span> : null}
+      {other && !compact ? <span className="s-needs-you"><span aria-hidden="true">◉</span> {stopName(other.round)} waits for you in {other.name} · asked {timeOfDay(other.round.askedAt)}</span> : null}
       {compact ? null : <>
         <span>{project ? `${data.projectId} › ${scene?.name || scene?.id || ""}` : "no project"}</span>
         <PlayTime timeStore={timeStore} playing={playing} time={time} duration={scene?.duration ?? 0} />

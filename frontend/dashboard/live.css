@@ -146,20 +146,13 @@
 .live-frames li.current span { color: var(--who); }
 .live-wait { margin: 0; font-size: 11px; min-height: calc(150px * 9 / 16 + 3px + 1lh); display: flex; align-items: center; }
 
-/* ---- the render dock ---------------------------------------------------------------------------- */
-.live-dock { position: absolute; right: 16px; bottom: 14px; z-index: 4; width: min(340px, 60%); padding: 10px 12px; display: grid; gap: 8px;
-  background: var(--bg0); border: 1px solid var(--who, var(--line)); border-radius: var(--radius); }
-.live-dock.in { animation: live-up 180ms ease-out; }
-.live-dock.done { border-color: var(--ok); }
-.live-dock .icon-button { width: 20px; height: 20px; }
-.live-cells { display: grid; grid-template-columns: repeat(24, 1fr); gap: 2px; }
-.live-cells span { aspect-ratio: 1; background: var(--line-soft); }
-.live-cells span.on { background: var(--who); }
-.live-bar { height: 4px; background: var(--line-soft); }
-.live-bar span { display: block; height: 100%; background: var(--who); }
-.live-facts { margin: 0; display: flex; justify-content: space-between; font-size: 11px; }
-.live-actions { display: flex; gap: 6px; }
-.live-actions .tb-box { height: 26px; display: inline-flex; align-items: center; justify-content: center; gap: 0.6ch; color: var(--fg-mid); }
+/* ---- a render: one chip at the frame's lower left ("Open when done", then a link to the file).
+   Its progress and Cancel are the line under the frame. ---- */
+.live-dock { position: absolute; left: 12px; bottom: 12px; z-index: 4; display: flex; }
+.live-dock.in, .live-dock.done { animation: live-up 180ms ease-out; }
+.live-dock .tb { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; background: var(--bg0); color: var(--fg0); font-size: 12px; border-radius: 0; text-decoration: none; }
+.live-dock .tb:hover { background: var(--bg1); }
+.live-dock .tb[aria-pressed="true"] { background: var(--yellow); color: var(--on-yellow); }
 
 @media (prefers-reduced-motion: reduce) {
   .live-need, .live-rail, .live-seen.in, .live-seen.out, .live-dock.in, .live-seen .live-dot, .crew-now .live-dot { animation: none !important; }

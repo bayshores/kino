@@ -1,0 +1,248 @@
+/* The storyboard and the stop screens (board.jsx, stops.jsx), in the page look: the pictures as
+   wide as the page column (4 across), the agent's question as one line under them with its answers
+   beside it, the note under that, small facts as chips. No frames around panes, square corners.
+   A shot's box opens under the grid when its still is clicked. Colors come from .dash; black only
+   behind video, and white or black chips over video. */
+
+/* ---- the screen: no visible title; Back sits in the left margin on a wide window ---- */
+.dash .screen-wrap > .screen.stop-screen { position: relative; overflow: visible; }
+.dash .screen.stop-screen > h2 { position: absolute; top: 20px; left: 24px; z-index: 3; margin: 0; }
+.dash .screen.stop-screen > h2 > #screen-title { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.dash .screen.stop-screen > h2 .ui-btn { border-color: transparent; color: var(--fg1); }
+.dash .screen.stop-screen > h2 .ui-btn:hover { color: var(--fg0); }
+@media (max-width: 899px) { .dash .screen.stop-screen > h2 { position: static; margin: 0 0 12px; } }
+/* Something scrolled into view is never left under the pinned answers. */
+.screen-wrap.is-stop:has(.stop-answer) { scroll-padding-bottom: 180px; }
+
+.stop-card { display: grid; gap: 16px; min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.board { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.board p, .stop-card p { margin: 0; }
+.voice-line .ui-icon { width: 24px; height: 24px; stroke-width: 1.5; }
+
+/* ---- the grid of stills ---- */
+.board-grid, .stills-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 0; padding: 0; list-style: none; }
+.board.tall .board-grid { grid-template-columns: repeat(8, minmax(0, 1fr)); }
+.board-grid li, .stills-grid li { min-width: 0; }
+.board-clip {
+  all: unset; box-sizing: border-box; position: relative; display: block; width: 100%; overflow: hidden; background: #000; cursor: pointer;
+  transition: outline-color var(--quick) var(--ease-in);
+}
+.board-clip img { display: block; width: 100%; height: 100%; object-fit: cover; transition: opacity var(--quick) var(--ease-in); }
+.board-clip:hover img { opacity: 0.82; }
+.board-clip.on, .board-clip:focus-visible { outline: 2px solid var(--fg0); outline-offset: 2px; }
+.board-clip.removed img { opacity: 0.22; }
+.board-clip.removed .clip-n { text-decoration: line-through; }
+/* The number (and story role) on a still; marks in the other corner. */
+.clip-n, .option-letter {
+  position: absolute; top: 8px; left: 8px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 20px; padding: 0 6px;
+  font-family: var(--mono-ui); font-size: 12px; line-height: 1; color: #fff; background: rgb(0 0 0 / 0.72); white-space: nowrap;
+}
+.clip-n.clip-role { background: var(--yellow); color: var(--on-yellow); }
+.seg-marks { position: absolute; top: 8px; right: 8px; display: flex; gap: 4px; }
+.seg-marks i { display: inline-grid; place-items: center; width: 20px; height: 20px; font-style: normal; font-family: var(--mono-ui); font-size: 12px; font-weight: 700; color: #fff; background: rgb(0 0 0 / 0.72); }
+.seg-marks .ui-icon { width: 12px; height: 12px; }
+.seg-marks .mark-look { background: var(--yellow); color: var(--on-yellow); }
+.stills-grid img { display: block; width: 100%; height: auto; background: #000; }
+
+/* ---- one shot's box: the rough cut beside the shot's details ---- */
+.board-box { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 28px; align-items: start; padding: 8px 0; animation: board-box-in var(--panel) var(--ease-out) both; }
+.board.tall .board-box { grid-template-columns: auto minmax(0, 1fr); }
+@keyframes board-box-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+
+.board-cut { min-width: 0; }
+.cut-monitor { position: relative; container-type: size; overflow: hidden; width: 100%; }
+.board.tall .cut-monitor { width: auto; height: min(60vh, 520px); }
+.cut-footage { position: absolute; display: block; max-width: none; object-fit: fill; }
+.cut-footage[hidden] { display: none; }
+.cut-whole { inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.cut-text { position: absolute; left: 7%; right: 7%; margin: 0; transform: translateY(-50%); text-align: center; line-height: 1.15; white-space: pre-wrap; overflow-wrap: anywhere; pointer-events: none; }
+.reel-covered { position: absolute; inset: 0; opacity: 0.5; pointer-events: none; }
+.board-covered { position: absolute; right: 0; background: repeating-linear-gradient(135deg, rgb(0 0 0 / 0.7) 0 6px, rgb(255 255 255 / 0.22) 6px 9px); }
+.board-covered.right { top: 0; }
+.board-covered.bottom { left: 0; bottom: 0; display: flex; align-items: flex-start; padding: 2px 6px; color: #fff; font-size: 12px; }
+.cut-play {
+  all: unset; position: absolute; left: 50%; top: 50%; width: 48px; height: 48px; margin: -24px 0 0 -24px; display: grid; place-items: center; cursor: pointer;
+  color: #fff; background: rgb(0 0 0 / 0.55); transition: opacity var(--quick) var(--ease-in), transform var(--quick) var(--ease-in);
+}
+.cut-play:active { transform: scale(0.94); }
+.cut-play.playing { opacity: 0; }
+.cut-monitor:hover .cut-play.playing, .cut-play.playing:focus-visible { opacity: 1; }
+.cut-play:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.cut-clock { position: absolute; left: 8px; bottom: 8px; padding: 2px 6px; font-family: var(--mono-ui); font-size: 12px; color: #fff; background: rgb(0 0 0 / 0.72); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.board-play-icon { width: 14px; height: 14px; flex: none; fill: currentColor; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.cut-play .board-play-icon { width: 18px; height: 18px; }
+
+.board-shot { position: relative; display: grid; gap: 14px; align-content: start; min-width: 0; }
+.board-shot:focus { outline: none; }
+.board-shot:focus-visible { outline: 1px solid var(--fg0); outline-offset: 6px; }
+.shot-head { display: flex; align-items: center; gap: 12px; }
+.board-row-head { flex: 1; display: flex; align-items: center; gap: 10px; min-width: 0; }
+.board-row-head strong { font-size: 22px; font-weight: 700; letter-spacing: -0.01em; color: var(--fg0); }
+.shot-steps { display: flex; flex: none; gap: 2px; }
+.shot-step {
+  all: unset; box-sizing: border-box; display: inline-grid; place-items: center; width: 32px; height: 32px; cursor: pointer; color: var(--fg1);
+  transition: background-color var(--quick) var(--ease-in), color var(--quick) var(--ease-in);
+}
+.shot-step:hover { background: var(--bg1); color: var(--fg0); }
+.shot-step:focus-visible { outline: 1px solid var(--fg0); }
+.shot-step .ui-icon { width: 16px; height: 16px; }
+.shot-step .flip { transform: scaleX(-1); }
+.board-why { font-size: 15px; line-height: 1.45; color: var(--fg0); }
+.board-shot.removed .board-why, .board-shot.removed .shot-frames, .board-shot.removed .shot-options { opacity: 0.45; }
+.shot-body { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 16px 24px; }
+.shot-frames { display: flex; gap: 8px; min-width: 0; }
+.board-still { width: 120px; margin: 0; min-width: 0; }
+.board.tall .board-still { width: 56px; }
+.board-still figcaption, .board-source figcaption { margin-top: 4px; font-family: var(--mono-ui); font-size: 12px; color: var(--fg2); }
+.board-frame { position: relative; width: 100%; overflow: hidden; background: #000; }
+.board-frame img { display: block; width: 100%; height: 100%; }
+.board .board-label-word { margin-bottom: 6px; font-size: 12px; color: var(--fg2); }
+.shot-length { display: grid; }
+.stepper { display: inline-flex; align-items: center; height: 32px; box-shadow: inset 0 0 0 1px var(--line); }
+.stepper button { all: unset; box-sizing: border-box; display: inline-grid; place-items: center; width: 32px; height: 32px; cursor: pointer; color: var(--fg0); transition: background-color var(--quick) var(--ease-in); }
+.stepper button:hover:not(:disabled) { background: var(--bg1); }
+.stepper button:disabled { color: var(--fg2); cursor: default; }
+.stepper button:focus-visible { outline: 1px solid var(--fg0); outline-offset: -1px; }
+.stepper output, .shot-length-value { min-width: 6ch; text-align: center; font-family: var(--mono-ui); font-size: 13px; color: var(--fg0); font-variant-numeric: tabular-nums; }
+.shot-length-value { text-align: left; }
+.shot-length .board-change { margin-top: 4px; font-size: 12px; color: var(--fg1); }
+.board-tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.board-tags .ui-chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; color: var(--fg-mid); }
+.board-tags .board-look { background: var(--yellow); border-color: var(--yellow); color: var(--on-yellow); }
+.board-tags .board-change { border-color: var(--fg1); color: var(--fg0); }
+.shot-options { display: grid; }
+.option-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.board-option { all: unset; box-sizing: border-box; display: grid; align-content: start; gap: 6px; min-width: 0; font-size: 13px; color: var(--fg-mid); }
+button.board-option { cursor: pointer; }
+button.board-option:focus-visible { outline: 1px solid var(--fg0); outline-offset: 3px; }
+.board-option.on { color: var(--fg0); }
+.option-picture { position: relative; display: block; overflow: hidden; background: #000; }
+.option-picture img { display: block; width: 100%; height: 100%; object-fit: cover; transition: opacity var(--quick) var(--ease-in); }
+button.board-option:hover .option-picture img { opacity: 0.82; }
+.board-option.on .option-picture { outline: 2px solid var(--yellow); outline-offset: -2px; }
+.option-letter { top: 6px; left: 6px; }
+.option-letter .ui-icon { width: 12px; height: 12px; }
+.board-option.on .option-letter { background: var(--yellow); color: var(--on-yellow); }
+.option-why { overflow-wrap: anywhere; }
+.shot-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.board-more summary { cursor: pointer; padding: 6px 0; font-size: 13px; color: var(--fg1); transition: color var(--quick) var(--ease-in); }
+.board-more summary:hover { color: var(--fg0); }
+.board-more[open] { flex: 1 0 100%; }
+.board-more-body { display: grid; gap: 12px; margin-top: 8px; }
+.board-lines { margin: 0; min-width: 0; }
+.board-lines > div { display: grid; grid-template-columns: 10ch minmax(0, 1fr); column-gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--line-soft); font-size: 13px; }
+.board-lines dt { color: var(--fg2); }
+.board-lines dd { margin: 0; color: var(--fg0); overflow-wrap: anywhere; }
+.board-lines .board-look dd, .board-lines .board-change dd { font-weight: 700; }
+.board-lines .board-look dt { color: var(--fg0); }
+.board-source { margin: 0; min-width: 0; }
+.board-overlay { position: absolute; inset: 0; width: 100%; height: 100%; }
+.board-outside { fill: rgb(0 0 0 / 0.5); }
+.board-crop-under { fill: none; stroke: rgb(0 0 0 / 0.85); stroke-width: 3; }
+.board-crop { fill: none; stroke: #fff; stroke-width: 1.5; stroke-dasharray: 6 4; }
+.board-subject { fill: none; stroke: var(--yellow); stroke-width: 2; }
+.board-eyes { stroke: var(--yellow); stroke-width: 1.5; stroke-dasharray: 2 3; }
+.board-label { position: absolute; padding: 0 4px; font-size: 12px; line-height: 1.4; white-space: nowrap; background: rgb(0 0 0 / 0.8); color: #fff; }
+.board-label.subject, .board-label.eyes { color: var(--yellow); }
+.board-missing { display: grid; place-items: center; padding: 8px; text-align: center; font-size: 12px; color: var(--fg1); background: var(--bg1); box-shadow: inset 0 0 0 1px var(--line); overflow-wrap: anywhere; }
+.board-note { display: grid; gap: 6px; }
+.board-note label { font-size: 12px; color: var(--fg2); }
+.board-note input { box-sizing: border-box; width: 100%; height: 40px; padding: 0 12px; border: 0; border-radius: 0; background: none; box-shadow: inset 0 0 0 1px var(--line); font: 15px var(--sans); color: var(--fg0); }
+.board-note input:focus { outline: none; box-shadow: inset 0 0 0 1px var(--fg0); }
+.board-your-note { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--fg-mid); }
+
+/* ---- under the grid: the purpose, the status, the answers, the facts ---- */
+.board-head { display: grid; justify-items: center; gap: 4px; text-align: center; }
+.board-purpose { max-width: 80ch; font-size: 13px; color: var(--fg2); }
+.board-change { font-size: 13px; color: var(--fg-mid); }
+.board-status, .stop-closed { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px 20px; }
+.stop-closed { flex-direction: column; padding-top: 40px; }
+.board-status .voice-line, .stop-closed .voice-line { max-width: 100%; font-size: 22px; font-weight: 500; color: var(--fg-mid); background: none; animation: none; }
+.board-answer-note { flex-basis: 100%; text-align: center; font-size: 13px; color: var(--fg1); }
+.stop-done-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px 16px; }
+.stop-done-actions:focus { outline: none; }
+.stop-done-actions .actions { display: flex; gap: 8px; }
+.stop-heard, .stop-footnote { font-size: 13px; color: var(--fg1); }
+.stop-footnote { flex-basis: 100%; text-align: center; }
+
+/* The answers: pinned to the bottom of the screen while a storyboard scrolls. */
+.stop-answer { position: sticky; bottom: 0; z-index: 2; display: grid; justify-items: center; gap: 10px; padding: 12px 0 14px; background: var(--bg0); }
+.stop-answer.stop-answer-plain { position: static; }
+.stop-ask-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px 20px; max-width: 100%; min-width: 0; }
+.stop-ask-row .voice-line { max-width: 100%; }
+.stop-answer .voice-button { gap: 8px; }
+.stop-answer .voice-button .ui-icon { width: 16px; height: 16px; }
+.answer-chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.answer-chips .ui-chip { gap: 4px; padding-right: 0; min-height: 24px; font-size: 12px; color: var(--fg-mid); white-space: normal; }
+.answer-chips button { all: unset; display: inline-grid; place-items: center; width: 22px; height: 22px; cursor: pointer; color: var(--fg1); }
+.answer-chips button:hover { color: var(--fg0); }
+.answer-chips button:focus-visible { outline: 1px solid var(--fg0); outline-offset: -2px; }
+.answer-chips .ui-icon { width: 11px; height: 11px; }
+.stop-note { box-sizing: border-box; display: flex; align-items: center; gap: 10px; width: min(100%, 640px); min-height: 40px; padding: 0 12px; color: var(--fg2); box-shadow: inset 0 -1px 0 var(--line); transition: box-shadow var(--quick) var(--ease-in); }
+.stop-note:focus-within { color: var(--fg0); box-shadow: inset 0 -1px 0 var(--fg0); }
+.dash .stop-answer .stop-note textarea { flex: 1; min-width: 0; min-height: 0; max-height: 6lh; padding: 10px 0; border: 0; border-radius: 0; background: none; resize: none; field-sizing: content; font: 15px/20px var(--sans); color: var(--fg0); }
+.dash .stop-answer .stop-note textarea:focus, .dash .stop-answer .stop-note textarea:focus-visible { outline: none; }
+.stop-meta { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 16px; margin: 0; padding: 0; list-style: none; font-size: 12px; color: var(--fg2); }
+.stop-meta li { display: inline-flex; align-items: center; gap: 6px; }
+.stop-meta .ui-icon { width: 13px; height: 13px; }
+.stop-ask { display: grid; gap: 2px; text-align: center; font-size: 13px; color: var(--fg1); }
+.stop-stills { margin: 0; }
+.stop-watch, .stop-offer { display: flex; align-items: center; justify-content: center; gap: 8px; text-align: center; font-size: 12px; color: var(--fg2); }
+
+/* The facts: the board's name, play, chips, try options, the style frame, the agent's calls. */
+.board-facts { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px 12px; color: var(--fg1); }
+.board-title { font-family: var(--mono-ui); font-size: 12px; color: var(--fg2); }
+.board-title:focus { outline: none; }
+.board-title:focus-visible { outline: 1px solid var(--fg0); outline-offset: 2px; }
+.board-chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.board-chips .ui-chip { min-height: 24px; color: var(--fg-mid); }
+.board-try-count { margin-left: 2px; }
+.board-style { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 12px; color: var(--fg1); }
+.board-style img { display: block; width: auto; height: 40px; max-width: 120px; object-fit: contain; background: #000; }
+.board-calls-box { font-size: 13px; color: var(--fg-mid); }
+.board-calls-box summary { display: inline-flex; align-items: center; gap: 6px; padding: 4px 0; cursor: pointer; transition: color var(--quick) var(--ease-in); }
+.board-calls-box summary:hover { color: var(--fg0); }
+.board-calls-box[open] { flex: 1 0 100%; display: grid; justify-items: center; }
+.board-list { margin: 0; padding: 0; list-style: none; }
+.board-calls { display: grid; width: min(100%, 80ch); margin-top: 8px; }
+.board-calls li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--line-soft); }
+.board-calls .said-no .call-words { text-decoration: line-through; color: var(--fg2); }
+.call-no {
+  all: unset; box-sizing: border-box; display: inline-flex; align-items: center; gap: 4px; flex: none; height: 26px; padding: 0 10px; cursor: pointer;
+  font-size: 12px; font-weight: 600; color: var(--fg0); box-shadow: inset 0 0 0 1px var(--line); transition: background-color var(--quick) var(--ease-in);
+}
+.call-no:hover { background: var(--bg1); }
+.call-no:focus-visible { outline: 1px solid var(--fg0); outline-offset: 2px; }
+.call-no[aria-pressed="true"] { background: var(--solid); color: var(--on-solid); box-shadow: none; }
+.call-no .ui-icon { width: 12px; height: 12px; }
+.board-section { margin: 12px 0 4px; font-size: 13px; font-weight: 700; color: var(--fg0); }
+.board-none { color: var(--fg2); }
+
+/* Reading, failed and empty. */
+.board-error { align-items: center; }
+.board-alert { font-size: 15px; color: var(--fg0); }
+.board-reading, .board-empty, .stop-missing { padding: 40px 0; text-align: center; font-size: 15px; color: var(--fg1); }
+
+/* A narrow window and the phone: 2 stills a row (4 for a tall video), the box in one column. */
+@media (max-width: 699px) {
+  .board-grid, .stills-grid:not(.tall) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .board.tall .board-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (max-width: 899px) { .board-box, .board.tall .board-box { grid-template-columns: minmax(0, 1fr); } }
+.phone .board-grid, .phone .stills-grid:not(.tall) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.phone .board.tall .board-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.phone .board-box, .phone .board.tall .board-box { grid-template-columns: minmax(0, 1fr); }
+.phone .board.tall .cut-monitor { height: min(52vh, 420px); margin-inline: auto; }
+.phone .stop-answer { position: static; }
+.phone .board-lines > div { grid-template-columns: minmax(0, 1fr); }
+
+@media (prefers-reduced-motion: reduce) {
+  .board-box, .stop-card .voice-line { animation: none; }
+  .board-clip, .board-clip img, .cut-play, .shot-step, .stepper button, .option-picture img, .board-more summary, .stop-note, .board-calls-box summary, .call-no { transition: none; }
+}
+/* The answers wrap when the row is narrow (a phone), and a phone's buttons are 44 px tall. */
+.stop-ask-row .voice-answers { flex: 0 1 auto; flex-wrap: wrap; justify-content: center; max-width: 100%; }
+.phone .voice-button { height: 44px; }
+/* The note box anchors its screen-reader label: on a phone, where the answers are not stuck to the
+   bottom, the label was placed from the page and made the whole page scroll. */
+.stop-note { position: relative; }

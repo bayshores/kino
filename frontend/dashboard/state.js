@@ -329,7 +329,7 @@ export function quietAgents(data, now = Date.now()) {
   }).map((presence) => ({
     // Agent ids and call numbers start over when the server restarts: the key has its boot.
     agent: presence.agent, presence, key: `${data.boot ?? ""}/${presence.agent.id}/${presence.call}`,
-    text: `${presence.agent.name} went quiet · ${presence.label || presence.verb}`,
+    text: `${presence.agent.name} went quiet: ${presence.label || presence.verb}`,
   }));
 }
 
