@@ -61,7 +61,11 @@ export const OP_EXAMPLES = {
   reset_component_overrides: { op: { op: "reset_component_overrides", layer: "feature-1" }, setup: featureInstance },
   replace_media: { op: { op: "replace_media", layer: "logo", mediaId: "<image>.png" }, setup: [{ op: "add_layer", layerType: "image", name: "logo", properties: { src: "/api/media/<image>.png" } }], media: ["image"] },
   bulk_create: { op: { op: "bulk_create", csv: "id,title\nspring,Spring sale\nsummer,Summer sale\n" } },
-  add_layer: { op: { op: "add_layer", layerType: "rectangle", name: "badge", properties: { x: 1500, y: 80, width: 320, height: 120, fill: "#ff7a45", radius: 24 } } },
+  add_layer: { op: { op: "add_layer", layerType: "rectangle", name: "badge", properties: { x: 1500, y: 80, width: 320, height: 120, fill: "#ff7a45", radius: 24 } },
+    // A picture drawn by the agent's own module (skills/kino/references/script-layers.md).
+    more: [{ label: "Drawn by your code", op: { op: "add_layer", layerType: "script", name: "bars", properties: { x: 160, y: 160, width: 800, height: 400,
+      script: "export default function setup(layer) {\n  const ctx = layer.canvas.getContext(\"2d\");\n  return function draw(frame) {\n    ctx.fillStyle = frame.values.tint.css;\n    ctx.fillRect(0, 0, frame.width * frame.values.reveal, frame.height);\n  };\n}\n",
+      inputs: [{ key: "reveal", type: "number", min: 0, max: 1 }, { key: "tint", type: "color" }], values: { reveal: 1, tint: "#ff7a45" } } } }] },
   update_layer: { op: { op: "update_layer", layer: "title", properties: { fill: "#ffd166", fontSize: 96 } },
     // opacity 0 does not hide a layer whose fade-in ends at opacity 1; visible:false does.
     more: [{ label: "Hide", op: { op: "update_layer", layer: "title", properties: { visible: false } } }] },

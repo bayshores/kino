@@ -3,6 +3,7 @@ import { withTextStyleRange } from "./textStyleRanges.js";
 import { patchTextLayer } from "./textStyleEdits.js";
 import { resizeTextLayer } from "./textLayout.js";
 import { assertAxesInRange, mergeAxes } from "./fontAxes.js";
+import { scriptPatch } from "./scriptLayer.js";
 import { isEffectivelyLocked } from "./layerTree.js";
 import { boxStylePatch } from "./boxStyles.js";
 import { nextScenePosition } from "./sceneLayout.js";
@@ -375,7 +376,8 @@ export function applyOperations(source, operations, {fonts, mediaBySrc, mediaByI
       const previousAnimations = layer.animations;
       const before = { ...layer };
       // axes merge per axis (fontAxes.js): {axes:{wdth:80}} keeps a set wght, {wdth:null} drops one.
-      const properties = operation.properties?.axes ? { ...operation.properties, axes: mergeAxes(layer.axes, operation.properties.axes) } : operation.properties;
+      // A script layer's values merge too (scriptLayer.js scriptPatch).
+      const properties = scriptPatch(layer, operation.properties?.axes ? { ...operation.properties, axes: mergeAxes(layer.axes, operation.properties.axes) } : operation.properties);
       const next = patchTextLayer(layer, boxStylePatch(layer, properties));
       if (!Object.hasOwn(next, "textStyleRanges")) delete layer.textStyleRanges;
       Object.assign(layer, next, {

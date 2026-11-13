@@ -64,9 +64,11 @@ function parseError(body) {
 }
 
 // Where the first syntax error is, as {line, column} (1-based), found by parsing ever shorter
-// prefixes: the shortest prefix that reports the same message ends at the problem.
+// prefixes: the shortest prefix that reports the same message ends at the problem. Each prefix
+// ends in an open comment, so the closing brace the platform wraps the body in is never read
+// as part of it (a cut-off prefix then fails as unfinished, not with the same message).
 function errorPosition(body, message) {
-  const sameError = (end) => parseError(body.slice(0, end)) === message;
+  const sameError = (end) => parseError(`${body.slice(0, end)}\n/*`) === message;
   let low = 0, high = body.length;
   while (low < high) {
     const middle = Math.floor((low + high) / 2);
@@ -232,11 +234,40 @@ export function animatedInputs(layer) {
     const sides = [animation.from, animation.to, ...(Array.isArray(animation.keys) ? animation.keys.map((key) => key?.value) : [])];
     for (const side of sides) for (const key of Object.keys(side?.values ?? {})) {
       if (!found.has(key)) found.set(key, new Set());
-      found.get(key).add(animation.name || animation.id);
+      // Its name, with its id when the id is a readable one ("bars.grow"), not a random one.
+      const readable = typeof animation.id === "string" && !/^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(animation.id) && animation.id !== animation.name;
+      found.get(key).add(animation.name ? `${animation.name}${readable ? ` (${animation.id})` : ""}` : animation.id);
     }
   };
   (layer?.animations ?? []).forEach(visit);
   return new Map([...found].map(([key, names]) => [key, [...names]]));
+}
+
+/**
+ * update_layer's properties for a script layer: `values` merge into the current ones; new
+ * `inputs` drop the values of removed keys, and are refused while an animation uses a removed key.
+ * A new `script` keeps the inputs (it is just assigned). Other layers' properties pass unchanged.
+ */
+export function scriptPatch(layer, properties) {
+  if (layer?.type !== "script" || !isRecord(properties)) return properties;
+  const patch = { ...properties };
+  let values = { ...(layer.values ?? {}) };
+  if (Object.hasOwn(patch, "inputs") && Array.isArray(patch.inputs)) {
+    const kept = new Set(patch.inputs.map((input) => input?.key));
+    const used = animatedInputs(layer);
+    for (const input of layer.inputs ?? []) {
+      if (kept.has(input.key)) continue;
+      if (used.has(input.key))
+        throw new Error(`Input "${input.key}" can't be removed: the animation ${used.get(input.key).map((name) => `"${name}"`).join(", ")} still moves it. Delete that animation or take "${input.key}" out of it first.`);
+      delete values[input.key];
+    }
+  }
+  if (Object.hasOwn(patch, "values")) {
+    if (!isRecord(patch.values)) throw new Error("values must be an object {key: value}; it merges into the layer's current values");
+    values = { ...values, ...patch.values };
+  }
+  if (Object.hasOwn(patch, "values") || Object.hasOwn(patch, "inputs")) patch.values = values;
+  return patch;
 }
 
 // ---------------------------------------------------------------- the frame a draw receives

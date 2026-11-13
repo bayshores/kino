@@ -81,19 +81,19 @@ fill `<angle brackets>` with your words. A new video, idea first:
 
 ## References
 
-- [edits](references/edits.md): ops, refusals, presets, fonts.
+- [edits](references/edits.md): ops, refusals, fonts.
 - [fields](references/fields.md): op fields.
 - [building-blocks](references/building-blocks.md): compose, recipes, formats; [moves](references/moves.md).
 - [captions-beats-sequences](references/captions-beats-sequences.md): captions, beats, cues.
 - [media](references/media.md): imports, cuts, speed, B-roll; [recording](references/recording.md): sync.
 - [framing](references/framing.md): crops; [screens](references/screens.md): UI; [tilt](references/tilt.md): 3D; [behaviors](references/behaviors.md).
 - [storyboard](references/storyboard.md): `look board`.
-- [sound](references/sound.md): ducking, voiceover, fit_music; [library](references/sound-library.md): SFX, music; [lines](references/lines.md).
+- [sound](references/sound.md): ducking, voiceover; [library](references/sound-library.md): SFX, music; [lines](references/lines.md).
 - [color](references/color.md): grades; [cutout](references/cutout.md): cut-outs, track, pin.
-- [blur](references/blur.md), [light](references/light.md), [particles](references/particles.md): glow, sparks, fog.
-- [check-and-look](references/check-and-look.md): findings, looks; [motion](references/motion.md).
+- [blur](references/blur.md), [light](references/light.md), [particles](references/particles.md): glow, fog; [code](references/script-layers.md): drawing.
+- [check-and-look](references/check-and-look.md): findings; [motion](references/motion.md).
 - [ideas](references/ideas.md): story; [spine](references/spine.md): idea and lock.
-- [taste](references/taste.md): motion, readability; [lettering](references/lettering.md).
+- [taste](references/taste.md): readability; [lettering](references/lettering.md).
 - [direction](references/direction.md): brief; [stops](references/stops.md); [dashboard](references/dashboard.md): notes.
 - [render](references/render.md): exports.
 - [inspire](references/inspire.md): cuts; found [songs](references/soundtrack.md), [footage](references/footage.md), [clips](references/clips.md); [workspace](references/workspace.md).

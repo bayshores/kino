@@ -24,7 +24,7 @@ import { TIMED_ANIMATION_FIELDS } from "../../engine/visibilityOps.js";
 import { closest, nearMiss } from "./refs.mjs";
 import { isRecord } from "../../engine/numbers.js";
 
-export const LAYER_TYPES = Object.freeze(["rectangle", "ellipse", "star", "path", "text", "image", "video", "audio", "group"]);
+export const LAYER_TYPES = Object.freeze(["rectangle", "ellipse", "star", "path", "text", "image", "video", "audio", "group", "script"]);
 
 /** An Error with the op that works instead, which the refusal sends as `example`. */
 export function mistake(message, example, suggestions) {
@@ -1498,16 +1498,19 @@ export function fixOperation(operation, fixes, context) {
     if (operation.layerType === undefined) {
       const text = properties.text ?? operation.text;
       const fromSource = typeFromSource(properties.src ?? operation.src);
-      const guess = typeof text === "string" ? "text" : fromSource;
+      const code = properties.script ?? operation.script;
+      const guess = typeof text === "string" ? "text" : typeof code === "string" ? "script" : fromSource;
       if (guess) {
         operation.layerType = guess;
-        fixes.push(`layerType ${guess} (it has ${guess === "text" ? "text" : "src"})`);
+        fixes.push(`layerType ${guess} (it has ${guess === "text" ? "text" : guess === "script" ? "script" : "src"})`);
       } else throw mistake(`add_layer needs layerType: ${LAYER_TYPES.join(", ")}.`, { op: "add_layer", layerType: "rectangle", name: "card",
         properties: { x: 160, y: 160, width: 400, height: 240, fill: "#ff5500" } });
     }
     if (!LAYER_TYPES.includes(operation.layerType)) {
-      const suggestions = closest(String(operation.layerType), LAYER_TYPES);
-      throw mistake(`layerType ${quote(operation.layerType)} is not a layer type: ${LAYER_TYPES.join(", ")}.${operation.layerType === "component" ? " A component is placed with insert_component." : ""}`,
+      // A picture drawn by the agent's own code (canvas, shader, generative) is a script layer.
+      const drawn = /^(?:canvas|code|js|javascript|shader|webgl|custom|generative|procedural|sketch)$/i.test(String(operation.layerType));
+      const suggestions = drawn ? ["script"] : closest(String(operation.layerType), LAYER_TYPES);
+      throw mistake(`layerType ${quote(operation.layerType)} is not a layer type: ${LAYER_TYPES.join(", ")}.${operation.layerType === "component" ? " A component is placed with insert_component." : ""}${drawn ? ' A picture drawn by your own code is layerType "script" (library topic:"op" name:"add_layer").' : ""}`,
         { op: "add_layer", layerType: suggestions[0], name: "card" }, suggestions);
     }
   }
