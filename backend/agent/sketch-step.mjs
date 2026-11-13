@@ -75,3 +75,14 @@ export function sketchPhase(state, treatments, { appSeen = false, leftToAgent = 
   const step = pickStep(state, treatments, { appSeen, own: true, leftToAgent, songCall })?.step ?? "";
   return step === SONG_FIRST_STEP ? "songs" : step.startsWith(SKETCH_STEP) ? "show" : step.startsWith("their sketch pick") ? "wait" : null;
 }
+
+/**
+ * The last line of a sketch round's answer. Someone at the app: the pick is theirs, so the turn
+ * ends there (a run read "Nothing waits on it" and picked for them). No one there: the agent goes on.
+ */
+export function sketchTail({ appSeen = false, treatments = false } = {}) {
+  const theirs = treatments ? "saves that treatment as theirs and " : "";
+  return appSeen
+    ? `Someone is at the kino app: tell them the sketches are ready to play there, then end your turn. Their pick ${theirs}reaches your inbox; a reply in chat goes in next.`
+    : `The person plays them on the dashboard; a pick ${theirs}reaches your inbox. Nothing waits on it.`;
+}

@@ -16,6 +16,7 @@ import { originReferenceLine } from "./agent/seen-names.mjs";
 import { briefSaysNoCaptions, materialSteps, musicFact, offeredOpen, voiceFact } from "./agent/material-steps.mjs";
 import { briefText, lockCall } from "./agent/brief.mjs";
 import { songListMove } from "./agent/song-step.mjs";
+import { sketchTail } from "./agent/sketch-step.mjs";
 import { fromAppWindow } from "./dashboard-routes.mjs";
 import { statusMove } from "./stops.test.support.mjs";
 import { withAsk } from "./agent-ask.test.support.mjs";
@@ -124,6 +125,9 @@ test("the pick: someone at the app gets a filled sketch round (also under just s
   assert.equal(statusMove({ brief, tries: [round("waiting")] }, video).step, "pick a treatment, with why", "the app went away");
   const yourCall = { ...brief, log: [{ q: "Which treatment (A, B or C)?", a: "your call" }] };
   assert.equal(statusMove({ brief: yourCall }, { ...video, appSeen: true }).step, "pick a treatment, with why");
+  // The sketch round's answer ends the turn when someone is at the app; with no one there the agent goes on.
+  assert.match(sketchTail({ appSeen: true, treatments: true }), /at the kino app: tell them .* then end your turn\. Their pick saves that treatment as theirs/);
+  assert.match(sketchTail({ treatments: true }), /Nothing waits on it\.$/);
   // Picked, no song anywhere: the real-song finder before the plan, from the brief's sound line.
   const picked = { ...brief, treatments: { ...treatments, picked: { index: 3, label: "A", by: "you" } }, style: { idea: "x", signatures: [{ beat: 0 }], spine: ["problem", "turn", "payoff"].map((role) => ({ role, purpose: role })) } };
   assert.match(statusMove({ brief: picked }, { ...video, songNeeded: true }).call.input.explore.want, /^<this video's sound in music words: lane, mood, instruments>$/);

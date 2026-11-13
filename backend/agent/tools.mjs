@@ -202,13 +202,15 @@ export const AGENT_TOOLS = withSaid([
     // Fields the list leaves out for its budget (music note and measure, sounds source, footage
     // scan and want) still reach the service: keepUnknownKeys passes them on.
     keepUnknownKeys: true,
-    description: "How kino works: op {name} (fields), rules {name} (captions, beats, cues…), search {search}, fonts {search}, media {page}, sounds|music {search} (CC0 effects; moods), blocks (recipes, looks), inspire {search|name|ideas} (YouTube edits), techniques.",
+    description: "How kino works: op {name} (fields), rules {name} (captions, beats, cues…), search {search}, fonts {search}, media {page}, sounds|music {search}, blocks (recipes, looks), inspire {search|name|ideas} (YouTube edits), techniques.",
     input: {
       topic: z.enum(LIBRARY_TOPICS),
       name: z.union([z.string(), z.array(z.string()).max(8)]).optional(),
       search: z.string().optional(),
       full: z.boolean().optional(),
       ideas: z.record(z.string(), z.any()).optional(),
+      // soundtrack's song finder (the song step's call): unlisted, an agent sent its {want} as ideas.
+      explore: z.any().optional(),
       page: z.number().int().min(1).optional(),
       kind: z.enum(SEARCH_KINDS).optional(),
       count: z.number().int().min(1).optional(), // inspire.mjs asks for at most MAX_SEARCH_COUNT

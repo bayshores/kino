@@ -164,6 +164,7 @@ import { shotsLine } from "../shot-detection.mjs";
 import { isFreesoundId, isOpenverseId, SOUND_LIMITS, SoundSearchError, soundsText } from "../sound-search.mjs";
 import { actionSoundsText, isLibraryId, librarySoundsText, musicText, SoundLibraryError } from "../sound-library.mjs";
 import { songListMove } from "./song-step.mjs";
+import { sketchTail } from "./sketch-step.mjs";
 import { compareText, compareToStory, exploreLanes, importableId, junkTitle, keepCandidates, licenseTag, SoundtrackError } from "../soundtrack.mjs";
 import { rankSongs } from "../songTaste.mjs";
 import { dot, LANES } from "../music-embed.mjs";
@@ -1114,7 +1115,7 @@ export function createAgentService(deps) {
       await Promise.race([round.rendered, new Promise((resolve) => setTimeout(resolve, SKETCH_WAIT_MS).unref())]);
       const lines = await tries.sketchReceipt(projectId, round.id);
       const head = `sketches ${round.id}: ${round.options.length} of ${round.to - round.from > 0 ? Math.round((round.to - round.from) * 100) / 100 : 0} s (${round.from} to ${round.to} s) with sound${round.options.some((option) => option.treatment) ? `, treatments ${round.options.map((option) => option.treatment).join(", ")}` : ""}`;
-      const tail = `The person plays them on the dashboard; a pick ${round.options.some((option) => option.treatment) ? "saves that treatment as theirs and " : ""}reaches your inbox. Nothing waits on it.`;
+      const tail = sketchTail({ appSeen: appSeenWithin(), treatments: round.options.some((option) => option.treatment) });
       const text = lines ? [`${head}:`, ...lines, tail].join("\n") : `${head}: still rendering; their numbers reach your inbox when ready. ${tail}`;
       return done(projectId, { text, data: { id: round.id, rev: round.rev, sketch: true, options: round.options.map((option) => ({ letter: option.letter, treatment: option.treatment })) } });
     }
