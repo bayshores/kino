@@ -220,14 +220,17 @@ export function pendingPick(snapshot, id = null) {
  * The runner's reply once the wait for a pick is over, from the round's status (null: no answer in
  * time): { message, theirs (a reply of the person), line(seconds) for the log }.
  */
-export function pickAnswer(status) {
-  if (status === "picked") return { message: PICK_REPLY, theirs: true, line: (seconds) => `picked after ${seconds} s` };
-  if (status === "none") return { message: NONE_REPLY, theirs: true, line: (seconds) => `"None of these" after ${seconds} s: replied "${NONE_REPLY}"` };
+export function pickAnswer(status, note = "") {
+  const said = note ? ` ${note}` : "";
+  if (status === "picked") return { message: `${PICK_REPLY}${said}`, theirs: true, line: (seconds) => `picked after ${seconds} s${note ? `, with a note: "${note}"` : ""}` };
+  if (status === "none") return { message: `${NONE_REPLY}${said}`, theirs: true, line: (seconds) => `"None of these" after ${seconds} s: replied "${NONE_REPLY}${said}"` };
   const why = status === null ? "no answer in the app" : status === "skipped" ? "skipped" : `round ${status ?? "gone"}`;
   return { message: REPLY, theirs: false, line: (seconds) => `${why} after ${seconds} s: replied "${REPLY}"` };
 }
 
 /** How a try round stands now ("picked", "skipped", "failed" ...), or null when it is gone. */
+/** The note the person typed with a round's answer, or "". */
+export const roundNote = (snapshot, id) => (snapshot?.agent?.tries?.rounds ?? []).find((entry) => String(entry.id) === String(id))?.words ?? "";
 export const roundStatus = (snapshot, id) => (snapshot?.agent?.tries?.rounds ?? []).find((entry) => String(entry.id) === String(id))?.status ?? null;
 
 /**
@@ -698,16 +701,17 @@ async function main() {
         console.log(`  stop ${step.stop.kind} (${step.stop.id}) waiting: replied "${message}"`);
       } else if (step.action === "pick") {
         console.log(`  ${step.line}`);
-        let failures = 0, ended = null;
+        let failures = 0, ended = null, note = "";
         const wait = await waitFor("pick", async () => {
           const now = await readSnapshot(await connection());
           if (!now) { snapshotFailures += 1; failures += 1; return failures >= POLL_FAILURES ? "stop" : false; }
           failures = 0;
           ended = roundStatus(now, step.round.id);
+          note = roundNote(now, step.round.id);
           return !pendingPick(now, step.round.id);
         });
         // A pick and "None of these" are the person's answers; a skipped or failed round, or no answer in time, is "your call".
-        const answer = pickAnswer(wait.timedOut ? null : ended);
+        const answer = pickAnswer(wait.timedOut ? null : ended, wait.timedOut ? "" : note);
         message = answer.message;
         if (answer.theirs) personReplies += 1;
         console.log(`  ${answer.line(wait.seconds)}`);

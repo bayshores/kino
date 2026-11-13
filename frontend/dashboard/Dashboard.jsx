@@ -1885,7 +1885,7 @@ export function Dashboard() {
       }} />,
       board: () => <BoardScreen projectId={projectId} document={doc} revision={revision} />,
       try: () => <TryScreen projectId={projectId} tries={data.agent?.tries ?? null} shots={doc?.board?.shots ?? []} onBack={back}
-        onAnswer={(round, pick) => server.act("notes", { action: "try", project: projectId, round: round.id, pick }).then((reply) => { if (reply.isError) say(reply.text, true); else leftForAgent(); }, fail)} />,
+        onAnswer={(round, pick, note = "") => server.act("notes", { action: "try", project: projectId, round: round.id, pick, ...(note ? { note } : {}) }).then((reply) => { if (reply.isError) say(reply.text, true); else leftForAgent(); }, fail)} />,
       library: () => <LibraryScreen document={doc} shots={doc?.board?.shots ?? []}
         onSend={async (text) => { try { await sendNote(text); say("Sent to the agent."); } catch (cause) { fail(cause); throw cause; } }} />,
       inspire: () => <InspireScreen data={data} projectId={projectId} now={now} onBack={back} say={say} keysRef={inspireKeys} still={still} />,

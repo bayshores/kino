@@ -125,6 +125,9 @@ test("the pick: someone at the app gets a filled sketch round (also under just s
   // "None of these" is their answer: other treatments, in the step and in the words; a new set gets its own round.
   const none = statusMove({ brief, tries: [round("none")] }, { ...video, appSeen: true });
   assert.deepEqual([none.step, none.call.input.fields.treatments.length], ["they liked none of the sketches: write 5 other treatments (other ideas and moves), then show sketches of those", 5]);
+  // Their note, typed with the answer, is on the step and the phase stays "other".
+  assert.match(statusMove({ brief, tries: [{ ...round("none"), words: "all three move the same" }] }, { ...video, appSeen: true }).step, /then show sketches of those; their note: "all three move the same"$/);
+  assert.match(briefText({ brief, tries: [{ ...round("none"), words: "all three move the same" }] }, { ...video, appSeen: true }), /They liked none of the sketches of these/);
   assert.match(briefText({ brief, tries: [round("none")] }, { ...video, appSeen: true }), /They liked none of the sketches of these[\s\S]*\nstep: they liked none of the sketches/);
   const other = { ...brief, treatments: { ...treatments, list: list.map((entry) => ({ ...entry, idea: `${entry.idea}, again` })) } };
   assert.match(statusMove({ brief: other, tries: [round("none")] }, { ...video, appSeen: true }).step, /^show sketches: their pick in the app/);

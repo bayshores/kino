@@ -118,8 +118,8 @@ screen, F2). Each one gets its own name, a task, what it may do (`all`, or
 
 `notes {action:"try", question, at, options:[{name, ops}], scene?, topic?, later?}` asks the
 person to pick a version of a moment (2 to 4 options; `ops`: edit ops, `[]` keeps it; `later`: the topics you plan next). kino checks each option's ops on a copy and renders the
-2 s around `at` per option; their pick reaches your inbox with its ops to apply (or none of
-these, or skip). One question a round. `from`, `to` instead of `at` make a sketch round with
+2 s around `at` per option; their pick (or none of these, or skip) and note reach
+your inbox with its ops. One question a round. `from`, `to` instead of `at` make a sketch round with
 sound (direction guide); none of these there: write 5 other treatments (`next:` has the call).
 
 ```json

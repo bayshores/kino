@@ -221,6 +221,9 @@ test("person mode: a stop is answered as before, a waiting try round makes the r
   assert.deepEqual(["picked", "none", "skipped", "failed", null].map((status) => { const answer = pickAnswer(status); return [answer.message, answer.theirs, answer.line(3)]; }), [
     [PICK_REPLY, true, "picked after 3 s"], [NONE_REPLY, true, '"None of these" after 3 s: replied "None of these. Show me other directions."'],
     ["your call", false, 'skipped after 3 s: replied "your call"'], ["your call", false, 'round failed after 3 s: replied "your call"'], ["your call", false, 'no answer in the app after 3 s: replied "your call"']]);
+  // A note typed with the answer goes into the reply.
+  assert.deepEqual([pickAnswer("none", "too alike").message, pickAnswer("picked", "faster cuts").message, pickAnswer("picked", "faster cuts").line(3)],
+    ["None of these. Show me other directions. too alike", "I picked in the app. faster cuts", 'picked after 3 s, with a note: "faster cuts"']);
   assert.equal(ask(snap([])).action, "reply", "nothing waits and no MP4: your call");
   assert.equal(ask(snap([])).message, REPLY);
   assert.equal(ask(null).action, "reply", "an unreadable snapshot: your call");

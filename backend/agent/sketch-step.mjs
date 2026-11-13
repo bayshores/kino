@@ -61,7 +61,8 @@ export function pickStep(state, treatments, { appSeen = false, own = false, file
   const round = sketchRoundFor(state, treatments);
   if (round) {
     if (appSeen && (round.status === "rendering" || round.status === "waiting")) return { step: `their sketch pick in the app (${round.id}): end your turn`, call: WAIT_CALL };
-    if (round.status === "none" && otherCall) return { step: OTHER_STEP, call: otherCall };
+    // Their note (typed with the answer) rides on the step: an agent reads `next:` before the inbox.
+    if (round.status === "none" && otherCall) return { step: round.words ? `${OTHER_STEP}; their note: "${round.words}"` : OTHER_STEP, call: otherCall };
     return ownPick;
   }
   if (appSeen && songCall && !state?.soundtrack?.candidates?.length) return { step: SONG_FIRST_STEP, call: songCall };
@@ -78,7 +79,7 @@ export function pickStep(state, treatments, { appSeen = false, own = false, file
 export function sketchPhase(state, treatments, { appSeen = false, leftToAgent = false, songCall = null } = {}) {
   if (!treatments?.list || treatments.picked) return null;
   const step = pickStep(state, treatments, { appSeen, own: true, leftToAgent, songCall, otherCall: {} })?.step ?? "";
-  return step === SONG_FIRST_STEP ? "songs" : step === OTHER_STEP ? "other" : step.startsWith(SKETCH_STEP) ? "show" : step.startsWith("their sketch pick") ? "wait" : null;
+  return step === SONG_FIRST_STEP ? "songs" : step.startsWith(OTHER_STEP) ? "other" : step.startsWith(SKETCH_STEP) ? "show" : step.startsWith("their sketch pick") ? "wait" : null;
 }
 
 /**

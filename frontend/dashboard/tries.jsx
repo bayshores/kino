@@ -53,11 +53,19 @@ function TryRound(props) {
   return props.round.sketch ? <SketchRound {...props} /> : <ClipRound {...props} />;
 }
 
-/** The question as the agent's line, with "None of these" and "Skip"; after an answer, the answer. */
-function Ask({ round, open, answer, sent, onChoose }) {
+// Characters of the note sent with an answer (backend/agent/tries.mjs keeps 500).
+const NOTE_MOST = 500;
+
+/** The question as the agent's line, a note box, "None of these" and "Skip"; after an answer, the answer. The note goes with whichever answer is pressed, a pick included. */
+function Ask({ round, open, answer, sent, note, onNote, onChoose }) {
   return (
     <div className={`try-ask${open ? "" : " answered"}`}>
       <p className="voice-line" role="status"><ToolIcon name={open ? "ask" : "check"} /><span>{open || !answer ? round.question : `You picked ${answer}.`}</span></p>
+      {open ? (
+        <label className="try-note"><span className="sr-only">Note for your agent, sent with your answer</span>
+          <input value={note} onChange={(event) => onNote(event.target.value)} placeholder="Add a note" maxLength={NOTE_MOST} />
+        </label>
+      ) : null}
       {open ? (
         <span className="voice-answers">
           <button type="button" className="voice-button" onClick={() => onChoose("none", ANSWER_WORDS.none)}>None of these</button>
@@ -79,6 +87,7 @@ function SketchRound({ projectId, round, onAnswer }) {
   const [playing, setPlaying] = useState(null);
   const [time, setTime] = useState(0);
   const [sent, setSent] = useState(null);
+  const [note, setNote] = useState("");
   const open = round.status === "waiting" && !sent;
   const answer = sent ?? (round.pick ? answerWords(round) : null);
   const length = Math.max(0.1, round.to - round.from);
@@ -94,7 +103,7 @@ function SketchRound({ projectId, round, onAnswer }) {
     setTime(video.currentTime);
     video.play().then(() => setPlaying(letter)).catch(() => setPlaying(null));
   };
-  const choose = (pick, words) => { stopAll(); setSent(words); onAnswer(round, pick); };
+  const choose = (pick, words) => { stopAll(); setSent(words); onAnswer(round, pick, note.trim()); };
   useEffect(() => () => stopAll(), []);
   return (
     <div className="try-round try-sketches">
@@ -129,7 +138,7 @@ function SketchRound({ projectId, round, onAnswer }) {
           );
         })}
       </div>
-      <Ask round={round} open={open} answer={answer} sent={sent} onChoose={choose} />
+      <Ask round={round} open={open} answer={answer} sent={sent} note={note} onNote={setNote} onChoose={choose} />
     </div>
   );
 }
@@ -140,6 +149,7 @@ function ClipRound({ projectId, round, shots, onAnswer }) {
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [sent, setSent] = useState(null);
+  const [note, setNote] = useState("");
   const length = Math.max(0.1, round.to - round.from);
   const open = round.status === "waiting" && !sent;
   const answer = sent ?? (round.pick ? answerWords(round) : null);
@@ -170,7 +180,7 @@ function ClipRound({ projectId, round, shots, onAnswer }) {
   const choose = (pick, words) => {
     setPlaying(false);
     setSent(words);
-    onAnswer(round, pick);
+    onAnswer(round, pick, note.trim());
   };
   const moment = ((round.at - round.from) / length) * 100;
   const total = shots.length ? Math.max(...shots.map((shot) => shot.cue + shot.dur)) : 0;
@@ -210,7 +220,7 @@ function ClipRound({ projectId, round, shots, onAnswer }) {
           <span className="try-at" style={{ left: `${(round.at / total) * 100}%` }} />
         </div>
       ) : null}
-      <Ask round={round} open={open} answer={answer} sent={sent} onChoose={choose} />
+      <Ask round={round} open={open} answer={answer} sent={sent} note={note} onNote={setNote} onChoose={choose} />
     </div>
   );
 }
