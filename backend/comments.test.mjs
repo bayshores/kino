@@ -7,7 +7,8 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { openStore } from "./store.mjs";
-import { authorIdForKeyHash, commentKeyHash, MAX_COMMENTS_PER_PROJECT, publicComment, sameAuthorKey } from "./comments.mjs";
+import { authorIdForKeyHash, commentInboxLine, commentKeyHash, MAX_COMMENTS_PER_PROJECT, publicComment, sameAuthorKey, validStoredComments } from "./comments.mjs";
+import { createLayer } from "../engine/model.js";
 import { anchorTime } from "../frontend/comments.js";
 
 const ANN_KEY = "a".repeat(64);
@@ -253,6 +254,38 @@ test("a time at the very end of a scene whose length is not a whole millisecond 
   assert.equal((await store.updateComment("review", untimed.id, { sceneId: "odd", time: duration }, as(ben))).time, 1.066);
   assert.equal((await store.updateComment("review", untimed.id, { time: duration }, as(ben))).time, 1.066);
   assert.equal((await store.updateComment("review", untimed.id, { sceneId: "wide" }, as(ben))).time, 1.066, "the stored time fits a longer scene");
+});
+
+test("a thread can pin to a layer, cover a time range, or be about the whole video", async (t) => {
+  const { store } = await makeStore(t);
+  await addScenes(store, [{ id: "shot", duration: 3, layers: [createLayer("rectangle", { id: "logo", name: "Logo" })] }]);
+  const pinned = await post(store, ann, { text: "Logo too small", sceneId: "shot", layerId: "logo", x: 20, y: 10, time: 0.5, timeEnd: 1.25 });
+  assert.deepEqual([pinned.layerId, pinned.x, pinned.time, pinned.timeEnd], ["logo", 20, 0.5, 1.25]);
+  for (const place of [{ layerId: "gone", sceneId: "shot" }, { layerId: "logo" }, { sceneId: "wide", layerId: "logo" },
+    { sceneId: "shot", time: 1, timeEnd: 1 }, { sceneId: "shot", time: 1, timeEnd: 4 }, { sceneId: "shot", timeEnd: 1 }])
+    await assert.rejects(post(store, ann, { text: "Bad", ...place }), { code: "ERR_INVALID_COMMENT" }, JSON.stringify(place));
+  await assert.rejects(post(store, ann, { text: "Reply", parentId: pinned.id, layerId: "logo" }), { code: "ERR_INVALID_COMMENT" }, "replies have no place");
+
+  // Moving: clear the layer and the range, and refuse a layer the new scene does not have.
+  await assert.rejects(store.updateComment("review", pinned.id, { sceneId: "wide", x: 1, y: 1, time: 0, timeEnd: null }, as(ben)), { code: "ERR_INVALID_COMMENT" });
+  await assert.rejects(store.updateComment("review", pinned.id, { time: 2 }, as(ben)), { code: "ERR_INVALID_COMMENT" }, "the range would end before it starts");
+  const moved = await store.updateComment("review", pinned.id, { layerId: null, timeEnd: null }, as(ben));
+  assert.deepEqual([moved.layerId, moved.timeEnd, moved.time, Object.hasOwn(moved, "layerId")], [undefined, undefined, 0.5, false]);
+
+  // The whole video: no scene, point or time; a thread can be moved there too.
+  const whole = await post(store, ann, { text: "Music too loud" });
+  assert.deepEqual([whole.sceneId, whole.time, whole.layerId], [undefined, undefined, undefined]);
+  const lifted = await store.updateComment("review", pinned.id, { sceneId: null }, as(ben));
+  assert.deepEqual(["sceneId", "x", "y", "time"].filter((field) => Object.hasOwn(lifted, field)), []);
+  assert.equal(validStoredComments((await store.getProject("review")).comments), true);
+});
+
+test("a person's comment becomes one inbox line: who, where, the first words", () => {
+  const document = { scenes: [{ id: "shot", name: "Intro", layers: [{ id: "logo", name: "Logo" }] }] };
+  const root = { id: "c1", author: "Ann", text: "Logo   too small\nhere", sceneId: "shot", layerId: "logo", time: 0.5, timeEnd: 1.25 };
+  assert.equal(commentInboxLine(root, { document }), 'comment from Ann on Intro Logo @0.5-1.25 "Logo too small here" (answer: manage comments add {parentId:"c1", text})');
+  assert.match(commentInboxLine({ id: "c2", author: "Ben", text: "x".repeat(200) }, { document }), /^comment from Ben on whole video "x{80}\.\.\."/);
+  assert.match(commentInboxLine({ id: "r1", author: "Ben", text: "Agreed", parentId: "c1" }, { document, comments: [root] }), /^reply from Ben on Intro Logo @0\.5-1\.25 "Agreed"/);
 });
 
 test("comments can sit on scenes whose IDs have dots or colons, as documents allow", async (t) => {

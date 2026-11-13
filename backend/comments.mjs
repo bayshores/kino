@@ -7,7 +7,10 @@
 // A stored comment:
 //   { id, text, author, createdAt, resolved,   every comment (stores from before threads have only these, plus x/y/sceneId)
 //     x?, y?, sceneId?, time?,                 where and when the thread sits: canvas point, scene, seconds into the scene
+//     layerId?, timeEnd?,                      the layer it is about (in that scene); time..timeEnd makes a range
 //     parentId?,                               set on a reply: the id of its thread's first comment
+//
+// A root with no scene, point or time at all is about the whole video.
 //     authorId?, authorKeyHash?,               anonymous authorship (below)
 //     editedAt?, mentions? }                   when the text last changed; display names typed after @
 //
@@ -24,7 +27,8 @@
 //
 // Who may do what (role comes from the request's access: owner, edit, comment, or view):
 //   - view links read comments and change nothing.
-//   - owner, edit, and comment can post, reply, resolve or reopen, and move a thread (x, y, sceneId, time).
+//   - owner, edit, and comment can post, reply, resolve or reopen, and move a thread (x, y, sceneId,
+//     time, timeEnd, layerId; layerId or timeEnd null clears it, sceneId null makes it whole video).
 //   - Only the comment's author (the matching key) can edit its text or mentions. Comments posted
 //     without a key, such as ones saved before authorship existed, cannot be edited by anyone.
 //   - The author or the owner can delete a comment. Deleting a thread's first comment deletes its replies.
@@ -49,7 +53,7 @@ const COMMENT_KEY_PATTERN = /^[A-Za-z0-9_-]{32,128}$/;
 const KEY_HASH_PATTERN = /^[a-f0-9]{64}$/;
 const TEXT_CONTROL_CHARACTERS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/;
 const NAME_CONTROL_CHARACTERS = /[\u0000-\u001F\u007F]/;
-const PLACEMENT_FIELDS = ["x", "y", "sceneId", "time"];
+const PLACEMENT_FIELDS = ["x", "y", "sceneId", "time", "timeEnd", "layerId"];
 const CHANGE_FIELDS = new Set(["text", "mentions", "resolved", ...PLACEMENT_FIELDS]);
 
 // The local machine without a share token is the file's owner (see authorize() in index.mjs).
@@ -158,9 +162,10 @@ function validateCommentId(value, label) {
   return value;
 }
 
-function validateSceneId(value) {
+// Scene and layer IDs follow the document's ID rule.
+function validateSceneId(value, label = "Scene ID") {
   if (typeof value !== "string" || !SCENE_ID_PATTERN.test(value))
-    throw invalid("Scene ID must contain 1 to 128 letters, numbers, dots, colons, underscores, or hyphens.");
+    throw invalid(`${label} must contain 1 to 128 letters, numbers, dots, colons, underscores, or hyphens.`);
   return value;
 }
 
@@ -196,8 +201,9 @@ function findScene(document, sceneId) {
   return scene;
 }
 
-// Checks the named placement fields of `place` against the scene's size and length, and rounds
-// place.time to the millisecond within the scene (timeInScene).
+// Checks the named placement fields of `place` against the scene's size, length and layers, and
+// rounds place.time and place.timeEnd to the millisecond within the scene (timeInScene). A range
+// (time..timeEnd) must end after it starts; a layer must be one of the scene's layers.
 function placeInScene(place, scene, fields) {
   if (fields.includes("x") && place.x !== undefined && Number.isFinite(scene.width) && place.x > scene.width)
     throw invalid("Comment x must be within the selected scene.");
@@ -205,6 +211,11 @@ function placeInScene(place, scene, fields) {
     throw invalid("Comment y must be within the selected scene.");
   const duration = Number.isFinite(scene.duration) ? scene.duration : MAX_COMMENT_TIME;
   if (fields.includes("time") && place.time !== undefined) place.time = timeInScene(place.time, duration);
+  if (fields.includes("timeEnd") && place.timeEnd !== undefined) place.timeEnd = timeInScene(place.timeEnd, duration);
+  if ((fields.includes("time") || fields.includes("timeEnd")) && place.timeEnd !== undefined && !(place.timeEnd > place.time))
+    throw invalid("Comment timeEnd must be after its time.");
+  if (fields.includes("layerId") && place.layerId !== undefined && !(scene.layers ?? []).some((layer) => layer?.id === place.layerId))
+    throw invalid("Comment layer does not exist in its scene.");
 }
 
 function given(input, field) {
@@ -250,7 +261,7 @@ export function newComment(input, { projectId, document, comments, actor = LOCAL
     if (!parent) throw commentNotFound("The comment you replied to no longer exists.");
     if (parent.parentId) throw invalid("Replies cannot have replies. Reply to the thread's first comment.");
     if (PLACEMENT_FIELDS.some((field) => given(input, field)))
-      throw invalid("A reply uses its thread's place on the canvas and timeline; send it without x, y, sceneId, or time.");
+      throw invalid("A reply uses its thread's place on the canvas and timeline; send it without x, y, sceneId, time, timeEnd, or layerId.");
     comment.parentId = parentId;
     return comment;
   }
@@ -260,6 +271,14 @@ export function newComment(input, { projectId, document, comments, actor = LOCAL
   if (given(input, "time")) {
     if (!given(input, "sceneId")) throw invalid("A comment time needs the scene it belongs to (sceneId).");
     comment.time = validateTime(input.time);
+  }
+  if (given(input, "timeEnd")) {
+    if (!given(input, "time")) throw invalid("A comment range needs its start (time) as well as timeEnd.");
+    comment.timeEnd = validateTime(input.timeEnd);
+  }
+  if (given(input, "layerId")) {
+    if (!given(input, "sceneId")) throw invalid("A comment layer needs the scene it belongs to (sceneId).");
+    comment.layerId = validateSceneId(input.layerId, "Layer ID");
   }
   if (given(input, "sceneId")) {
     comment.sceneId = validateSceneId(input.sceneId);
@@ -276,7 +295,7 @@ export function changeComment(comment, patch, { document, actor = LOCAL_OWNER })
   const fields = Object.keys(patch).filter((field) => patch[field] !== undefined);
   const unknown = fields.filter((field) => !CHANGE_FIELDS.has(field));
   if (unknown.length)
-    throw invalid(`A comment change may include only text, mentions, x, y, sceneId, time, and resolved (not ${unknown.join(", ")}).`);
+    throw invalid(`A comment change may include only text, mentions, x, y, sceneId, time, timeEnd, layerId, and resolved (not ${unknown.join(", ")}).`);
   if (!fields.length) throw invalid("Choose something to change on the comment.");
   if (!canWriteComments(actor.role)) throw refused("This link permits viewing. A comment or edit link is needed to change comments.");
 
@@ -293,14 +312,27 @@ export function changeComment(comment, patch, { document, actor = LOCAL_OWNER })
   const moving = PLACEMENT_FIELDS.filter((field) => fields.includes(field));
   if (moving.length) {
     if (comment.parentId) throw invalid("A reply moves with its thread. Move the thread's first comment instead.");
-    const place = { x: comment.x, y: comment.y, sceneId: comment.sceneId, time: comment.time };
+    const place = Object.fromEntries(PLACEMENT_FIELDS.map((field) => [field, comment[field]]));
+    // sceneId null: the thread is about the whole video, so it keeps no place at all.
+    if (patch.sceneId === null) {
+      if (moving.some((field) => field !== "sceneId" && patch[field] !== null))
+        throw invalid("A whole-video comment has no x, y, time, timeEnd, or layerId.");
+      for (const field of PLACEMENT_FIELDS) next[field] = undefined;
+      moving.length = 0;
+    }
     if (moving.includes("x")) place.x = validateCoordinate(patch.x, "Comment x");
     if (moving.includes("y")) place.y = validateCoordinate(patch.y, "Comment y");
     if (moving.includes("time")) place.time = validateTime(patch.time);
+    if (moving.includes("timeEnd")) place.timeEnd = patch.timeEnd === null ? undefined : validateTime(patch.timeEnd);
+    if (moving.includes("layerId")) place.layerId = patch.layerId === null ? undefined : validateSceneId(patch.layerId, "Layer ID");
     if (moving.includes("sceneId")) place.sceneId = validateSceneId(patch.sceneId);
     if (place.time !== undefined && place.sceneId === undefined)
       throw invalid("A comment time needs the scene it belongs to (sceneId).");
-    if (place.sceneId !== undefined) {
+    if (place.layerId !== undefined && place.sceneId === undefined)
+      throw invalid("A comment layer needs the scene it belongs to (sceneId).");
+    if (place.timeEnd !== undefined && place.time === undefined)
+      throw invalid("A comment range needs its start (time) as well as timeEnd.");
+    if (moving.length && place.sceneId !== undefined) {
       // A thread moved to another scene must fit that scene with everything it keeps; otherwise only
       // the moved fields are checked, so a thread on a scene that has since shrunk can still be resolved
       // or nudged along one axis.
@@ -320,6 +352,7 @@ export function changeComment(comment, patch, { document, actor = LOCAL_OWNER })
     (next.text !== undefined && next.text !== comment.text) ||
     (next.mentions !== undefined && JSON.stringify(next.mentions) !== JSON.stringify(comment.mentions ?? []));
   Object.assign(comment, next);
+  for (const field of PLACEMENT_FIELDS) if (Object.hasOwn(comment, field) && comment[field] === undefined) delete comment[field];
   if (Array.isArray(comment.mentions) && comment.mentions.length === 0) delete comment.mentions;
   if (edited) comment.editedAt = new Date().toISOString();
   return comment;
@@ -337,6 +370,19 @@ export function removeComment(comments, commentId, { actor = LOCAL_OWNER } = {})
   if (!comment.parentId)
     for (const entry of comments) if (entry.parentId === comment.id) deleted.add(entry.id);
   return { remaining: comments.filter((entry) => !deleted.has(entry.id)), deleted: [...deleted] };
+}
+
+// The line a comment or reply a person posted adds to the agent's status inbox: who, where (scene,
+// layer, time or range, or the whole video), the first words, and how to answer it.
+export function commentInboxLine(comment, { document, comments = [] } = {}) {
+  const root = comment.parentId ? comments.find((entry) => entry.id === comment.parentId) ?? { id: comment.parentId } : comment;
+  const scene = root.sceneId ? document?.scenes?.find((item) => item?.id === root.sceneId) : null;
+  const layer = root.layerId ? scene?.layers?.find((item) => item?.id === root.layerId) : null;
+  const when = root.time === undefined ? "" : `@${root.time}${root.timeEnd === undefined ? "" : `-${root.timeEnd}`}`;
+  const where = root.sceneId ? [scene?.name ?? root.sceneId, root.layerId ? layer?.name ?? root.layerId : "", when].filter(Boolean).join(" ") : "whole video";
+  const flat = comment.text.replace(/\s+/g, " ");
+  const words = flat.length > 80 ? `${flat.slice(0, 80).trimEnd()}...` : flat;
+  return `${comment.parentId ? "reply" : "comment"} from ${comment.author} on ${where} "${words}" (answer: manage comments add {parentId:"${root.id}", text})`;
 }
 
 function optional(value, check) {
@@ -364,6 +410,8 @@ export function validStoredComments(comments) {
       !optional(comment.authorKeyHash, (value) => typeof value === "string" && KEY_HASH_PATTERN.test(value)) ||
       !optional(comment.editedAt, (value) => typeof value === "string") ||
       !optional(comment.time, (value) => typeof value === "number" && Number.isFinite(value) && value >= 0) ||
+      !optional(comment.timeEnd, (value) => typeof value === "number" && Number.isFinite(value) && value > (comment.time ?? 0)) ||
+      !optional(comment.layerId, (value) => typeof value === "string" && SCENE_ID_PATTERN.test(value)) ||
       !optional(comment.mentions, (value) => Array.isArray(value) && value.length <= MAX_COMMENT_MENTIONS && value.every((name) => typeof name === "string"))
     )
       return false;
