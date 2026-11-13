@@ -154,7 +154,7 @@ function NoteBox({ data, agents, to, onTo, onPoint, inputRef }) {
  * undo), `onAnswer` (an approval's answer) and `onMaterial(need, answer)` (a material
  * question's answer) wire its buttons.
  */
-export function AgentPane({ data, agent, still, now, view, onView, views, noteLine = null, needs = 0, follow = null, checks = null, onRun, onAnswer, onMaterial, onClose = null, ...pane }) {
+export function AgentPane({ data, agent, still, now, view, onView, views, noteLine = null, needs = 0, follow = null, checks = null, onRun, onAnswer, onMaterial, onClose = null, closeTitle = "Close (Esc)", ...pane }) {
   const tabsRef = useRef(null);
   const noteRef = useRef(null);
   const [only, setOnly] = useState(null);
@@ -219,7 +219,7 @@ export function AgentPane({ data, agent, still, now, view, onView, views, noteLi
             {id === "checks" && checkCount ? <span className="tab-count" aria-label={`, ${checkCount} findings`} title={`${checks.data.errors ?? 0} errors · ${checks.data.warnings ?? 0} warnings, every check`}>{checkCount}</span> : null}
           </button>
         ))}
-        {onClose ? <button type="button" className="tb icon-button view-close" onClick={onClose} aria-label="Close" title="Close (Esc)"><Glyph name="close" /></button> : null}
+        {onClose ? <button type="button" className="tb icon-button view-close" onClick={onClose} aria-label="Close" title={closeTitle}><Glyph name="close" /></button> : null}
       </div>
       <div className="view-body">
         {view === "agent" ? (

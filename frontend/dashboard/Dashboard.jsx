@@ -76,6 +76,13 @@ const CHECK_DELAY_MS = 1200;
 const QUIET_CHECK_MS = 5000;
 const PHONE_QUERY = "(max-width: 719px)";
 const STILL_QUERY = "(prefers-reduced-motion: reduce)";
+// A window this wide has room for the history beside the frame; a narrower one opens it under the frame.
+const WIDE_QUERY = "(min-width: 1160px)";
+// Whether the person closed the history on a wide window ("closed"); kept in this browser.
+const HISTORY_KEY = "kino.dashboard.history";
+function historyKeptOpen() {
+  try { return localStorage.getItem(HISTORY_KEY) !== "closed"; } catch { return true; }
+}
 
 function useMedia(query) {
   const [matches, setMatches] = useState(() => typeof matchMedia === "function" && matchMedia(query).matches);
@@ -250,6 +257,7 @@ function useDashboardData() {
 export function Dashboard() {
   const { data, error, connection, load } = useDashboardData();
   const phone = useMedia(PHONE_QUERY);
+  const wide = useMedia(WIDE_QUERY);
   const still = useMedia(STILL_QUERY);
   const now = useNow(1000);
 
@@ -288,9 +296,13 @@ export function Dashboard() {
   // 4 the turns or the notes (log and notes views), 5 the timeline's layers.
   const [cursors, setCursors] = useState({ 1: 0, 3: 0, 4: 0, 5: 0, projects: 0, variants: 0 });
   const [agentView, setAgentViewOnly] = useState("agent");
-  // The earlier lines (the agent pane's views) open under the frame, which steps back to make
-  // room; picking a view opens them. The strip under the stage opens to the whole timeline.
-  const [listOpen, setListOpenOnly] = useState(false);
+  // The history (the agent pane's views: the earlier lines, looks, checks, notes, session). On a
+  // wide window it is a column right of the frame, open unless the person closed it (kept in this
+  // browser). On a narrower one it opens under the frame, which steps back to make room; picking
+  // a view opens it. The strip under the stage opens to the whole timeline.
+  const [listOpen, setListOpenOnly] = useState(() => wide && historyKeptOpen());
+  const wideNow = useRef(wide);
+  wideNow.current = wide;
   const [stripOpen, setStripOpen] = useState(false);
   // The frame glides to its new place and size when the list opens or closes: where it was is
   // noted before the change, and once the stage has its new size it starts from there.
@@ -300,7 +312,16 @@ export function Dashboard() {
       if (old !== open) frameWas.current = window.document.querySelector(".screening .stage")?.getBoundingClientRect() ?? null;
       return open;
     });
+    if (wideNow.current) { try { localStorage.setItem(HISTORY_KEY, open ? "open" : "closed"); } catch { /* kept for this page only */ } }
   }, []);
+  // The window crossed the width where the history fits beside the frame: there it shows as the
+  // person left it; under the frame it starts closed.
+  const wasWide = useRef(wide);
+  useEffect(() => {
+    if (wasWide.current === wide) return;
+    wasWide.current = wide;
+    setListOpenOnly(wide && historyKeptOpen());
+  }, [wide]);
   useEffect(() => {
     const from = frameWas.current;
     frameWas.current = null;
@@ -1461,7 +1482,8 @@ export function Dashboard() {
         if (point) { pointAt(null); return; }
         if (checkpoint) { setCheckpoint(null); say("Showing now."); return; }
         if (selectedLayer) { selectLayer(null); return; }
-        if (listOpen && !phone) { setListOpen(false); focusPane(1); return; }
+        // Under the frame the history closes; beside the frame it stays (its own button hides it).
+        if (listOpen && !phone && !wide) { setListOpen(false); focusPane(1); return; }
         if (zoomed) setZoomed(false);
         return;
       default:
@@ -1797,19 +1819,22 @@ export function Dashboard() {
     );
   } else if (screen.name === "main") {
     body = (
-      <main className={`panes screening${listOpen ? " list-open" : ""}${stripOpen ? " strip-open" : ""}${zoomed ? " zoomed" : ""}${listOpen && agentView === "seen" && enlarged && seenFiles.includes(enlarged) ? " seen-open" : ""}`} aria-label="Dashboard" inert={waiting}>
+      <main className={`panes screening${listOpen && !(zoomed && pane !== 2) ? (wide ? " side" : " list-open") : ""}${stripOpen ? " strip-open" : ""}${zoomed ? " zoomed" : ""}${listOpen && agentView === "seen" && enlarged && seenFiles.includes(enlarged) ? " seen-open" : ""}`} aria-label="Dashboard" inert={waiting}
+        style={{ "--stage-aspect": scene?.width && scene?.height ? scene.width / scene.height : 16 / 9 }}>
         {stage}
-        {/* The earlier lines, checks, looks and notes: under the frame once it has stepped back. */}
+        {/* The earlier lines, checks, looks and notes: right of the frame on a wide window, under
+            the frame (once it has stepped back) on a narrower one. Another pane filling the window
+            (+) takes the history's room too. */}
         {listOpen ? (
           <AgentPane {...paneProps(2)} data={data} agent={askingAgent ?? agentShown} still={still} now={now} view={agentView} onView={setAgentView} needs={needs.length} follow={follow} checks={checks} onRun={run} onAnswer={answer} onMaterial={answerMaterial}
-            onClose={() => { setListOpen(false); focusPane(1); }} noteLine={noteLine} views={{
+            onClose={() => { setListOpen(false); focusPane(1); }} closeTitle={wide ? "Hide the history" : "Close (Esc)"} noteLine={noteLine} views={{
               session, log, checks: log, notes: log,
               seen: <SeenPane data={data} cursor={cursors[3]} enlarged={enlarged} onEnlarge={setEnlarged} still={still} onSelect={pickSeen} bare />,
             }} />
         ) : null}
         {noteField ?? <Voice data={data} agent={askingAgent ?? agentShown} now={now} scene={scene} time={time} still={still} listOpen={listOpen}
           onRun={run} onAnswer={answer} onMaterial={answerMaterial} onCancelRender={() => cancelRender()} onStopRecording={stopRecording} ask={inlineAsk} onShare={() => setShareOpen(true)}
-          onHistory={() => { if (listOpen) { setListOpen(false); focusPane(1); } else { setAgentViewOnly("agent"); focusPane(2); } }} />}
+          onHistory={() => { setAgentViewOnly("agent"); focusPane(2); }} />}
         <TimelinePane {...paneProps(3)} data={data} scene={scene} time={time} cursor={list === 5 ? cursors[5] : -1} selectedLayer={selectedLayer}
           onSeek={(value) => { stopPlaying(); setView((current) => ({ ...current, time: value })); }} onSelectLayer={selectLayer} onTurn={selectTurn} viewTurn={checkpoint?.turn ?? null}
           playing={playing} timeStore={timeStore} point={pointedRange ? point : null} onPoint={pointAt} still={still} now={now}
