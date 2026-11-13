@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   assertBatchStillTime,
   assertStillFrameTime,
+  isStillFormat,
   longestSceneDuration,
   stillFrameTime,
   stillOptionsForScene,
@@ -26,6 +27,8 @@ test("a batch thumbnail shows the frame its still PNG saves", () => {
   assert.deepEqual(thumbnailFrame({ format: "png", time: 0, design: true }), { time: 0, design: true });
   assert.deepEqual(thumbnailFrame({ format: "png", time: 1, design: false }), { time: 1 });
   assert.deepEqual(thumbnailFrame({ format: "mp4", time: 1.5 }), { time: 0 }, "animated formats show their first frame");
+  assert.deepEqual(thumbnailFrame({ format: "jpeg", time: 1.5, design: true }), { time: 1.5, design: true }, "a JPEG still does too");
+  assert.ok(isStillFormat("png") && isStillFormat("jpeg") && !isStillFormat("gif"));
 });
 
 test("a batch still clamps its shared time to each scene", () => {
@@ -37,6 +40,7 @@ test("a batch still clamps its shared time to each scene", () => {
   assert.deepEqual(stillOptionsForScene({ format: "gif", time: 1.5 }, { duration: 1 }), { format: "gif", time: 1.5 },
     "animated formats ignore the still time");
   assert.equal(stillOptionsForScene({ format: "png" }, { duration: 1 }).time, undefined);
+  assert.equal(stillOptionsForScene({ format: "jpeg", time: 1.5 }, { duration: 1 }).time, 1, "a JPEG still clamps too");
 });
 
 test("still times outside the scenes are rejected", () => {

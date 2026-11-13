@@ -175,14 +175,14 @@ export const AGENT_TOOLS = withSaid([
     // A draft's width, height or size given beside quality (not in options) is not listed (the tool
     // list's budget): keepUnknownKeys passes it to the service, which reads it as options.
     keepUnknownKeys: true,
-    description: "Export: start, wait (checked files, 55s), status, queue, cancel. draft: half size/30fps; preview:fast: 640px/15fps. from/to: draft excerpt. final: full size, gated. awaiting_approval: wait {job:id}. Details: library rules render.",
+    description: "Export: start, wait (checked, 55s), status, queue, cancel. draft: half size/30fps; preview:fast: 640px/15fps. from/to: draft excerpt. final: full size, gated. awaiting_approval: wait {job:id}. More: library rules render.",
     input: {
       action: z.enum(["start", "wait", "status", "cancel", "queue"]).optional(),
       quality: z.enum(["draft", "final"]).optional(),
       preview: z.literal("fast").optional(),
       from: z.number().nonnegative().optional(),
       to: z.number().positive().optional(),
-      format: z.enum(["mp4", "webm", "mov", "gif", "png", "apng", "png-sequence", "lottie"]).optional(),
+      format: z.enum(["mp4", "webm", "mov", "gif", "png", "jpeg", "apng", "png-sequence", "lottie"]).optional(),
       motionBlur: z.number().min(0).max(1).optional(),
       dither: z.boolean().optional(),
       options: z.record(z.string(), z.unknown()).optional(),

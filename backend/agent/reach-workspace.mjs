@@ -25,7 +25,7 @@ shares: list, create {role:view|comment|edit,label?,scene?,layer?,origin?}, revo
 document: import {document} (migrates old versions, creates an independent project), export (saved JSON).
 csv: template {scene,variants?:true adds the base row and saved variants}, review {scene,csv} (validation and planned changes; nothing is saved).
 media: list {search?}, original {id} (copies original bytes to a private output file), peaks {id} (cached waveform).
-exports: start {sceneIds?,quality:draft|final,options:{format,profile?,width?,height?,fps?,transparent?,loop?,playbackDirection?,time?,design?},out?:absolute folder}; status/wait/cancel/resume/zip/close {batch}. A draft is half size at 30fps (fps up to 30) unless options give a width, height or size. Formats include png, apng, lottie, png-sequence, mp4, webm, mov, gif.
+exports: start {sceneIds?,quality:draft|final,options:{format,profile?,width?,height?,fps?,transparent?,loop?,playbackDirection?,time?,design?},out?:absolute folder}; status/wait/cancel/resume/zip/close {batch}. A draft is half size at 30fps (fps up to 30) unless options give a width, height or size. Formats include png, jpeg, apng, lottie, png-sequence, mp4, webm, mov, gif.
 These are individual workspace actions, not document undo steps. library {topic:"op",name:"apply_easing"|"apply_text_effect"} applies named presets in an atomic edit.`;
 
 export function createReachWorkspace(deps) {

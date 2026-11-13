@@ -1677,6 +1677,7 @@ How to read it:
 - **render**: Verified. MP4, WebM, MOV, GIF, PNG, APNG, PNG sequence and Lottie, draft or final, with
   queue, wait and cancel; a draft is half size at 30fps (or fps up to 30), never 15. Evidence: `backend/agent-render.test.mjs`,
   `backend/agent-reach-exports.test.mjs`, `backend/agent-render-cancel.test.mjs`.
+- **JPEG still**: Verified. `render {format:"jpeg"}` saves a `.jpg` of one frame with a PNG still's options plus `quality` 1 to 100 (default 90); clear areas take the scene background (black when none) and `transparent:true` is refused. Evidence: `backend/still-frame-export.test.mjs`, `backend/agent-render.test.mjs`.
 - **Project frame rate**: Verified. project create {fps} and update_project {fps} keep a rate (20,
   "24000/1001") echoed in the receipt and status; look frame snaps to it, look frames, check and
   render default step at it, at:"f36" is a frame, a rate change names off-grid times; update_scene

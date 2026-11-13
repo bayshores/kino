@@ -17,6 +17,7 @@ export const EXPORT_PROFILES = [
   { id: "apng", label: "APNG", format: "apng", loopable: true, defaultFps: 25 },
   { id: "png-sequence", label: "PNG (Image Sequence)", format: "png-sequence" },
   { id: "png", label: "PNG (Still image)", format: "png" },
+  { id: "jpeg", label: "JPEG (Still image)", format: "jpeg" },
 ].map((profile) => ({ defaultFps: 60, frameRates: VIDEO_FPS, ...profile }));
 
 export function exportProfile(id) {

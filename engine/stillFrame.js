@@ -28,33 +28,38 @@ export function assertStillFrameTime(time, duration) {
     throw new Error(`A still image time must be between 0 and ${duration} seconds, the scene duration.`);
 }
 
+/** True for the formats that save one frame of a scene: a PNG or a JPEG still. */
+export function isStillFormat(format) {
+  return format === "png" || format === "jpeg";
+}
+
 /**
  * A batch shares one playhead time. Each scene renders that time, clamped to its
  * own duration, so a shorter scene exports its last frame. Other formats ignore it.
  */
 export function stillOptionsForScene(options, scene) {
-  if (options.format !== "png" || options.time === undefined) return { ...options };
+  if (!isStillFormat(options.format) || options.time === undefined) return { ...options };
   return { ...options, time: stillFrameTime(options.time, sceneDuration(scene, options.duration)) };
 }
 
 /** Rejects a batch still time that no selected scene can show. */
 export function assertBatchStillTime(options, scenes) {
-  if (options.format !== "png" || options.time === undefined || !scenes.length) return;
+  if (!isStillFormat(options.format) || options.time === undefined || !scenes.length) return;
   assertStillFrameTime(options.time, longestSceneDuration(scenes, options.duration));
 }
 
-/** Throws unless a still's `design` option is left out, true or false. Only a still PNG can ask for it. */
+/** Throws unless a still's `design` option is left out, true or false. Only a still image can ask for it. */
 export function assertStillDesign(design, format) {
   if (design === undefined) return;
   if (typeof design !== "boolean") throw new Error("The export design view must be true or false.");
-  if (design && format !== "png") throw new Error("The design view applies only to still PNG exports.");
+  if (design && !isStillFormat(format)) throw new Error("The design view applies only to still PNG and JPEG exports.");
 }
 
 /**
- * The frame a batch row's thumbnail shows. A still PNG's thumbnail shows the frame its file
+ * The frame a batch row's thumbnail shows. A still image's thumbnail shows the frame its file
  * saves (its time, or the design view); animated formats show their first frame.
  */
 export function thumbnailFrame(options) {
-  if (options.format !== "png") return { time: 0 };
+  if (!isStillFormat(options.format)) return { time: 0 };
   return { time: options.time ?? 0, ...(options.design ? { design: true } : {}) };
 }

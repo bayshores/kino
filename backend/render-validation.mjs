@@ -2,6 +2,7 @@ import { open, readFile, stat } from "node:fs/promises";
 import { runExportProcess } from "./export-process.mjs";
 import { TRUE_PEAK_TARGET_DBTP, measureFileLevels } from "./audio-levels.mjs";
 import { MAX_TIME } from "../engine/schema.js";
+import { isStillFormat } from "../engine/stillFrame.js";
 
 const MAX_LOTTIE_BYTES = 128 * 1024 * 1024;
 const MAX_ZIP_DIRECTORY_BYTES = 32 * 1024 * 1024;
@@ -21,6 +22,7 @@ const expectedCodecs = Object.freeze({
   apng: "apng",
   gif: "gif",
   png: "png",
+  jpeg: "mjpeg",
 });
 
 function check(status, expected, actual, detail) {
@@ -53,10 +55,10 @@ function requireExpected(path, expected) {
   if (![...Object.keys(expectedCodecs), "png-sequence", "lottie"].includes(format))
     throw new TypeError(`Unsupported render validation format “${format}”.`);
   const positiveInteger = (value) => Number.isSafeInteger(value) && value > 0;
-  if (["png", "png-sequence", "lottie", "mp4", "webm", "mov", "apng", "gif"].includes(format) &&
+  if (["png", "jpeg", "png-sequence", "lottie", "mp4", "webm", "mov", "apng", "gif"].includes(format) &&
       (!positiveInteger(expected.width) || !positiveInteger(expected.height)))
     throw new TypeError("Expected render width and height must be positive integers.");
-  if (format !== "png" && (!positiveInteger(expected.frameCount) || typeof expected.fps !== "number" || !Number.isFinite(expected.fps) || expected.fps <= 0))
+  if (!isStillFormat(format) && (!positiveInteger(expected.frameCount) || typeof expected.fps !== "number" || !Number.isFinite(expected.fps) || expected.fps <= 0))
     throw new TypeError("Expected render frameCount and fps must be positive numbers.");
   if (["mp4", "webm", "mov", "apng", "gif", "lottie"].includes(format) &&
       (typeof expected.duration !== "number" || !Number.isFinite(expected.duration) || expected.duration <= 0))
@@ -263,7 +265,7 @@ async function validateProbedFile(file, expected, { signal, size }) {
     checks.codec = check(codecOk ? "pass" : "fail", expectedCodec, video.codec_name ?? null,
       codecOk ? undefined : "The encoded video codec does not match the requested format.");
     const frameCount = integer(video.nb_read_frames);
-    const wantFrames = expected.format === "png" ? 1 : expected.frameCount;
+    const wantFrames = isStillFormat(expected.format) ? 1 : expected.frameCount;
     if (expected.format === "gif") {
       const valid = frameCount !== null && frameCount >= 1 && frameCount <= wantFrames;
       checks.frameCount = check(valid ? "pass" : "fail", `1 to ${wantFrames} (GIF encoders may coalesce repeated frames)`, frameCount,
@@ -294,17 +296,17 @@ async function validateProbedFile(file, expected, { signal, size }) {
   } else {
     checks.dimensions = check("fail", { width: expected.width, height: expected.height }, null, "No decoded video stream is available.");
     checks.codec = check("fail", expected.expectedVideoCodec ?? expectedCodecs[expected.format], null, "No decoded video stream is available.");
-    checks.frameCount = check("fail", expected.format === "png" ? 1 : expected.frameCount, null, "No decoded video stream is available.");
-    checks.frameRate = expected.format === "png" ? unsupported("A still PNG has no frame rate.") : check("fail", expected.fps, null, "No decoded video stream is available.");
+    checks.frameCount = check("fail", isStillFormat(expected.format) ? 1 : expected.frameCount, null, "No decoded video stream is available.");
+    checks.frameRate = isStillFormat(expected.format) ? unsupported("A still image has no frame rate.") : check("fail", expected.fps, null, "No decoded video stream is available.");
     checks.duration = expected.duration == null ? unsupported("No expected duration was supplied.") : check("fail", expected.duration, null, "No decoded video stream is available.");
   }
   Object.assign(checks, checkAudio(streams, expected, warnings));
   if (audio) Object.assign(checks, await checkAudioLevels(file, facts, signal, expected.targetLufs, expected.heldAt));
-  if (expected.format === "png") {
-    checks.frameRate = unsupported("A still PNG has no frame rate.");
-    checks.duration = expected.duration == null ? unsupported("A still PNG does not encode a timeline duration.") : unsupported("A still PNG does not encode a timeline duration.");
+  if (isStillFormat(expected.format)) {
+    checks.frameRate = unsupported("A still image has no frame rate.");
+    checks.duration = expected.duration == null ? unsupported("A still image does not encode a timeline duration.") : unsupported("A still image does not encode a timeline duration.");
     if (expected.frameCount != null && expected.frameCount !== 1)
-      checks.frameCount = check("fail", 1, expected.frameCount, "A PNG still contains exactly one frame.");
+      checks.frameCount = check("fail", 1, expected.frameCount, "A still image contains exactly one frame.");
   }
   return result("ffprobe -count_frames", checks, facts, warnings);
 }
