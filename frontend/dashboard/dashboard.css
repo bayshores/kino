@@ -1191,11 +1191,13 @@
   background: var(--yellow); color: var(--on-yellow); font-family: var(--mono-ui); font-weight: 500; font-size: 11px;
 }
 
-/* ---- the theme switch (theme.js): the new theme opens as a circle from the button over half a
-   second. With reduced motion theme.js changes it at once and none of this runs. ---- */
+/* ---- the theme switch (theme.js): the new theme opens as a circle from the button over 0.6 s.
+   The circle's edge keeps an even pace to the far corner and lands softly (a curve that spends its speed
+   at the start covered four fifths of the window in 0.1 s, then crawled). With reduced motion
+   theme.js changes it at once and none of this runs. ---- */
 :root[data-theme-switch]::view-transition-old(root), :root[data-theme-switch]::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
 :root[data-theme-switch]::view-transition-new(root) {
-  animation: theme-open 500ms cubic-bezier(0.05, 0.7, 0.1, 1) both;
+  animation: theme-open 600ms cubic-bezier(0.4, 0.2, 0.4, 1) both;
 }
 @keyframes theme-open {
   from { clip-path: circle(0 at var(--theme-x, 50%) var(--theme-y, 0)); }

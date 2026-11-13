@@ -24,7 +24,7 @@ export function showTheme(theme, root = globalThis.document?.documentElement) {
 
 /**
  * Switches to `theme` and keeps the choice. The new theme opens as a circle from `origin`
- * ({x, y} in the window, the button pressed) over half a second; with `still` (reduced motion),
+ * ({x, y} in the window, the button pressed) over 0.6 s; with `still` (reduced motion),
  * or where the browser has no view transitions, it changes at once.
  */
 export function switchTheme(theme, { origin = null, still = false, doc = globalThis.document, storage } = {}) {
