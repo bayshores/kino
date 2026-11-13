@@ -218,15 +218,27 @@ export function lendSkeleton(skeleton, { length, at = 0, fit = null, seed = 1, o
         if (Math.abs(beat - times[index]) <= reach && beat - before >= shortest && after - beat >= shortest && Math.abs(beat - times[index]) > 1e-4) { times[index] = beat; snapped += 1; }
       }
     }
-    for (const seam of seams) {
-      if (!(seam > at + shortest && seam < at + span - shortest)) continue;
+    const inner = seams.filter((seam) => seam > at + shortest && seam < at + span - shortest);
+    for (const seam of inner) {
       const nearest = times.reduce((best, value, index) => (best < 0 || Math.abs(value - seam) < Math.abs(times[best] - seam) ? index : best), -1);
       const before = nearest > 0 ? times[nearest - 1] : at;
       const after = times[nearest + 1] ?? at + span;
       if (nearest >= 0 && seam - before >= shortest && after - seam >= shortest) times[nearest] = seam;
       else times.push(seam);
     }
-    return { times: [...new Set(times.map((value) => round(value)))].sort((a, b) => a - b), snapped };
+    // No lent shot under the shortest one (6 project frames): a section scaled under it, or a seam
+    // pushed in beside a cut, merges into its neighbor; a seam keeps its cut over a plain one.
+    const isSeam = (time) => inner.some((seam) => Math.abs(seam - time) < 1e-3);
+    const sorted = [...new Set(times.map((value) => round(value)))].sort((a, b) => a - b);
+    const kept = [];
+    for (const time of sorted) {
+      const before = kept.at(-1) ?? at;
+      if (time - before >= shortest - 1e-6) { kept.push(time); continue; }
+      if (isSeam(time) && kept.length && !isSeam(before) && time - (kept.at(-2) ?? at) >= shortest - 1e-6) kept[kept.length - 1] = time;
+    }
+    // The last cut (never a seam: those sit a shortest shot inside the span) leaves a shortest shot.
+    while (kept.length && at + span - kept.at(-1) < shortest - 1e-6) kept.pop();
+    return { times: kept, snapped, merged: sorted.length - kept.length };
   };
   const copies = (times) => order !== "exact" && refCuts.length > COPY_RUN && [24, 30, 60].map((rate) => copiedRun([at, ...times, at + span], [0, ...refCuts, skeleton.seconds], { tolerance: 1 / rate + 0.01 })).find(Boolean);
   let lengths = draw();
@@ -244,17 +256,18 @@ export function lendSkeleton(skeleton, { length, at = 0, fit = null, seed = 1, o
   const kept = placed.times.filter((time) => time > at && (!(length > 0) || time < length));
   return {
     cues: kept.map((time, index) => ({ name: `rhythm-${index + 1}`, time, kind: "marker" })),
-    sections: skeleton.sections.length, lengths: skeleton.shots.length, shots: lengths.length, seed, scale: round(scale), lenScale: round(lenScale), snapped: placed.snapped, dropped: placed.times.length - kept.length, order,
+    sections: skeleton.sections.length, lengths: skeleton.shots.length, shots: kept.length + 1, seed, scale: round(scale), lenScale: round(lenScale), snapped: placed.snapped, merged: placed.merged, dropped: placed.times.length - kept.length, order,
   };
 }
 
-/** The receipt's line: "from 'Trust (4k AMV)': 12 sections, 70 shot lengths, seed 5831, ...". */
+/** The receipt's line: "borrow_rhythm from yt:<id> '<title>': 17 sections, 25 shots from its 56 shot lengths, seed 3091, ...". */
 export function lendNote(skeleton, lent, { ref, beatsFrom = null }) {
   const title = skeleton.title ? `'${String(skeleton.title).slice(0, 48)}'` : ref;
   const seedWords = lent.order === "exact" ? "its own order (order:\"exact\")" : `seed ${lent.seed}${lent.seedFrom ? ` (${lent.seedFrom})` : ""}`;
   const snap = beatsFrom ? `, ${lent.snapped} cuts snapped to ${beatsFrom}` : ", not snapped (no beat cues or rhythm in the project)";
   const scaled = lent.lenScale === lent.scale ? `scaled ${lent.scale}x` : `sections scaled ${lent.scale}x, shot lengths ${lent.lenScale}x (0.5x to 2x)`;
-  return `borrow_rhythm from ${ref} ${title}: ${plural(lent.sections, "section")}, ${lent.lengths} shot lengths, ${seedWords}, ${scaled}${snap}: ${lent.cues.length} marks rhythm-1 to rhythm-${lent.cues.length}${lent.dropped ? ` (${lent.dropped} past the scene left out)` : ""}`;
+  const merged = lent.merged ? `, ${lent.merged} cut${lent.merged === 1 ? "" : "s"} under 6 frames from the one before merged` : "";
+  return `borrow_rhythm from ${ref} ${title}: ${plural(lent.sections, "section")}, ${lent.shots} shots from its ${lent.lengths} shot lengths, ${seedWords}, ${scaled}${snap}${merged}: ${lent.cues.length} marks rhythm-1 to rhythm-${lent.cues.length}${lent.dropped ? ` (${lent.dropped} past the scene left out)` : ""}`;
 }
 
 /**
@@ -335,8 +348,11 @@ export function skeletonGap(skeleton, shots) {
   const base = Math.max(medianOf(ours), medianOf(theirs), 1e-3);
   const distance = round(qs.reduce((sum, q) => sum + Math.abs(at(ours, q) - at(theirs, q)), 0) / qs.length / base, 2);
   const holdsOf = (lens) => lens.filter((len) => len >= skeleton.holdMin);
-  const holdWords = (lens) => (lens.length ? `${lens.length} (${lens.map((len) => s(len)).join(", ")} s)` : "0");
+  // Every hold counts; the lengths print as one value or a range (shortest to longest).
+  const holdWords = (lens) => (!lens.length ? "0" : `${lens.length} (${lens.length === 1 || lens[0] === lens.at(-1) ? s(lens[0]) : `${s(lens[0])} to ${s(lens.at(-1))}`} s)`);
   const ourText = Math.round((shots.filter((shot) => shot.text).length / shots.length) * 100);
-  const theirText = skeleton.text ? `${Math.round((skeleton.text.shots / skeleton.shots.length) * 100)}% by reveal times` : "not measured";
-  return `skeleton gap ${skeleton.id ?? ""}: shot lengths distance ${distance} (median ${round(medianOf(ours), 2)} vs ${round(skeleton.median, 2)} s, ${shots.length} vs ${skeleton.shots.length} shots); lettering on ${ourText}% of shots vs ${theirText}; holds of ${s(skeleton.holdMin)} s or more ${holdWords(holdsOf(ours).slice(0, 4))} vs ${holdWords(holdsOf(theirs).slice(0, 4))}`;
+  // Their shot count is a lower bound (3 reveal times a style are kept): the frame share sits beside it.
+  const frames = Number.isFinite(skeleton.text?.share) ? `, text on ${Math.round(skeleton.text.share * 100)}% of its frames` : "";
+  const theirText = skeleton.text ? `${Math.round((skeleton.text.shots / skeleton.shots.length) * 100)}% by reveal times${frames}` : "not measured";
+  return `skeleton gap ${skeleton.id ?? ""}: shot lengths distance ${distance} (median ${round(medianOf(ours), 2)} vs ${round(skeleton.median, 2)} s, ${shots.length} vs ${skeleton.shots.length} shots); lettering on ${ourText}% of shots vs ${theirText}; holds of ${s(skeleton.holdMin)} s or more ${holdWords(holdsOf(ours))} vs ${holdWords(holdsOf(theirs))}`;
 }

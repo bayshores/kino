@@ -389,7 +389,9 @@ test("a borrowed rhythm: each section's pace in a new order, scaled to fit, cut 
   assert.deepEqual(lentSections(dense)[0].shots, [0.24, 0.76, 1, 8]);
   const text = referenceText({ id: "yt:a", title: "A", duration: 10, url: "u", numbers: dense });
   assert.match(text, /\ncuts \(s\): 1 1\.24 2 \(3 under 6 frames apart not listed or borrowed\)\n/);
-  assert.match(text, /\nlend: pace per section \(0-5 s 4 shots median 1 s · 5-10 s 0 shots\); avoid: its shot lengths in order/);
+  // The skeleton line (what borrow_rhythm lends) stands in place of the older per-part lend line.
+  assert.match(text, /\nskeleton: 4 shots in 10 s, median 1 s; open steady 0 to 2 s \(3 shots, median 0\.76 s\); hold 8 s at 2 s \(borrow_rhythm lends it\)\n/);
+  assert.doesNotMatch(text, /\nlend: /);
 });
 
 test("a reference's skeleton: shots, sections and its line; lent per project seed without a copied run; board cuts onto the marks; the gap", () => {
@@ -398,6 +400,7 @@ test("a reference's skeleton: shots, sections and its line; lent per project see
   const record = { id: "yt:sk", title: "Skel", bpm: 120, numbers: measureNumbers({ cuts, beats: [], seconds: 13.5, fps: 24 }), heard: { change: { at: 4.6, kind: "drop" } },
     fingerprint: { text: { share: 0.2, examples: { whole: [2.1] }, limits: { height: 0.1 } }, camera: { examples: { "zoom-in": [6.5] } }, motion: { curve: Array(14).fill(0.3), p90: 0.6 }, persistent: [{ kind: "text", box: [0.4, 0.8, 0.2, 0.1] }] } };
   const skeleton = referenceSkeleton(record);
+  assert.equal(referenceSkeleton({ numbers: { seconds: 5 } }), null, "a record with no cut list has no skeleton (borrow_rhythm lends its section pace as before)");
   assert.deepEqual(skeleton.sections.map((section) => `${section.kind}:${section.shots.length}`), ["hold:1", "fast:8", "hold:1", "steady:7"]);
   assert.deepEqual([skeleton.shots[1].text, skeleton.shots[9].motion, skeleton.shots[9].hit, skeleton.shots[1].beats], ["whole", "zoom-in", "change", 0.5]);
   assert.match(skeletonLine(skeleton), /^skeleton: 17 shots in 13.5 s, median 0\.7 s; open hold 2 s; fast run 2 to 4\.6 s \(8 shots, median 0\.35 s\); hold 3 s at 4\.6 s; hold at the drop 4\.6 s; lettering on 1 shot by reveal times \(text on 20% of frames\), low center, lines up to 10% tall/);
@@ -412,12 +415,21 @@ test("a reference's skeleton: shots, sections and its line; lent per project see
   assert.deepEqual(lendSkeleton(skeleton, { length: 13.5, fit: 13.5, order: "exact" }).cues.map((cue) => cue.time), cuts);
   // Snapped to a beat grid: a cut within reach lands on a beat.
   assert.ok(lendSkeleton(skeleton, { length: 13.5, fit: 13.5, seed: 7, beats: Array.from({ length: 27 }, (_, i) => i * 0.5) }).snapped > 0);
-  assert.match(lendNote(skeleton, { ...one, seedFrom: "from the project id" }, { ref: "yt:sk" }), /^borrow_rhythm from yt:sk 'Skel': 4 sections, 17 shot lengths, seed \d{4} \(from the project id\), scaled 1x, not snapped/);
+  assert.match(lendNote(skeleton, { ...one, seedFrom: "from the project id" }, { ref: "yt:sk" }), /^borrow_rhythm from yt:sk 'Skel': 4 sections, \d+ shots from its 17 shot lengths, seed \d{4} \(from the project id\), scaled 1x, not snapped/);
+  // Squeezed into 3 s at 30 fps with a seam beside a cut: no lent shot is under 6 frames (0.2 s); the seam stays a cut.
+  for (const seed of [1, 2, 3, 4, 5]) {
+    const tight = lendSkeleton(skeleton, { length: 3, fit: 3, seed, fps: 30, seams: [1.05], beats: Array.from({ length: 13 }, (_, i) => i * 0.25) });
+    const times = [0, ...tight.cues.map((cue) => cue.time), 3];
+    assert.ok(times.slice(1).every((time, i) => time - times[i] >= 0.2 - 1e-6), `seed ${seed}: ${times.join(" ")}`);
+    assert.ok(times.includes(1.05));
+  }
   // The board's cuts move to the nearest mark between their neighbors; the board's end stays.
   const board = [{ cue: 0, dur: 2 }, { cue: 2, dur: 2 }, { cue: 4, dur: 2 }];
   const moved = cutsOnMarks(board, [1.8, 4.3, 9]);
   assert.deepEqual(moved.shots.map((shot) => [shot.cue, shot.dur]), [[0, 1.8], [1.8, 2.5], [4.3, 1.7]]);
-  assert.match(skeletonGap(skeleton, [{ len: 2, text: true }, { len: 2, text: false }]), /^skeleton gap yt:sk: shot lengths distance [\d.]+ \(median 2 vs 0\.7 s, 2 vs 17 shots\); lettering on 50% of shots vs 6% by reveal times; holds of 1\.8 s or more 2 \(2, 2 s\) vs 2 \(2, 3 s\)$/);
+  assert.match(skeletonGap(skeleton, [{ len: 2, text: true }, { len: 2, text: false }]), /^skeleton gap yt:sk: shot lengths distance [\d.]+ \(median 2 vs 0\.7 s, 2 vs 17 shots\); lettering on 50% of shots vs 6% by reveal times, text on 20% of its frames; holds of 1\.8 s or more 2 \(2 s\) vs 2 \(2 to 3 s\)$/);
+  // Every hold counts, not only the first four.
+  assert.match(skeletonGap(skeleton, Array(6).fill({ len: 2, text: false })), /holds of 1\.8 s or more 6 \(2 s\) vs/);
 });
 
 test("clock and the agent's lines", () => {

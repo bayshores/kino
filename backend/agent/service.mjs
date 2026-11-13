@@ -198,7 +198,7 @@ import { access } from "node:fs/promises";
 import { REACH_HELP, REACH_OPERATIONS, applyReachOperation } from "./reach-operations.mjs";
 import { WORKSPACE_HELP, createReachWorkspace } from "./reach-workspace.mjs";
 import { createReachExports, selectedScenes } from "./reach-exports.mjs";
-import { CLOSED_PLATFORM, cleanTake, takeCutNote, closedPlatform, fitNote, takeSaysWhat, takeStretch, takeWithoutStretch, quietDoubt, ideasAnswerText, heardLinesText, ideasProposedText, isYouTubeUrl, MAX_SOUND_SECONDS, numbersLine, originPhrase, originQuery, projectText, rankedSoundsText, referenceText, refId, SEARCH_KINDS, searchText } from "../inspire.mjs";
+import { CLOSED_PLATFORM, cleanTake, takeCutNote, closedPlatform, fitNote, takeSaysWhat, takeStretch, takeWithoutStretch, quietDoubt, ideasAnswerText, heardLinesText, ideasProposedText, isYouTubeUrl, MAX_SOUND_SECONDS, numbersLine, originPhrase, originQuery, projectText, rankedSoundsText, referenceText, refId, rhythmCues, SEARCH_KINDS, searchText } from "../inspire.mjs";
 import { editShots, lendNote, lendSkeleton, referenceSkeleton, seedOf, skeletonGap } from "../skeleton.mjs";
 import { suggestStyleLines } from "../measure/suggest.mjs";
 import { changedParts, RENDER } from "./crew-locks.mjs";
@@ -9536,7 +9536,13 @@ export function createAgentService(deps) {
     const beats = beatCues.length ? beatCues : bpm > 0 ? Array.from({ length: Math.ceil((length * bpm) / 60) + 1 }, (_, index) => (Number(document.rhythm.offset) || 0) + (index * 60) / bpm) : [];
     const beatsFrom = beatCues.length ? `${beatCues.length} beat cues` : bpm > 0 ? `the project rhythm (${Math.round(bpm)} bpm)` : null;
     const given = Number.isFinite(Number(seed)) && seed !== null && seed !== undefined && seed !== "";
-    const lent = lendSkeleton(skeleton, { length, at, fit, seams, beats, fps: ref.numbers.fps > 0 ? ref.numbers.fps : 24,
+    // A record with no cut list has no skeleton: its section pace is lent as before (rhythmCues).
+    if (!skeleton) {
+      const old = rhythmCues(ref.numbers, { length, fit, at, seams });
+      return { ...old, note: `borrow_rhythm from ${ref.id}: no measured cut list, so its pace per section (scaled ${old.scale}x, no seed): ${old.cues.length} marks rhythm-1 to rhythm-${old.cues.length}` };
+    }
+    // The shortest lent shot is 6 frames of this project.
+    const lent = lendSkeleton(skeleton, { length, at, fit, seams, beats, fps: projectFps(document),
       seed: given ? Math.abs(Math.round(Number(seed))) : seedOf(projectId), order: order === "exact" ? "exact" : "shuffle" });
     lent.seedFrom = given ? "given" : "from the project id; seed:<n> overrides";
     return { ...lent, note: lendNote(skeleton, lent, { ref: ref.id, beatsFrom }) };

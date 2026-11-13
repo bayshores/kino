@@ -2099,7 +2099,8 @@ edit by hand. Dark only, no purple. Main tests: `backend/dashboard.test.mjs`, `f
 - **Reference skeleton**: Test-verified and run on a real 14 s project with 2 saved references. A measured
   reference prints a `skeleton:` line (shots, holds, fast runs, the change point, lettering, motion, beat hits,
   read from its saved record); `borrow_rhythm` lends its sections scaled to the scene, snapped to the project's
-  beats, each section reshuffled by a seed from the project id (printed; `seed` overrides, `order:"exact"` copies);
+  beats, each section reshuffled by a seed from the project id (printed; `seed` overrides, `order:"exact"` copies), no
+  lent shot under 6 project frames;
   `board {snap:"rhythm"}` moves the board's cuts onto the lent marks; `look versus` prints a skeleton gap line per
   reference. Evidence: `backend/inspire.test.mjs`, `backend/agent-inspire.test.mjs`. Gaps: lettering per shot
   is a lower bound (3 reveal times per style are kept); text position only from persistent text boxes.

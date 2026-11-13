@@ -2462,8 +2462,9 @@ export function referenceText(ref, { full = false } = {}) {
   const filled = numbersWithMedian(numbers, ref.bpm);
   const median = filled.median != null ? `median shot ${round(filled.median, 1)} s${medianBeatWords(filled, ref.bpm)}` : "";
   const skeleton = skeletonLine(referenceSkeleton(ref));
-  return [head, `measured ${span}: ${[`${numbers.shots} shots`, `${numbers.cutsPerSecond} cuts/s`, median, longest, beat].filter(Boolean).join(" · ")}`, ...(fit ? [fit] : []), cuts, lendLine(numbers),
-    ...(skeleton ? [skeleton] : []),
+  // borrow_rhythm lends the skeleton when there is one; the older per-part lend line only without it.
+  return [head, `measured ${span}: ${[`${numbers.shots} shots`, `${numbers.cutsPerSecond} cuts/s`, median, longest, beat].filter(Boolean).join(" · ")}`, ...(fit ? [fit] : []), cuts,
+    skeleton ?? lendLine(numbers),
     ...fingerprintLines(ref),
     ...heardLinesText(ref).split("\n").filter(Boolean),
     `borrow: edit {ops:[{op:"borrow_rhythm", ref:"${ref.id}"}]} (its skeleton's sections, each section's shot lengths in a new order seeded by the project, scaled to the scene, on the song's beats and seams; then board {snap:"rhythm"})`].join("\n");
