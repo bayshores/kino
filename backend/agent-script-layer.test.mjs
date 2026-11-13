@@ -9,6 +9,7 @@ import { createAgentStateStore } from "./agent/state.mjs";
 import { openStore } from "./store.mjs";
 import { createDocument, createScene } from "../engine/model.js";
 import { evaluateLayer } from "../engine/animation.js";
+import { blocksFinal } from "../engine/quality/index.js";
 import { clearScriptFrameCache, testDrawScriptLayers } from "./script-layer-frames.mjs";
 
 // A stand-in for the script renderer, so no Electron starts: a module with THROW in it fails after
@@ -30,7 +31,14 @@ function fakeRenderer() {
 const moduleWith = (marker) => `export default function setup(layer) {\n  /* ${marker} */\n  return function draw(frame) {};\n}\n`;
 const scriptOp = (name, marker, extra = {}) => ({ op: "add_layer", layerType: "script", name, properties: { x: 0, y: 0, width: 400, height: 200, script: moduleWith(marker), ...extra } });
 
-async function service(t, renderer = fakeRenderer()) {
+// check's frames: what the real renderer reports for the same modules (scriptIssues on each frame).
+const fakeFrames = (scene, times, { width }) => times.map((time) => ({ width, height: Math.round(width * 9 / 16), pixels: new Uint8ClampedArray(width * Math.round(width * 9 / 16) * 4).fill(100),
+  scriptIssues: scene.layers.filter((layer) => layer.type === "script").flatMap((layer) => {
+    if (layer.script.includes("THROW") && time > 1) return [{ layerId: layer.id, kind: "error", message: `script layer "${layer.name}": ReferenceError: x is not defined at ${time.toFixed(2)} s (draw)` }];
+    return layer.script.includes("EMPTY") ? [{ layerId: layer.id, kind: "empty" }] : [];
+  }) }));
+
+async function service(t, renderer = fakeRenderer(), { realChecks = false } = {}) {
   clearScriptFrameCache();
   const dataRoot = await mkdtemp(path.join(tmpdir(), "kino-test-script-"));
   t.after(() => rm(dataRoot, { recursive: true, force: true }));
@@ -38,7 +46,7 @@ async function service(t, renderer = fakeRenderer()) {
   await store.createProject(createDocument({ id: "p", name: "p", scenes: [createScene({ id: "s1", name: "main", duration: 4, layers: [] })] }));
   const agent = createAgentService({ store, agentState: createAgentStateStore(dataRoot), agentDirectory: path.join(dataRoot, "agent"), mediaRoot: path.join(dataRoot, "media"), scriptRenderer: renderer,
     exportBatches: {}, fontCatalog: { async loadInto() {} }, loadFonts: async () => [], listMedia: async () => [], operationContext: async () => ({}),
-    quality: { async check() { return { findings: [], notes: [], ms: 0, unchecked: [], scenes: 1 }; } },
+    ...(realChecks ? { renderFrames: fakeFrames } : { quality: { async check() { return { findings: [], notes: [], ms: 0, unchecked: [], scenes: 1 }; } } }),
     saveDocument: (projectId, before, saved, revision, options) => store.updateProject(projectId, saved, revision, options) });
   const edit = (ops) => agent.call("edit", { project: "p", ops });
   const layer = async (name) => (await store.getProject("p")).document.scenes[0].layers.find((entry) => entry.name === name);
@@ -139,6 +147,28 @@ test("a test draw that has not answered in time is skipped with one line, and a 
   assert.deepEqual(await testDrawScriptLayers({ scenes: [] }, after, { renderer: slow, timeoutMs: 40 }), ["script test draw skipped: no answer in 0 s"]);
   const gone = { render: async () => { throw new Error("The Electron runtime for script layers was not found."); } };
   assert.deepEqual(await testDrawScriptLayers({ scenes: [] }, after, { renderer: gone }), []);
+});
+
+test("check: a failing script layer is an error with the update_layer fix, an empty one a warning, and a waiver quiets the error", async (t) => {
+  const { agent, edit } = await service(t, fakeRenderer(), { realChecks: true });
+  const added = await edit([scriptOp("bad", "THROW"), scriptOp("blank", "EMPTY")]);
+  assert.equal(added.isError, undefined, added.text);
+  const failing = await agent.call("check", { project: "p", rules: ["script_layer_error"] });
+  assert.match(failing.text, /script_layer_error/, failing.text);
+  assert.match(failing.text, /script layer "bad": ReferenceError: x is not defined at 2\.00 s \(draw\)/);
+  assert.match(failing.text, /update_layer/);
+  assert.match(failing.text, /<fixed module>/);
+  assert.doesNotMatch(failing.text, /blank/, "the empty layer is not an error");
+  const empty = await agent.call("check", { project: "p", rules: ["script_layer_empty"] });
+  assert.match(empty.text, /blank/, empty.text);
+  assert.match(empty.text, /drew nothing at 0 s, /);
+  // An error blocks a final render even in a draft-quality project (blocksFinal, the function the render asks); a warning only in a real edit.
+  assert.equal(blocksFinal({ rule: "script_layer_error", severity: "error" }, false), true);
+  assert.equal(blocksFinal({ rule: "script_layer_empty", severity: "warn" }, false), false);
+
+  const waived = await edit([{ op: "waive_check", code: "script_layer_error", target: "bad", reason: "the demo draws late on purpose" }]);
+  assert.equal(waived.isError, undefined, waived.text);
+  assert.doesNotMatch((await agent.call("check", { project: "p", rules: ["script_layer_error"] })).text, /script layer "bad"/);
 });
 
 test("every example in the script layer reference is a valid add_layer", async (t) => {

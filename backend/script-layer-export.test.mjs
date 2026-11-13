@@ -29,7 +29,7 @@ const BAR = `export default function setup(layer) {
     ctx.fillRect(0, 0, frame.width * frame.values.reveal, frame.height);
   };
 }`;
-const BROKEN = "export default function setup(layer) {\n  return function draw(frame) {\n    if (frame.time > 0.2) missing.value = 1;\n  };\n}";
+const BROKEN = "export default function setup(layer) {\n  layer.canvas.getContext(\"2d\");\n  return function draw(frame) {\n    if (frame.time > 0.2) missing.value = 1;\n  };\n}";
 
 let server;
 after(async () => { await server?.stop(); await closeScriptRenderer(); });
@@ -113,6 +113,9 @@ test("a script layer added by edit shows in look frames and a render, and look's
   assert.equal(broken.isError, undefined, broken.text);
   const { reply } = await frame(0.4);
   assert.match(reply.text, /script layer "bar": ReferenceError: missing is not defined at 0\.40 s \(draw\)/);
+  // check names the same layer as an error, from the real renderer's report (the script throws after 0.2 s of layer time).
+  const checked = await agent("check", { project: "bars", rules: ["script_layer_error"] });
+  assert.match(checked.text, /E script_layer_error bar @[\d.]+: script layer "bar": ReferenceError: missing is not defined at [\d.]+ s \(draw\)/, checked.text);
   const record = await (await server.api("/api/projects/bars")).json();
   await server.stop();
   server = null;
