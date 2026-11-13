@@ -511,9 +511,11 @@ How to read it:
   default export checked at save, never run), typed inputs and values; values merge, number and color
   inputs animate; status lists inputs, inspect the code. Exports, stills and `look` frames draw the
   module in a sandboxed hidden window at the output's pixel ratio (frames cached; a failing frame draws
-  nothing, look and drafts name the layer, message and time, a final render is refused). Evidence:
-  `engine/scriptLayer.test.js`, `backend/agent-script-layer.test.mjs`, `backend/script-frames.test.mjs`,
-  `backend/script-layer-export.test.mjs`. Gap: edit receipts and checks, 3D. Live preview: the stage
+  nothing, look and drafts name the layer, message and time, a final render is refused). An edit that adds
+  or changes one test-draws 3 frames (a receipt line for a failure or an empty picture); `check` has
+  `script_layer_error` (error) and `script_layer_empty` (warning: it draws nothing at any checked frame).
+  Evidence: `engine/scriptLayer.test.js`, `backend/agent-script-layer.test.mjs`,
+  `backend/script-frames.test.mjs`, `backend/script-layer-export.test.mjs`. Gap: 3D. Live preview: the stage
   and the viewer run each module in a stoppable Worker in a sandboxed frame with no network and paint
   its pictures in place (`tests/script-preview-sandbox.test.mjs`, `frontend/scriptFrames.test.js`,
   `tests/dashboard-browser.test.mjs`). Preview gap: a script layer used as a mask, or drawn again as

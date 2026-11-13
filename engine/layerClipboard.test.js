@@ -713,3 +713,10 @@ test("a pasted Hide or Show that would land past the scene's end is skipped with
   assert.equal(result.skipped[0].animation, "Show");
   assert.match(result.skipped[0].reason, /outside the scene/);
 });
+
+test("copying a script layer carries the pictures in its image inputs", () => {
+  const script = "export default function setup() { return function draw() {}; }";
+  const plot = createLayer("script", { id: "plot", name: "plot", script, inputs: [{ key: "photo", type: "image" }, { key: "empty", type: "image" }], values: { photo: IMAGE, empty: "" } });
+  const envelope = throughClipboard(copyLayers(documentWith([plot]), "main", ["plot"]));
+  assert.deepEqual(envelope.media.map((item) => [item.src, item.type, item.name]), [[IMAGE, "image", "plot"]]);
+});

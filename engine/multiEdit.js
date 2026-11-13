@@ -1,4 +1,5 @@
 import { patchTextLayer } from "./textStyleEdits.js";
+import { scriptPatch } from "./scriptLayer.js";
 // Editing several selected layers at once in the Design tab.
 //
 // With several layers selected, the inspector shows the property fields shared across all of them,
@@ -341,7 +342,9 @@ export function updateLayersEdit(layers, properties) {
       throw new Error(`update_layers ${key} must be a number.`);
   }
   return (layer) => {
-    const patch = editablePatch(layer, properties);
+    // A script layer's values merge into its current ones, as update_layer does.
+    const own = editablePatch(layer, properties);
+    const patch = own && scriptPatch(layer, own);
     if (!patch) return null;
     for (const key of PLAY_SETTINGS) {
       if (!Object.hasOwn(patch, key) || (key === "mediaDuration" && properties[key] === 0)) continue;

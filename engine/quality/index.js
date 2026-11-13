@@ -33,6 +33,7 @@ import { beatKick, cutMotivation, deckUnused, fewTechniques, flatSections, metro
 import { TASTE_WARNINGS, accentBudget, brandConsistency, endingCount, hookReadable, templateEnd, textOnlyOpen, overlayCoversSubject, pacingJump, roleFontDrift, storyStall, vocabularyBudget } from "./rules/consistency.js";
 import { rejectedText, spineDrift } from "./rules/spine.js";
 import { signatureMissing } from "./rules/signature.js";
+import { scriptLayerEmpty, scriptLayerError } from "./rules/script.js";
 import { busyEdit, restraint } from "./rules/restraint.js";
 import { restFit, seamLock } from "./rules/seams.js";
 import { requestUnmet } from "./rules/request.js";
@@ -43,7 +44,8 @@ import { chainOf } from "./model.js";
 
 // askOnly: a costly rule that runs only when check names it (check {rules:["source_jump"]}).
 // final: a warning while editing that blocks a final render (FINAL_GATES).
-const rule = (code, level, check, summary, pixels = false, { askOnly = false, final = false } = {}) => ({ code, level, check, summary, pixels, askOnly, final });
+// `unlisted`: a gate for one kind of layer only, so a check that skipped the pixels does not name it (checks.mjs PIXEL_GATES).
+const rule = (code, level, check, summary, pixels = false, { askOnly = false, final = false, unlisted = false } = {}) => ({ code, level, check, summary, pixels, askOnly, final, unlisted });
 
 export const RULES = [
   rule("linear_motion", "error", linearMotion, "no linear easing on position, scale or rotation (except perpetual layers and a slow push: a custom animation of 2 s or more, position and scale only, of a non-text layer filling half the frame or a background, its part on screen moving under 4% of the frame diagonal a second; and a slow ambient drift: a move of 2 s or more of line art or a blended light layer, no corner traveling over 3% of the frame width a second; and a slow move that runs until its layer leaves)"),
@@ -55,6 +57,7 @@ export const RULES = [
   rule("flashing", "error", flashing, "at most 3 flashes a second over 2.8% of the frame (a flash: two opposite luminance changes of 10% or more, WCAG 2.3.1); a deliberate flash under the limit passes", true),
   rule("luma_jump", "error", lumaJump, "off a cut, brightness moves at most 12 levels (0-255) in 0.2 s when a large layer pops on or off or in a zoom or push, and stays within 8 levels of both shots inside a transition (fade_black, flash, short light shapes and cuts are planned); waive a planned beat", true),
   rule("frozen_picture", "error", frozenPicture, "the rendered picture inside a video layer's box (any size: a phone screen counts) changes within every 0.3 s while it is on screen; a still placed on a sound hit or a spoken line only warns, not at the shot's cut-in; waive_check a deliberate freeze frame", true),
+  rule("script_layer_error", "error", scriptLayerError, "a script layer's module draws its first, middle and last visible frame without an error (a throw, too long, a failed load); the fix is a new module in update_layer", true, { unlisted: true }),
   rule("assertions", "error", assertions, "the scene's own promises hold"),
   rule("spring_on_fade", "error", springOnFade, "no bounce or overshoot on opacity or colour"),
   rule("same_motion", "error", sameMotion, "4+ animated layers do not all share one easing and duration (copies of one element at different times count once)"),
@@ -96,6 +99,7 @@ export const RULES = [
   rule("off_brand_font", "warn", offBrandFont, "text uses the brand's fonts (set_brand fonts, or fonts the brief names); with none, at most 2 type families"),
   rule("text_on_busy", "warn", textOnBusy, "text is not over fine detail (under 16% edge pixels behind it, scrims included)", true),
   rule("small_on_empty", "warn", smallOnEmpty, "a picture shown on a flat frame fills 25% of it or more (over 1.5 s)", true),
+  rule("script_layer_empty", "warn", scriptLayerEmpty, "a script layer that shows draws something at its first, middle or last visible frame (a reveal that starts empty is fine)", true),
   rule("render_artifact", "warn", renderArtifact, "an RGB split draws no flat saturated slabs (3% of the frame or more)", true),
   rule("speech_captions", "warn", speechCaptions, "captions shown over a voice include every word it says, and a text that shows a line a muted clip says (a full check, from saved transcripts) is heard from that clip or another sound"),
   rule("speech_unplayed", "warn", speechUnplayed, "when the video's clips say lines (saved transcripts), at least one is heard: a scene whose clips are all muted where they speak warns once with the keep_line call for its best line; waive a silent edit"),

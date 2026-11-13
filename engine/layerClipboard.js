@@ -62,6 +62,7 @@ import { applyComponentOverride, overrideReferences, remapComponentOverrides, re
 import { animationOwners } from "./sceneBackground.js";
 import { nextScenePosition } from "./sceneLayout.js";
 import { isRecord } from "./numbers.js";
+import { scriptImageSources } from "./scriptLayer.js";
 
 // A clipboard envelope follows the document version it carries, including scene-only changes.
 export const CLIPBOARD_VERSION = 6;
@@ -198,6 +199,7 @@ export function mediaReferences(layers) {
     if (!isRecord(layer)) continue;
     add(layer.src, { type: layer.type, name: layer.name, sourceDuration: layer.mediaSourceDuration ?? 0 });
     add(layer.fontSource, { type: "font", name: layer.fontFamily });
+    for (const src of scriptImageSources(layer)) add(src, { type: "image", name: layer.name, sourceDuration: 0 });
     for (const range of layer.textStyleRanges ?? [])
       add(range.style?.fontSource, { type: "font", name: range.style?.fontFamily ?? layer.fontFamily });
   }

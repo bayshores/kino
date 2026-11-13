@@ -65,7 +65,7 @@ import { editFocus } from "./dashboard.mjs";
 import { callLabel, callTarget, pointingText } from "./labels.mjs";
 import { knownAgent, touchedLayers } from "./live.mjs";
 import { AGENT_OPERATION_TYPES, createdIds, plainLayer, referencedIds, translateAll } from "./translate.mjs";
-import { exampleFor, moreExamplesFor, signatureFor } from "./op-examples.mjs";
+import { exampleFor, isScriptOp, moreExamplesFor, scriptExampleFor, signatureFor } from "./op-examples.mjs";
 import { moveRetry } from "./move-retry.mjs";
 import { layerFieldAliases, layerFieldPair, opFromWord, PRESET_LAYER, PRESET_SAMPLE_TO, PRESET_VALUE_KEYS } from "./common-mistakes.mjs";
 import { animationSpan, isRandomId, layerAnimations, refName, sec } from "./describe.mjs";
@@ -123,7 +123,8 @@ import { TYPE_VERSION } from "../../engine/quality/typeSignature.js";
 import { blocksFinal, FINAL_GATES, tasteNotes } from "../../engine/quality/index.js";
 import { ideaLines, signatureRanges } from "../../engine/quality/rules/signature.js";
 import { hasMusic, isMusicLayer } from "../../engine/quality/rules/sound.js";
-import { measureLayerBrightness, measureMixPeaks, measurePeakWindows, readsBrightness, renderSceneFrames, sceneSoundClips, soundCurve } from "../export.mjs";
+import { measureLayerBrightness, measureMixPeaks, measurePeakWindows, readMediaSource, readsBrightness, renderSceneFrames, sceneSoundClips, soundCurve } from "../export.mjs";
+import { testDrawScriptLayers } from "../script-layer-frames.mjs";
 import { autoGlowRamp, GLOW_PERCENTILES } from "../../engine/effects/glow.js";
 import { animationTreeEntries } from "../../engine/animationTree.js";
 import { decodeMono } from "../audio-analysis.mjs";
@@ -3087,7 +3088,10 @@ export function createAgentService(deps) {
     // An op that works once one field is added (move_layers mask:true): that op is the example.
     // A refused move: the agent's own op with the failing field fixed or named (move-retry.mjs).
     const ownMove = type === "move" && !error?.example && !error?.noExample && !error?.retryWith ? moveRetry(operation, reason, error?.suggestions) : null;
-    const example = index == null ? undefined : soundFade ?? ownMove ?? (error?.retryWith && operation && typeof operation === "object" ? { ...operation, ...error.retryWith }
+    // A refused script layer edit ends with a script layer example, not the usual rectangle one.
+    const scriptRetry = index != null && !error?.example && !error?.noExample && !error?.retryWith && isScriptOp(type, operation)
+      ? scriptExampleFor(type, typeof operation?.layer === "string" ? operation.layer : undefined) : null;
+    const example = index == null ? undefined : soundFade ?? ownMove ?? scriptRetry ?? (error?.retryWith && operation && typeof operation === "object" ? { ...operation, ...error.retryWith }
       : (!error?.example && !error?.noExample && effectSettingRetry(type, operation, error))
         || exampleOf(type, error, typeof operation?.layer === "string" ? operation.layer : undefined, operation?.name));
     if (example) details.example = example;
@@ -3837,6 +3841,11 @@ export function createAgentService(deps) {
         if (was && was.duration !== scene.duration) work.notes.push(...await bareGapLines(scene, afterCodes, { only: "end" }));
         if (touched.size && scene.layers?.some((layer) => touched.has(layer.id))) work.notes.push(...bareStripLines(scene, afterCodes, { ids: touched, than: was }));
       }
+      // A script layer this edit added or changed is drawn at 3 times; a failure or an empty
+      // picture is one line (script-layer-frames.mjs testDrawScriptLayers). Silent when it drew fine.
+      const scriptLines = await testDrawScriptLayers(before, after, { renderer: deps.scriptRenderer,
+        readImage: (src, label) => readMediaSource(src, deps.mediaRoot, label) });
+      if (scriptLines.length) (work.warnings ??= []).push(...scriptLines);
       const receipt = {
         ...(input.dry_run ? { dryRun: true, wouldBeRev: record.revision + 1 } : {}),
         created: created.named,

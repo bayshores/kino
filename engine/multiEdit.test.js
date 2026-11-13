@@ -176,3 +176,12 @@ test("updateLayersEdit gives each listed layer the stored values it can take", (
   assert.throws(() => updateLayersEdit(layers, null), /needs properties/);
   assert.throws(() => updateLayersEdit([video], { mediaStart: Number.NaN }), /mediaStart must be a number/);
 });
+
+test("update_layers merges a script layer's values like update_layer does", () => {
+  const inputs = [{ key: "reveal", type: "number", min: 0, max: 1 }, { key: "label", type: "text" }];
+  const script = "export default function setup() { return function draw() {}; }";
+  const layers = ["a", "b"].map((id) => createLayer("script", { id, script, inputs, values: { reveal: 1, label: id } }));
+  const next = byId(editLayers(layers, ["a", "b"], updateLayersEdit(layers, { values: { reveal: 0.25 } })));
+  assert.deepEqual(next.get("a").values, { reveal: 0.25, label: "a" }, "the other value stays");
+  assert.deepEqual(next.get("b").values, { reveal: 0.25, label: "b" });
+});
