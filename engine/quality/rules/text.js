@@ -98,7 +98,9 @@ export function hold(model, ctx) {
       if (!wordsOf(text).length) continue;
       const shown = longestRun(runs(model.times.length, (index) => item.samples.opacity[index] >= 0.5 && (textIndex === null || item.samples.textIndex?.[index] === textIndex)));
       if (!shown) continue;
-      const measured = shown.length / model.fps;
+      // A typed line is on screen while it types, as reading_time counts it: its sampled opacity is
+      // its last letter's, so the run alone starts only at the last letter.
+      const measured = shown.length / model.fps + typedBefore(model, item, shown);
       // A text shown until the end of the video only has the time the video gives it.
       const required = Math.min(recommendedHold(text), model.duration);
       if (measured + 0.5 / model.fps >= required) continue;

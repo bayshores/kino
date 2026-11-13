@@ -1193,6 +1193,18 @@ test("voice-type sets a spoken line from the transcript, each word on as it is s
   assert.ok(over.added.find(({ layer }) => layer.move.part === "back").layer.height < 1080 / 2);
 });
 
+test("type-on's caret jumps letter to letter at any speed without a speed_jump; a hand-made jump on another layer still has one", async () => {
+  // 40 letters a second: each caret step used to glide 0.03 s and meet the next one, read as one move.
+  const scene = sceneFor(1920, 1080);
+  const made = runMove(MOVES["type-on"], { id: "type-on", input: readMoveInput(MOVES["type-on"], { layer: "prompt", cps: 40 }), scene, style: styleFor({ look: "crisp", frame: { width: 1920, height: 1080 } }), fonts: defaultFonts, start: 0.3, media });
+  placeMove(scene, { id: "type-on", name: "type-on", settings: {} }, made);
+  const slide = (id, start, from, to) => ({ id, name: "Slide", kind: "custom", start, duration: 0.5, easing: "linear", unit: "layer", stagger: 0, order: "forward", from: { x: from }, to: { x: to } });
+  const chip = createLayer("rectangle", { id: "chip", name: "chip", x: 100, y: 900, width: 120, height: 60, fill: "#FFFFFF", animations: [slide("chip.a", 1, 100, 160), slide("chip.b", 1.5, 160, 900)] });
+  const document = parseDocument(createDocument({ id: "d", name: "typed", scenes: [{ ...scene, layers: [...scene.layers, chip] }] }));
+  const { findings } = await runQuality(kinoTimeline(document, "s", { fonts: defaultFonts }), { codes: ["speed_jump"], pixels: false });
+  assert.deepEqual(findings.map((finding) => finding.itemId), ["chip"]);
+});
+
 test("type-on types each letter at its keystroke, the caret steps to the last letter's advance, the field grows and each word cues", () => {
   const made = runExample("type-on", sceneFor(1920, 1080));
   const letters = made.animations.find((entry) => entry.animation.id === "type-on.text-letters").animation;
