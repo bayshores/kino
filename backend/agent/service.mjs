@@ -3250,11 +3250,22 @@ export function createAgentService(deps) {
     const fresh = createDocument({ id: document.id, name: document.name, scenes: [createScene({ id: scene.id, name: scene.name, width: scene.width, height: scene.height, duration: seconds, background: "#000000" })] });
     // The sketch's ops, with the picture calmed while the line is on (calm {blur, dim}) or not; then the option's own (its move).
     const base = (calm = null) => sketchOps({ frame: { width: scene.width, height: scene.height }, seconds, clips, song, line, font: asked.font ?? null, coverBox, calm, type, together: asked.together === true });
-    const own = option.ops ?? [];
+    // The option's own ops (its move). A src that names a project file becomes that file's src.
+    const fileSrc = (value) => {
+      if (typeof value !== "string" || /^(\/|https?:|music:|data:)/.test(value)) return value;
+      const found = pictures.find((item) => [item.id, item.name].includes(value)) ?? pictures.find((item) => stem(item.name) === stem(value));
+      return found ? found.src ?? `/api/media/${found.id}` : value;
+    };
+    const own = (option.ops ?? []).map((op) => (op?.properties?.src !== undefined ? { ...op, properties: { ...op.properties, src: fileSrc(op.properties.src) } } : op));
+    // kino's line (with its dim and what its typing or decoding adds) stays over the layers the
+    // option's ops add, unless those ops order the line themselves: a run's push-in layer and a
+    // full-frame card each covered the line they were sketched with.
+    const ordersLine = own.some((op) => op?.op === "move_layers" && [op.layers, op.referenceId].flat().includes("sketch-line"));
     const withOwn = async (kino) => {
-      if (!own.length) return documentWith({ ...record, document: fresh }, kino);
-      await documentWith({ ...record, document: fresh }, kino);
-      try { return await documentWith({ ...record, document: fresh }, [...kino, ...own]); }
+      const plain = await documentWith({ ...record, document: fresh }, kino);
+      if (!own.length) return plain;
+      const over = ordersLine ? [] : plain.scenes[0].layers.map((layer) => layer.name).filter((name) => /^sketch-/.test(name ?? "") && !/^sketch-(clip-\d+|song)$/.test(name));
+      try { return await documentWith({ ...record, document: fresh }, [...kino, ...own, ...(over.length ? [{ op: "move_layers", layers: over, position: "top" }] : [])]); }
       catch (error) {
         throw new Error(`its ops (the move) were refused: ${String(error?.message ?? error).split("\n")[0].slice(0, 300)} kino's layers in a sketch: ${clips.map((_, index) => `sketch-clip-${index + 1}`).join(", ") || "no clips"}${line ? ", sketch-line" : ""}; cues: ${[clips.length > 1 && !asked.together ? "cut-2.." : null, song ? "beat-1.." : null, line ? "line-in, line-out" : null].filter(Boolean).join(", ") || "none"}.`);
       }
