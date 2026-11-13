@@ -46,6 +46,9 @@ contextBridge.exposeInMainWorld("kinoDesktop", {
   editText: (action) => ipcRenderer.invoke("kino:edit-text", action),
   // Inspire's "o open the source": a YouTube page in the default browser (desktop/open-source.mjs).
   openSource: (url) => ipcRenderer.invoke("kino:open-source", url),
+  // Settings, agents: Cursor's and VS Code's install links, and the Claude Desktop extension (desktop/agent-connect.mjs).
+  openAgentLink: (url) => ipcRenderer.invoke("kino:agent-link", url),
+  claudeDesktop: (action) => ipcRenderer.invoke("kino:claude-desktop", action),
   onEditCommand: (callback) => {
     const listener = (_event, action) => callback(action);
     ipcRenderer.on("kino:edit-command", listener);

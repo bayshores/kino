@@ -95,6 +95,8 @@ the kino skill. It never opens an agent's login or credential files.
 - **Claude Code plugin:** `/plugin marketplace add /path/to/kino`, then `/plugin install kino@kino`
 - **Codex:** `codex mcp add kino -- node "$PWD/bin/kino.mjs" mcp`. Codex started in this folder
   finds the skill at `.agents/skills/kino`.
+- **Claude Desktop:** `npm run mcpb:pack` builds `release/kino.mcpb`; open it (settings, agents, Open) and choose the kino app when asked. Needs the Mac app in `/Applications` (or pick its folder).
+- **Cursor and VS Code:** settings, agents, Add opens the app's own install prompt with kino's MCP server (no file to edit). Each row shows a dot once that app has called kino.
 - **Any other MCP client:** run `node bin/kino.mjs mcp` as a stdio server.
 
 The same verbs work from a terminal (run `npm link` once to get the `kino` command):

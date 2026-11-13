@@ -126,6 +126,8 @@ Which file does what, for a first code change.
 | `desktop/main.mjs` and `desktop/preload.cjs` | Sandboxed Mac windows, the local service, and the `kinoDesktop` bridge the pages use (badge, service status, stored settings) |
 | `desktop/navigation.mjs`           | Keeps Mac windows on the kino page, including when a file is dropped |
 | `desktop/mcp.mjs`                  | Agent connection through the packaged Electron runtime |
+| `desktop/mcp-launch.mjs`, `desktop/mcpb.mjs` and `scripts/mcpb-pack.mjs` | How an agent starts kino's MCP server from the app (one function), and the Claude Desktop `.mcpb` bundle built from it (`npm run mcpb:pack`) |
+| `desktop/agent-connect.mjs` and `engine/agentLinks.js` | Settings opens the Claude Desktop bundle or a Cursor or VS Code install link; the link builders |
 | `desktop/settings.mjs` | The Mac app's private settings store |
 
 ## A first change

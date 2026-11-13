@@ -10,7 +10,7 @@ import { desktopServiceLine } from "./dashboard/stream.js";
 import { tickWhileShown } from "./dashboard/visibleClock.js";
 import { agentChips, idleLine, nowBlock, renderAgent, runningRender } from "./dashboard/topbar.js";
 import { projectGroups } from "./dashboard/projectRows.js";
-import { agentRows, applyEvent, attention, backgroundCheckInput, briefRows, commentRows, fromSnapshot, planRows, seenImages, turnChips, turnRows, variantChoices, videoLayers, WORKING_MS, withRecord } from "./dashboard/state.js";
+import { agentRows, appsThatCalled, applyEvent, attention, backgroundCheckInput, briefRows, commentRows, fromSnapshot, planRows, seenImages, turnChips, turnRows, variantChoices, videoLayers, WORKING_MS, withRecord } from "./dashboard/state.js";
 
 const press = (key, extra = {}) => ({ key, shiftKey: false, ctrlKey: false, metaKey: false, altKey: false, ...extra });
 
@@ -206,6 +206,10 @@ test("calls name the agents and fill the log, one row per turn", () => {
   assert.deepEqual(state.agents.map((agent) => agent.name), ["claude"], "your own calls are not an agent");
   assert.equal(agentRows(state, now)[0].status, "working");
   assert.equal(agentRows(state, now + WORKING_MS)[0].status, "idle");
+  // The MCP client names agents send (cleanKind), by the app that sent them.
+  assert.deepEqual([...appsThatCalled([{ kind: "claude-code" }, { kind: "codex-mcp-client" }, { kind: "cursor-vscode" }, { kind: "Visual-Studio-Code" }, { kind: "claude-ai" }, { kind: "cli" }])].sort(),
+    ["claude-code", "claude-desktop", "codex", "cursor", "vscode"]);
+  assert.equal(appsThatCalled(agentRows(state, now)).size, 0, "a client named only claude is none of them");
   state = applyEvent(state, { seq: 15, type: "approval", approval: { id: "A1", status: "pending", client: "claude" } });
   assert.equal(agentRows(state, now)[0].status, "needs-you");
 

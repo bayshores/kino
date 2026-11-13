@@ -1,0 +1,10 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "kino",
+  "version": "0.1.0",
+  "description": "Make and edit motion videos with kino: ten MCP tools (status, edit, check, look, inspect, render, library, history, notes, project) and the kino skill.",
+  "author": { "name": "kino contributors" },
+  "repository": "https://github.com/bayshores/kino",
+  "license": "AGPL-3.0-only",
+  "keywords": ["motion design", "video", "animation", "mcp"]
+}
