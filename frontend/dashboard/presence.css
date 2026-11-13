@@ -13,7 +13,7 @@
 .dash .presence-tag {
   position: absolute; left: 0; top: 0; z-index: 3; max-width: 100%; height: 16px;
   padding: 0 0.6ch; font-size: 12px; line-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  color: var(--bg0); background: var(--who);
+  color: var(--on-who); background: var(--who);
   transition: transform 180ms cubic-bezier(.2, .8, .2, 1), opacity 300ms linear;
   animation: presence-in 150ms ease-out;
 }
@@ -78,7 +78,7 @@
    .tl-content), so it never covers a turn's button, its label or its focus ring. */
 .dash .presence-chip {
   position: absolute; left: 0; top: 22px; height: 14px; padding: 0 0.5ch;
-  font-size: var(--small); line-height: 14px; white-space: nowrap; color: var(--bg0); background: var(--who);
+  font-size: var(--small); line-height: 14px; white-space: nowrap; color: var(--on-who); background: var(--who);
   transition: transform 180ms cubic-bezier(.2, .8, .2, 1), opacity 300ms linear;
   animation: presence-in 150ms ease-out;
 }
