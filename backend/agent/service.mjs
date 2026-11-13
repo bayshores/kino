@@ -123,7 +123,8 @@ import { TYPE_VERSION } from "../../engine/quality/typeSignature.js";
 import { blocksFinal, FINAL_GATES, tasteNotes } from "../../engine/quality/index.js";
 import { ideaLines, signatureRanges } from "../../engine/quality/rules/signature.js";
 import { hasMusic, isMusicLayer } from "../../engine/quality/rules/sound.js";
-import { measureLayerBrightness, measureMixPeaks, measurePeakWindows, readsBrightness, renderSceneFrames, sceneSoundClips, soundCurve } from "../export.mjs";
+import { measureLayerBrightness, measureMixPeaks, measurePeakWindows, readMediaSource, readsBrightness, renderSceneFrames, sceneSoundClips, soundCurve } from "../export.mjs";
+import { testDrawScriptLayers } from "../script-layer-frames.mjs";
 import { autoGlowRamp, GLOW_PERCENTILES } from "../../engine/effects/glow.js";
 import { animationTreeEntries } from "../../engine/animationTree.js";
 import { decodeMono } from "../audio-analysis.mjs";
@@ -3840,6 +3841,11 @@ export function createAgentService(deps) {
         if (was && was.duration !== scene.duration) work.notes.push(...await bareGapLines(scene, afterCodes, { only: "end" }));
         if (touched.size && scene.layers?.some((layer) => touched.has(layer.id))) work.notes.push(...bareStripLines(scene, afterCodes, { ids: touched, than: was }));
       }
+      // A script layer this edit added or changed is drawn at 3 times; a failure or an empty
+      // picture is one line (script-layer-frames.mjs testDrawScriptLayers). Silent when it drew fine.
+      const scriptLines = await testDrawScriptLayers(before, after, { renderer: deps.scriptRenderer,
+        readImage: (src, label) => readMediaSource(src, deps.mediaRoot, label) });
+      if (scriptLines.length) (work.warnings ??= []).push(...scriptLines);
       const receipt = {
         ...(input.dry_run ? { dryRun: true, wouldBeRev: record.revision + 1 } : {}),
         created: created.named,

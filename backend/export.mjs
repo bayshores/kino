@@ -200,7 +200,7 @@ async function writeRetainedFrame(path, buffer) {
   }
 }
 
-async function readMediaSource(source, mediaRoot, label) {
+export async function readMediaSource(source, mediaRoot, label) {
   if (source && typeof source === "object") {
     if (source.buffer instanceof Uint8Array) {
       const mime = source.mimeType ?? source.type ?? "image/png";
@@ -3417,7 +3417,9 @@ async function renderSceneFramesNow(given, times, { mediaRoot, fonts: providedFo
     for await (const { index, ...frame } of orderedFrames(times, async (time) => {
       const scriptProblems = [];
       const drawn = await renderPng(scene, time, media, fonts, dimensions, { raw: true, rasterizer, signal, draft: true, scriptProblems });
-      return scriptProblems.length ? { ...drawn, warnings: [...new Set(scriptProblems)] } : drawn;
+      // Check's script rules read the structured issues (script-layer-frames.mjs issuesAt).
+      const scriptIssues = media.scripts?.issuesAt(time) ?? [];
+      return { ...drawn, ...(scriptProblems.length ? { warnings: [...new Set(scriptProblems)] } : {}), ...(scriptIssues.length ? { scriptIssues } : {}) };
     }, signal))
       frames.push({ time: times[index], ...frame });
     return frames;
