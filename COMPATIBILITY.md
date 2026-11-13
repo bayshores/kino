@@ -510,9 +510,11 @@ How to read it:
   default export checked at save, never run), typed inputs and values; values merge, number and color
   inputs animate; status lists inputs, inspect the code. Exports, stills and `look` frames draw the
   module in a sandboxed hidden window at the output's pixel ratio (frames cached; a failing frame draws
-  nothing, look and drafts name the layer, message and time, a final render is refused). Evidence:
-  `engine/scriptLayer.test.js`, `backend/agent-script-layer.test.mjs`, `backend/script-frames.test.mjs`,
-  `backend/script-layer-export.test.mjs`. Gap: live preview, edit receipts and checks, 3D.
+  nothing, look and drafts name the layer, message and time, a final render is refused). An edit that adds
+  or changes one test-draws 3 frames (a receipt line for a failure or an empty picture); `check` has
+  `script_layer_error` (error) and `script_layer_empty` (warning). Evidence: `engine/scriptLayer.test.js`,
+  `backend/agent-script-layer.test.mjs`, `backend/script-frames.test.mjs`,
+  `backend/script-layer-export.test.mjs`. Gap: live preview, 3D.
 - **Artboard positions**: Verified. Scenes store `canvasX`/`canvasY`, never exported. Evidence:
   `engine/sceneLayout.test.js`.
 - **Bulk create from CSV**: Verified. `project manage csv` then `bulk_create` makes linked variants;

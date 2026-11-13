@@ -70,6 +70,14 @@ A frame that throws or runs too long draws nothing for that layer. `look` adds a
 setup or draw), a draft render carries it as a warning, and a final render is refused with it.
 Fix the module with `update_layer {properties:{script}}` and look at that time again.
 
+- The edit receipt draws a layer you added or changed at its start, middle and end (small), and
+  adds a warning line only for a problem: `script "bars": ReferenceError: x is not defined at
+  1.20 s (draw, line 4)`, or `script "bars" drew nothing at 0.00 s, 1.00 s and 2.00 s`. No line
+  means all three drew. The edit is saved either way.
+- `check` has `script_layer_error` (an error: blocks a final render; fix is `update_layer` with a
+  new `script`) and `script_layer_empty` (a warning: a shown layer drew nothing; `waive_check` a
+  reveal that starts empty). A refused script edit ends with a script layer example to resend.
+
 ## Example: bars that grow
 
 Each example is the module, then the edit op that adds it (the same module as one JSON string).
