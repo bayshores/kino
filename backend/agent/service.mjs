@@ -132,7 +132,10 @@ import { heardLines as soundLines, sectionsInVideo, soundMapImage, soundMapText,
 // look sound measures each line on its own layer alone for at most this many layers (one FFmpeg run each).
 const SOUND_LINE_LAYERS = 6;
 import { createTries, pickQuote, triesView } from "./tries.mjs";
-import { beatsIn, measureSketch, pickedSketch, sketchOps, songEntry, treatmentDefaults, treatmentOf } from "./sketches.mjs";
+import { beatsIn, lineEntry, lineFixOps, lineFixText, measureSketch, pickedSketch, sketchOps, songEntry, treatmentDefaults, treatmentOf } from "./sketches.mjs";
+import { legibleFix } from "../../engine/quality/legible.js";
+import { boxAt, longestRun } from "../../engine/quality/model.js";
+import { drawnSize, readableRuns } from "../../engine/quality/analysis.js";
 import { boardRefKeys, createJudge, judgeLine, judgeLost, pairCount, pinnedPairs, refForKey, resultText, roundView, tally, VERSUS_ROWS } from "./judge.mjs";
 import { createPicks, SITTING_PICKS } from "./picks.mjs";
 import { rendererIsProcessor } from "../render-devices.mjs";
@@ -3184,10 +3187,40 @@ export function createAgentService(deps) {
     const lineFrom = asked.line ? "given" : defaults.line ? `treatment ${option.treatment}'s quoted words` : null;
     const fresh = createDocument({ id: document.id, name: document.name, scenes: [createScene({ id: scene.id, name: scene.name, width: scene.width, height: scene.height, duration: seconds, background: "#000000" })] });
     const ops = [...sketchOps({ frame: { width: scene.width, height: scene.height }, seconds, clips, song, line, font: asked.font ?? null, coverBox }), ...(option.ops ?? [])];
-    const built = await documentWith({ ...record, document: fresh }, ops);
+    let built = await documentWith({ ...record, document: fresh }, ops);
     const text = built.scenes[0].layers.find((layer) => layer.name === "sketch-line");
+    // The line measured over the clip frames behind it; when it is hard to read, the lightest fix
+    // that passes (engine/quality/legible.js). An option with its own text layers is left as it is.
+    let lineFix = null;
+    if (text && !built.scenes[0].layers.some((layer) => layer.type === "text" && layer !== text)) {
+      const fixed = await sketchLineFix(built, text, lineEntry(song?.beats ?? [])).catch(() => null);
+      if (fixed?.ops.length) {
+        built = await documentWith({ ...record, document: built }, fixed.ops);
+        ops.push(...fixed.ops);
+        lineFix = lineFixText(fixed.legible);
+      }
+    }
     // basis: what the clip is cached by (the ops kino wrote carry no new ids, the built layers do).
-    return { document: built, basis: { ops, width: scene.width, height: scene.height }, song: songInfo, font: text?.fontFamily ?? asked.font ?? null, line: line || null, lineFrom, cuts: Math.max(0, clips.length - 1) };
+    return { document: built, basis: { ops, width: scene.width, height: scene.height }, song: songInfo, font: text?.fontFamily ?? asked.font ?? null, line: line || null, lineFrom, cuts: Math.max(0, clips.length - 1), ...(lineFix ? { lineFix } : {}) };
+  }
+
+  // A built sketch's line over the frames behind it (5 frames of its longest readable stretch,
+  // drawn without it, at the contrast check's width): {legible, ops} (legible.js legibleFix, sketches.mjs lineFixOps).
+  async function sketchLineFix(document, layer, start) {
+    const scene = document.scenes[0];
+    const fonts = await fontsFor(document);
+    const model = kinoTimeline(document, scene.id, { fonts });
+    const item = model.items.find((entry) => entry.id === layer.id);
+    const run = item ? longestRun(readableRuns(model, item)) : null;
+    if (!run) return null;
+    const indexes = [...new Set([0, 0.25, 0.5, 0.75, 1].map((share) => Math.round(run.from + (run.to - run.from) * share)))];
+    const expanded = expandComponents(document, scene.id, { fonts });
+    const without = { ...expanded, layers: expanded.layers.map((entry) => (entry.id === layer.id ? { ...entry, visible: false } : entry)) };
+    const frames = await (deps.renderFrames ?? renderSceneFrames)(without, indexes.map((index) => model.times[index]), { mediaRoot: deps.mediaRoot, fonts, width: Math.min(384, scene.width) });
+    const box = boxAt(item, indexes[Math.floor(indexes.length / 2)]);
+    const size = drawnSize(model, item);
+    const legible = legibleFix({ frames: frames.filter(Boolean), box, scene, color: typeof layer.fill === "string" ? layer.fill : "#ffffff", size, fontSize: layer.fontSize, weight: layer.fontWeight ?? 400 });
+    return { legible, ops: lineFixOps(legible.fix, { box, size, start, frame: scene, lineY: layer.y }) };
   }
 
   // A sketch's song: a project file, a library track (music:<id>) or a named song the finder

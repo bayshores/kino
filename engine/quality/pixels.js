@@ -30,7 +30,7 @@ export function contrastRequired(model, item) {
   return requiredRatio(drawnSize(model, item), item.fontWeight, scaleOf(model));
 }
 // WCAG: 3:1 for large text (48 px at 1080p, or 36 px bold), else 4.5:1.
-const requiredRatio = (size, weight = 400, s = 1) => (size >= 48 * s || (size >= 36 * s && (weight ?? 400) >= 700) ? 3 : 4.5);
+export const requiredRatio = (size, weight = 400, s = 1) => (size >= 48 * s || (size >= 36 * s && (weight ?? 400) >= 700) ? 3 : 4.5);
 
 /**
  * True when a text's halo shadow alone keeps it readable over any picture: it passes the
@@ -92,7 +92,7 @@ export function turnedBox(box, turn) {
   return { cx: (box.x0 + box.x1) / 2, cy: (box.y0 + box.y1) / 2, w, h, cos, sin };
 }
 
-function pixelsBehind(frame, box, modelWidth, turned = null) {
+export function pixelsBehind(frame, box, modelWidth, turned = null) {
   const k = frame.width / modelWidth;
   const x0 = Math.max(0, Math.floor(box.x0 * k));
   const y0 = Math.max(0, Math.floor(box.y0 * k));
@@ -398,7 +398,7 @@ function spanText(model, span) {
 // around the letters is background): a dark shadow of 60% opacity or more, offset at most 8% of
 // the type size and blurred at least 10% of it. It covers about HALO_COVER of the pixels around
 // the strokes, so it darkens what is behind by its opacity times that.
-const HALO_COVER = 0.75;
+export const HALO_COVER = 0.75;
 export function haloOf(item, size) {
   const rgba = item.shadow?.color ? hexRgba(item.shadow.color) : null;
   if (!rgba || !(size > 0)) return null;
@@ -407,9 +407,10 @@ export function haloOf(item, size) {
   return { rgb: rgba.slice(0, 3), alpha: alpha * HALO_COVER };
 }
 // The pixels behind, seen through a layer of one colour at an opacity (a scrim, a halo).
-const through = (behind, layer) => (layer ? behind.map((pixel) => [0, 1, 2].map((channel) => layer.rgb[channel] * layer.alpha + pixel[channel] * (1 - layer.alpha))) : behind);
-const SCRIM_ALPHAS = [0.35, 0.5, 0.65, 0.8];
-const HALO = { color: "#000000d9", alpha: 0.85 };
+export const through = (behind, layer) => (layer ? behind.map((pixel) => [0, 1, 2].map((channel) => layer.rgb[channel] * layer.alpha + pixel[channel] * (1 - layer.alpha))) : behind);
+// The scrim strengths and the halo contrastFixes tries (legible.js tries the same, in the same order).
+export const SCRIM_ALPHAS = [0.35, 0.5, 0.65, 0.8];
+export const HALO = { color: "#000000d9", alpha: 0.85 };
 // The halo shadow that stays a halo (haloOf) and is not a glow (text_glow: blur of 12 px at 1080 or more with
 // an offset of 3 px or less): the 25% blur, kept under the glow blur, or for very large type a 4 px drop.
 export function haloShadow(size, scale = 1) {

@@ -13,6 +13,7 @@ import { createHash } from "node:crypto";
 import { copyFile, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { evaluateScene } from "../../engine/animation.js";
+import { BUSY_SHARE } from "../../engine/quality/rules/polish.js";
 import { palette, pixelStats } from "../measure/fingerprint.mjs";
 import { ffmpegCommand } from "../media-probe.mjs";
 import { KNOWN_LABEL, LABELS } from "./treatments.mjs";
@@ -137,6 +138,43 @@ export function sketchOps({ frame, seconds, clips = [], song = null, line = "", 
     if (font) ops.push({ op: "set_font", layers: ["sketch-line"], family: font });
   }
   return ops;
+}
+
+/**
+ * The ops that apply a measured legibility fix (engine/quality/legible.js legibleFix) to a built
+ * sketch's line: `box` its ink box, `size` its drawn size, `start` when it enters. A scrim is a
+ * full-width band, solid behind the line and its busy margin, fading out above and below; a scrim
+ * or plate fades in with the line.
+ */
+export function lineFixOps(fix, { box, size, start, frame, lineY = 0 }) {
+  if (!fix) return [];
+  const entrance = [{ preset: "preset-fade", start, duration: 0.4 }];
+  const below = (name) => ({ op: "move_layers", layers: [name], position: "below", referenceId: "sketch-line" });
+  if (fix.kind === "scrim") {
+    const pad = Math.round(size * 0.15), fade = 2 * Math.round(size * 0.6);
+    const y = Math.max(0, Math.round(box.y0 - pad - fade));
+    const height = Math.min(frame.height, Math.round(box.y1 + pad + fade)) - y;
+    const edge = Math.min(0.45, sec(fade / Math.max(1, height)));
+    const solid = `#000000${Math.round(fix.alpha * 255).toString(16).padStart(2, "0")}`;
+    return [{ op: "add_layer", layerType: "rectangle", name: "sketch-line-scrim", properties: { x: 0, y, width: frame.width, height,
+      fill: { type: "linear", angle: 90, stops: [{ offset: 0, color: "#00000000" }, { offset: edge, color: solid }, { offset: sec(1 - edge), color: solid }, { offset: 1, color: "#00000000" }] } }, animations: entrance }, below("sketch-line-scrim")];
+  }
+  if (fix.kind === "halo") return [{ op: "update_layer", layer: "sketch-line", properties: { shadow: fix.shadow } }];
+  if (fix.kind === "place") return [{ op: "update_layer", layer: "sketch-line", properties: { y: Math.round(lineY + fix.dy) } }];
+  if (fix.kind === "size") return [{ op: "update_layer", layer: "sketch-line", properties: { fontSize: fix.fontSize } }];
+  const margin = fix.margin;
+  return [{ op: "add_layer", layerType: "rectangle", name: "sketch-line-plate", properties: { x: Math.round(box.x0 - margin), y: Math.round(box.y0 - margin),
+    width: Math.round(box.x1 - box.x0 + 2 * margin), height: Math.round(box.y1 - box.y0 + 2 * margin), fill: fix.fill }, animations: entrance }, below("sketch-line-plate")];
+}
+
+/** The receipt's words for a line fix: "line over busy picture: scrim 50%" (facts, with the measured contrast). */
+export function lineFixText(legible) {
+  if (!legible?.fix) return null;
+  const { fix, before, required } = legible;
+  const why = before.busy >= BUSY_SHARE ? `busy picture (${Math.round(before.busy * 100)}% edge pixels)` : "low contrast picture";
+  const what = fix.kind === "scrim" ? `scrim ${Math.round(fix.alpha * 100)}%` : fix.kind === "halo" ? "halo shadow"
+    : fix.kind === "place" ? `moved ${Math.abs(fix.dy)} px ${fix.dy < 0 ? "up" : "down"}` : fix.kind === "size" ? `font size ${fix.fontSize}` : `solid plate ${fix.fill}`;
+  return `line over ${why}: ${what} (contrast ${before.contrast}:1 to ${fix.after.contrast}:1, ${required}:1 needed; edge pixels ${Math.round(before.busy * 100)}% to ${Math.round(fix.after.busy * 100)}%, under ${Math.round(BUSY_SHARE * 100)}% needed)`;
 }
 
 /**
@@ -337,7 +375,7 @@ const builtText = (option) => {
   const song = option.song?.src ? `song "${option.song.title}" ${option.song.from}-${option.song.to} s of the song (${option.song.kind})`
     : option.song?.error ? `silent: the song "${option.song.asked}" could not be fetched (${option.song.error})` : "no song (silent)";
   const line = option.line ? `line "${option.line}" (${option.lineFrom})` : "no line";
-  return `; ${song}; font ${option.font ?? "the default"}; ${line}; ${option.cuts ?? 0} cut${option.cuts === 1 ? "" : "s"}${option.cuts && option.song?.src ? " on the song's beats" : ""}`;
+  return `; ${song}; font ${option.font ?? "the default"}; ${line}; ${option.cuts ?? 0} cut${option.cuts === 1 ? "" : "s"}${option.cuts && option.song?.src ? " on the song's beats" : ""}${option.lineFix ? `; ${option.lineFix}` : ""}`;
 };
 
 /**

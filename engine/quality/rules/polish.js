@@ -904,7 +904,7 @@ const BUSY_WIDTH = 384;
 const EDGE_STEP = 0.08;
 // Over this share of edge pixels behind a text, the background is busy (fine UI, text, foliage
 // in sharp focus). Measured on a trailer and the golden scenes.
-const BUSY_SHARE = 0.16;
+export const BUSY_SHARE = 0.16;
 // Over a picture set in the frame (a phone, a card) the bar is lower: what crowds the words there
 // is its frame line and the small detail of its screen.
 const INSET_SHARE = 0.02;

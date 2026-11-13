@@ -8,7 +8,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { beatsIn, clipFacts, colorOverlap, cutTimes, lineEntry, pickedSketch, sketchKey, sketchLines, sketchOps, songEntry, treatmentDefaults } from "./agent/sketches.mjs";
+import { beatsIn, clipFacts, colorOverlap, cutTimes, lineEntry, lineFixOps, lineFixText, pickedSketch, sketchKey, sketchLines, sketchOps, songEntry, treatmentDefaults } from "./agent/sketches.mjs";
+import { legibleFix } from "../engine/quality/legible.js";
 import { coverBox } from "../engine/footage/layout.js";
 import { answerText, createTries, readTry } from "./agent/tries.mjs";
 import { skipWithoutMediaTools as skip, startTestServer } from "./media.test.support.mjs";
@@ -129,6 +130,18 @@ test("a built sketch: the song from its strongest entry, cuts on its beats, the 
   assert.deepEqual(treatmentDefaults({ move: "split screen", source: "words only" }, files), { line: null, clips: [] });
   assert.equal(pickedSketch({ brief: { treatments: { picked: { label: "A" } } } }), null, "a typed pick carries no sketch");
   assert.throws(() => readTry({ seconds: 12, options: [{ treatment: "A", song: "x" }, { treatment: "B" }] }, SCENES, { treatments: TREATMENTS }), /seconds is the sketch length, 2 to 10/);
+});
+
+test("a built sketch's line: measured over the frames behind it, unchanged on a calm picture, the lightest scrim that passes on a busy one", () => {
+  const frame = (shade) => ({ width: 96, height: 54, pixels: Uint8ClampedArray.from({ length: 96 * 54 * 4 }, (_, index) => (index % 4 === 3 ? 255 : shade(Math.floor(index / 4) % 96))) });
+  const line = { box: { x0: 200, y0: 470, x1: 1720, y1: 610 }, scene: { width: 1920, height: 1080 }, color: "#ffffff", size: 140, fontSize: 140 };
+  assert.equal(legibleFix({ ...line, frames: [frame(() => 20)] }).fix, null, "a dark calm picture keeps the line as it is");
+  // Light stripes: 1.7:1 and every pixel an edge; a 65% scrim is the first that calms them under 16%.
+  const busy = legibleFix({ ...line, frames: [frame((x) => (x % 2 ? 200 : 150))] });
+  assert.deepEqual([busy.before.busy, busy.fix.kind, busy.fix.alpha, busy.fix.after.busy], [1, "scrim", 0.65, 0]);
+  const ops = lineFixOps(busy.fix, { box: line.box, size: 140, start: 0.5, frame: line.scene });
+  assert.deepEqual(ops.map((op) => [op.op, op.name ?? op.position, op.properties?.width]), [["add_layer", "sketch-line-scrim", 1920], ["move_layers", "below", undefined]]);
+  assert.match(lineFixText(busy), /^line over busy picture \(100% edge pixels\): scrim 65% \(contrast 1\.\d+:1 to \d+\.\d+:1, 3:1 needed/);
 });
 
 test("a built round: each sketch made by kino on a fresh copy, the receipt names its song and font, and the pick carries them", async () => {
