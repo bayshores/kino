@@ -114,6 +114,9 @@ const ICONS = {
   "mark-good": <g fill="none" stroke="currentColor" strokeWidth="1.3"><path d="M2.5 7.2h2.4v6.3H2.5zM4.9 7.2 7.6 2.6c1 0 1.6.7 1.4 1.8l-.4 2.2h3.9c.8 0 1.3.7 1.1 1.4l-1.2 4.4c-.2.6-.7 1.1-1.3 1.1H4.9" /></g>,
   "mark-bad": <g fill="none" stroke="currentColor" strokeWidth="1.3"><path d="M2.5 8.8h2.4V2.5H2.5zM4.9 8.8l2.7 4.6c1 0 1.6-.7 1.4-1.8l-.4-2.2h3.9c.8 0 1.3-.7 1.1-1.4L12.4 3.6c-.2-.6-.7-1.1-1.3-1.1H4.9" /></g>,
   close: <path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" strokeWidth="1.4" />,
+  // The theme switch: the moon in the dark theme, the sun in the light one.
+  moon: <path d="M13.4 9.4A5.7 5.7 0 1 1 6.6 2.6a4.5 4.5 0 0 0 6.8 6.8z" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />,
+  sun: <g fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"><circle cx="8" cy="8" r="2.7" /><path d="M8 1.6v1.5M8 12.9v1.5M1.6 8h1.5M12.9 8h1.5M3.5 3.5l1 1M11.5 11.5l1 1M3.5 12.5l1-1M11.5 4.5l1-1" /></g>,
 };
 export function Icon({ name }) {
   return <svg className="icon" viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true" focusable="false">{ICONS[name]}</svg>;
@@ -1098,7 +1101,8 @@ export function StagePane({ data, scene, time, rev, checkpoint, full, playing, f
           <span className="transport-marks" role="group" aria-label="Your marks">
             <button type="button" className="tb icon-button mark-chip good" onClick={() => onKey("mark-good")} aria-label="Good moment" aria-keyshortcuts="m" title="Good moment (m)"><Icon name="mark-good" /></button>
             <button type="button" className="tb icon-button mark-chip bad" onClick={() => onKey("mark-bad")} aria-label="Bad moment" aria-keyshortcuts="Shift+M" title="Bad moment (M)"><Icon name="mark-bad" /></button>
-            {marks.length ? <button type="button" className="tb icon-button" onClick={() => onClearMarks?.()} aria-label="Clear my marks and viewing" title="Clear my marks and viewing"><Icon name="close" /></button> : null}
+            <button type="button" className="tb icon-button mark-chip note" onClick={() => onKey("note")} aria-label="Leave a note here" aria-keyshortcuts="n" title="Leave a note at this time (n)"><Icon name="note" /></button>
+            {marks.length ? <button type="button" className="tb icon-button mark-clear" onClick={() => onClearMarks?.()} aria-label="Clear my marks and viewing" title="Clear my marks and viewing"><Icon name="close" /></button> : null}
           </span>
           {/* The time under the frame (the status line has it on a phone): it says "playing" or
               "paused" to a screen reader, and its data-state says the same. */}
@@ -1739,13 +1743,15 @@ function Playhead({ timeStore, playing, time, duration, marker }) {
 const RULER_PX = 30;
 const STORY_PX = 18;
 const LAYERS_HEAD_PX = 16;
+// As the strip under the stage: a thin row for the marks over the shots, then the shots.
+const STRIP_RULER_PX = 16;
 
 /**
  * [3] The timeline: the ruler, the story row, the lanes (shots, voice, sounds, agents) and a row
  * per layer. `needAgent` is the agent a "needs you" row waits for (null: none named), or
  * undefined when nothing waits: then the range that wait is about is outlined.
  */
-export function TimelinePane({ data, scene, time, cursor, selectedLayer, onSeek, onSelectLayer, onTurn, viewTurn, playing, timeStore, point = null, onPoint, still, now, needAgent, previewList = null, rev = null, ...pane }) {
+export function TimelinePane({ data, scene, time, cursor, selectedLayer, onSeek, onSelectLayer, onTurn, viewTurn, playing, timeStore, point = null, onPoint, still, now, needAgent, previewList = null, rev = null, strip = false, onStrip = null, ...pane }) {
   const rows = timelineRows(scene);
   const duration = Math.max(0.01, Number(scene?.duration) || 0.01);
   const scrollRef = useRef(null);
@@ -1771,7 +1777,7 @@ export function TimelinePane({ data, scene, time, cursor, selectedLayer, onSeek,
     observer.observe(element);
     measure();
     return () => observer.disconnect();
-  }, [Boolean(scene)]);
+  }, [Boolean(scene), strip]);
   const visible = Math.max(0, room.width - room.label - room.end);
   const trackWidth = visible * zoom;
   // After a zoom the playhead is in the middle of the tracks (the browser keeps the scroll in range).
@@ -1902,8 +1908,11 @@ export function TimelinePane({ data, scene, time, cursor, selectedLayer, onSeek,
     setZoom(next);
   };
   // The lanes between the story row and the layers (lanes.jsx), and the grid rows they take.
-  const lanes = useLanes({ data, scene, duration, entries: changes.entries ?? [], spanOf });
-  const headRows = [RULER_PX, ...(parts.length ? [STORY_PX] : []), ...lanes.rows.map((row) => row.height), LAYERS_HEAD_PX];
+  const lanes = useLanes({ data, scene, duration, entries: changes.entries ?? [], spanOf, strip });
+  const rulerPx = strip ? STRIP_RULER_PX : RULER_PX;
+  // The strip has no story row and no layer rows.
+  const story = parts.length > 0 && !strip;
+  const headRows = [rulerPx, ...(story ? [STORY_PX] : []), ...lanes.rows.map((row) => row.height), ...(strip ? [] : [LAYERS_HEAD_PX])];
   const headPx = headRows.reduce((sum, value) => sum + value, 0);
   const need = needAgent !== undefined && scene ? needRange(lanes.agents, needAgent, duration) : null;
   const facts = scene ? (<>
@@ -1916,9 +1925,14 @@ export function TimelinePane({ data, scene, time, cursor, selectedLayer, onSeek,
     </span>
   </>) : null;
   return (
-    <Pane {...pane} number={3} name="timeline" className="p-timeline" labelId="pane-3-title" facts={facts}>
+    <Pane {...pane} number={3} name="timeline" className={`p-timeline${strip ? " strip" : ""}`} labelId="pane-3-title" facts={facts}>
+      {/* The strip opens to the whole timeline (every lane and layer) and closes again. */}
+      {onStrip && scene ? (
+        <button type="button" className="tb icon-button strip-toggle" aria-pressed={!strip} onClick={() => onStrip(!strip)}
+          aria-label={strip ? "Show every lane and layer" : "Back to the shot strip"} title={strip ? "Show every lane and layer" : "Back to the shot strip"}><Icon name={strip ? "up" : "down"} /></button>
+      ) : null}
       {!scene ? <p className="faint">no scene</p> : (
-        <div className={`tl-scroll${zoom > 1 ? " wide" : ""}${parts.length ? " has-story" : ""}`} ref={scrollRef} style={{ "--tl-head": `${headPx}px` }}>
+        <div className={`tl-scroll${zoom > 1 ? " wide" : ""}${story ? " has-story" : ""}`} ref={scrollRef} style={{ "--tl-head": `${headPx}px` }}>
           <div className="tl-content" style={{ ...(trackWidth ? { "--tl-track": `${trackWidth}px` } : {}), gridTemplateRows: headRows.map((value) => `${value}px`).join(" ") }}>
             <span className="tl-label tl-corner" ref={labelRef} aria-hidden="true" />
             <div className="track ruler" {...rulerPointer} onClick={(event) => { if (dragged.current) { dragged.current = false; return; } seek(event); }}
@@ -1960,13 +1974,13 @@ export function TimelinePane({ data, scene, time, cursor, selectedLayer, onSeek,
               ))}
               <Playhead timeStore={timeStore} playing={playing} time={time} duration={duration} marker />
             </div>
-            {parts.length ? <StoryRow parts={parts} percent={percent} timeStore={timeStore} playing={playing} time={time} duration={duration} /> : null}
+            {story ? <StoryRow parts={parts} percent={percent} timeStore={timeStore} playing={playing} time={time} duration={duration} /> : null}
             <TimelineLanes model={lanes} data={data} scene={scene} percent={percent} trackWidth={trackWidth || 800} onSeek={onSeek} onTurn={onTurn}
-              viewTurn={viewTurn} last={changes.last} still={still} now={now} pinTop={RULER_PX} />
+              viewTurn={viewTurn} last={changes.last} still={still} now={now} pinTop={rulerPx} />
             {/* The scene's layers, one row each: pick one to point the agent at it. */}
-            <span className="tl-label layers-head" aria-hidden="true">layers</span>
-            <span className="track layers-head" aria-hidden="true"><span className="dim">{rows.length}</span></span>
-            {rows.map((row, index) => (
+            {strip ? null : <><span className="tl-label layers-head" aria-hidden="true">layers</span>
+            <span className="track layers-head" aria-hidden="true"><span className="dim">{rows.length}</span></span></>}
+            {(strip ? [] : rows).map((row, index) => (
               <React.Fragment key={row.id}>
                 <button type="button" className={`tb tl-label row-button${selectedLayer === row.id ? " selected" : ""}${cursor === index ? " on" : ""}`} style={row.depth ? { paddingLeft: `calc(var(--tl-pad) + ${row.depth}ch)` } : undefined}
                   aria-pressed={selectedLayer === row.id} onClick={() => onSelectLayer(selectedLayer === row.id ? null : row.id)}
@@ -1985,9 +1999,9 @@ export function TimelinePane({ data, scene, time, cursor, selectedLayer, onSeek,
                 </div>
               </React.Fragment>
             ))}
-            <div className="tl-lines" aria-hidden="true" style={{ top: RULER_PX }}>
+            <div className="tl-lines" aria-hidden="true" style={{ top: rulerPx }}>
               {rangeStyle ? <span className="tl-range" style={rangeStyle} /> : null}
-              {need ? <span className="tl-need" style={{ left: percent(need.start), width: `calc(${percent(need.end)} - ${percent(need.start)})`, top: (parts.length ? STORY_PX : 0), height: LANE_PX.shots }} /> : null}
+              {need ? <span className="tl-need" style={{ left: percent(need.start), width: `calc(${percent(need.end)} - ${percent(need.start)})`, top: (story ? STORY_PX : 0), height: lanes.rows[0]?.height ?? LANE_PX.shots }} /> : null}
               <Playhead timeStore={timeStore} playing={playing} time={time} duration={duration} />
               <TimelinePresence live={data.live} sceneId={scene.id} duration={duration} trackWidth={trackWidth} still={still} hold={Boolean(data.hold?.on)} />
             </div>

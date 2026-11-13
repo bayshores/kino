@@ -1,6 +1,24 @@
-/* The look every page shares (plan §5.10): dark only, JetBrains Mono, coral for people and teal
-   for the agent, no purple. The dashboard (dashboard/dashboard.css) and the viewer (Viewer.css)
-   build on these colors. */
+/* The look every page shares: the fonts and the starting colors, no purple. The viewer
+   (Viewer.css) builds on these colors; the dashboard (dashboard/dashboard.css) sets its own, in a
+   dark and a light theme. */
+@font-face {
+  font-family: "Bricolage Grotesque";
+  src: url("./dashboard/fonts/BricolageGrotesque-Variable.woff2") format("woff2");
+  font-weight: 200 800;
+  font-display: block;
+}
+@font-face {
+  font-family: "DM Mono";
+  src: url("./dashboard/fonts/DMMono-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-display: block;
+}
+@font-face {
+  font-family: "DM Mono";
+  src: url("./dashboard/fonts/DMMono-Medium.woff2") format("woff2");
+  font-weight: 500;
+  font-display: block;
+}
 @font-face {
   font-family: "JetBrains Mono";
   src: url("./dashboard/fonts/JetBrainsMono-Regular.woff2") format("woff2");
@@ -28,6 +46,9 @@
   --ok: #5bd49a;
   --err: #ef5350;
   --mono: "JetBrains Mono", "Apple Braille", ui-monospace, Menlo, monospace;
+  /* The dashboard's faces. Its mono falls back to JetBrains Mono for box-drawing characters. */
+  --sans: "Bricolage Grotesque", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --mono-ui: "DM Mono", "JetBrains Mono", "Apple Braille", ui-monospace, Menlo, monospace;
   color-scheme: dark;
   font-family: var(--mono);
   color: var(--fg0);
@@ -36,6 +57,9 @@
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: var(--bg0); }
+/* The dashboard's light theme (dashboard/theme.js): the page behind it and the startup line. */
+:root[data-theme="light"] { --bg0: #f4f2ec; --bg1: #e6e3da; --line: #c4c0b5; --fg0: #121212; --fg1: #55524b; --accent: #121212; color-scheme: light; }
+:root[data-theme="dark"] { --bg0: #0a0a0a; }
 button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: default; opacity: .4; }

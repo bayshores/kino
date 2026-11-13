@@ -1,0 +1,262 @@
+/* The stage screen (F1): one centered frame, the agent's line under it (voice.jsx), and the shot
+   strip at the bottom. No side panel: the earlier lines, checks, looks and notes open under the
+   frame, which steps back to make room. Loaded after dashboard.css; it places the panes of
+   panes.jsx and agentPane.jsx in one grid and restyles them. Colors and motion come from
+   dashboard.css (.dash). */
+
+.panes.screening {
+  /* The room left and right of the frame: play and the time at the left, your marks at the right. */
+  --gutter: clamp(64px, 12.7vw, 183px);
+  display: grid; gap: 0; padding: 4px 0 12px; min-height: 0;
+  grid-template-columns: [full-start] var(--gutter) [center-start] minmax(0, 1fr) [center-end] var(--gutter) [full-end];
+  grid-template-rows: [frame-start] minmax(0, 1fr) [frame-end list-start list-end voice-start] auto [voice-end strip-start] auto [strip-end];
+  grid-template-areas: none;
+}
+/* The earlier lines are open: the frame steps back to the top half and the list takes the rest. */
+.panes.screening.list-open {
+  grid-template-rows: [frame-start] minmax(120px, 0.9fr) [frame-end list-start] minmax(0, 1fr) [list-end voice-start] auto [voice-end strip-start] auto [strip-end];
+}
+.panes.screening > .pane { border: 0; }
+/* A pane's title and facts are for screen readers here: the page shows no pane boxes. */
+.panes.screening > .pane > h2 {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+}
+
+/* ---- the stage: its pane covers the whole grid, so the frame, the playback buttons and your
+   marks each sit in their own cell of it ---- */
+.screening > .p-stage {
+  grid-area: frame-start / full-start / strip-end / full-end;
+  display: grid; grid-template-columns: subgrid; grid-template-rows: subgrid; pointer-events: none;
+}
+.screening > .p-stage > .pane-facts { display: none; }
+.screening > .p-stage > .pane-body {
+  grid-area: 1 / 1 / -1 / -1; display: grid; grid-template-columns: subgrid; grid-template-rows: subgrid;
+  padding: 0; overflow: visible; pointer-events: none;
+}
+.screening > .p-stage > .pane-body > * { pointer-events: auto; }
+.dash .screening > .p-stage:focus-visible { outline: none; }
+.dash .screening > .p-stage:focus-visible .stage { outline: 1px solid var(--accent); outline-offset: 2px; }
+
+.screening .stage-well { grid-row: frame-start / frame-end; grid-column: center; min-height: 0; min-width: 0; }
+.screening .stage-well .corner { display: none; }
+.screening .stage { box-shadow: 0 0 0 1px var(--line-soft); }
+/* The agent's box on the frame, the check's boxes and your note are the only color on it. */
+.screening .rendering { right: 8px; bottom: 8px; padding: 2px 8px; font-family: var(--mono-ui); font-size: 11px; color: var(--fg1); background: var(--bg0); }
+.screening .stage-mode { font-family: var(--mono-ui); font-size: 11px; padding: 2px 8px; background: var(--bg0); }
+
+/* The scene, its facts, the zoom and full screen: over the frame's top edge, shown while the
+   pointer is on the stage or one of them has the focus. */
+.screening .stage-toolbar {
+  grid-row: frame-start / frame-end; grid-column: center; align-self: start; z-index: 4; height: auto; margin: 0; padding: 10px;
+  gap: 6px; opacity: 0; transition: opacity var(--quick) var(--ease-in); pointer-events: none;
+}
+.screening .p-stage:hover .stage-toolbar, .screening .stage-toolbar:focus-within, .screening.zoomed .stage-toolbar { opacity: 1; }
+.screening .stage-toolbar > * { pointer-events: auto; }
+.screening .stage-toolbar .toolbar-gap { pointer-events: none; }
+.screening .stage-toolbar .menu-button, .screening .stage-toolbar .scene-name, .screening .stage-toolbar .icon-button, .screening .stage-toolbar .stage-label, .screening .stage-toolbar .tb-box {
+  height: 28px; padding: 0 10px; border: 0; background: var(--bg0); color: var(--fg0); display: inline-flex; align-items: center;
+}
+.screening .stage-toolbar .stage-label { font-family: var(--mono-ui); font-size: 11px; color: var(--fg1); }
+.screening .stage-toolbar .icon-button { width: 28px; padding: 0; }
+.screening .stage-toolbar .menu-button:hover, .screening .stage-toolbar .icon-button:hover { background: var(--bg2); }
+
+/* Playback and your marks: the transport's parts take cells of the stage's grid. */
+.screening .stage-transport { display: contents; }
+.screening .transport-buttons {
+  grid-row: strip-start / strip-end; grid-column: full-start / center-start; align-self: start; justify-self: end;
+  display: flex; align-items: center; gap: 0; margin: 28px 96px 0 0; position: relative;
+}
+.screening .transport-buttons .icon-button { width: 22px; height: 30px; color: var(--fg2); opacity: 0; transition: opacity var(--quick) var(--ease-in); }
+.screening .transport-buttons:hover .icon-button, .screening .transport-buttons:focus-within .icon-button { opacity: 1; }
+.screening .transport-buttons .play-button { width: 34px; height: 34px; opacity: 1; color: var(--fg0); background: none; border-radius: 0; transition: transform var(--quick) var(--ease-in); }
+.screening .transport-buttons .play-button .icon { width: 22px; height: 22px; }
+.screening .transport-buttons .play-button:hover { background: var(--bg1); }
+.screening .transport-buttons .play-button:active { transform: scale(0.92); }
+.screening .transport-time {
+  grid-row: strip-start / strip-end; grid-column: full-start / center-start; align-self: start; justify-self: end;
+  margin: 27px 12px 0 0; width: 80px; pointer-events: none;
+}
+.screening .play-time { display: block; font-family: var(--mono-ui); font-size: 14px; line-height: 18px; color: var(--fg0); font-variant-numeric: tabular-nums; }
+.screening .play-time .play-total { display: block; font-size: 11px; color: var(--fg2); }
+/* The scrub bar lies over the strip's top row: it draws your notes and marks there. A press goes
+   through it to the strip (which seeks and points); its marks are buttons. */
+.screening .scrub {
+  grid-row: strip-start / strip-end; grid-column: center; align-self: start; height: 16px; z-index: 5; position: relative;
+  background: none; border: 0; pointer-events: none; cursor: default;
+}
+.screening .scrub::before, .screening .scrub .scrub-done { display: none; }
+.screening .scrub .scrub-mark { pointer-events: auto; }
+.screening .transport-marks {
+  grid-row: strip-start / strip-end; grid-column: center-end / full-end; align-self: start; justify-self: start;
+  display: flex; align-items: center; gap: 6px; margin: 28px 0 0 20px;
+}
+.screening .transport-marks .icon-button { width: 34px; height: 34px; color: var(--fg0); transition: transform var(--quick) var(--ease-in), color var(--quick) var(--ease-in), background-color var(--quick) var(--ease-in); }
+.screening .transport-marks .icon-button .icon { width: 20px; height: 20px; }
+.screening .transport-marks .icon-button:hover { background: var(--bg1); }
+.screening .transport-marks .icon-button:active { transform: scale(0.88); }
+.screening .transport-marks .mark-clear { width: 22px; color: var(--fg2); }
+.screening .transport-marks .mark-clear .icon { width: 14px; height: 14px; }
+/* Safe area, grid and boxes: over the frame's lower right corner, shown like the toolbar. */
+.screening .transport-view {
+  grid-row: frame-start / frame-end; grid-column: center; align-self: end; justify-self: end; z-index: 4; margin: 10px;
+  display: flex; gap: 0; padding: 0; border: 0; background: var(--bg0); opacity: 0; transition: opacity var(--quick) var(--ease-in);
+}
+.screening .p-stage:hover .transport-view, .screening .transport-view:focus-within { opacity: 1; }
+.screening .transport-view .tb { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; color: var(--fg1); font-size: 12px; border-radius: 0; }
+.screening .transport-view .tb[aria-pressed="true"] { color: var(--on-yellow); background: var(--yellow); }
+
+/* ---- the agent's line ---- */
+.voice {
+  grid-row: voice-start / voice-end; grid-column: center; z-index: 2;
+  display: grid; justify-items: center; align-content: center; row-gap: 6px; min-height: 108px; padding: 8px 0 4px; min-width: 0;
+}
+.voice-before { display: flex; align-items: center; gap: 8px; height: 24px; max-width: 100%; min-width: 0; color: var(--fg2); font-size: 13px; }
+.voice-before-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.tool-icon { flex: none; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+.voice-icon {
+  all: unset; flex: none; display: inline-grid; place-items: center; width: 24px; height: 24px; cursor: pointer; color: var(--fg1);
+  transition: color var(--quick) var(--ease-in), background-color var(--quick) var(--ease-in);
+}
+.voice-icon:hover { color: var(--fg0); background: var(--bg1); }
+.voice-icon:focus-visible { outline: 1px solid var(--accent); }
+.voice-icon[aria-expanded="true"] { color: var(--fg0); background: var(--bg2); }
+.voice-row { display: flex; align-items: center; justify-content: center; gap: 20px; max-width: 100%; min-width: 0; }
+/* The sentence: yellow words in the dark theme, black words on a yellow box in the light one. */
+.voice-line {
+  display: flex; align-items: center; gap: 12px; min-width: 0; padding: 3px 10px;
+  font-size: 26px; font-weight: 600; line-height: 34px; letter-spacing: -0.015em;
+  color: var(--voice); background: var(--voice-bg);
+  animation: voice-in var(--panel) var(--ease-big) both;
+}
+.voice-line > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.voice-line .tool-icon { width: 24px; height: 24px; stroke-width: 1.5; }
+/* A new sentence rises into place (the old one is replaced at once). */
+@keyframes voice-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.voice.still .voice-line { animation: none; }
+/* Not at work: the last line, in the page's text color and without the box. */
+.voice.is-idle .voice-line, .voice.is-empty .voice-line { color: var(--fg-mid); background: none; font-weight: 500; }
+.voice-pair { display: flex; align-items: center; gap: 10px; flex: none; color: var(--fg2); }
+.voice-pair img { display: block; width: 80px; height: 45px; object-fit: cover; background: var(--bg1); }
+.voice-answers { display: flex; align-items: center; gap: 8px; flex: none; }
+.voice-answers.choices { flex-wrap: wrap; flex: 0 1 auto; }
+.voice-button {
+  all: unset; box-sizing: border-box; display: inline-flex; align-items: center; height: 36px; padding: 0 16px; cursor: pointer; white-space: nowrap;
+  font-size: 15px; font-weight: 600; color: var(--fg0); box-shadow: inset 0 0 0 1px var(--line);
+  transition: background-color var(--quick) var(--ease-in), transform var(--quick) var(--ease-in), box-shadow var(--quick) var(--ease-in);
+}
+.voice-button:hover { background: var(--bg1); box-shadow: inset 0 0 0 1px var(--fg1); }
+.voice-button:active { transform: scale(0.96); }
+.voice-button:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+.voice-button.primary { background: var(--solid); color: var(--on-solid); box-shadow: none; }
+.voice-button.primary:hover { background: color-mix(in srgb, var(--solid) 86%, var(--bg0)); }
+.voice-facts { display: flex; align-items: center; gap: 18px; min-height: 18px; max-width: 100%; color: var(--fg1); font-size: 13px; }
+.voice-facts > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.voice-meter { flex: none; width: 220px; height: 3px; background: var(--line); }
+.voice-meter > span { display: block; height: 100%; background: var(--yellow); transition: width 400ms linear; }
+
+/* ---- the strip: the shots, the music's wave and the playhead ---- */
+.screening > .p-timeline { grid-row: strip-start / strip-end; grid-column: center; min-width: 0; display: block; position: relative; }
+.screening > .p-timeline > .pane-facts { display: none; }
+.screening > .p-timeline > .pane-body { padding: 0; overflow: visible; display: block; }
+.screening .p-timeline.strip .tl-scroll { --tl-label: 0px; --tl-pad: 0px; max-height: none; overflow: hidden; }
+.screening .p-timeline.strip .tl-content { padding: 0; grid-auto-rows: 0; }
+.screening .p-timeline.strip .tl-label { width: 0; padding: 0; overflow: hidden; visibility: hidden; }
+.screening .p-timeline.strip .track { background: none; border: 0; }
+.screening .p-timeline.strip .lane-off { visibility: hidden; overflow: hidden; }
+/* The top row: the strip's slider. Its ticks and times are not drawn; your marks are. */
+.screening .p-timeline.strip .ruler { background: none; overflow: visible; }
+.screening .p-timeline.strip .ruler .tick, .screening .p-timeline.strip .ruler .cue, .screening .p-timeline.strip .playhead-marker, .screening .p-timeline.strip .playhead-time { display: none; }
+.screening .p-timeline.strip .lane-shots { background: var(--bg1); overflow: hidden; }
+.screening .p-timeline.strip .shot-tile { top: 0; bottom: 0; height: auto; border: 0; border-radius: 0; }
+.screening .p-timeline.strip .shot-tile img { width: 100%; height: 100%; object-fit: cover; display: block; animation: fade-in var(--panel) var(--ease-in) both; }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+.screening .p-timeline.strip .shot-cut { top: 0; bottom: 0; width: 3px; margin-left: -1.5px; background: var(--bg0); opacity: 1; }
+.screening .p-timeline.strip .lane-audio { margin-top: 8px; height: 12px !important; }
+.screening .p-timeline.strip .audio-span { display: none; }
+.screening .p-timeline.strip .wave-bar { background: var(--fg2); width: 2px; }
+/* Where an agent works now: a 3 px bar right under those shots, in kino's yellow. */
+.screening .p-timeline.strip .lane-agent { position: relative !important; top: auto !important; bottom: auto !important; overflow: visible; pointer-events: none; }
+.screening .p-timeline.strip .lane-agent > :not(.lane-now):not(.lane-render) { display: none; }
+.screening .p-timeline.strip .lane-now {
+  top: calc(3px - var(--under-shots, 0px)); bottom: auto; height: 3px; min-width: 8px; background: var(--yellow); border-radius: 0;
+  animation: bar-in var(--panel) var(--ease-big) both; transform-origin: left;
+}
+@keyframes bar-in { from { transform: scaleX(0); opacity: 0; } to { transform: none; opacity: 1; } }
+.screening .p-timeline.strip .lane-now-text { display: none; }
+.screening .p-timeline.strip .lane-render { top: calc(3px - var(--under-shots, 0px)); height: 3px; }
+.screening .p-timeline.strip .lane-render-text { display: none; }
+.screening .p-timeline.strip .lane-render-done { background: var(--yellow); }
+.screening .p-timeline.strip .tl-lines .playhead { width: 2px; background: var(--fg0); top: -10px; bottom: -2px; }
+.screening .p-timeline.strip .tl-range { background: color-mix(in srgb, var(--yellow) 22%, transparent); }
+.screening .p-timeline.strip .tl-foot { position: absolute; left: 0; right: 0; top: 100%; font-size: 11px; color: var(--fg1); }
+/* The small button that opens the whole timeline (every lane and layer), left of the strip. */
+.screening .p-timeline .strip-toggle {
+  position: absolute; right: calc(100% + 12px); bottom: 0; width: 24px; height: 20px; color: var(--fg2); z-index: 3;
+  opacity: 0; transition: opacity var(--quick) var(--ease-in);
+}
+.screening .p-timeline:hover .strip-toggle, .screening .p-timeline .strip-toggle:focus-visible, .screening .p-timeline .strip-toggle[aria-pressed="true"] { opacity: 1; }
+.screening .p-timeline .strip-toggle:hover { color: var(--fg0); }
+/* The whole timeline is open: it takes a quarter of the window and scrolls, as before. */
+.screening.strip-open > .p-timeline { height: clamp(170px, 25vh, 320px); display: grid; grid-template-rows: minmax(0, 1fr); margin-top: 22px; }
+.screening.strip-open > .p-timeline > .pane-body { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, max-content) auto; overflow: hidden; }
+.screening.strip-open > .p-timeline > .pane-facts { display: flex; position: absolute; right: 0; bottom: 100%; margin: 0; height: 22px; background: none; }
+.screening.strip-open .scrub { display: none; }
+
+/* ---- the earlier lines: the agent pane as a list under the stepped-back frame ---- */
+.screening > .p-agent {
+  grid-row: list-start / list-end; grid-column: center; justify-self: center; width: min(100%, 620px); min-height: 0; margin-top: 10px;
+  display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr);
+  animation: list-in var(--panel) var(--ease-in) both;
+}
+@keyframes list-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+.screening > .p-agent > .pane-facts { display: none; }
+.screening > .p-agent > .pane-body { grid-column: 1; padding: 0; overflow: hidden; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
+/* The views are chips on one row, the close button at its right end. */
+.screening .view-tabs { display: flex; align-items: center; gap: 2px; padding: 0; margin: 0 0 10px; border: 0; background: none; height: 32px; }
+.screening .view-tabs .view-tab {
+  height: 28px; font-size: 13px; padding: 0 12px; border: 0; border-radius: 0; color: var(--fg1); font-weight: 500; text-transform: none;
+  display: inline-flex; align-items: center; gap: 6px; transition: color var(--quick) var(--ease-in), background-color var(--quick) var(--ease-in);
+}
+.screening .view-tabs .view-tab:hover { color: var(--fg0); background: var(--bg1); }
+.screening .view-tabs .view-tab[aria-selected="true"] { background: var(--solid); color: var(--on-solid); font-weight: 700; box-shadow: none; }
+.screening .view-tab .tab-count { min-width: 16px; height: 16px; padding: 0 4px; display: inline-grid; place-items: center; background: var(--yellow); color: var(--on-yellow); font-family: var(--mono-ui); font-size: 10px; }
+.screening .view-close { margin-left: auto; width: 28px; height: 28px; color: var(--fg1); }
+.screening .view-close:hover { color: var(--fg0); background: var(--bg1); }
+.screening .view-body { min-height: 0; overflow: auto; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+/* A call: the time (mono), the tool, the words; the row under the pointer is filled. */
+.screening .agent-view { padding: 0; grid-template-rows: auto minmax(0, 1fr) auto; height: 100%; }
+.screening .agent-head { display: none; }
+.screening .agent-log { overflow: auto; }
+.screening .agent-call { padding: 0 10px; }
+.screening .agent-call:hover, .screening .agent-call.current { background: var(--bg2); }
+.screening .call-line { min-height: 38px; align-items: center; grid-template-columns: 7ch 9ch minmax(0, 1fr) auto; column-gap: 12px; }
+.screening .agent-log.has-spans .call-line { grid-template-columns: 13ch 9ch minmax(0, 1fr) auto; }
+.screening .call-time { font-family: var(--mono-ui); font-size: 12px; color: var(--fg2); }
+.screening .call-verb { color: var(--fg1); }
+.screening .call-verb.v-write { color: var(--fg0); font-weight: 600; }
+.screening .call-result { font-family: var(--mono-ui); font-size: 12px; color: var(--fg1); }
+.screening .call-details { font-family: var(--mono-ui); font-size: 11px; color: var(--fg2); padding: 0 0 8px 7ch; }
+.screening .agent-why { padding: 8px 10px; color: var(--fg1); }
+/* The note box at the list's foot. */
+.screening .note-box { margin-top: 10px; background: var(--well); border: 0; box-shadow: inset 0 0 0 1px var(--line); }
+
+@media (max-width: 1099px) {
+  .panes.screening { --gutter: 56px; grid-template-rows: [frame-start] minmax(0, 1fr) [frame-end list-start list-end voice-start] auto [voice-end controls-start] 40px [controls-end strip-start] auto [strip-end]; }
+  .panes.screening.list-open { grid-template-rows: [frame-start] minmax(120px, 0.9fr) [frame-end list-start] minmax(0, 1fr) [list-end voice-start] auto [voice-end controls-start] 40px [controls-end strip-start] auto [strip-end]; }
+  /* A narrow window: play and the time, then your marks, on a row of their own over the strip. */
+  .screening .transport-buttons { grid-row: controls-start / controls-end; grid-column: center; justify-self: start; align-self: center; margin: 0; }
+  .screening .transport-time { grid-row: controls-start / controls-end; grid-column: center; justify-self: start; align-self: center; margin: 0 0 0 86px; width: auto; }
+  .screening .play-time .play-total { display: inline; }
+  .screening .transport-marks { grid-row: controls-start / controls-end; grid-column: center; justify-self: end; align-self: center; margin: 0; }
+  .voice-line { font-size: 20px; line-height: 28px; }
+  .voice { min-height: 92px; }
+}
+
+/* The frames kept ready for playback are not drawn on the strip (the whole timeline shows them). */
+.screening .p-timeline.strip .tl-cached { display: none; }
+
+/* ---- the bottom line: quiet, no bar. The connection, the checks and the keys' hints. ---- */
+.dash .bottomline { height: 26px; background: none; border-top: 0; font-size: 12px; padding: 0 12px; }
+.dash .bottomline .statusline { background: none; color: var(--fg2); }
+.dash .bottomline .keyline, .dash .bottomline .keyline .tb { color: var(--fg2); }
+.dash .bottomline .keyline .tb:hover { color: var(--fg0); }

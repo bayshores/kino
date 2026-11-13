@@ -3,7 +3,7 @@
 // the orange "needs you" line and the action strip under the stage.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { agentGoal, agentLog, agentOfCalls, agentSaid, agentTask, CREW_MS, crewAgents, crewFeed, currentCall, DETAIL_CHARS, leftWords, paneIdle, railAgents, renderDock, SEEN_MS, seenNow, minutes, needWords, planStep, shownAgent, specWords, stepWords, turnWords, usefulDetails, verbKind } from "./dashboard/agentView.js";
+import { agentGoal, agentLog, asSentence, agentOfCalls, agentSaid, agentTask, CREW_MS, crewAgents, crewFeed, currentCall, DETAIL_CHARS, leftWords, paneIdle, railAgents, renderDock, SEEN_MS, seenNow, minutes, needWords, planStep, shownAgent, specWords, stepWords, turnWords, usefulDetails, verbKind, voiceLine } from "./dashboard/agentView.js";
 
 const NOW = Date.parse("2026-10-26T10:00:30Z");
 const nova = { id: "a1", name: "Nova", kind: "claude-code", color: "#42c0b6", lastAt: "2026-10-26T10:00:20Z" };
@@ -185,4 +185,19 @@ test("live panels: the seen drawer while a look runs or just ended, the render d
   assert.deepEqual([dock.total, dock.done, dock.left, dock.agent.name], [300, 150, 20, "Nova"]);
   assert.equal(leftWords(dock.left), "0:20");
   assert.equal(renderDock(data({ renders: [{ ...job, status: "done" }] }), NOW), null);
+});
+
+test("the line under the frame: the call as a sentence, the line before it, and what waits for you first", () => {
+  assert.equal(asSentence("look at the source of smirk", { running: true }), "Looking at the source of smirk.");
+  assert.equal(asSentence("sheet 0:00 to 1:00", { verb: "look" }), "Looked sheet 0:00 to 1:00.");
+  assert.equal(asSentence("Which cut?"), "Which cut?");
+  const idle = voiceLine(data(), nova, NOW);
+  assert.equal(idle.verb, "check");
+  assert.equal(idle.text, "Checked the video. It failed.");
+  assert.equal(idle.before.text, "Looked sheet 0:00–1:00.");
+  assert.equal(voiceLine(data({ hold: { on: true } }), nova, NOW).state, "hold");
+  const asked = voiceLine(data({ approvals: [{ id: "Q16", status: "pending", kind: "final-render", agent: { id: "a1", name: "Nova" } }] }), nova, NOW);
+  assert.equal(asked.state, "need");
+  assert.equal(asked.need.row.approval.id, "Q16");
+  assert.deepEqual(voiceLine(data({ calls: [] }), null, NOW), { state: "empty", verb: "", text: "Waiting for an agent.", facts: [], before: null });
 });

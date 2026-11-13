@@ -24,9 +24,9 @@ import { AgentRail, Glyph, NeedsYouCard } from "./live.jsx";
 import { CrewView } from "./crewPane.jsx";
 
 /** The views, in tab order: [id, word]. */
-export const AGENT_VIEWS = [["agent", "activity"], ["notes", "notes"], ["checks", "checks"], ["seen", "seen"], ["session", "session"], ["log", "log"]];
-// The tabs always shown; log joins them while open.
-const TAB_VIEWS = new Set(["agent", "notes", "checks", "seen", "session"]);
+export const AGENT_VIEWS = [["agent", "All"], ["log", "Edits"], ["seen", "Looks"], ["checks", "Checks"], ["notes", "Notes"], ["session", "Session"]];
+// The tabs always shown.
+const TAB_VIEWS = new Set(["agent", "log", "notes", "checks", "seen", "session"]);
 
 /** One call in the agent's log; hovering it shows "see" (its pictures) and "undo" (its edit). */
 function LogRow({ row, still, onSee, onUndo }) {
@@ -146,7 +146,7 @@ function NoteBox({ data, agents, to, onTo, onPoint, inputRef }) {
  * undo), `onAnswer` (an approval's answer) and `onMaterial(need, answer)` (a material
  * question's answer) wire its buttons.
  */
-export function AgentPane({ data, agent, still, now, view, onView, views, noteLine = null, needs = 0, follow = null, checks = null, onRun, onAnswer, onMaterial, ...pane }) {
+export function AgentPane({ data, agent, still, now, view, onView, views, noteLine = null, needs = 0, follow = null, checks = null, onRun, onAnswer, onMaterial, onClose = null, ...pane }) {
   const tabsRef = useRef(null);
   const noteRef = useRef(null);
   const [only, setOnly] = useState(null);
@@ -157,7 +157,8 @@ export function AgentPane({ data, agent, still, now, view, onView, views, noteLi
   const [folded, setFolded] = useState(false);
   const idle = paneIdle(data, now);
   // Never folded while something waits for you: the pane's card is the one place to answer it.
-  const railed = !pinned && (folded || idle) && !needsYouRows(data).length;
+  // Under the stage (it has a close button, `onClose`) it never folds: it is open because you opened it.
+  const railed = !onClose && !pinned && (folded || idle) && !needsYouRows(data).length;
   const wasIdle = useRef(idle);
   useEffect(() => { if (wasIdle.current && !idle) setFolded(false); wasIdle.current = idle; }, [idle]);
   const crew = crewAgents(data, now);
@@ -196,19 +197,21 @@ export function AgentPane({ data, agent, still, now, view, onView, views, noteLi
       name={title} title={!crewMode && shownAgent?.kind && shownAgent.kind !== shownAgent.name ? shownAgent.kind : ""}
       facts={<span className="pane-facts-row">
         <span className="turn-words">{turnWords(data)}</span>
-        <button type="button" className="tb icon-button pane-fold" onClick={() => { setPinned(false); setFolded(true); }} aria-label="Fold the agent pane" title="Fold to a rail"><Glyph name="fold" /></button>
+        {onClose ? null : <button type="button" className="tb icon-button pane-fold" onClick={() => { setPinned(false); setFolded(true); }} aria-label="Fold the agent pane" title="Fold to a rail"><Glyph name="fold" /></button>}
       </span>}>
-      <NeedsYouCard data={data} still={still} now={now} onAnswer={onAnswer ?? (() => {})} onRun={onRun ?? (() => {})} onMaterial={onMaterial} />
+      {/* Under the stage the agent's line (voice.jsx) asks and takes the answers. */}
+      {onClose ? null : <NeedsYouCard data={data} still={still} now={now} onAnswer={onAnswer ?? (() => {})} onRun={onRun ?? (() => {})} onMaterial={onMaterial} />}
       <div className="view-tabs" role="tablist" aria-label="Agent pane views" ref={tabsRef} onKeyDown={onTabKey}>
         {shown.map(([id, word]) => (
           <button key={id} type="button" role="tab" id={`tab-${id}`} aria-controls={`panel-${id}`} aria-selected={view === id} tabIndex={view === id ? 0 : -1}
             className="tb view-tab" onClick={() => onView(id)}>
-            {id === "agent" && crewMode ? "crew" : word}
+            {id === "agent" && crewMode ? "Crew" : word}
             {id === "session" && needs ? <span className="tab-count urgent" aria-label={`, ${needs} waiting for you`}>{needs}</span> : null}
             {id === "notes" && forYou ? <span className="tab-count urgent" aria-label={`, ${forYou} for you`}>{forYou}</span> : null}
             {id === "checks" && checkCount ? <span className="tab-count" aria-label={`, ${checkCount} findings`} title={`${checks.data.errors ?? 0} errors · ${checks.data.warnings ?? 0} warnings, every check`}>{checkCount}</span> : null}
           </button>
         ))}
+        {onClose ? <button type="button" className="tb icon-button view-close" onClick={onClose} aria-label="Close" title="Close (Esc)"><Glyph name="close" /></button> : null}
       </div>
       <div className="view-body">
         {view === "agent" ? (

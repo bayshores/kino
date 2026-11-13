@@ -5,6 +5,7 @@
 // Data flow: api.snapshot() → state.fromSnapshot → stream events → state.applyEvent → panes.
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import "./dashboard.css";
+import "./stage.css";
 import * as server from "./api.js";
 import { accessHeaders } from "../client.js";
 import { createPictureClock, createPlaybackClock, createTimeStore, decodeSound, frameStart } from "./playbackClock.js";
@@ -18,6 +19,8 @@ import { desktopServiceLine, openStream } from "./stream.js";
 import { tickWhileShown } from "./visibleClock.js";
 import { applyEvent, openTryOf, attention, backgroundCheckInput, briefRows, fromSnapshot, keyTarget, movedNeedWords, needKey, needsShift, needsYouRows, noteRows, otherStops, pendingApprovals, pointRange, quietToTell, recommendedOption, seenImages, stopAnswer, stopAnswered, stopChanges, stopRows, timelineRows, turnChips, turnRows, variantChoices, videoLayers, waitingStopOf, withRecord } from "./state.js";
 import { isTyping, keyAction } from "./keys.js";
+import { otherTheme, showTheme, startTheme, switchTheme } from "./theme.js";
+import { Voice } from "./voice.jsx";
 
 // Whether the stage draws its outlines: the check's boxes (findings) and the agents' marks
 // (building marks, change flashes, what a call is on). Both are on until the person turns them off.
@@ -238,6 +241,15 @@ export function Dashboard() {
   const now = useNow(1000);
 
   const [screen, setScreen] = useState({ name: "main" });
+  // The theme, dark or light (theme.js): the top line's sun or moon button switches it.
+  const [theme, setTheme] = useState(() => startTheme());
+  useLayoutEffect(() => { showTheme(theme); }, []);
+  const toggleTheme = (event) => {
+    const next = otherTheme(theme);
+    const box = event?.currentTarget?.getBoundingClientRect?.();
+    switchTheme(next, { origin: box ? { x: box.left + box.width / 2, y: box.top + box.height / 2 } : null, still });
+    setTheme(next);
+  };
   const [commandOpen, setCommandOpen] = useState(false);
   const [confirm, setConfirm] = useState(null);
   // The judge round you put off (esc: later) and the done one you are looking at (judge.jsx).
@@ -253,7 +265,39 @@ export function Dashboard() {
   // The places j and k move, by list: 1 "needs you" (session view), 3 the pictures (seen view),
   // 4 the turns or the notes (log and notes views), 5 the timeline's layers.
   const [cursors, setCursors] = useState({ 1: 0, 3: 0, 4: 0, 5: 0, projects: 0, variants: 0 });
-  const [agentView, setAgentView] = useState("agent");
+  const [agentView, setAgentViewOnly] = useState("agent");
+  // The earlier lines (the agent pane's views) open under the frame, which steps back to make
+  // room; picking a view opens them. The strip under the stage opens to the whole timeline.
+  const [listOpen, setListOpenOnly] = useState(false);
+  const [stripOpen, setStripOpen] = useState(false);
+  // The frame glides to its new place and size when the list opens or closes: where it was is
+  // noted before the change, and once the stage has its new size it starts from there.
+  const frameWas = useRef(null);
+  const setListOpen = useCallback((open) => {
+    setListOpenOnly((old) => {
+      if (old !== open) frameWas.current = window.document.querySelector(".screening .stage")?.getBoundingClientRect() ?? null;
+      return open;
+    });
+  }, []);
+  useEffect(() => {
+    const from = frameWas.current;
+    frameWas.current = null;
+    const frame = window.document.querySelector(".screening .stage");
+    if (still || !from?.width || !frame || typeof frame.animate !== "function" || typeof ResizeObserver !== "function") return undefined;
+    const observer = new ResizeObserver(() => {
+      const to = frame.getBoundingClientRect();
+      if (!to.width || (to.width === from.width && to.top === from.top)) return;
+      observer.disconnect();
+      frame.animate([
+        { transformOrigin: "0 0", transform: `translate(${from.left - to.left}px, ${from.top - to.top}px) scale(${from.width / to.width})` },
+        { transformOrigin: "0 0", transform: "none" },
+      ], { duration: 240, easing: "cubic-bezier(0.05, 0.7, 0.1, 1)" });
+    });
+    observer.observe(frame);
+    const timer = setTimeout(() => observer.disconnect(), 500);
+    return () => { clearTimeout(timer); observer.disconnect(); };
+  }, [listOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+  const setAgentView = useCallback((value) => { setAgentViewOnly(value); setListOpen(true); }, []);
   // The log, checks and notes were the tabs of a pane of their own; now they are views.
   const logTab = agentView;
   const setLogTab = setAgentView;
@@ -640,6 +684,7 @@ export function Dashboard() {
 
   // ---- actions -------------------------------------------------------------------------------------
   const focusPane = useCallback((number) => {
+    if (number === 2) setListOpen(true);
     setPane(number);
     setScreen({ name: "main" });
     requestAnimationFrame(() => window.document.querySelector(`[data-pane="${number}"]`)?.focus());
@@ -1376,6 +1421,7 @@ export function Dashboard() {
         if (point) { pointAt(null); return; }
         if (checkpoint) { setCheckpoint(null); say("Showing now."); return; }
         if (selectedLayer) { selectLayer(null); return; }
+        if (listOpen && !phone) { setListOpen(false); focusPane(1); return; }
         if (zoomed) setZoomed(false);
         return;
       default:
@@ -1560,29 +1606,24 @@ export function Dashboard() {
       <Icon name={icon} /><span className="tab-word">{word}</span>{extra}
     </button>
   );
+  // The top line: kino (all projects), the project, then at the right the views, hold, share,
+  // settings, the theme and render. What the agent does and what waits for you are under the
+  // frame, not here.
   const topline = (
-    <header className={`topline${asking && !phone ? " asking" : ""}`} inert={waiting}>
+    <header className="topline" inert={waiting}>
       <span className="title" title={projectName ? `kino: ${projectName}` : undefined}>
-        <span className="brand"><span className="brand-mark" aria-hidden="true" />kino</span>
+        <button type="button" className="brand" onClick={() => setScreen({ name: "projects" })} title="All projects" aria-label="kino: all projects">kino</button>
         {projectName ? <><span className="sr-only">, </span>
           <Menu id="project-menu" label={cut(projectName, 28)} ariaLabel={`Project: ${projectName}`} listLabel="Projects" title="Open another project"
             value={projectId} options={projectOptions} className="project-menu"
             onPick={(value) => (value === "@projects" ? setScreen({ name: "projects" }) : value !== projectId ? openProject(value) : null)} /></> : null}
       </span>
-      {/* The views: the stage (F1), the crew (F2; it counts what waits for you), inspire (F3) and the library (F4). */}
-      <nav className="tabs" aria-label="Views">
-        {tab("main", "monitor", "stage", () => run("stage"), "F1")}
-        {tab("crew", "users", "crew", () => setScreen({ name: "crew" }), "F2",
-          needs.length ? <span className="tab-count" aria-label={`, ${needs.length} waiting for you`}>{needs.length}</span> : null)}
-        {tab("inspire", "compass", "inspire", () => setScreen({ name: "inspire" }), "F3")}
-        {tab("library", "library", "library", () => setScreen({ name: "library" }), "F4")}
-      </nav>
       <div className={`topbar${asking ? " asking" : ""}`}>
         {asking ? (
-          // Something waits for you: one urgent chip says who asks and what, and its answer button.
+          // Something waits for you: one chip says who asks and what, and its answer button.
           <span className="needs-chip" role="status">
             {askingAgent ? <Bot color={askingAgent.color} mood="wait" size={14} still={still} /> : <span className="chip-dot" aria-hidden="true" />}
-            <strong>{asking.who} needs you</strong> <span className="asking-what">{need?.todo ?? asking.what}{asking.more ? ` · +${asking.more} more` : ""}</span>
+            <strong>{asking.who} needs you</strong> <span className="asking-what">{need?.todo ?? asking.what}{asking.more ? `, ${asking.more} more` : ""}</span>
             {asking.keys.length ? <button type="button" className="tb chip-answer" onClick={() => run("allow")} aria-keyshortcuts="a" title={`${asking.keys[0][1]} (a)`}>{asking.keys[0][1]}</button> : null}
             {phone && asking.keys[1] ? <button type="button" className="tb chip-answer" onClick={() => run("deny")} aria-keyshortcuts="d" title={`${asking.keys[1][1]} (d)`}>{asking.keys[1][1]}</button> : null}
           </span>
@@ -1600,33 +1641,44 @@ export function Dashboard() {
         {/* Follow is on unless you turn it off (f); only "off" is shown, as a reminder. */}
         {!follow || phone ? <button type="button" className={`tb follow${follow ? " on" : ""}`} aria-pressed={follow} aria-keyshortcuts="f" title="Follow the agent (f)" onClick={() => run("follow")}><span className="dot" aria-hidden="true" /><span className="tab-word"> follow {follow ? "on" : "off"}</span></button> : null}
         {message ? <span className={`message ${message.error ? "err" : "dim"}`} title={message.text}>{message.text}</span> : null}
-        <span className="top-right">
-          {data.recording ? (
-            <button type="button" className="tb top-button recording" onClick={stopRecording}
-              title="An agent is recording the screen. Stop it (the recording so far is kept)" aria-label={`Recording the screen, ${recClock(now - data.recording.startedAt)}. Stop recording`}>
-              <span className="rec-dot" aria-hidden="true" />rec {recClock(now - data.recording.startedAt)} · stop</button>
-          ) : null}
-          <button type="button" className={`tb top-button${data.hold?.on ? " held" : ""}`} onClick={() => toggleHold()} aria-keyshortcuts="h" aria-pressed={Boolean(data.hold?.on)}
-            title={data.hold?.on ? "Release: agent writes work again (h)" : "Hold: pause agent writes (h)"}>
-            <Icon name="hold" />{data.hold?.on ? "release" : screen.name === "crew" ? "hold all" : "hold"}</button>
-          {phone ? null : <>
-            <button type="button" className="tb top-button" onClick={makeShare} disabled={!projectId} title="Make a view link and copy it">
-              <Icon name="link" /><span className="tab-word">share</span></button>
-            <button type="button" className="tb top-button icon-only" onClick={() => setScreen({ name: "settings" })} aria-label="Settings" title="Settings">
-              <Icon name="gear" /></button>
-          </>}
-          <span className={`render-split${rendering ? " is-rendering" : ""}`} style={renderBy?.color ? { "--who": renderBy.color } : undefined}>
-            <button type="button" className="tb top-render" onClick={() => (rendering ? setAgentView("session") : exportScene())} aria-keyshortcuts="r" disabled={!scene}
-              title={rendering ? `Rendering ${renderPercent}%${renderBy ? ` for ${renderBy.name}` : ""}: show the renders` : "Render this scene, final mp4 (r)"}
-              aria-label={rendering ? `Rendering, ${renderPercent} percent. Show the renders.` : "Render"}>
-              <Icon name="render" />{rendering ? `${renderPercent}%` : "render"}
-              {rendering ? <span className="render-line" style={{ width: `${renderPercent}%` }} aria-hidden="true" /> : null}
-            </button>
-            <Menu id="render-menu" label="" ariaLabel="Render options" listLabel="Render" title="Render: final, draft, format, cancel"
-              value={null} options={renderOptions} onPick={pickRender} className="render-more" />
-          </span>
-        </span>
       </div>
+      {/* The views: the stage (F1), the crew (F2; it counts what waits for you), inspire (F3) and the library (F4). */}
+      <nav className="tabs" aria-label="Views">
+        {tab("main", "monitor", "Stage", () => run("stage"), "F1")}
+        {tab("crew", "users", "Crew", () => setScreen({ name: "crew" }), "F2",
+          needs.length ? <span className="tab-count" aria-label={`, ${needs.length} waiting for you`}>{needs.length}</span> : null)}
+        {tab("inspire", "compass", "Inspire", () => setScreen({ name: "inspire" }), "F3")}
+        {tab("library", "library", "Library", () => setScreen({ name: "library" }), "F4")}
+      </nav>
+      <span className="top-right">
+        {data.recording ? (
+          <button type="button" className="tb top-button recording" onClick={stopRecording}
+            title="An agent is recording the screen. Stop it (the recording so far is kept)" aria-label={`Recording the screen, ${recClock(now - data.recording.startedAt)}. Stop recording`}>
+            <span className="rec-dot" aria-hidden="true" /><span className="rec-time">{recClock(now - data.recording.startedAt)}</span> Stop</button>
+        ) : null}
+        <button type="button" className={`tb top-button${data.hold?.on ? " held" : ""}`} onClick={() => toggleHold()} aria-keyshortcuts="h" aria-pressed={Boolean(data.hold?.on)}
+          title={data.hold?.on ? "Release: agent writes work again (h)" : "Hold: pause agent writes (h)"}>
+          <Icon name="hold" /><span className="tab-word">{data.hold?.on ? "Release" : screen.name === "crew" ? "Hold all" : "Hold"}</span></button>
+        {phone ? null : <>
+          <button type="button" className="tb top-button icon-only" onClick={makeShare} disabled={!projectId} aria-label="Share" title="Make a view link and copy it">
+            <Icon name="link" /></button>
+          <button type="button" className="tb top-button icon-only" onClick={() => setScreen({ name: "settings" })} aria-label="Settings" title="Settings">
+            <Icon name="gear" /></button>
+        </>}
+        <button type="button" className="tb top-button icon-only theme-switch" onClick={toggleTheme} aria-pressed={theme === "light"}
+          aria-label={theme === "light" ? "Light theme. Switch to dark" : "Dark theme. Switch to light"} title={theme === "light" ? "Switch to the dark theme" : "Switch to the light theme"}>
+          <Icon name={theme === "light" ? "sun" : "moon"} /></button>
+        <span className={`render-split${rendering ? " is-rendering" : ""}`} style={renderBy?.color ? { "--who": renderBy.color } : undefined}>
+          <button type="button" className="tb top-render" onClick={() => (rendering ? setAgentView("session") : exportScene())} aria-keyshortcuts="r" disabled={!scene}
+            title={rendering ? `Rendering ${renderPercent}%${renderBy ? ` for ${renderBy.name}` : ""}: show the renders` : "Render this scene, final mp4 (r)"}
+            aria-label={rendering ? `Rendering, ${renderPercent} percent. Show the renders.` : "Render"}>
+            {rendering ? `${renderPercent}%` : "Render"}
+            {rendering ? <span className="render-line" style={{ width: `${renderPercent}%` }} aria-hidden="true" /> : null}
+          </button>
+          <Menu id="render-menu" label="" ariaLabel="Render options" listLabel="Render" title="Render: final, draft, format, cancel"
+            value={null} options={renderOptions} onPick={pickRender} className="render-more" />
+        </span>
+      </span>
     </header>
   );
 
@@ -1697,17 +1749,24 @@ export function Dashboard() {
     );
   } else if (screen.name === "main") {
     body = (
-      <main className={`panes${zoomed ? " zoomed" : ""}${agentView === "seen" && enlarged && seenFiles.includes(enlarged) ? " seen-open" : ""}`} aria-label="Dashboard" inert={waiting}>
+      <main className={`panes screening${listOpen ? " list-open" : ""}${stripOpen ? " strip-open" : ""}${zoomed ? " zoomed" : ""}${listOpen && agentView === "seen" && enlarged && seenFiles.includes(enlarged) ? " seen-open" : ""}`} aria-label="Dashboard" inert={waiting}>
         {stage}
-        <AgentPane {...paneProps(2)} data={data} agent={askingAgent ?? agentShown} still={still} now={now} view={agentView} onView={setAgentView} needs={needs.length} follow={follow} checks={checks} onRun={run} onAnswer={answer} onMaterial={answerMaterial}
-          noteLine={noteLine} views={{
-            session, log, checks: log, notes: log,
-            seen: <SeenPane data={data} cursor={cursors[3]} enlarged={enlarged} onEnlarge={setEnlarged} still={still} onSelect={pickSeen} bare />,
-          }} />
+        {/* The earlier lines, checks, looks and notes: under the frame once it has stepped back. */}
+        {listOpen ? (
+          <AgentPane {...paneProps(2)} data={data} agent={askingAgent ?? agentShown} still={still} now={now} view={agentView} onView={setAgentView} needs={needs.length} follow={follow} checks={checks} onRun={run} onAnswer={answer} onMaterial={answerMaterial}
+            onClose={() => { setListOpen(false); focusPane(1); }} noteLine={noteLine} views={{
+              session, log, checks: log, notes: log,
+              seen: <SeenPane data={data} cursor={cursors[3]} enlarged={enlarged} onEnlarge={setEnlarged} still={still} onSelect={pickSeen} bare />,
+            }} />
+        ) : null}
+        <Voice data={data} agent={askingAgent ?? agentShown} now={now} scene={scene} time={time} still={still} listOpen={listOpen}
+          onRun={run} onAnswer={answer} onMaterial={answerMaterial} onCancelRender={() => cancelRender()}
+          onHistory={() => { if (listOpen) { setListOpen(false); focusPane(1); } else { setAgentViewOnly("agent"); focusPane(2); } }} />
         <TimelinePane {...paneProps(3)} data={data} scene={scene} time={time} cursor={list === 5 ? cursors[5] : -1} selectedLayer={selectedLayer}
           onSeek={(value) => { stopPlaying(); setView((current) => ({ ...current, time: value })); }} onSelectLayer={selectLayer} onTurn={selectTurn} viewTurn={checkpoint?.turn ?? null}
           playing={playing} timeStore={timeStore} point={pointedRange ? point : null} onPoint={pointAt} still={still} now={now}
-          needAgent={need?.watch && need.key === "allow" ? need.agentId ?? null : undefined} previewList={previewList} rev={stageRev} />
+          needAgent={need?.watch && need.key === "allow" ? need.agentId ?? null : undefined} previewList={previewList} rev={stageRev}
+          strip={!stripOpen} onStrip={(strip) => setStripOpen(!strip)} />
       </main>
     );
   } else {

@@ -51,7 +51,7 @@ if (!app.requestSingleInstanceLock()) {
   const preload = path.join(root, "desktop/preload.cjs");
   // On a Mac, kino's top line is the title bar: no system title, the traffic lights sit on the
   // left of the top line (the page keeps room for them and makes the line drag the window).
-  const macTitleBar = process.platform === "darwin" ? { titleBarStyle: "hidden", trafficLightPosition: { x: 14, y: 13 } } : {};
+  const macTitleBar = process.platform === "darwin" ? { titleBarStyle: "hidden", trafficLightPosition: { x: 18, y: 19 } } : {};
   const pendingLinks = [];
   let linksReady = false, openingLink = Promise.resolve();
 

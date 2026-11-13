@@ -119,7 +119,7 @@ export function agentLog(data, agent, limit = 40) {
       before.details = [];
       return;
     }
-    rows.push({ key: `${call.at ?? ""}/${index}`, at, until: at, verb: call.verb, kind: verbKind(call.verb, call.isError), text, result, details: usefulDetails(call.details), count: 1, current: false, rev: Number.isSafeInteger(call.rev) && ops ? call.rev : null, images: (call.images ?? []).length });
+    rows.push({ key: `${call.at ?? ""}/${index}`, said: call.why ?? "", at, until: at, verb: call.verb, kind: verbKind(call.verb, call.isError), text, result, details: usefulDetails(call.details), count: 1, current: false, rev: Number.isSafeInteger(call.rev) && ops ? call.rev : null, images: (call.images ?? []).length });
   });
   for (const row of rows) {
     if (row.count > 1 && row.until && row.until !== row.at) row.at = `${row.at}–${row.until}`;
@@ -129,7 +129,7 @@ export function agentLog(data, agent, limit = 40) {
   const presence = data?.live?.latest?.[agent.id];
   if (presence?.phase === "start") {
     shown.push({ key: `running/${presence.call}`, at: presence.at ? timeOfDay(presence.at) : "", verb: presence.verb, kind: verbKind(presence.verb),
-      text: presence.label ?? presence.verb, result: { mark: "running", text: "" }, details: [], count: 1, current: true });
+      said: presence.why ?? "", text: presence.label ?? presence.verb, result: { mark: "running", text: "" }, details: [], count: 1, current: true });
   }
   return shown;
 }
@@ -357,3 +357,76 @@ export function renderDock(data, now = Date.now()) {
 
 /** "0:41" from seconds, or "". */
 export const leftWords = (seconds) => (seconds == null ? "" : `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`);
+
+// ---- the agent's line under the frame (voice.jsx) ----------------------------------------------
+
+// A call's first word as it reads while the call runs and once it is done: [running, done].
+const TENSES = {
+  look: ["Looking", "Looked"], edit: ["Editing", "Edited"], check: ["Checking", "Checked"], render: ["Rendering", "Rendered"],
+  add: ["Adding", "Added"], make: ["Making", "Made"], set: ["Setting", "Set"], read: ["Reading", "Read"], study: ["Studying", "Studied"],
+  find: ["Finding", "Found"], cut: ["Cutting", "Cut"], build: ["Building", "Built"], time: ["Timing", "Timed"], move: ["Moving", "Moved"],
+  fix: ["Fixing", "Fixed"], wait: ["Waiting", "Waited"], pick: ["Picking", "Picked"], import: ["Importing", "Imported"], open: ["Opening", "Opened"],
+  create: ["Creating", "Created"], write: ["Writing", "Wrote"], show: ["Showing", "Showed"], record: ["Recording", "Recorded"], undo: ["Undoing", "Undid"],
+  restore: ["Restoring", "Restored"], search: ["Searching", "Searched"], save: ["Saving", "Saved"], load: ["Loading", "Loaded"], start: ["Starting", "Started"],
+  place: ["Placing", "Placed"], mark: ["Marking", "Marked"], update: ["Updating", "Updated"], delete: ["Deleting", "Deleted"], remove: ["Removing", "Removed"],
+  inspect: ["Inspecting", "Inspected"], plan: ["Planning", "Planned"], ask: ["Asking", "Asked"], lay: ["Laying", "Laid"], sync: ["Syncing", "Synced"],
+  list: ["Listing", "Listed"], compare: ["Comparing", "Compared"], export: ["Exporting", "Exported"], style: ["Styling", "Styled"], try: ["Trying", "Tried"],
+  resolve: ["Resolving", "Resolved"], change: ["Changing", "Changed"], answer: ["Answering", "Answered"], replace: ["Replacing", "Replaced"],
+};
+// A tool whose label does not start with a verb gets these words first.
+const TOOL_TENSES = {
+  edit: TENSES.edit, look: TENSES.look, check: TENSES.check, render: TENSES.render, inspect: TENSES.inspect,
+  status: ["Reading", "Read"], library: ["Looking up", "Looked up"], notes: ["Noting", "Noted"], project: ["Setting up", "Set up"], history: ["Going back to", "Went back to"],
+};
+
+/**
+ * A call's words as one sentence: "look at the source of smirk" running is "Looking at the source
+ * of smirk.", done "Looked at the source of smirk.". A label that does not start with a verb gets
+ * its tool's ("footage behind 4 sections" of an edit: "Edited footage behind 4 sections."). Text
+ * that already ends a sentence keeps its end.
+ */
+export function asSentence(text, { verb = "", running = false } = {}) {
+  const words = String(text ?? "").replace(/\s+/g, " ").trim().replace(/[\s.…·]+$/, "");
+  if (!words) return "";
+  const [first, ...rest] = words.split(" ");
+  const tense = TENSES[first.toLowerCase()];
+  const at = running ? 0 : 1;
+  let line;
+  if (tense) line = [tense[at], ...rest].join(" ");
+  else if (TOOL_TENSES[verb] && first === first.toLowerCase()) line = `${TOOL_TENSES[verb][at]} ${words}`;
+  else line = first.charAt(0).toUpperCase() + first.slice(1) + (rest.length ? ` ${rest.join(" ")}` : "");
+  return /[?!]$/.test(line) ? line : `${line}.`;
+}
+
+/**
+ * The line under the frame: what the shown agent does now, as one sentence, and the line before it.
+ *   {state, verb, text, facts: [words], before: {verb, text, rev} | null}
+ * `state` is "need" (something waits for you; `need` holds its words and row), "hold" (your hold
+ * is on), "render" (a render runs; `render` holds renderDock's facts), "working" (a call runs or
+ * ended a moment ago), "idle" (its last call, in the past) or "empty" (no agent has called yet).
+ */
+export function voiceLine(data, agent, now = Date.now(), nameOf = () => null) {
+  const rows = agent ? agentLog(data, agent, 12) : [];
+  const last = rows.at(-1) ?? null;
+  // A failed call says so: "Checked the video. It failed."
+  const line = (row, running) => `${asSentence(row.said || row.text, { verb: row.verb, running })}${row.result?.mark === "failed" ? " It failed." : ""}`;
+  const before = (skip) => {
+    const row = rows.slice(0, skip ? -1 : undefined).at(-1);
+    return row ? { verb: row.verb, kind: row.kind, text: line(row, false), rev: row.rev ?? null } : null;
+  };
+  const needs = needsYouRows(data);
+  const need = needs.find((row) => row.type !== "elsewhere") ?? null;
+  if (need) {
+    const words = needWords(need, nameOf);
+    return { state: "need", verb: "ask", text: asSentence(words.todo), facts: [words.spec, words.summary].filter(Boolean), before: before(false), need: { row: need, words, more: needs.length - 1 } };
+  }
+  if (data?.hold?.on) return { state: "hold", verb: "hold", text: `On hold. ${agent?.name ?? "The agent"} waits for you.`, facts: [], before: before(false) };
+  const dock = renderDock(data, now);
+  if (dock) {
+    const text = dock.total ? `Rendering frame ${dock.done} of ${dock.total}.` : `Rendering, ${Math.round(dock.fraction * 100)}%.`;
+    return { state: "render", verb: "render", text, facts: [dock.left == null ? "" : `${leftWords(dock.left)} left`, dock.job.format ?? ""].filter(Boolean), before: before(false), render: dock };
+  }
+  if (!agent || !last) return { state: "empty", verb: "", text: "Waiting for an agent.", facts: [], before: null };
+  const working = isWorking(data, agent, now);
+  return { state: working ? "working" : "idle", verb: last.verb, kind: last.kind, text: line(last, Boolean(last.current)), facts: [], before: before(true) };
+}
