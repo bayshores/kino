@@ -132,7 +132,7 @@ import { heardLines as soundLines, sectionsInVideo, soundMapImage, soundMapText,
 // look sound measures each line on its own layer alone for at most this many layers (one FFmpeg run each).
 const SOUND_LINE_LAYERS = 6;
 import { createTries, pickQuote, triesView } from "./tries.mjs";
-import { measureSketch } from "./sketches.mjs";
+import { beatsIn, measureSketch, sketchOps, songEntry, treatmentDefaults, treatmentOf } from "./sketches.mjs";
 import { boardRefKeys, createJudge, judgeLine, judgeLost, pairCount, pinnedPairs, refForKey, resultText, roundView, tally, VERSUS_ROWS } from "./judge.mjs";
 import { createPicks, SITTING_PICKS } from "./picks.mjs";
 import { rendererIsProcessor } from "../render-devices.mjs";
@@ -151,7 +151,7 @@ import { mediaFrameState, mediaPlaybackRange, mediaSceneTime, mediaSoundTime } f
 import { CUES_READ, cueRise, cueRiseText, endingText, keptLinesOf, presenceText, quietShare, quietText, songEnding, songPresence } from "../../engine/mixReadout.js";
 import { endOnHitOps, hitsAround, hitsText, holdsText, ringingHit, RING_MIN } from "../../engine/songEvents.js";
 import { songSections } from "../../engine/footage/pace.js";
-import { shapeOf } from "../../engine/footage/layout.js";
+import { coverBox, shapeOf } from "../../engine/footage/layout.js";
 import { cropLine } from "../../engine/quality/rules/footage.js";
 import { followOps, majorityShape, namedShape, sizeLikeFootage, sizeOfShape } from "../../engine/quality/rules/shape.js";
 import { constantSpeed, isRemapped, isReversed } from "../../engine/mediaTime.js";
@@ -756,6 +756,7 @@ export function createAgentService(deps) {
     // Sketch rounds (sketches.mjs): the shown treatments, the clip's numbers, and the pick saved as their typed pick is.
     briefOf: (state) => ({ treatments: state.brief?.treatments ?? null, known: Boolean(state.brief?.treatments?.list && knownDropped(state.brief.treatments, state.origin, asksOf(state.brief).map((entry) => entry.text))) }),
     measureSketch,
+    buildSketch: (record, round, option) => buildSketch(record, round, option),
     pickTreatment(state, round, option) {
       const quote = pickQuote(round, option);
       const changes = briefChanges(state.brief, { fields: { treatments: { pick: option.treatment, quote } } }, { said: [...saidElsewhere(state), quote], origin: state.origin ?? null });
@@ -3123,6 +3124,61 @@ export function createAgentService(deps) {
     const changes = documentChanges(before, after);
     const name = (id) => refName(id, codes);
     return [...changes.created, ...changes.changed, ...changes.removed].slice(0, RECEIPT_LIST).map(name);
+  }
+
+  // A kino-built sketch (sketches.mjs sketchOps) on a fresh copy of the open document: its song
+  // (a project file, music:<id>, or "<title> by <artist>" through the song finder), its clips (the
+  // project's files; by default the ones its treatment's source names), its line and font, then
+  // the option's own ops. Answers the document and what the receipt and the pick keep.
+  async function buildSketch(record, round, option) {
+    const document = record.document;
+    const scene = document.scenes.find((entry) => entry.id === round.sceneId) ?? document.scenes[0];
+    const seconds = round.to - round.from;
+    const media = ((await deps.listMedia?.()) ?? []).filter((item) => mediaAllowedIn(item, document.id));
+    const pictures = media.filter((item) => /^(video|image)\//.test(item.mime ?? ""));
+    const treatments = (await agentState.read(document.id)).brief?.treatments;
+    const defaults = treatmentDefaults(option.treatment && treatments?.list ? treatmentOf(treatments, option.treatment) : null, pictures);
+    const asked = option.asked ?? {};
+    const stem = (name) => String(name ?? "").replace(/\.[a-z0-9]+$/i, "").toLowerCase();
+    const clips = (asked.clips ?? defaults.clips).map((clip) => {
+      const found = pictures.find((item) => [item.id, item.name, item.src].includes(clip.file)) ?? pictures.find((item) => stem(item.name) === stem(clip.file));
+      if (!found) throw new Error(`clip "${clip.file}" is not a picture or video of this project (project {action:"import", file} brings one in).`);
+      return { src: found.src ?? `/api/media/${found.id}`, type: found.mime.startsWith("image/") ? "image" : "video", width: found.width, height: found.height, duration: found.duration, in: clip.in ?? 0 };
+    });
+    let song = null;
+    let songInfo = null;
+    if (asked.song) {
+      try { ({ play: song, info: songInfo } = await sketchSong(asked.song, media, seconds)); }
+      catch (error) { songInfo = { asked: asked.song, error: String(error?.message ?? error).split("\n")[0].slice(0, 160) }; }
+    }
+    const line = asked.line ?? defaults.line ?? "";
+    const lineFrom = asked.line ? "given" : defaults.line ? `treatment ${option.treatment}'s quoted words` : null;
+    const fresh = createDocument({ id: document.id, name: document.name, scenes: [createScene({ id: scene.id, name: scene.name, width: scene.width, height: scene.height, duration: seconds, background: "#000000" })] });
+    const ops = [...sketchOps({ frame: { width: scene.width, height: scene.height }, seconds, clips, song, line, font: asked.font ?? null, coverBox }), ...(option.ops ?? [])];
+    const built = await documentWith({ ...record, document: fresh }, ops);
+    const text = built.scenes[0].layers.find((layer) => layer.name === "sketch-line");
+    // basis: what the clip is cached by (the ops kino wrote carry no new ids, the built layers do).
+    return { document: built, basis: { ops, width: scene.width, height: scene.height }, song: songInfo, font: text?.fontFamily ?? asked.font ?? null, line: line || null, lineFrom, cuts: Math.max(0, clips.length - 1) };
+  }
+
+  // A sketch's song: a project file, a library track (music:<id>) or a named song the finder
+  // fetches (one already imported is reused), measured (beats and sections, kept beside the file),
+  // played from its strongest entry (songEntry).
+  async function sketchSong(text, media, seconds) {
+    let item = media.find((entry) => [entry.id, entry.name, entry.src].includes(text));
+    if (!item && isLibraryId(text)) item = await librarySoundMedia(text, media);
+    if (!item) {
+      if (!deps.soundtrack?.findSong) throw new Error("finding a song by name is not available here");
+      const hit = await deps.soundtrack.findSong(text);
+      item = media.find((entry) => entry.credit?.id === hit.id) ?? await deps.soundtrack.importCandidate(hit);
+    }
+    const file = path.join(deps.mediaRoot, item.id);
+    const analysis = await beatAnalysis.get(file);
+    const shape = await songShapes.get(file, analysis).catch(() => null);
+    const entry = songEntry({ sections: shape?.sections ?? [], beats: analysis.beats ?? [], length: item.duration || shape?.seconds || analysis.duration }, seconds);
+    const src = item.src ?? `/api/media/${item.id}`;
+    return { play: { src, from: entry.from, beats: beatsIn(analysis.beats ?? [], entry.from, seconds) },
+      info: { asked: text, title: item.credit?.title ?? item.name, src, from: entry.from, to: Math.round((entry.from + seconds) * 100) / 100, kind: entry.kind } };
   }
 
   // The document with `ops` applied as an edit would apply them, nothing saved (try rounds):

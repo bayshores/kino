@@ -13,7 +13,7 @@
 // of one also records that treatment as the person's pick (deps.pickTreatment).
 import { mkdir, readdir, rm } from "node:fs/promises";
 import path from "node:path";
-import { isSketchInput, readSketch, sketchCache, sketchKey, sketchLines, treatmentOf } from "./sketches.mjs";
+import { isBuiltSketch, isSketchInput, readSketch, sketchCache, sketchCarry, sketchKey, sketchLines, treatmentOf } from "./sketches.mjs";
 
 export const TRY_LETTERS = ["A", "B", "C", "D"];
 export const TRY_ANSWERS = ["none", "skip"];
@@ -36,8 +36,9 @@ export const clipName = (id, letter) => `${id}-${letter}.mp4`;
  * at, from, to, options:[{letter, name, ops}], later}. `scenes` are the document's [{id, duration}];
  * the moment is `at` seconds of `scene` (the first scene when left out).
  */
-export function readTry(input, scenes, { treatments = null, known = false } = {}) {
+export function readTry(input, scenes, { treatments = null, known = false, empty = false } = {}) {
   const sketch = isSketchInput(input);
+  const built = isBuiltSketch(input, empty);
   const question = words(input.question, WORDS_MOST) || (sketch ? "Which direction?" : "");
   if (!question) throw new Error('try needs question: what the person picks, "which cut into shot 2?".');
   const scene = input.scene === undefined ? scenes[0] : scenes.find((entry) => entry.id === input.scene || entry.name === input.scene);
@@ -47,20 +48,21 @@ export function readTry(input, scenes, { treatments = null, known = false } = {}
     throw new Error(sketch ? 'options lists 2 to 4 sketches, each {treatment:"A", ops}: the ops that make this stretch that treatment.'
       : 'options lists 2 to 4 options, each {name, ops}: options:[{name:"plain cut", ops:[]}, {name:"whip pan", ops:[{op:"add_transition", ...}]}].');
   // A sketch round: its stretch, and the treatment each option shows (its name defaults to the treatment's move).
-  const drawn = sketch ? readSketch(input, scene, treatments, known) : null;
+  const drawn = sketch ? readSketch(input, scene, treatments, known, built) : null;
   const read = options.map((option, index) => {
     const name = words(option?.name, 40) || drawn?.names[index] || "";
     if (!name) throw new Error(`options[${index}] needs a name (a few words the person reads under the video).`);
     const ops = option?.ops ?? [];
     if (!Array.isArray(ops)) throw new Error(`options[${index}].ops is a list of edit ops ([] keeps the video as it is).`);
     if (!sketch && JSON.stringify(ops).length > OPS_MOST) throw new Error(`options[${index}].ops is over ${OPS_MOST} characters: try one change at a time.`);
-    return { letter: TRY_LETTERS[index], name, ops, ...(drawn?.treatments[index] ? { treatment: drawn.treatments[index], idea: drawn.ideas[index] } : {}) };
+    return { letter: TRY_LETTERS[index], name, ops, ...(drawn?.treatments[index] ? { treatment: drawn.treatments[index], idea: drawn.ideas[index] } : {}),
+      ...(drawn?.built ? { built: true, asked: drawn.built[index] } : {}) };
   });
   const names = read.map((option) => option.name.toLowerCase());
   if (new Set(names).size !== names.length) throw new Error("Each option needs its own name.");
   const later = Array.isArray(input.later) ? input.later.map((topic) => words(topic, 30)).filter(Boolean).slice(0, LATER_MOST) : null;
   const topic = words(input.topic, 30) || question.replace(/\?$/, "").slice(0, 30);
-  if (drawn) return { question, topic, sceneId: scene.id, at: drawn.from, from: drawn.from, to: drawn.to, options: read, later, sketch: true };
+  if (drawn) return { question, topic, sceneId: scene.id, at: drawn.from, from: drawn.from, to: drawn.to, options: read, later, sketch: true, ...(drawn.built ? { built: true } : {}) };
   const at = Number(input.at);
   if (!Number.isFinite(at) || at < 0 || at > scene.duration) throw new Error(`at is the moment in seconds, 0 to ${sec(scene.duration)} (the scene's length).`);
   // 2 s around the moment, moved inside the scene near its start or end.
@@ -87,6 +89,14 @@ export function answerText(round) {
   if (round.pick === "skip") return `${head}: the person skipped it${said}. Keep the video as it is and go on to the next round.`;
   if (round.pick === "none") return `${head}: the person liked none of these${said}. Try other options: notes {action:"try"} again.`;
   const option = round.options.find((entry) => entry.letter === round.pick);
+  if (option.built) {
+    const song = option.song?.src ? `song "${option.song.title}" (${option.song.src}, ${option.song.from}-${option.song.to} s of the song)` : "no song";
+    const used = `${song}, font ${option.font ?? "the default"}${option.line ? `, line "${option.line}"` : ""}`;
+    const carried = !option.treatment || round.treatmentSaved ? `the sketch's ${used} are saved with the pick` : `the sketch used ${used}`;
+    const saved = option.treatment ? (round.treatmentSaved ? `kino saved treatment ${option.treatment} as their pick (brief treatments, by them); status next names what follows`
+      : `the sketch showed treatment ${option.treatment}${round.treatmentError ? `; kino did not save it as their pick: ${round.treatmentError}` : ""}`) : "";
+    return `${head}: the person picked sketch ${option.letter} (${option.name})${said}; ${[saved, carried].filter(Boolean).join("; ")}.`;
+  }
   if (round.sketch && option.treatment) {
     const saved = round.treatmentSaved ? `kino saved treatment ${option.treatment} as their pick (brief treatments, by them); status next names what follows`
       : round.treatmentError ? `the sketch showed treatment ${option.treatment}${option.idea ? ` ("${option.idea}")` : ""}; kino did not save it as their pick: ${round.treatmentError}`
@@ -134,9 +144,10 @@ export function createTries(deps) {
   async function start(record, input, { by = "agent" } = {}) {
     const projectId = record.document.id;
     const brief = isSketchInput(input) ? (deps.briefOf?.(await agentState.read(projectId)) ?? {}) : {};
-    const read = readTry(input, record.document.scenes, brief);
+    const empty = record.document.scenes.every((scene) => Array.isArray(scene.layers) && !scene.layers.length);
+    const read = readTry(input, record.document.scenes, { ...brief, empty });
     const documents = [];
-    for (const option of read.options) {
+    for (const option of read.built ? [] : read.options) {
       try { documents.push(await deps.documentWith(record, option.ops)); }
       catch (error) { throw new Error(`option ${option.letter} (${option.name}) was refused: ${String(error?.message ?? error).split("\n")[0]}`); }
     }
@@ -145,16 +156,39 @@ export function createTries(deps) {
       const number = Math.max(0, ...(state.tries ?? []).map((entry) => entry.number ?? 0)) + 1;
       const made = { id: `T${number}`, number, rev: record.revision, by, question: read.question, topic: read.topic, sceneId: read.sceneId, at: read.at, from: read.from, to: read.to,
         status: "rendering", createdAt: new Date(now()).toISOString(), options: read.options.map((option) => ({ ...option, ready: false })), pick: null, words: null,
-        ...(read.sketch ? { sketch: true } : {}) };
+        ...(read.sketch ? { sketch: true } : {}), ...(read.built ? { built: true } : {}) };
       state.tries = [...kept, made].slice(-ROUNDS_KEPT);
       if (read.later) state.tryLater = read.later;
       return structuredClone(made);
     });
     await publish(projectId);
+    if (read.built) return { ...round, rendered: buildThenRender(record, round).catch(() => {}) };
     // A sketch is cached by the document before its ops, its ops and its stretch.
     const keys = read.sketch ? read.options.map((option) => sketchKey(record.document, option.ops, read.sceneId, read.from, read.to)) : null;
     const rendered = render(projectId, round, documents, keys).catch(() => {});
     return { ...round, rendered };
+  }
+
+  // A kino-built round: each sketch made on a fresh copy one after another (its song fetched,
+  // its clips cut, its line set: deps.buildSketch), then all rendered. A sketch that cannot be
+  // made shows its reason; the others still render.
+  async function buildThenRender(record, round) {
+    const projectId = record.document.id;
+    const documents = [];
+    const keys = [];
+    for (const [index, option] of round.options.entries()) {
+      try {
+        const { document, basis, ...made } = await deps.buildSketch(record, round, option);
+        documents[index] = document;
+        keys[index] = sketchKey(basis ?? document, [], round.sceneId, round.from, round.to);
+        await change(projectId, round.id, (found) => { Object.assign(found.options[index], made); });
+      } catch (error) {
+        documents[index] = null;
+        const said = String(error?.message ?? error).split("\n")[0].slice(0, 200);
+        await change(projectId, round.id, (found) => { found.options[index].error = said; });
+      }
+    }
+    await render(projectId, round, documents, keys);
   }
 
   /**
@@ -178,6 +212,7 @@ export function createTries(deps) {
     for (const name of await readdir(folder).catch(() => [])) if (!keep.has(name.split("-")[0])) await rm(path.join(folder, name), { force: true });
     let made = 0;
     for (const [index, option] of round.options.entries()) {
+      if (!documents[index]) continue;
       try {
         const outputPath = path.join(folder, clipName(round.id, option.letter));
         let done = {};
@@ -237,6 +272,9 @@ export function createTries(deps) {
           if (current && treatmentOf(current, option.treatment)?.idea !== option.idea) throw new Error(`the treatments were saved again after ${found.id}, so ${option.treatment} now names another idea`);
           deps.pickTreatment(state, found, option);
           found.treatmentSaved = true;
+          // The sketch's song, font and line go with the pick (sketches.mjs pickedSketch reads them).
+          const carried = sketchCarry(found, option);
+          if (carried && state.brief?.treatments?.picked) state.brief.treatments.picked.sketch = carried;
         }
         catch (error) { found.treatmentError = String(error?.message ?? error).split("\n")[0].slice(0, 160); }
       }

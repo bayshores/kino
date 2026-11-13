@@ -8,7 +8,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { clipFacts, colorOverlap, sketchKey, sketchLines } from "./agent/sketches.mjs";
+import { beatsIn, clipFacts, colorOverlap, cutTimes, lineEntry, pickedSketch, sketchKey, sketchLines, sketchOps, songEntry, treatmentDefaults } from "./agent/sketches.mjs";
+import { coverBox } from "../engine/footage/layout.js";
 import { answerText, createTries, readTry } from "./agent/tries.mjs";
 import { skipWithoutMediaTools as skip, startTestServer } from "./media.test.support.mjs";
 
@@ -108,6 +109,54 @@ test("a sketch round renders each sketch once (cached by its ops), and a pick sa
   await tries.answer("p", { id: later.id, pick: "B" });
   assert.deepEqual([picks.length, state.tries.at(-1).treatmentSaved ?? false], [1, false]);
   assert.match(state.inbox.at(-1).text, /showed treatment B \("stairs of words"\); kino did not save it as their pick: the treatments were saved again/);
+  await rm(directory, { recursive: true, force: true });
+});
+
+test("a built sketch: the song from its strongest entry, cuts on its beats, the line on a beat in the font, the treatment's files and words by default", () => {
+  assert.deepEqual(songEntry({ sections: [{ at: 20, kind: "build", weight: 1 }, { at: 144, kind: "drop", weight: 1 }, { at: 193, kind: "drop", weight: 1 }], beats: [0.3], length: 196 }, 6), { from: 144, kind: "drop" }, "a drop that leaves 6 s");
+  assert.deepEqual([songEntry({ beats: [0.3, 0.8], length: 60 }, 6), songEntry({}, 6)], [{ from: 0.3, kind: "first beat" }, { from: 0, kind: "start" }]);
+  const beats = beatsIn([143.5, 144.5, 145, 146.5, 147, 148.1, 150.2], 144, 6);
+  assert.deepEqual([beats, cutTimes(3, 6, beats), cutTimes(2, 6), lineEntry(beats)], [[0.5, 1, 2.5, 3, 4.1], [0, 2.5, 4.1], [0, 3], 0.5]);
+  const ops = sketchOps({ frame: { width: 1920, height: 1080 }, seconds: 6, clips: [{ src: "a.mp4", type: "video", width: 1000, height: 1422, duration: 4, in: 3 }, { src: "b.png", type: "image", width: 1920, height: 1080 }],
+    song: { src: "s.mp3", from: 144, beats }, line: "312 keyframes", font: "Archivo Black", coverBox });
+  assert.deepEqual(ops.map((op) => [op.op, op.layerType ?? op.family, op.properties?.mediaStart, op.properties?.mediaDuration]),
+    [["add_layer", "video", 0, 3], ["add_layer", "image", 3, 3], ["add_layer", "audio", 0, 6], ["add_layer", "text", undefined, undefined], ["set_font", "Archivo Black", undefined, undefined]]);
+  assert.deepEqual([ops[0].properties.width >= 1920 && ops[0].properties.height >= 1080, ops[0].properties.mediaOffset, ops[0].properties.volume, ops[2].properties.mediaOffset, ops[3].animations[0]],
+    [true, 1, 0, 144, { preset: "preset-mask", start: 0.5, duration: 0.5, unit: "words", stagger: 0.06 }], "full frame, kept inside the file, muted under the song");
+  const files = [{ name: "01-dash-build.mp4" }, { name: "06-render.mp4" }, { name: "05-play.mp4" }];
+  assert.deepEqual(treatmentDefaults({ move: "'312 keyframes' collapses to '1 sentence'", source: "01-dash-build 0.87 s cut; 06-render 1.57 s" }, files),
+    { line: "312 keyframes", clips: [{ file: "01-dash-build.mp4", in: 0.87 }, { file: "06-render.mp4", in: 1.57 }] });
+  assert.deepEqual(treatmentDefaults({ move: "split screen", source: "words only" }, files), { line: null, clips: [] });
+  assert.equal(pickedSketch({ brief: { treatments: { picked: { label: "A" } } } }), null, "a typed pick carries no sketch");
+  assert.throws(() => readTry({ seconds: 12, options: [{ treatment: "A", song: "x" }, { treatment: "B" }] }, SCENES, { treatments: TREATMENTS }), /seconds is the sketch length, 2 to 10/);
+});
+
+test("a built round: each sketch made by kino on a fresh copy, the receipt names its song and font, and the pick carries them", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "kino-built-"));
+  const state = { inbox: [], brief: { treatments: TREATMENTS } };
+  const agentState = { read: async () => structuredClone(state), update: async (_id, edit) => edit(state) };
+  const built = [];
+  const tries = createTries({ agentState, directory: path.join(directory, "try"), briefOf: (saved) => ({ treatments: saved.brief.treatments }),
+    documentWith: async () => { throw new Error("not used"); },
+    buildSketch: async (_record, round, option) => {
+      built.push([option.treatment, option.asked.song, round.to]);
+      const song = option.asked.song === "lost" ? { asked: "lost", error: "YouTube has no song" } : { asked: option.asked.song, title: option.asked.song, src: `/api/media/${option.asked.song}.mp3`, from: 144, to: 150, kind: "drop" };
+      return { document: { id: "p", scenes: SCENES }, basis: { ops: [option.asked] }, song, font: option.asked.font ?? "Inter", line: "312 keyframes", lineFrom: "given", cuts: 2 };
+    },
+    renderClip: async (_document, _scene, _from, _to, outputPath) => { await writeFile(outputPath, "clip"); },
+    measureSketch: async () => ({ changes: 2, shot: 2, lettering: 0.9, lufs: -14, colors: [] }),
+    pickTreatment: (draft, _round, option) => { draft.brief.treatments = { ...draft.brief.treatments, picked: { label: option.treatment, by: "you" } }; } });
+  const record = { revision: 1, document: { id: "p", scenes: [{ ...SCENES[0], layers: [] }] } };
+  const round = await tries.start(record, { options: [{ treatment: "A", song: "voltaic", font: "Archivo Black" }, { treatment: "B", song: "lost", font: "Archivo Black" }, { treatment: "C", song: "voltaic" }] });
+  await round.rendered;
+  assert.deepEqual([round.from, round.to, built], [0, 6, [["A", "voltaic", 6], ["B", "lost", 6], ["C", "voltaic", 6]]], "an empty document: 6 s each, one after another");
+  const lines = (await tries.sketchReceipt("p", round.id)).join("\n");
+  assert.match(lines, /A \(treatment A, move 3\): .*; song "voltaic" 144-150 s of the song \(drop\); font Archivo Black; line "312 keyframes" \(given\); 2 cuts on the song's beats/);
+  assert.match(lines, /B \(treatment B, move 0\): .*; silent: the song "lost" could not be fetched \(YouTube has no song\); font Archivo Black/);
+  assert.match(lines, /\nA and C use the same song\.\nA and B use the same font \(Archivo Black\)\./);
+  await tries.answer("p", { id: round.id, pick: "A" });
+  assert.deepEqual(pickedSketch(state), { round: round.id, letter: "A", song: "/api/media/voltaic.mp3", songTitle: "voltaic", songFrom: 144, songTo: 150, font: "Archivo Black", line: "312 keyframes" });
+  assert.match(state.inbox.at(-1).text, /picked sketch A \(move 3\); kino saved treatment A as their pick .*; the sketch's song "voltaic" \(\/api\/media\/voltaic\.mp3, 144-150 s of the song\), font Archivo Black, line "312 keyframes" are saved with the pick\./);
   await rm(directory, { recursive: true, force: true });
 });
 

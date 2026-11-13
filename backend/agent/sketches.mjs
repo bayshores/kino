@@ -45,9 +45,139 @@ const median = (values) => {
   return list.length % 2 ? list[middle] : (list[middle - 1] + list[middle]) / 2;
 };
 
-/** True when a try input asks for sketches: a stretch (from and to) or an option tied to a treatment. */
-export const isSketchInput = (input) => input?.from !== undefined || input?.to !== undefined
-  || (Array.isArray(input?.options) && input.options.some((option) => option?.treatment !== undefined));
+// The fields kino builds a sketch from itself (song, font, line, clips), and the default length.
+export const BUILT_FIELDS = ["song", "font", "line", "clips"];
+export const SKETCH_SECONDS = 6;
+const CLIPS_MOST = 6;
+
+/** True when a try input asks for sketches: a stretch (from and to), seconds, kino-built fields or an option tied to a treatment. */
+export const isSketchInput = (input) => input?.from !== undefined || input?.to !== undefined || input?.seconds !== undefined
+  || (Array.isArray(input?.options) && input.options.some((option) => option?.treatment !== undefined || BUILT_FIELDS.some((key) => option?.[key] !== undefined)));
+
+/** True when kino builds the sketches on a fresh copy: an option uses song, font, line or clips, or the open document has no layers. */
+export const isBuiltSketch = (input, empty = false) => isSketchInput(input)
+  && (empty || input?.seconds !== undefined || input.options?.some?.((option) => BUILT_FIELDS.some((key) => option?.[key] !== undefined)));
+
+// Reads one option's kino-built fields (throws its words when one is wrong).
+function readBuilt(option, index) {
+  const text = (key, most) => {
+    const value = option?.[key];
+    if (value === undefined) return undefined;
+    if (typeof value !== "string" || !value.trim() || value.trim().length > most) throw new Error(`options[${index}].${key} is text, 1 to ${most} characters.`);
+    return value.replace(/\s+/g, " ").trim();
+  };
+  const clips = option?.clips;
+  if (clips !== undefined && (!Array.isArray(clips) || !clips.length || clips.length > CLIPS_MOST || clips.some((clip) => typeof clip?.file !== "string" || (clip.in !== undefined && !(Number(clip.in) >= 0)))))
+    throw new Error(`options[${index}].clips lists 1 to ${CLIPS_MOST} project files, [{file:"intro.mp4", in:2.5}] (in: seconds into the file).`);
+  return { song: text("song", 200), font: text("font", 80), line: text("line", 200), clips: clips?.map((clip) => ({ file: clip.file.trim(), ...(clip.in !== undefined ? { in: Number(clip.in) } : {}) })) };
+}
+
+/**
+ * The stretch of a song a sketch plays: the strongest entry kino measured (song-shape sections:
+ * a drop first, then the heaviest section, the earliest on a tie) that leaves `seconds` of song;
+ * else the first beat; else 0. `shape` {sections}, `beats` file seconds, `length` the file's seconds.
+ */
+export function songEntry({ sections = [], beats = [], length = Infinity }, seconds) {
+  const fits = (at) => Number.isFinite(at) && at >= 0 && at + seconds <= length + 1e-6;
+  const ranked = sections.filter((part) => fits(part.at))
+    .sort((a, b) => (b.kind === "drop") - (a.kind === "drop") || (b.weight ?? 0) - (a.weight ?? 0) || a.at - b.at);
+  if (ranked[0]) return { from: sec(ranked[0].at), kind: ranked[0].kind };
+  const beat = beats.find(fits);
+  return beat !== undefined ? { from: sec(beat), kind: "first beat" } : { from: 0, kind: "start" };
+}
+
+/** The sketch-time beats of a song stretch: file beats from `from` on, inside `seconds`. */
+export const beatsIn = (beats, from, seconds) => beats.map((beat) => beat - from).filter((time) => time > 0.05 && time < seconds - 0.05).map(sec);
+
+/**
+ * Where each clip starts in a sketch of `seconds` with `count` clips: 0, then each cut on the song
+ * beat nearest an even split (in order, never two on one beat); evenly without beats.
+ */
+export function cutTimes(count, seconds, beats = []) {
+  const times = [0];
+  for (let index = 1; index < count; index += 1) {
+    const even = (seconds * index) / count;
+    const free = beats.filter((beat) => beat > times.at(-1) + 0.3 && beat < seconds - 0.3);
+    const near = free.sort((a, b) => Math.abs(a - even) - Math.abs(b - even))[0];
+    times.push(sec(near ?? even));
+  }
+  return times;
+}
+
+/** The beat the line enters on: the song beat nearest 0.5 s (0.5 s without beats). */
+export const lineEntry = (beats = []) => sec([...beats].sort((a, b) => Math.abs(a - 0.5) - Math.abs(b - 0.5))[0] ?? 0.5);
+
+/**
+ * The edit ops of one kino-built sketch on a fresh scene of `frame` {width, height}: each clip full
+ * frame (cropped to fill by coverBox), cut on the beats; the song from its entry with a short fade
+ * out; the line large and centered, entering on a beat with the mask entrance, in `font`.
+ * clips [{src, type: "video"|"image", width, height, duration, in}], song {src, from, beats} or null.
+ */
+export function sketchOps({ frame, seconds, clips = [], song = null, line = "", font = null, coverBox }) {
+  const beats = song?.beats ?? [];
+  const starts = cutTimes(clips.length, seconds, beats);
+  const ops = clips.map((clip, index) => {
+    const start = starts[index];
+    const length = sec((starts[index + 1] ?? seconds) - start);
+    const box = coverBox({ width: clip.width || frame.width, height: clip.height || frame.height }, frame);
+    const offset = clip.type === "video" ? sec(Math.max(0, Math.min(clip.in ?? 0, (clip.duration || Infinity) - length))) : 0;
+    return { op: "add_layer", layerType: clip.type, name: `sketch-clip-${index + 1}`,
+      properties: { src: clip.src, ...box, mediaStart: start, mediaDuration: length, ...(clip.type === "video" ? { mediaOffset: offset, mediaFreeze: "last", volume: song ? 0 : 1 } : {}) } };
+  });
+  if (song) ops.push({ op: "add_layer", layerType: "audio", name: "sketch-song", properties: { src: song.src, mediaStart: 0, mediaDuration: seconds, mediaOffset: song.from, volume: 0.8 },
+    animations: [{ kind: "custom", name: "Song out", start: sec(seconds - 0.4), duration: 0.4, easing: "quart-out", from: { volume: 0.8 }, to: { volume: 0 } }] });
+  if (line) {
+    const size = Math.round(Math.min(frame.height * 0.13, (frame.width * 0.84 * 1.6) / Math.max(8, line.length)));
+    const start = lineEntry(beats);
+    ops.push({ op: "add_layer", layerType: "text", name: "sketch-line",
+      properties: { text: line, x: Math.round(frame.width * 0.08), y: Math.round(frame.height / 2 - size * 0.75), width: Math.round(frame.width * 0.84), height: Math.round(size * 1.5),
+        fontSize: size, fill: "#ffffff", textAlign: "center", verticalAlign: "middle" },
+      // By word: the text mask's own letter stagger (0.15 s a letter) took 4 s to show a 27-letter line.
+      animations: [{ preset: "preset-mask", start, duration: 0.5, unit: "words", stagger: 0.06 }] });
+    if (font) ops.push({ op: "set_font", layers: ["sketch-line"], family: font });
+  }
+  return ops;
+}
+
+/**
+ * A treatment's defaults for a built sketch: the line is the first quoted words of its move or idea
+ * ('312 keyframes'), else none; the clips are the project files its source names, each `in` the
+ * first seconds number after the name. `files` [{name, ...}] are the project's files.
+ */
+export function treatmentDefaults(entry, files = []) {
+  // A quote opens after a space or the start and closes before a non-letter, so "agent's" is no quote.
+  const quoted = /(?:^|[\s(:,])['"‘“]([^'"‘’“”]{2,80})['"’”](?![a-z])/i.exec(`${entry?.move ?? ""} ${entry?.idea ?? ""}`)?.[1]?.trim() ?? null;
+  const source = String(entry?.source ?? "");
+  const clips = [];
+  for (const file of files) {
+    const stem = String(file.name ?? "").replace(/\.[a-z0-9]+$/i, "");
+    const at = stem.length >= 2 ? source.toLowerCase().indexOf(stem.toLowerCase()) : -1;
+    if (at < 0) continue;
+    const seconds = /^[^;,]*?(\d+(?:\.\d+)?)\s*s\b/.exec(source.slice(at + stem.length))?.[1];
+    clips.push({ at, clip: { file: file.name, ...(seconds !== undefined ? { in: Number(seconds) } : {}) } });
+  }
+  return { line: quoted, clips: clips.sort((a, b) => a.at - b.at).map((entry) => entry.clip).slice(0, CLIPS_MOST) };
+}
+
+/** What a picked sketch carries to later steps: its song (file and stretch), font and line, or null. */
+export function sketchCarry(round, option) {
+  if (!option?.song && !option?.font && !option?.line) return null;
+  const song = option.song?.src ? { song: option.song.src, songTitle: option.song.title, songFrom: option.song.from, songTo: option.song.to } : { song: null, songFrom: null };
+  return { round: round.id, letter: option.letter, ...song, font: option.font ?? null, line: option.line ?? null };
+}
+
+/**
+ * The sketch the person picked, for later steps (the storyboard's music, the style's fonts):
+ * { song (media src), songTitle, songFrom, songTo, font, line, round, letter } or null. With a
+ * picked treatment it is that pick's sketch (none when they picked by typing); else the last
+ * picked round of named sketches.
+ */
+export function pickedSketch(state) {
+  const picked = state?.brief?.treatments?.picked;
+  if (picked) return picked.sketch ?? null;
+  const round = [...(state?.tries ?? [])].reverse().find((entry) => entry.sketch && entry.status === "picked");
+  return round ? sketchCarry(round, round.options.find((option) => option.letter === round.pick)) : null;
+}
 
 /** The letters a sketch can name: the 3 shown (A to C), and D when the dropped one is listed. */
 function shownLetters(treatments, known) {
@@ -67,15 +197,20 @@ export function treatmentOf(treatments, letter) {
  * for) be named. A stretch whose options name no treatment is a sketch round of named options
  * (sound and numbers, no treatment pick): letters, names and ideas are null.
  */
-export function readSketch(input, scene, treatments, known = false) {
-  const from = Number(input.from);
-  const to = Number(input.to);
+export function readSketch(input, scene, treatments, known = false, built = false) {
+  // A built sketch starts at 0 on its own fresh scene: seconds (or to - from) long.
+  const length = built ? Number(input.seconds ?? (input.from !== undefined && input.to !== undefined ? input.to - input.from : SKETCH_SECONDS)) : null;
+  if (built && !(length >= SKETCH_LEAST - 1e-6 && length <= SKETCH_MOST + 1e-6)) throw new Error(`seconds is the sketch length, ${SKETCH_LEAST} to ${SKETCH_MOST} (default ${SKETCH_SECONDS}).`);
+  const extra = built ? { built: input.options.map(readBuilt) } : {};
+  const from = built ? 0 : Number(input.from);
+  const to = built ? length : Number(input.to);
+  if (built) scene = { ...scene, duration: length };
   if (!Number.isFinite(from) || !Number.isFinite(to) || from < 0 || to > scene.duration + 1e-6 || to - from < SKETCH_LEAST - 1e-6 || to - from > SKETCH_MOST + 1e-6)
     throw new Error(`A sketch is one stretch of the scene: from and to in seconds, ${SKETCH_LEAST} to ${SKETCH_MOST} s long, inside 0 to ${sec(scene.duration)} s.`);
   if (!input.options.some((option) => option?.treatment !== undefined)) {
     input.options.forEach((option, index) => { if (JSON.stringify(option?.ops ?? []).length > SKETCH_OPS_MOST) throw new Error(`options[${index}].ops is over ${SKETCH_OPS_MOST} characters: sketch the stretch with fewer layers.`); });
     const none = input.options.map(() => null);
-    return { from: sec(from), to: sec(to), treatments: none, names: none, ideas: none };
+    return { from: sec(from), to: sec(to), treatments: none, names: none, ideas: none, ...extra };
   }
   if (!treatments?.list) throw new Error('options[].treatment names a saved treatment, and this project has none: leave treatment out and give each sketch a name, or save the 5 first (notes brief fields:{treatments:[...]}).');
   const letters = shownLetters(treatments, known);
@@ -89,7 +224,7 @@ export function readSketch(input, scene, treatments, known = false) {
   });
   if (new Set(picked).size !== picked.length) throw new Error("Each sketch shows its own treatment.");
   return { from: sec(from), to: sec(to), treatments: picked, names: picked.map((letter) => treatmentOf(treatments, letter).move.slice(0, 40)),
-    ideas: picked.map((letter) => treatmentOf(treatments, letter).idea ?? null) };
+    ideas: picked.map((letter) => treatmentOf(treatments, letter).idea ?? null), ...extra };
 }
 
 /** The cache key of one sketch: the document before its ops, the ops, the scene and the stretch. */
@@ -196,6 +331,15 @@ const factText = (facts) => [
   facts.colors.length ? `colors ${facts.colors.map((color) => `${color.hex} ${Math.round(color.share * 100)}%`).join(", ")}` : null,
 ].filter(Boolean).join(", ");
 
+// A built sketch's song (title, the stretch of the song) and font, and the line's source.
+const builtText = (option) => {
+  if (!option.built) return "";
+  const song = option.song?.src ? `song "${option.song.title}" ${option.song.from}-${option.song.to} s of the song (${option.song.kind})`
+    : option.song?.error ? `silent: the song "${option.song.asked}" could not be fetched (${option.song.error})` : "no song (silent)";
+  const line = option.line ? `line "${option.line}" (${option.lineFrom})` : "no line";
+  return `; ${song}; font ${option.font ?? "the default"}; ${line}; ${option.cuts ?? 0} cut${option.cuts === 1 ? "" : "s"}${option.cuts && option.song?.src ? " on the song's beats" : ""}`;
+};
+
 /**
  * The receipt lines of a rendered sketch round: one per sketch (render seconds per sketch second,
  * measured, or cached) and the closest pair side by side. `options` [{letter, name, treatment,
@@ -208,8 +352,14 @@ export function sketchLines(round) {
     if (option.error) return `${head}: could not be made: ${option.error}`;
     if (!option.facts) return `${head}: still rendering`;
     const made = option.cached ? "cached, not rendered again" : `rendered in ${sec(option.renderSeconds)} s, ${sec(option.renderSeconds / length)} s per sketch second (measured on this machine)`;
-    return `${head}: ${made}; ${factText(option.facts)}`;
+    return `${head}: ${made}; ${factText(option.facts)}${builtText(option)}`;
   });
+  // Two sketches on one song or one font: said once, as a fact.
+  for (const [key, label] of [["song", "song"], ["font", "font"]]) {
+    const named = round.options.filter((option) => option.built).map((option) => [option.letter, key === "song" ? option.song?.src ?? null : option.font]).filter(([, value]) => value);
+    const same = named.filter(([, value], index) => named.some(([, other], at) => at !== index && other === value));
+    if (same.length) lines.push(`${same.map(([letter]) => letter).join(" and ")} use the same ${label}${key === "font" ? ` (${same[0][1]})` : ""}.`);
+  }
   const done = round.options.filter((option) => option.facts);
   let closest = null;
   for (let i = 0; i < done.length; i += 1)
