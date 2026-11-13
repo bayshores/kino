@@ -133,9 +133,9 @@ function evaluatedState(layer, context, { unitIndex = 0, unitCount = 1, unit } =
     // documents are replaced and never changed in place, their sorted lists) between frames.
     shareAnimations: context.interactiveMedia ? "remember" : true,
   });
-  const values = evaluated?.values ?? evaluated?.properties ?? evaluated ?? {};
-  // evaluateLayer's result is already a new copy of the layer with its values.
-  return values === evaluated ? evaluated : { ...effectiveBoxStyle(layer), ...values };
+  // evaluateLayer's result is already a new copy of the layer with its values (a script layer's
+  // `values` are its inputs, not the layer's state).
+  return evaluated;
 }
 
 // A drawing reads a layer several times (backdrops, its children's matrices, bounds), so its
@@ -231,6 +231,17 @@ function videoFrameFor(layer, time, sourceTime, videoFrames) {
 
 function videoHref(layer, time, sourceTime, context) {
   const frame = videoFrameFor(layer, time, sourceTime, context.videoFrames);
+  if (frameUrl(frame)) return frame;
+  return normalizeHref(frame, layer, "video");
+}
+
+// A script layer's drawn picture: `scriptFrames` keyed by layer id holds an href or bytes (as a
+// video frame), or a function ({layer, time}) that gives one. Nothing yet draws nothing.
+function scriptHref(layer, context) {
+  const map = context.scriptFrames;
+  let frame = map instanceof Map ? map.get(layer.id) : map?.[layer.id];
+  if (typeof frame === "function") frame = frame({ layer, time: context.time });
+  if (frame == null || frame === "") return "";
   if (frameUrl(frame)) return frame;
   return normalizeHref(frame, layer, "video");
 }
@@ -1222,6 +1233,10 @@ function renderLayerAt(node, context, { maskContent = false, maskInvert = null }
         ? videoHref(layer, time, sourceTime, context)
         : imageHref(layer, time, sourceTime, context);
     body = `<image x="0" y="0" width="${fmt(Math.max(0, finite(state.width)))}" height="${fmt(Math.max(0, finite(state.height)))}" href="${escapeXml(href)}" preserveAspectRatio="xMidYMid ${layer.type === "image" ? "slice" : "meet"}"/>`;
+  } else if (layer.type === "script") {
+    // The picture the layer's module drew for this moment (scriptLayer.js), or nothing yet.
+    const href = scriptHref(layer, context);
+    if (href) body = `<image x="0" y="0" width="${fmt(Math.max(0, finite(state.width)))}" height="${fmt(Math.max(0, finite(state.height)))}" href="${escapeXml(href)}" preserveAspectRatio="none"/>`;
   } else if (!["group", "audio"].includes(layer.type)) {
     throw new Error(
       `Layer “${layer.name ?? layer.id}” has unsupported type “${layer.type}”.`,
@@ -1232,7 +1247,7 @@ function renderLayerAt(node, context, { maskContent = false, maskInvert = null }
     bounds: { x: 0, y: 0, width: Math.max(0.001, finite(state.width)), height: Math.max(0.001, finite(state.height)) },
     helpers: { defs: context.defs, id: (kind) => idFor(context, `log-${kind}`), raster: context.raster } });
   const safeId = escapeXml(String(layer.id ?? ""));
-  const isMedia = layer.type === "image" || layer.type === "video";
+  const isMedia = layer.type === "image" || layer.type === "video" || (layer.type === "script" && body !== "");
   const rasterBounds = (isMedia || layer.type === "group") ? rasterClipBounds(state, context) : "";
   const clipState = { ...paintState, width: Math.max(0, finite(state.width)), height: Math.max(0, finite(state.height)) };
   // A raster picture with square corners needs no clip group: <image> stays inside its box. resvg
@@ -1592,7 +1607,7 @@ export function renderLayerSvg(layer, time = 0, options = {}) {
 export function renderSceneSvg(
   scene,
   time = 0,
-  { design = false, embedMedia, videoFrames, decodedVideos, videoLead, imageFrames, interactiveMedia = false, canvas = false, raster = false, rasterScale = { x: 1, y: 1 }, fonts = defaultFonts, idPrefix = "", capture, mediaTime = time, luts, levels, calmLight = false, draft = false, previewBlur = false } = {},
+  { design = false, embedMedia, videoFrames, decodedVideos, videoLead, imageFrames, scriptFrames, interactiveMedia = false, canvas = false, raster = false, rasterScale = { x: 1, y: 1 }, fonts = defaultFonts, idPrefix = "", capture, mediaTime = time, luts, levels, calmLight = false, draft = false, previewBlur = false } = {},
 ) {
   if (!scene || !Array.isArray(scene.layers))
     throw new TypeError("A scene with a layers array is required.");
@@ -1616,7 +1631,7 @@ export function renderSceneSvg(
     design: Boolean(design),
     embedMedia,
     videoFrames, decodedVideos, videoLead,
-    imageFrames,
+    imageFrames, scriptFrames,
     interactiveMedia: Boolean(interactiveMedia),
     canvas: Boolean(canvas),
     raster: Boolean(raster),

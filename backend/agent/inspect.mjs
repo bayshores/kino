@@ -22,7 +22,7 @@ import { closest, ReferenceError } from "./refs.mjs";
 
 export const MAX_INSPECT = 10;
 const MAX_NAMED = 200;
-const LAYER_TYPES = new Set(["rectangle", "ellipse", "star", "path", "text", "image", "video", "audio", "group", "component"]);
+const LAYER_TYPES = new Set(["rectangle", "ellipse", "star", "path", "text", "image", "video", "audio", "group", "component", "script"]);
 const SELECTOR = /^(?:(\S+)\s+)?([a-z*]*)((?:\[[^\]]+\])*)$/i;
 const CONDITION = /\[\s*([a-zA-Z.]+)\s*(!=|>=|<=|~=|=|>|<)\s*([^\]]*?)\s*\]/g;
 

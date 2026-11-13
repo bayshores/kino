@@ -87,7 +87,7 @@ export const AGENT_TOOLS = withSaid([
     description: [
       "Change the motion project (layers, animations, scenes) with a list of operations, saved as one revision. The receipt: new names, codes, changes, check counts.",
       "Each op is {op, ...fields}; refer to things by name, code (L3, s1, A2) or layer.kind (title.in); one scene needs no sceneId.",
-      "Common ops: add_layer {layerType:rectangle|ellipse|text|image|video|audio|group, name, properties:{x,y,width,height,fill,text,fontSize}} · update_layer {layer, properties} · delete_layer · add_animation {layer, preset, start, duration} (preset-fade, move, …) · set_font {layers, family, weight}",
+      "Common ops: add_layer {layerType:rectangle|ellipse|text|image|video|audio|group|script, name, properties:{x,y,width,height,fill,text,fontSize}} · update_layer {layer, properties} · delete_layer · add_animation {layer, preset, start, duration} (preset-fade, move, …) · set_font {layers, family, weight}",
       "library {topic:\"op\", name} gives exact fields. A refused edit saves nothing; resend it fixed: {retry:\"E1\", fix:{\"3\":{fields}}}.",
     ].join("\n"),
     input: {

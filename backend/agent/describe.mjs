@@ -2,6 +2,7 @@
 // inspect. Numbers are rounded (whole pixels, times to 2 decimals) and random IDs are replaced
 // by short codes, so an agent reads about 30 tokens per line instead of a whole JSON object.
 import { animationTreeEntries } from "../../engine/animationTree.js";
+import { animatedInputs } from "../../engine/scriptLayer.js";
 
 const RANDOM_ID = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-z]{6,}-[0-9a-z]{6,}-[0-9a-z]{6,})$/i;
 
@@ -121,6 +122,16 @@ export function layerAnimations(layer) {
   return animationTreeEntries(layer.animations ?? []).map(({ stored, offset, parents }) => ({ animation: stored, offset, depth: parents.length }));
 }
 
+// A script layer's inputs with their current values, "(animated)" after the ones an animation
+// moves: "inputs reveal=1 (animated), tint=#ff3366, mode="bars"". The code itself is left out.
+export function scriptInputsText(layer) {
+  const animated = animatedInputs(layer);
+  const inputs = layer.inputs ?? [];
+  if (!inputs.length) return "no inputs";
+  const shown = (input, value) => input.type === "color" ? value : valueText(input.key, value);
+  return `inputs ${inputs.map((input) => `${input.key}=${shown(input, layer.values?.[input.key])}${animated.has(input.key) ? " (animated)" : ""}`).join(", ")}`;
+}
+
 // One layer in one line: "L1 hero-title text "Ship faster" 160,68 300×50 #f4f6fb".
 export function layerLine(layer, codes) {
   const parts = [labelled(layer.id, codes), layer.type];
@@ -128,8 +139,8 @@ export function layerLine(layer, codes) {
   if (layer.type === "text") parts.push(JSON.stringify(String(layer.text ?? "").slice(0, 40)));
   if (layer.type === "component") parts.push(`of ${refName(layer.componentSceneId, codes)}`);
   parts.push(`${px(layer.x)},${px(layer.y)} ${px(layer.width)}×${px(layer.height)}`);
-  // Image, video, audio, group and component layers draw no fill of their own.
-  if (!["image", "video", "audio", "group", "component"].includes(layer.type) && layer.fillEnabled !== false && layer.fill)
+  // Image, video, audio, group, component and script layers draw no fill of their own.
+  if (!["image", "video", "audio", "group", "component", "script"].includes(layer.type) && layer.fillEnabled !== false && layer.fill)
     parts.push(paintText(layer.fill));
   if (layer.type === "text") {
     // Variable font axes (fontAxes.js): axes.wght is the weight drawn, the others follow as tag=value.
@@ -137,6 +148,7 @@ export function layerLine(layer, codes) {
     const more = Object.entries(axes).map(([tag, value]) => ` ${tag}=${value}`).join("");
     parts.push(`${layer.fontFamily} ${wght ?? layer.fontWeight}${more} ${px(layer.fontSize)}px`);
   }
+  if (layer.type === "script") parts.push(scriptInputsText(layer));
   if (layer.opacity != null && layer.opacity !== 1) parts.push(`opacity ${num(layer.opacity)}`);
   if (layer.rotation) parts.push(`rot ${num(layer.rotation)}`);
   if (layer.visible === false) parts.push("hidden");

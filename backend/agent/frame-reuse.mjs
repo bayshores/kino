@@ -35,8 +35,7 @@ function notDrawn(layer, time, fonts) {
   if (layer.visible === false || layer.type === "audio") return true;
   let state;
   try {
-    const evaluated = evaluateLayer(layer, time, { fonts });
-    state = evaluated?.values ?? evaluated?.properties ?? evaluated ?? {};
+    state = evaluateLayer(layer, time, { fonts });
   } catch { return false; }
   if (state.visible === false) return true;
   // A text drawn by letters, words or lines (or a Change text) gives each unit its own opacity.

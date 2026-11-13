@@ -59,6 +59,7 @@ import { LOG_PROFILES } from "./footageLog.js";
 import {
   MAX_MEDIA_FRAME_RATE, MAX_MEDIA_SPEED, MAX_VOLUME, MEDIA_INTERPOLATIONS, MEDIA_PITCHES, MEDIA_TIMING_TYPES, MIN_MEDIA_FRAME_RATE, MIN_MEDIA_SPEED,
 } from "./mediaTime.js";
+import { normalizeAnimatedValues, normalizeScriptInputs, normalizeScriptValues, scriptProblem } from "./scriptLayer.js";
 
 
 const LAYER_TYPES = new Set([
@@ -72,6 +73,8 @@ const LAYER_TYPES = new Set([
   "group",
   "audio",
   "component",
+  // A picture drawn by the agent's own module (scriptLayer.js).
+  "script",
 ]);
 const STROKE_ALIGNMENTS = new Set(["center", "inside", "outside"]);
 const PATH_FILL_RULES = new Set(["nonzero", "evenodd"]);
@@ -130,6 +133,8 @@ const VALUE_KEYS = new Set([
   ...REPEAT_KEYS,
   // Shape modifiers (shapeModifiers.js); only shape and path layers.
   ...MODIFIER_KEYS,
+  // A script layer's number and color inputs {key: value} (scriptLayer.js); only script layers.
+  "values",
 ]);
 // Keys measured in fractions (1 is 100%): a wiggle amount for pixels or degrees is far too big.
 const FRACTION_KEYS = new Set(["scaleX", "scaleY", "opacity", "lineHeight", "donut", "starThickness", "bloatAmount", ...REPEAT_FRACTION_KEYS]);
@@ -341,6 +346,7 @@ function layerDefaults(type, id = uid()) {
     volume: 1,
     animations: [],
     ...(type === "component" ? {componentSceneId: "", componentStart: 0, componentVisibility: "both", componentBackgroundEnabled: true, clipContent: true} : {}),
+    ...(type === "script" ? { script: "", inputs: [], values: {} } : {}),
   };
 }
 
@@ -754,6 +760,20 @@ function normalizeAnimation(raw, path, ids, layer, depth = 0, offset = 0) {
   for (const key of propertyKeys) {
     if (!VALUE_KEYS.has(key))
       fail(path, `cannot animate unsupported property "${key}"${key === "scale" ? "; animate scaleX and scaleY" : ""}`);
+    // A script layer's inputs (scriptLayer.js): from and to name the same keys, each side that
+    // leaves one out starts or ends at the layer's own value.
+    if (key === "values") {
+      if (layer.type !== "script") fail(path, `a values animation needs a script layer; a ${layer.type} layer has no inputs`);
+      for (const [side, given] of [["from", from], ["to", to]])
+        if (Object.hasOwn(given, "values") && (given.values === null || typeof given.values !== "object" || Array.isArray(given.values)))
+          fail(`${path}.${side}.values`, "must be an object {key: value} naming number or color inputs");
+      const named = [...new Set([...Object.keys(from.values ?? {}), ...Object.keys(to.values ?? {})])];
+      const filled = (given) => Object.fromEntries(named.map((name) =>
+        [name, given && Object.hasOwn(given, name) ? given[name] : layer.values?.[name]]));
+      normalizedFrom.values = normalizeAnimatedValues(layer.inputs, filled(from.values), `${path}.from.values`);
+      normalizedTo.values = normalizeAnimatedValues(layer.inputs, filled(to.values), `${path}.to.values`);
+      continue;
+    }
     // A Speed animation starts from the clip's own speed (mediaSpeed, 1 when not set).
     // A Lowpass animation starts from the layer's cutoff, or fully open when it has none.
     const layerRest = key === "speed" ? layer.mediaSpeed ?? 1
@@ -830,7 +850,9 @@ function normalizeAnimation(raw, path, ids, layer, depth = 0, offset = 0) {
   animation.to = normalizedTo;
   if (keyList) {
     animation.keys = keyList.map((key, index) => ({ ...key, value: Object.fromEntries(Object.entries(key.value).map(([name, value]) =>
-      [name, validateAnimatedValue(name, value, `${path}.keys[${index}].value.${name}`)])) }));
+      [name, name === "values" && layer.type === "script"
+        ? normalizeAnimatedValues(layer.inputs, value, `${path}.keys[${index}].value.values`)
+        : validateAnimatedValue(name, value, `${path}.keys[${index}].value.${name}`)])) }));
     if (Object.hasOwn(normalizedTo, "path")) {
       for (let index = 1; index < animation.keys.length; index++) {
         try { interpolatePath(animation.keys[index - 1].value.path, animation.keys[index].value.path, 0.5); }
@@ -1088,6 +1110,19 @@ function normalizeMediaTiming(layer, path) {
         ? "needs a Play range: give the GIF a mediaDuration first"
         : "needs a known end: set mediaDuration, or mediaSourceDuration (the length importing the file answered)");
   }
+}
+
+// A script layer's module, inputs and their values (scriptLayer.js); other layers have none.
+function normalizeScriptFields(layer, raw, path) {
+  if (layer.type !== "script") {
+    for (const key of ["script", "inputs", "values"])
+      if (Object.hasOwn(raw, key)) fail(`${path}.${key}`, `only a script layer has ${key}; this is a ${layer.type} layer`);
+    return;
+  }
+  const problem = scriptProblem(layer.script);
+  if (problem) fail(`${path}.script`, problem);
+  layer.inputs = normalizeScriptInputs(layer.inputs, `${path}.inputs`);
+  layer.values = normalizeScriptValues(layer.inputs, layer.values, `${path}.values`);
 }
 
 function normalizeLayer(raw, path, animationIds, counters) {
@@ -1499,6 +1534,7 @@ function normalizeLayer(raw, path, animationIds, counters) {
   if (layer.log == null) delete layer.log;
   else if (layer.type !== "video") fail(`${path}.log`, `needs a video layer; a ${layer.type} layer has none`);
   else if (!LOG_PROFILES.includes(layer.log)) fail(`${path}.log`, `must be ${LOG_PROFILES.map((name) => `"${name}"`).join(" or ")}, or null for none`);
+  normalizeScriptFields(layer, raw, path);
   const animations = requireArray(
     layer.animations,
     `${path}.animations`,

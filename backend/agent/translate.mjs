@@ -104,7 +104,7 @@ const PERSON_WORDS_ABOUT = {
 const HANDED_OVER = /^\s*(?:it'?s\s+)?(?:your call|up to you|you decide|you pick|whatever you think|ok(?:ay)?|yes|approve[ds]?|looks good|fine)[\s.!]*$/i;
 // Fields that name one layer.
 const LAYER_FIELDS = ["layerId", "referenceId", "parentId", "maskLayerId", "speechId", "toId", "duckId"];
-const LAYER_TYPES = new Set(["rectangle", "ellipse", "star", "path", "text", "image", "video", "audio", "group"]);
+const LAYER_TYPES = new Set(["rectangle", "ellipse", "star", "path", "text", "image", "video", "audio", "group", "script"]);
 // Short field names agents often use, and the engine field each stands for. They are the
 // documented way to write these fields, so renaming them is not reported.
 const FIELD_ALIASES = [["layer", "layerId"], ["scene", "sceneId"], ["layers", "layerIds"], ["parent", "parentId"], ["component", "componentSceneId"]];
