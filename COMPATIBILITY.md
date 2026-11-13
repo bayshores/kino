@@ -1964,7 +1964,8 @@ How to read it:
   sketches of the shown treatments with sound, cached by ops; the receipt prints render seconds per sketch second and
   picture changes, median shot, lettering, LUFS, colors and the closest pair; a dashboard pick saves the treatment pick
   by them. Evidence: `backend/tries.test.mjs` (stubbed render: cache, pick), a 14 s fan edit replay (three 6 s
-  sketches at 2.14 to 2.34 s per sketch second, desktop pick). Gaps: no server test renders a sketch with sound; picture changes use a starting threshold (0.05).
+  sketches at 2.14 to 3.67 s per sketch second, desktop pick). Without saved treatments, named sketches work the same with no
+  treatment pick. Gaps: no server test renders a sketch with sound; picture changes use a starting threshold (0.05); 9:16 layout not shown in the app.
 - **Library screen** (F4): Partly verified. Every move, effect, animation, recipe, look and video format, by what it
   does or by kind, each with a sample built through the edit path and drawn by the renderer; what this video uses;
   "ask for this" on a shot becomes one note. Evidence: `backend/dashboard.test.mjs`, `frontend/dashboardBoard.test.js`.

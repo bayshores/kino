@@ -1091,8 +1091,8 @@ export function createAgentService(deps) {
       // Sketches render now, one after another; the receipt sets their numbers side by side.
       await Promise.race([round.rendered, new Promise((resolve) => setTimeout(resolve, SKETCH_WAIT_MS).unref())]);
       const lines = await tries.sketchReceipt(projectId, round.id);
-      const head = `sketches ${round.id}: ${round.options.length} of ${round.to - round.from > 0 ? Math.round((round.to - round.from) * 100) / 100 : 0} s (${round.from} to ${round.to} s) with sound, treatments ${round.options.map((option) => option.treatment).join(", ")}`;
-      const tail = "The person plays them on the dashboard; a pick saves that treatment as theirs and reaches your inbox. Nothing waits on it.";
+      const head = `sketches ${round.id}: ${round.options.length} of ${round.to - round.from > 0 ? Math.round((round.to - round.from) * 100) / 100 : 0} s (${round.from} to ${round.to} s) with sound${round.options.some((option) => option.treatment) ? `, treatments ${round.options.map((option) => option.treatment).join(", ")}` : ""}`;
+      const tail = `The person plays them on the dashboard; a pick ${round.options.some((option) => option.treatment) ? "saves that treatment as theirs and " : ""}reaches your inbox. Nothing waits on it.`;
       const text = lines ? [`${head}:`, ...lines, tail].join("\n") : `${head}: still rendering; their numbers reach your inbox when ready. ${tail}`;
       return done(projectId, { text, data: { id: round.id, rev: round.rev, sketch: true, options: round.options.map((option) => ({ letter: option.letter, treatment: option.treatment })) } });
     }

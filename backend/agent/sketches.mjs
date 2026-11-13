@@ -62,15 +62,22 @@ export function treatmentOf(treatments, letter) {
 
 /**
  * Reads the sketch part of a try input (throws its words when a field is wrong): {from, to,
- * treatments:[letter per option], names:[default name per option]}. `treatments` is the saved
- * brief.treatments; `known` true lets D (the dropped one the ask is known for) be named.
+ * treatments:[letter per option], names:[default name per option], ideas:[the treatment's idea]}.
+ * `treatments` is the saved brief.treatments; `known` true lets D (the dropped one the ask is known
+ * for) be named. A stretch whose options name no treatment is a sketch round of named options
+ * (sound and numbers, no treatment pick): letters, names and ideas are null.
  */
 export function readSketch(input, scene, treatments, known = false) {
-  if (!treatments?.list) throw new Error('Sketches show the treatments: save the 5 first (notes brief fields:{treatments:[...]}), then sketch the 3 shown.');
   const from = Number(input.from);
   const to = Number(input.to);
   if (!Number.isFinite(from) || !Number.isFinite(to) || from < 0 || to > scene.duration + 1e-6 || to - from < SKETCH_LEAST - 1e-6 || to - from > SKETCH_MOST + 1e-6)
     throw new Error(`A sketch is one stretch of the scene: from and to in seconds, ${SKETCH_LEAST} to ${SKETCH_MOST} s long, inside 0 to ${sec(scene.duration)} s.`);
+  if (!input.options.some((option) => option?.treatment !== undefined)) {
+    input.options.forEach((option, index) => { if (JSON.stringify(option?.ops ?? []).length > SKETCH_OPS_MOST) throw new Error(`options[${index}].ops is over ${SKETCH_OPS_MOST} characters: sketch the stretch with fewer layers.`); });
+    const none = input.options.map(() => null);
+    return { from: sec(from), to: sec(to), treatments: none, names: none, ideas: none };
+  }
+  if (!treatments?.list) throw new Error('options[].treatment names a saved treatment, and this project has none: leave treatment out and give each sketch a name, or save the 5 first (notes brief fields:{treatments:[...]}).');
   const letters = shownLetters(treatments, known);
   const picked = input.options.map((option, index) => {
     const named = String(option?.treatment ?? "").trim();
@@ -81,7 +88,8 @@ export function readSketch(input, scene, treatments, known = false) {
     return letter;
   });
   if (new Set(picked).size !== picked.length) throw new Error("Each sketch shows its own treatment.");
-  return { from: sec(from), to: sec(to), treatments: picked, names: picked.map((letter) => treatmentOf(treatments, letter).move.slice(0, 40)) };
+  return { from: sec(from), to: sec(to), treatments: picked, names: picked.map((letter) => treatmentOf(treatments, letter).move.slice(0, 40)),
+    ideas: picked.map((letter) => treatmentOf(treatments, letter).idea ?? null) };
 }
 
 /** The cache key of one sketch: the document before its ops, the ops, the scene and the stretch. */
@@ -162,15 +170,23 @@ export function clipFacts(frames, { seconds, lufs = null, lettering = null }) {
 const rgb = (hex) => [1, 3, 5].map((at) => Number.parseInt(hex.slice(at, at + 2), 16));
 const near = (a, b) => Math.hypot(...rgb(a).map((value, index) => value - rgb(b)[index])) <= SAME_COLOR;
 
-/** How many of a's colors have a near twin among b's. */
-export const sharedColors = (a, b) => a.colors.filter((color) => b.colors.some((other) => near(color.hex, other.hex))).length;
+/**
+ * The share of the picture two sketches color alike (0 to 1): each of a's colors counts the smaller
+ * of its share and the share of b's near colors, so a frame 97% black and one 70% dark overlap 70%,
+ * not "3 of 3 shared".
+ */
+export function colorOverlap(a, b) {
+  let total = 0;
+  for (const color of a.colors) total += Math.min(color.share, b.colors.filter((other) => near(color.hex, other.hex)).reduce((sum, other) => sum + other.share, 0));
+  return Math.min(1, total);
+}
 
 // How far apart two sketches are, as one number for finding the closest pair: each fact's gap over
 // its usual range, added up (a plain sum; the receipt prints the facts themselves).
 function gap(a, b) {
   const part = (x, y, range) => (x === null || y === null ? 0 : Math.min(1, Math.abs(x - y) / range));
   return part(a.changes, b.changes, 6) + part(a.shot, b.shot, 2) + part(a.lettering, b.lettering, 0.5) + part(a.lufs, b.lufs, 6)
-    + (1 - sharedColors(a, b) / Math.max(1, Math.min(a.colors.length, b.colors.length)));
+    + (1 - colorOverlap(a, b));
 }
 
 const factText = (facts) => [
@@ -188,7 +204,7 @@ const factText = (facts) => [
 export function sketchLines(round) {
   const length = Math.max(0.01, round.to - round.from);
   const lines = round.options.map((option) => {
-    const head = `${option.letter} (treatment ${option.treatment}, ${option.name})`;
+    const head = option.treatment ? `${option.letter} (treatment ${option.treatment}, ${option.name})` : `${option.letter} (${option.name})`;
     if (option.error) return `${head}: could not be made: ${option.error}`;
     if (!option.facts) return `${head}: still rendering`;
     const made = option.cached ? "cached, not rendered again" : `rendered in ${sec(option.renderSeconds)} s, ${sec(option.renderSeconds / length)} s per sketch second (measured on this machine)`;
@@ -204,7 +220,7 @@ export function sketchLines(round) {
   if (closest) {
     const { a, b } = closest;
     const pair = (key, unit = "") => `${a.facts[key] ?? "none"}${unit} vs ${b.facts[key] ?? "none"}${unit}`;
-    lines.push(`closest pair: ${a.letter} and ${b.letter}: picture changes ${pair("changes")}, median shot ${pair("shot", " s")}, lettering ${a.facts.lettering === null ? "?" : Math.round(a.facts.lettering * 100)}% vs ${b.facts.lettering === null ? "?" : Math.round(b.facts.lettering * 100)}%, loudness ${pair("lufs", " LUFS")}, ${sharedColors(a.facts, b.facts)} of ${Math.min(a.facts.colors.length, b.facts.colors.length)} colors shared`);
+    lines.push(`closest pair: ${a.letter} and ${b.letter}: picture changes ${pair("changes")}, median shot ${pair("shot", " s")}, lettering ${a.facts.lettering === null ? "?" : Math.round(a.facts.lettering * 100)}% vs ${b.facts.lettering === null ? "?" : Math.round(b.facts.lettering * 100)}%, loudness ${pair("lufs", " LUFS")}, colors overlap ${Math.round(colorOverlap(a.facts, b.facts) * 100)}% of the picture`);
   }
   lines.push(`(a picture change: ${MEASURE_FPS} samples a second, mean block brightness moved ${CHANGE_AT} or more from the sample before, a starting value)`);
   return lines;

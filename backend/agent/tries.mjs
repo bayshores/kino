@@ -13,7 +13,7 @@
 // of one also records that treatment as the person's pick (deps.pickTreatment).
 import { mkdir, readdir, rm } from "node:fs/promises";
 import path from "node:path";
-import { isSketchInput, readSketch, sketchCache, sketchKey, sketchLines } from "./sketches.mjs";
+import { isSketchInput, readSketch, sketchCache, sketchKey, sketchLines, treatmentOf } from "./sketches.mjs";
 
 export const TRY_LETTERS = ["A", "B", "C", "D"];
 export const TRY_ANSWERS = ["none", "skip"];
@@ -54,7 +54,7 @@ export function readTry(input, scenes, { treatments = null, known = false } = {}
     const ops = option?.ops ?? [];
     if (!Array.isArray(ops)) throw new Error(`options[${index}].ops is a list of edit ops ([] keeps the video as it is).`);
     if (!sketch && JSON.stringify(ops).length > OPS_MOST) throw new Error(`options[${index}].ops is over ${OPS_MOST} characters: try one change at a time.`);
-    return { letter: TRY_LETTERS[index], name, ops, ...(drawn ? { treatment: drawn.treatments[index] } : {}) };
+    return { letter: TRY_LETTERS[index], name, ops, ...(drawn?.treatments[index] ? { treatment: drawn.treatments[index], idea: drawn.ideas[index] } : {}) };
   });
   const names = read.map((option) => option.name.toLowerCase());
   if (new Set(names).size !== names.length) throw new Error("Each option needs its own name.");
@@ -87,8 +87,10 @@ export function answerText(round) {
   if (round.pick === "skip") return `${head}: the person skipped it${said}. Keep the video as it is and go on to the next round.`;
   if (round.pick === "none") return `${head}: the person liked none of these${said}. Try other options: notes {action:"try"} again.`;
   const option = round.options.find((entry) => entry.letter === round.pick);
-  if (round.sketch) {
-    const saved = round.treatmentSaved ? `kino saved treatment ${option.treatment} as their pick (brief treatments, by them); status next names what follows` : `their treatment pick is ${option.treatment}: save it with notes brief fields:{treatments:{pick:"${option.treatment}", quote:"${pickQuote(round, option)}"}}${round.treatmentError ? ` (kino could not: ${round.treatmentError})` : ""}`;
+  if (round.sketch && option.treatment) {
+    const saved = round.treatmentSaved ? `kino saved treatment ${option.treatment} as their pick (brief treatments, by them); status next names what follows`
+      : round.treatmentError ? `the sketch showed treatment ${option.treatment}${option.idea ? ` ("${option.idea}")` : ""}; kino did not save it as their pick: ${round.treatmentError}`
+        : `their treatment pick is ${option.treatment}: save it with notes brief fields:{treatments:{pick:"${option.treatment}", quote:"${pickQuote(round, option)}"}}`;
     return `${head}: the person picked sketch ${option.letter} (${option.name})${said}; ${saved}. The sketch's ops, if you keep them: edit {"ops":${JSON.stringify(option.ops)}}`;
   }
   const ops = option.ops.length ? `Apply it: edit {"ops":${JSON.stringify(option.ops)}}` : "It keeps the video as it is.";
@@ -229,7 +231,13 @@ export function createTries(deps) {
       found.answeredAt = new Date(now()).toISOString();
       // A picked sketch is the person's treatment pick, saved as their typed pick is.
       if (found.sketch && option?.treatment && deps.pickTreatment) {
-        try { deps.pickTreatment(state, found, option); found.treatmentSaved = true; }
+        try {
+          // The treatments may have been saved again since the sketch was made: the letter then names another idea.
+          const current = option.idea ? deps.briefOf?.(state)?.treatments : null;
+          if (current && treatmentOf(current, option.treatment)?.idea !== option.idea) throw new Error(`the treatments were saved again after ${found.id}, so ${option.treatment} now names another idea`);
+          deps.pickTreatment(state, found, option);
+          found.treatmentSaved = true;
+        }
         catch (error) { found.treatmentError = String(error?.message ?? error).split("\n")[0].slice(0, 160); }
       }
       state.turnBreak = true;

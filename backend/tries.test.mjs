@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { clipFacts, sketchKey, sketchLines } from "./agent/sketches.mjs";
+import { clipFacts, colorOverlap, sketchKey, sketchLines } from "./agent/sketches.mjs";
 import { answerText, createTries, readTry } from "./agent/tries.mjs";
 import { skipWithoutMediaTools as skip, startTestServer } from "./media.test.support.mjs";
 
@@ -55,6 +55,10 @@ test("readTry: a sketch round is a 2 to 10 s stretch whose options name shown tr
     [{ from: 2, to: 8, options: [SKETCHES[0], { treatment: "a", ops: [] }] }, { treatments: TREATMENTS }, /its own treatment/],
   ]) assert.throws(() => readTry(input, SCENES, options), words);
   assert.equal(readTry({ from: 2, to: 8, options: [SKETCHES[0], { treatment: "D", ops: [] }] }, SCENES, { treatments: TREATMENTS, known: true }).options[1].treatment, "D", "D when the dropped one is listed");
+  // A project with no treatments (a talking video, a product video): named sketches, no treatment pick.
+  const named = readTry({ from: 2, to: 8, options: [{ name: "held", ops: [] }, { name: "cut fast", ops: [] }] }, SCENES, {});
+  assert.deepEqual([named.sketch, named.options.map((option) => [option.name, option.treatment ?? null])], [true, [["held", null], ["cut fast", null]]]);
+  assert.match(answerText({ ...named, id: "T1", status: "picked", pick: "B", options: named.options }), /picked B \(cut fast\)\. It keeps the video as it is/);
 });
 
 test("sketch numbers: block changes in a row count once, the closest pair is set side by side, and the key follows the ops", () => {
@@ -67,7 +71,8 @@ test("sketch numbers: block changes in a row count once, the closest pair is set
   const lines = sketchLines({ from: 0, to: 2, options: [option("A", 2, -14, "#101010"), option("B", 8, -20, "#ff0000"), option("C", 2, -14, "#121212")] });
   assert.match(lines[0], /^A \(treatment A, nA\): rendered in 3 s, 1\.5 s per sketch second \(measured on this machine\); 2 picture changes, median shot 1 s, lettering 50% of frames, -14 LUFS, colors #101010 100%$/);
   assert.match(lines[2], /C \(treatment C, nC\): cached, not rendered again/);
-  assert.match(lines[3], /^closest pair: A and C: picture changes 2 vs 2, .* 1 of 1 colors shared$/);
+  assert.match(lines[3], /^closest pair: A and C: picture changes 2 vs 2, .* colors overlap 100% of the picture$/);
+  assert.equal(Math.round(colorOverlap({ colors: [{ hex: "#020302", share: 0.97 }, { hex: "#2f3138", share: 0.02 }] }, { colors: [{ hex: "#0f1514", share: 0.7 }, { hex: "#3a4444", share: 0.18 }] }) * 100), 72, "share-weighted, not a count");
   const document = { id: "p", scenes: [] };
   assert.equal(sketchKey(document, [], "s1", 0, 6), sketchKey(structuredClone(document), [], "s1", 0, 6));
   assert.notEqual(sketchKey(document, [], "s1", 0, 6), sketchKey(document, [{ op: "x" }], "s1", 0, 6));
@@ -96,11 +101,18 @@ test("a sketch round renders each sketch once (cached by its ops), and a pick sa
   await tries.answer("p", { id: again.id, pick: "B" });
   assert.deepEqual([picks, state.brief.treatments.picked.by, state.tries.at(-1).treatmentSaved], [["B"], "you", true]);
   assert.match(state.inbox.at(-1).text, /picked sketch B \(move 0\); kino saved treatment B as their pick \(brief treatments, by them\); status next names what follows\. The sketch's ops, if you keep them: edit/);
+  // Treatments saved again after the sketches were made: B names another idea, so the pick is not saved as B.
+  const later = await tries.start(record, { from: 1, to: 7, options: SKETCHES.slice(0, 2) });
+  await later.rendered;
+  state.brief.treatments = { ...TREATMENTS, shown: [3, 4, 1] };
+  await tries.answer("p", { id: later.id, pick: "B" });
+  assert.deepEqual([picks.length, state.tries.at(-1).treatmentSaved ?? false], [1, false]);
+  assert.match(state.inbox.at(-1).text, /showed treatment B \("stairs of words"\); kino did not save it as their pick: the treatments were saved again/);
   await rm(directory, { recursive: true, force: true });
 });
 
 let server;
-const root =path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 before(async () => { if (!skip) server = await startTestServer(); });
 after(async () => { await server?.stop(); });
 const agent = async (verb, body) => (await server.api(`/api/agent/${verb}`, { method: "POST", body: { client: "test-agent", ...body } })).json();

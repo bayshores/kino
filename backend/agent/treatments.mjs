@@ -366,6 +366,6 @@ export function treatmentsText(brief, origin = null, { subject = false } = {}) {
     `treatments: dropped the most typical (p ${dropped.p}: ${dropped.idea}); ${own ? "they said just start, so pick one yourself" : `the next stop's ask shows these ${known ? SHOWN_COUNT + 1 : SHOWN_COUNT} to pick`}:`,
     ...shownLines(treatments), ...(known ? [known] : []),
     SKETCH_LINE,
-    own ?`${OWN_PICK}: fields:{treatments:{pick:"A", why:"<why>"}}.` : 'Their pick: fields:{treatments:{pick:"B", quote:"<their words>"}}. With no stop ahead, ask in one message.',
+    own ? `${OWN_PICK}: fields:{treatments:{pick:"A", why:"<why>"}}.` : 'Their pick: fields:{treatments:{pick:"B", quote:"<their words>"}}. With no stop ahead, ask in one message.',
   ].join("\n");
 }

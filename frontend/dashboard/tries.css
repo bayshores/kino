@@ -43,7 +43,7 @@
 /* Sketch rounds: each clip keeps its own shape, and the whole clip is its play button (with sound,
    one at a time). The icon shows while paused, on hover and on focus; nothing moves by itself. */
 .try-sketches .try-video { aspect-ratio: auto; }
-.try-sketches .try-video video { height: auto; }
+.try-sketches .try-video video { height: auto; max-height: 52vh; }
 .try-play { position: absolute; inset: 0; display: grid; place-items: center; padding: 0; border: 0; background: transparent; color: var(--fg0); font: inherit; font-size: 1.6em; cursor: pointer; }
 .try-play span { padding: 0.2em 0.6em; border-radius: var(--radius); background: rgb(11 14 18 / 0.7); }
 .try-play[aria-pressed="true"] span { opacity: 0; }
