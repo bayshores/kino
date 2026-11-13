@@ -542,6 +542,7 @@
   "frontend/videoPreview.test.js": 0.3,
   "frontend/viewerNavigation.test.js": 0.3,
   "tests/board-eval.test.mjs": 4,
+  "tests/chat-preview-browser.test.mjs": 4,
   "tests/color-font.test.mjs": 0.3,
   "tests/dashboard-browser.test.mjs": 261.7,
   "tests/dashboard-crew-browser.test.mjs": 6.4,

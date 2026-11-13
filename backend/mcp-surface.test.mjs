@@ -97,12 +97,12 @@ test("tool schemas keep their real limits and lose the words that change nothing
   assert.deepEqual(tool("edit").required, undefined);
   assert.deepEqual(tool("project").required, ["action"]);
   assert.deepEqual([tool("edit").properties.ops.minItems, tool("edit").properties.ops.maxItems], [1, 200]);
-  assert.deepEqual(tool("check").properties.fps, { type: "number", description: "Output frame rate to judge judder at (default 30)", minimum: 1, maximum: 120 });
+  assert.deepEqual(tool("check").properties.fps, { type: "number", description: "Frame rate to judge judder at (default 30)", minimum: 1, maximum: 120 });
   assert.deepEqual(tool("status").properties.page, { type: "integer", minimum: 1 });
   assert.deepEqual(tool("look").properties.mode.enum, ["sheet", "review", "frame", "frames", "motion", "zoom", "strip", "compare", "changed", "variants", "source", "board", "reference", "versus", "viewer", "critique"]);
   // project is described in full once (status); the server's instructions say once for the
   // other tools that it defaults to the open one (room in the budget for why and next).
-  assert.equal(tool("status").properties.project.description, "Project id or name; default: the open project");
+  assert.equal(tool("status").properties.project.description, "Id or name; default: the open one");
   for (const name of ["edit", "check", "look", "inspect", "render", "history", "notes"])
     assert.equal(tool(name).properties.project.description, undefined, name);
   const { AGENT_INSTRUCTIONS } = await import("./agent/tools.mjs");
