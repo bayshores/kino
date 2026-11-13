@@ -260,3 +260,94 @@
 .dash .bottomline .statusline { background: none; color: var(--fg2); }
 .dash .bottomline .keyline, .dash .bottomline .keyline .tb { color: var(--fg2); }
 .dash .bottomline .keyline .tb:hover { color: var(--fg0); }
+
+/* ---- a note in progress: its field takes the place of the agent's line ---- */
+.note-field { grid-row: voice-start / voice-end; grid-column: center; z-index: 2; display: grid; align-content: center; justify-items: center; min-height: 108px; padding: 8px 0 4px; min-width: 0; }
+.note-field-box {
+  display: flex; align-items: center; gap: 14px; box-sizing: border-box; width: min(776px, 100%); min-height: 56px; padding: 6px 8px 6px 18px;
+  box-shadow: inset 0 0 0 2px var(--fg0); background: var(--bg0); animation: voice-in var(--panel) var(--ease-big) both;
+}
+.note-field-box > .tool-icon { width: 20px; height: 20px; color: var(--fg0); }
+.note-field-box textarea {
+  flex: 1; min-width: 0; resize: none; border: 0; padding: 0; background: none; color: var(--fg0); font: inherit; font-size: 18px; line-height: 26px; letter-spacing: -0.01em;
+  max-height: 78px; field-sizing: content;
+}
+.note-field-box textarea::placeholder { color: var(--fg2); }
+.dash .note-field-box textarea:focus-visible { outline: none; }
+.note-field-at { display: inline-flex; align-items: center; gap: 6px; flex: none; color: var(--fg1); font-family: var(--mono-ui); font-size: 12px; white-space: nowrap; }
+.note-field-layer { font-family: var(--sans); color: var(--fg1); }
+.note-field-send {
+  all: unset; box-sizing: border-box; display: inline-grid; place-items: center; width: 40px; height: 40px; flex: none; cursor: pointer;
+  background: var(--solid); color: var(--on-solid); transition: transform var(--quick) var(--ease-in), background-color var(--quick) var(--ease-in);
+}
+.note-field-send:hover { background: color-mix(in srgb, var(--solid) 86%, var(--bg0)); }
+.note-field-send:active { transform: scale(0.94); }
+.note-field-send:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+.voice-button.rec { background: var(--rec); color: #fff; box-shadow: none; }
+.voice-button.rec:hover { background: color-mix(in srgb, var(--rec) 86%, #000); box-shadow: none; }
+@media (prefers-reduced-motion: reduce) { .note-field-box { animation: none; } }
+
+/* ---- no video yet: the frame's place holds the one command that connects an agent ---- */
+.screening .stage-group:has(> .first-run) { width: 100%; height: 100%; display: grid; place-items: center; }
+.first-run {
+  box-sizing: border-box; width: min(100%, calc((100vh - 300px) * 16 / 9)); aspect-ratio: 16 / 9; display: grid; place-content: center; justify-items: center; gap: 18px;
+  padding: 24px; box-shadow: inset 0 0 0 1px var(--line-soft); text-align: center;
+}
+.first-run p { margin: 0; max-width: 64ch; color: var(--fg1); font-size: 15px; line-height: 22px; }
+.first-run-copy {
+  all: unset; box-sizing: border-box; display: inline-flex; align-items: center; gap: 18px; height: 64px; padding: 0 22px; cursor: pointer; color: var(--fg0);
+  box-shadow: inset 0 0 0 1px var(--line); transition: background-color var(--quick) var(--ease-in), box-shadow var(--quick) var(--ease-in), transform var(--quick) var(--ease-in);
+}
+.first-run-copy code { font-family: var(--mono-ui); font-size: 28px; font-weight: 500; letter-spacing: 0.02em; }
+.first-run-copy .ui-icon { width: 20px; height: 20px; }
+.first-run-copy:hover { background: var(--bg1); box-shadow: inset 0 0 0 1px var(--fg1); }
+.first-run-copy:active { transform: scale(0.98); }
+.first-run-copy:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+.screening .p-timeline .tl-none { margin: 0; height: 58px; box-shadow: inset 0 0 0 1px var(--line-soft); }
+.dash .bottomline { justify-content: flex-end; }
+.screening .stage-toolbar .stage-label { display: inline-flex; gap: 12px; }
+.screening .stage-toolbar .stage-label > span { white-space: nowrap; }
+
+/* ---- the session list under the frame (panes.jsx SessionPane): sections on hairlines ---- */
+.dash .p-session .session-facts { display: none; }
+.dash .p-session .session-section { padding: 14px 0 16px; border-color: var(--line-soft); }
+.dash .p-session .session-section.urgent { border-bottom: 0; }
+.dash .p-session .session-section.urgent + .session-section { border-top: 1px solid var(--line-soft); }
+.dash .p-session .section-head { margin: 0 0 8px; padding: 0; font-size: 13px; line-height: 20px; font-weight: 700; color: var(--fg0); }
+.dash .p-session .section-head.plain { padding-left: 20px; }
+.dash .p-session .section-head .caret-button { display: flex; align-items: center; gap: 8px; font: inherit; color: inherit; }
+.dash .p-session .section-head .caret { flex: none; width: 12px; height: 12px; color: var(--fg2); transition: transform var(--quick) var(--ease-in); }
+.dash .p-session .section-head .caret.open { transform: rotate(90deg); }
+.dash .p-session .section-count { font-weight: 400; color: var(--fg1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dash .p-session .session-section.urgent .section-head { color: var(--fg0); }
+.dash .p-session .session-section .indent, .dash .p-session .session-section .row, .dash .p-session .session-section > div > p, .dash .p-session .session-section > p,
+.dash .p-session .session-section > div > ul { padding-left: 20px; padding-right: 0; }
+.dash .p-session .session-section > .row { display: flex; align-items: center; gap: 8px; }
+.dash .p-session .session-section > .row > .ui-btn:first-child { margin-left: 0; }
+.dash .p-session .needs-you { margin: 0; padding: 4px 0 12px 20px; }
+.dash .p-session .needs-you + .needs-you { padding-top: 12px; border-top: 1px solid var(--line-soft); }
+.dash .p-session .needs-you > .row-button, .dash .p-session .needs-you > p.row { display: flex; align-items: baseline; gap: 12px; padding: 0; font-size: 15px; line-height: 1.35; color: var(--fg1); text-align: left; }
+.dash .p-session .needs-you strong { color: var(--fg0); font-weight: 600; }
+.dash .p-session .needs-you > p.indent { padding-left: 0; margin-top: 2px; font-size: 13px; }
+.dash .p-session .needs-you .actions { gap: 8px; padding-left: 0; margin-top: 10px; }
+.dash .p-session .needs-you .actions .ui-btn { color: var(--fg0); padding: 0 14px; max-width: 100%; }
+.dash .p-session .needs-you .actions .ui-btn.primary { color: var(--on-solid); }
+.dash .need-id { flex: none; font-family: var(--mono-ui); font-size: 11px; color: var(--fg2); font-variant-numeric: tabular-nums; }
+.dash .p-session .agent-row { min-height: 28px; }
+.dash .p-session .agent-words { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
+.dash .p-session .agent-words .agent-name { font-weight: 600; }
+.dash .p-session .agent-row > [class^="s-"] { display: inline-block; color: var(--fg1); font-size: 13px; }
+.dash .p-session .agent-row > [class^="s-"]::first-letter { text-transform: uppercase; }
+.dash .p-session .agent-row > [class^="s-"] .cell { display: none; }
+.dash .p-session .plan-step { display: flex; align-items: baseline; gap: 8px; line-height: 1.4; padding-top: 3px; padding-bottom: 3px; border-radius: 0; color: var(--fg1); white-space: normal; }
+.dash .p-session .plan-step.current { background: none; color: var(--fg0); font-weight: 600; box-shadow: inset 3px 0 0 var(--yellow); }
+.dash .p-session .plan-mark { flex: none; width: 12px; height: 12px; align-self: center; color: var(--fg2); }
+.dash .p-session .plan-mark .ui-icon { display: block; width: 12px; height: 12px; }
+.dash .p-session .render-row { display: flex; align-items: center; gap: 10px; min-height: 32px; line-height: 1.3; }
+.dash .p-session .render-row .render-name { height: auto; align-items: baseline; column-gap: 10px; }
+.dash .p-session .render-row a.ui-btn { color: var(--fg0); text-decoration: none; padding: 0; }
+.dash .p-session .render-row .ui-btn.icon-only { min-height: 28px; width: 28px; }
+.dash .render-bar { flex: none; width: 72px; height: 3px; background: var(--line-soft); }
+.dash .render-bar > span { display: block; height: 100%; background: var(--yellow); transition: width var(--panel) linear; }
+.dash .p-session .agent-row { display: flex; align-items: center; gap: 10px; }
+.dash .p-session .agent-row .agent-bot { display: inline-flex; }

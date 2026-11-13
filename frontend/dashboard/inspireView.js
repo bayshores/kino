@@ -106,10 +106,37 @@ export function tileWords(tile) {
  * a verified channel, and why kino doubts it as a reference), or "" when YouTube said none.
  */
 export function sourceWords(ref) {
-  const views = Number(ref?.views);
+  const views = viewWords(ref?.views);
+  return `${views ? ` · ${views}` : ""}${ref?.verified ? " · verified" : ""}${ref?.doubt ? ` · doubt: ${ref.doubt}` : ""}`;
+}
+
+/** "2.1M views", "618 views", or "" when YouTube said none. */
+export function viewWords(count) {
+  const views = Number(count);
+  if (count == null || !Number.isFinite(views)) return "";
   const size = [[1e9, "B"], [1e6, "M"], [1e3, "k"]].find(([step]) => views >= step);
-  const short = size ? `${views / size[0] < 10 ? Math.floor((views / size[0]) * 10) / 10 : Math.floor(views / size[0])}${size[1]}` : String(views);
-  return `${ref?.views != null && Number.isFinite(views) ? ` · ${short} views` : ""}${ref?.verified ? " · verified" : ""}${ref?.doubt ? ` · doubt: ${ref.doubt}` : ""}`;
+  return `${size ? `${views / size[0] < 10 ? Math.floor((views / size[0]) * 10) / 10 : Math.floor(views / size[0])}${size[1]}` : String(views)} views`;
+}
+
+/**
+ * The picked reference's facts as a two-column list: [[label, value, more?]] in plain words
+ * ("Cuts on the beat", "31 of 69"); `more` is the rest of a row, shown on hover. Empty unread.
+ */
+export function factRows(ref) {
+  const numbers = ref?.numbers;
+  if (!numbers) return [];
+  const { rows } = detailRows(ref);
+  const value = (label) => rows.find(([name]) => name === label)?.[1];
+  const print = ref.print ?? {};
+  const out = [];
+  if (numbers.onBeat) out.push(["Cuts on the beat", `${numbers.onBeatCount} of ${numbers.cuts.length}`]);
+  out.push(["Shots", value("shots")], ["Cuts a second", value("cuts/s")], ["Longest shot", value("longest")]);
+  if (numbers.seconds < (ref.duration ?? 0) - 0.5) out.push(["Read", `the first ${Math.round(numbers.seconds)} s`]);
+  out.push(["Beat", ref.bpm ? `${Math.round(ref.bpm)} bpm` : "no steady beat"]);
+  if (print.camera != null) out.push(["Camera moves", share(print.camera), `still ${share(print.still)}`]);
+  if (print.text != null) out.push(["Text on screen", share(print.text), value("text")?.replace(/^on screen [^,]+(, )?/, "")]);
+  if (print.blurDips != null) out.push(["Blur dips", String(print.blurDips)]);
+  return out;
 }
 
 /**

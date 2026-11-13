@@ -1,0 +1,47 @@
+/* The brief page (briefPage.jsx): one big sentence, a row of facts, then two columns. */
+.screen.brief-page { display: block; }
+.dash .screen.brief-page .brief-headline { margin: 16px 0 0; max-width: 28ch; font-size: clamp(26px, 2.6vw, 38px); line-height: 1.22; font-weight: 700; letter-spacing: -0.02em; text-wrap: balance; animation: rise-in var(--panel) var(--ease-big) both; }
+.dash .screen.brief-page .brief-headline:not(.none) { max-width: none; }
+.dash .screen.brief-page .brief-headline.none { color: var(--fg1); font-weight: 500; font-size: 22px; }
+.brief-bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin: 28px 0 8px; }
+.brief-facts { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px 26px; color: var(--fg1); font-size: 14px; }
+.brief-facts li { display: inline-flex; align-items: center; gap: 8px; }
+.brief-facts li.ok { color: var(--ok); }
+.brief-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 40px; }
+.brief-col { min-width: 0; }
+.brief-list { list-style: none; margin: 0; padding: 0; }
+.brief-list li { border-bottom: 1px solid var(--line-soft); }
+.brief-row { display: grid; grid-template-columns: 14ch minmax(0, 1fr) auto; gap: 12px; align-items: baseline; padding: 10px 0; }
+.brief-name { color: var(--fg1); }
+.brief-words { color: var(--fg0); }
+.brief-quoted { display: block; margin-top: 2px; color: var(--fg1); font-size: 13px; }
+.brief-small { margin: 10px 0 0; color: var(--fg1); font-size: 13px; }
+.brief-plan { list-style: none; margin: 0; padding: 0; }
+.brief-plan li { display: flex; align-items: center; gap: 14px; min-height: 44px; color: var(--fg1); font-size: 15px; }
+.brief-plan li.current { color: var(--fg0); font-weight: 700; }
+.brief-plan li.done { color: var(--fg-mid); }
+.brief-mark { flex: none; width: 12px; height: 12px; display: inline-grid; place-items: center; box-shadow: inset 0 0 0 1px var(--fg2); }
+.brief-plan li.current .brief-mark { background: var(--yellow); box-shadow: none; }
+.brief-plan li.done .brief-mark { box-shadow: none; color: var(--fg1); width: 16px; height: 16px; margin: 0 -2px; }
+.brief-page .stop-lines { list-style: none; margin: 0; padding: 0; }
+.brief-page .stop-lines li { margin: 0; padding: 10px 0; border-bottom: 1px solid var(--line-soft); color: var(--fg-mid); font-size: 14px; }
+.brief-page .stop-lines li.s-needs-you { color: var(--fg0); font-weight: 600; }
+.brief-page .stop-lines .stop-heard { color: var(--fg1); font-size: 13px; margin-top: 2px; }
+.brief-page .stop-lines .actions { margin-top: 8px; gap: 8px; }
+.brief-page .stop-lines .actions .tb { margin: 0; height: 28px; padding: 0 10px; color: var(--fg0); font-weight: 600; font-size: 13px; box-shadow: inset 0 0 0 1px var(--line); }
+.brief-page .stop-lines .actions .tb:hover { background: var(--bg1); box-shadow: inset 0 0 0 1px var(--fg1); }
+.brief-page .stop-footnote, .brief-page .faint.indent { margin: 10px 0 0; padding: 0; color: var(--fg1); font-size: 13px; }
+.brief-add {
+  all: unset; box-sizing: border-box; display: grid; place-content: center; justify-items: center; gap: 8px; width: min(100%, 240px); aspect-ratio: 16 / 9; cursor: pointer;
+  color: var(--fg0); font-size: 14px; box-shadow: inset 0 0 0 1px var(--line); transition: background-color var(--quick) var(--ease-in), box-shadow var(--quick) var(--ease-in);
+}
+.brief-add:hover { background: var(--bg1); box-shadow: inset 0 0 0 1px var(--fg1); }
+.brief-add:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+.brief-add:disabled { color: var(--fg2); cursor: default; }
+.brief-renders { list-style: none; margin: 0 0 14px; padding: 0; }
+.brief-renders li { display: flex; align-items: center; gap: 14px; min-height: 46px; border-bottom: 1px solid var(--line-soft); }
+.brief-render-name { flex: 1; min-width: 0; color: var(--fg0); }
+.brief-render-rev { font-family: var(--mono-ui); font-size: 12px; color: var(--fg1); }
+.brief-render-failed { color: var(--err); }
+.brief-renders .ui-btn { min-height: 28px; padding: 0 10px; text-decoration: none; }
+@media (max-width: 900px) { .brief-cols { grid-template-columns: minmax(0, 1fr); } }

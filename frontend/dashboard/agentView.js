@@ -221,6 +221,9 @@ export function needWords(row, nameOf = () => null) {
     };
   }
   const round = row.round ?? {};
+  // Sketches or options to pick from: the agent's question; a opens them.
+  if (row.type === "try")
+    return { who: "the agent", color: null, agentId: null, todo: round.question || "pick one of these", allow: round.sketch ? "see the sketches" : "see the options", deny: null, key: "allow", spec: "", summary: "", watch: false };
   const word = STOP_WORDS[round.kind] ?? round.kind ?? "stop";
   if (row.type === "elsewhere") return { who: row.name, color: null, agentId: null, todo: `the ${word} waits in ${row.name}: open it there`, allow: null, deny: null, key: null, spec: "", summary: "", watch: false };
   // A storyboard has nothing built to watch on the stage: a opens the board, where it is approved.
@@ -398,11 +401,19 @@ export function asSentence(text, { verb = "", running = false } = {}) {
   return /[?!]$/.test(line) ? line : `${line}.`;
 }
 
+/** What waits for you, as a sentence: its words as they are (no tense), with a capital and an end. */
+export function asAsk(text) {
+  const words = String(text ?? "").replace(/\s+/g, " ").trim().replace(/[\s…·]+$/, "");
+  if (!words) return "";
+  const line = words.charAt(0).toUpperCase() + words.slice(1);
+  return /[.?!]$/.test(line) ? line : `${line}.`;
+}
+
 /**
  * The line under the frame: what the shown agent does now, as one sentence, and the line before it.
  *   {state, verb, text, facts: [words], before: {verb, text, rev} | null}
  * `state` is "need" (something waits for you; `need` holds its words and row), "hold" (your hold
- * is on), "render" (a render runs; `render` holds renderDock's facts), "working" (a call runs or
+ * is on), "recording" (an agent records the screen), "render" (a render runs; `render` holds renderDock's facts), "working" (a call runs or
  * ended a moment ago), "idle" (its last call, in the past) or "empty" (no agent has called yet).
  */
 export function voiceLine(data, agent, now = Date.now(), nameOf = () => null) {
@@ -418,15 +429,20 @@ export function voiceLine(data, agent, now = Date.now(), nameOf = () => null) {
   const need = needs.find((row) => row.type !== "elsewhere") ?? null;
   if (need) {
     const words = needWords(need, nameOf);
-    return { state: "need", verb: "ask", text: asSentence(words.todo), facts: [words.spec, words.summary].filter(Boolean), before: before(false), need: { row: need, words, more: needs.length - 1 } };
+    return { state: "need", verb: "ask", text: asAsk(words.todo), facts: [words.spec, words.summary].filter(Boolean), before: before(false), need: { row: need, words, more: needs.length - 1 } };
   }
   if (data?.hold?.on) return { state: "hold", verb: "hold", text: `On hold. ${agent?.name ?? "The agent"} waits for you.`, facts: [], before: before(false) };
+  // An agent records the screen: said under the frame, with Stop (the top line has one too).
+  if (data?.recording) {
+    const seconds = Math.max(0, Math.floor((now - data.recording.startedAt) / 1000));
+    return { state: "recording", verb: "record", text: "Recording the screen.", facts: [`${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`, "Typed text is never kept", "Stays on this Mac"], before: before(false) };
+  }
   const dock = renderDock(data, now);
   if (dock) {
     const text = dock.total ? `Rendering frame ${dock.done} of ${dock.total}.` : `Rendering, ${Math.round(dock.fraction * 100)}%.`;
     return { state: "render", verb: "render", text, facts: [dock.left == null ? "" : `${leftWords(dock.left)} left`, dock.job.format ?? ""].filter(Boolean), before: before(false), render: dock };
   }
-  if (!agent || !last) return { state: "empty", verb: "", text: "Waiting for an agent.", facts: [], before: null };
+  if (!agent || !last) return { state: "empty", verb: "plug", text: "Waiting for an agent.", facts: [], before: null };
   const working = isWorking(data, agent, now);
   return { state: working ? "working" : "idle", verb: last.verb, kind: last.kind, text: line(last, Boolean(last.current)), facts: [], before: before(true) };
 }

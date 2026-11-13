@@ -332,7 +332,7 @@ test("try options: the round shown, the rounds and planned topics on the left, t
   assert.equal(shownRound({ rounds: [done], later: [] }).id, "T1", "else the newest");
   assert.deepEqual(roundList(tries, open).map((entry) => [entry.mark, entry.text, entry.current]),
     [["✓", "framing", false], ["●", "the cut into 2", true], ["○", "color", false], ["○", "sound", false]]);
-  assert.deepEqual([answerWords(done), answerWords({ ...done, pick: "none" }), answerWords({ ...done, pick: "skip" }), answerWords(open)], ["B · wide", "none of these", "skipped", null]);
+  assert.deepEqual([answerWords(done), answerWords({ ...done, pick: "none" }), answerWords({ ...done, pick: "skip" }), answerWords(open)], ["B, wide", "none of these", "to skip", null]);
   const rows = needsYouRows({ projectId: "p1", agent: { tries }, approvals: [] });
   assert.deepEqual(rows.map((row) => [row.type, needKey(row)]), [["try", "try/p1/T2"]]);
 });

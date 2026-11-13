@@ -1,103 +1,51 @@
-// The try options screen (storyboard v4, backend/agent/tries.mjs): the agent's question about one
-// moment of the video, and 2 to 4 versions of that moment (the 2 s around it, from the video
-// itself) side by side on one clock. The person picks one, says none of these, or skips; the
-// agent hears it and applies the pick, so the video is built up round by round. The rounds so
-// far (✓), the one open (●) and the topics the agent plans next (○) are listed on the left.
+// The sketch screen (backend/agent/tries.mjs, sketches.mjs): the agent's question about one
+// moment of the video, and 2 to 4 versions of it side by side. The person picks one, says none of
+// these, or skips; the agent hears it and applies the pick, so the video is built up round by
+// round. The question is the line under the versions, in the agent's color, with the answers
+// beside it; the rounds so far, the one open and the topics planned next are small steps on top.
 //
 // Data flow: agent.tries in the snapshot and the "tries" event (state.js) → this screen. The clips
 // are GET /api/dashboard/try/<project>/<T1-B.mp4>; an answer is notes {action:"try", round, pick}
-// (Dashboard.jsx). The clips are silent and play only when play is pressed; a sketch round's clips
-// (SketchRound) carry their sound and play one at a time on a click.
+// (Dashboard.jsx). A sketch round's clips (SketchRound) carry their sound: one is shown large, a
+// click on another brings it forward and plays it, and nothing plays by itself. A clip round's
+// clips (ClipRound) are silent and play together on one clock.
 import React, { useEffect, useRef, useState } from "react";
 import { clockWords } from "./boardRows.js";
+import { Btn } from "./controls.jsx";
 import { ANSWER_WORDS, answerWords, roundList, shownRound } from "./tryRows.js";
-import { Back, Screen } from "./screens.jsx";
+import { ToolIcon } from "./voice.jsx";
 import "./tries.css";
 
 const clipUrl = (projectId, file) => `/api/dashboard/try/${encodeURIComponent(projectId)}/${encodeURIComponent(file)}`;
-export function TryScreen({ projectId, tries, shots = [], onAnswer, onBack }) {
+const MARKS = { "✓": "done", "●": "open", "!": "failed" };
+
+const PlayIcon = ({ playing }) => (
+  <svg className="try-play-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+    {playing ? <path d="M5 3v10M11 3v10" /> : <path d="M5 3l8 5-8 5z" />}
+  </svg>
+);
+
+export function TryScreen({ projectId, tries, shots = [], onAnswer }) {
+  const ref = useRef(null);
+  useEffect(() => { if (!ref.current?.contains(document.activeElement)) ref.current?.focus(); }, []);
   const round = shownRound(tries);
   const list = roundList(tries, round);
-  const place = list.findIndex((entry) => entry.current) + 1;
   return (
-    <Screen title="try options" className="try-screen" actions={<>
-      {round && (round.status === "waiting" || round.status === "rendering") ? <span className="s-needs-you try-place"><span aria-hidden="true">◉</span> round {place} of {list.length}</span> : null}
-      <Back onBack={onBack} />
-    </>}>
-      {round ? (
-        <div className="try-body">
-          <ol className="try-rounds" aria-label="Rounds">
-            {list.map((entry) => (
-              <li key={entry.key} className={entry.current ? "current" : undefined} aria-current={entry.current ? "step" : undefined}>
-                <span className={`try-mark mark-${entry.mark === "✓" ? "done" : entry.mark === "●" ? "open" : "later"}`} aria-hidden="true">{entry.mark}</span> {entry.text}
-              </li>
-            ))}
-          </ol>
-          <TryRound key={round.id} projectId={projectId} round={round} shots={shots} onAnswer={onAnswer} />
-        </div>
-      ) : <p className="faint">No options to try yet. The agent asks with notes {"{action:\"try\"}"} when a moment has more than one good way to go.</p>}
-    </Screen>
-  );
-}
-
-// A sketch round (backend/agent/sketches.mjs): each option is a 2 to 10 s sketch of one treatment
-// with its sound. A click plays that one (the others stop, so only one is heard), a second click
-// pauses; nothing plays by itself. One click on ✓ picks it, which saves that treatment as theirs.
-function SketchRound({ projectId, round, onAnswer }) {
-  const videos = useRef(new Map());
-  const [playing, setPlaying] = useState(null);
-  const [time, setTime] = useState(0);
-  const [sent, setSent] = useState(null);
-  const open = round.status === "waiting" && !sent;
-  const answer = sent ?? (round.pick ? answerWords(round) : null);
-  const stopAll = () => { for (const video of videos.current.values()) video.pause(); setPlaying(null); };
-  const toggle = (letter) => {
-    const video = videos.current.get(letter);
-    if (!video) return;
-    if (playing === letter) { stopAll(); return; }
-    stopAll();
-    if (video.ended || video.currentTime >= (video.duration || Infinity) - 0.05) video.currentTime = 0;
-    video.play().then(() => setPlaying(letter)).catch(() => setPlaying(null));
-  };
-  const choose = (pick, words) => { stopAll(); setSent(words); onAnswer(round, pick); };
-  useEffect(() => () => stopAll(), []);
-  return (
-    <div className="try-round try-sketches">
-      <h3 className="try-question">{round.question}</h3>
-      {round.status === "failed" ? <p className="err">These sketches could not be made: {round.error}.</p> : null}
-      <div className={`try-options count-${round.options.length}`}>
-        {round.options.map((option) => (
-          <figure key={option.letter} className={`try-option${round.pick === option.letter ? " picked" : ""}${playing === option.letter ? " playing" : ""}`}>
-            <div className="try-video">
-              {option.ready ? (<>
-                <video ref={(element) => { if (element) videos.current.set(option.letter, element); else videos.current.delete(option.letter); }}
-                  src={clipUrl(projectId, option.file)} playsInline preload="auto" aria-hidden="true"
-                  onTimeUpdate={(event) => { if (playing === option.letter) setTime(event.currentTarget.currentTime); }}
-                  onEnded={() => setPlaying((now) => (now === option.letter ? null : now))} />
-                <button type="button" className="try-play" aria-pressed={playing === option.letter}
-                  aria-label={`${playing === option.letter ? "Pause" : "Play"} sketch ${option.letter}: ${option.name}, with sound`} onClick={() => toggle(option.letter)}>
-                  <span aria-hidden="true">{playing === option.letter ? "❚❚" : "▶"}</span>
-                </button>
-              </>) : <span className="try-missing">{option.error ? "could not be made" : "making…"}</span>}
-              <span className="try-letter" aria-hidden="true">{round.pick === option.letter ? "✓" : option.letter}</span>
-              {open && option.ready ? (
-                <button type="button" className="tb tb-box try-pick" onClick={() => choose(option.letter, `${option.letter} · ${option.name}`)}>✓ pick {option.letter}</button>
-              ) : null}
-            </div>
-            <figcaption>{option.name}</figcaption>
-          </figure>
-        ))}
-      </div>
-      <div className="try-controls">
-        <span className="try-clock" aria-live="off">{playing ? `${playing} · ${clockWords(time)} / ${clockWords(Math.max(0.1, round.to - round.from))}` : clockWords(Math.max(0.1, round.to - round.from))}</span>
-      </div>
-      {open ? (
-        <div className="actions try-answers">
-          <button type="button" className="tb" onClick={() => choose("none", ANSWER_WORDS.none)}>none of these</button>
-          <button type="button" className="tb" onClick={() => choose("skip", ANSWER_WORDS.skip)}>skip</button>
-        </div>
-      ) : answer ? <p className="try-answer" role="status">you picked: {answer}{sent ? " · the agent hears it with its next call" : ""}</p> : null}
-    </div>
+    <section ref={ref} className="screen try-screen" tabIndex={-1} aria-labelledby="screen-title">
+      <h2 id="screen-title" className="sr-only">Sketches</h2>
+      {list.length > 1 ? (
+        <ol className="try-rounds" aria-label="Rounds">
+          {list.map((entry, index) => (
+            <li key={entry.key} className={`is-${MARKS[entry.mark] ?? "later"}${entry.current ? " current" : ""}`} aria-current={entry.current ? "step" : undefined}>
+              <span className="try-step" aria-hidden="true">{entry.mark === "✓" ? <ToolIcon name="check" /> : index + 1}</span>
+              <span className="try-topic">{entry.text}</span>
+            </li>
+          ))}
+        </ol>
+      ) : null}
+      {round ? <TryRound key={round.id} projectId={projectId} round={round} shots={shots} onAnswer={onAnswer} />
+        : <p className="try-none">No sketches yet. Your agent shows them here when a moment has more than one good way to go.</p>}
+    </section>
   );
 }
 
@@ -105,6 +53,88 @@ function TryRound(props) {
   return props.round.sketch ? <SketchRound {...props} /> : <ClipRound {...props} />;
 }
 
+/** The question as the agent's line, with "None of these" and "Skip"; after an answer, the answer. */
+function Ask({ round, open, answer, sent, onChoose }) {
+  return (
+    <div className={`try-ask${open ? "" : " answered"}`}>
+      <p className="voice-line" role="status"><ToolIcon name={open ? "ask" : "check"} /><span>{open || !answer ? round.question : `You picked ${answer}.`}</span></p>
+      {open ? (
+        <span className="voice-answers">
+          <button type="button" className="voice-button" onClick={() => onChoose("none", ANSWER_WORDS.none)}>None of these</button>
+          <button type="button" className="voice-button" onClick={() => onChoose("skip", ANSWER_WORDS.skip)}>Skip</button>
+        </span>
+      ) : sent ? <span className="try-heard">The agent hears it with its next call.</span> : null}
+    </div>
+  );
+}
+
+// A sketch round: each option is a 2 to 10 s sketch of one treatment with its sound. One sketch
+// is shown large; a click on a sketch brings it forward and plays it (the others stop, so only
+// one is heard), a second click pauses. Before it is played a sketch shows its middle frame, so
+// sketches that start alike do not look alike. "Pick" under the large one picks it.
+function SketchRound({ projectId, round, onAnswer }) {
+  const videos = useRef(new Map());
+  const started = useRef(new Set());
+  const [shown, setShown] = useState(() => (round.options.some((option) => option.letter === round.pick) ? round.pick : round.options[Math.floor((round.options.length - 1) / 2)]?.letter));
+  const [playing, setPlaying] = useState(null);
+  const [time, setTime] = useState(0);
+  const [sent, setSent] = useState(null);
+  const open = round.status === "waiting" && !sent;
+  const answer = sent ?? (round.pick ? answerWords(round) : null);
+  const length = Math.max(0.1, round.to - round.from);
+  const stopAll = () => { for (const video of videos.current.values()) video.pause(); setPlaying(null); };
+  const toggle = (letter) => {
+    const video = videos.current.get(letter);
+    setShown(letter);
+    if (!video) return;
+    if (playing === letter) { stopAll(); return; }
+    stopAll();
+    if (!started.current.has(letter) || video.ended || video.currentTime >= (video.duration || Infinity) - 0.05) video.currentTime = 0;
+    started.current.add(letter);
+    setTime(video.currentTime);
+    video.play().then(() => setPlaying(letter)).catch(() => setPlaying(null));
+  };
+  const choose = (pick, words) => { stopAll(); setSent(words); onAnswer(round, pick); };
+  useEffect(() => () => stopAll(), []);
+  return (
+    <div className="try-round try-sketches">
+      {round.status === "failed" ? <p className="err">These sketches could not be made: {round.error}.</p> : null}
+      <div className={`try-options count-${round.options.length}`}>
+        {round.options.map((option) => {
+          const on = shown === option.letter;
+          const plays = playing === option.letter;
+          return (
+            <figure key={option.letter} className={`try-option${on ? " shown" : ""}${round.pick === option.letter ? " picked" : ""}${plays ? " playing" : ""}`}>
+              <div className="try-video">
+                {option.ready ? (<>
+                  <video ref={(element) => { if (element) videos.current.set(option.letter, element); else videos.current.delete(option.letter); }}
+                    src={clipUrl(projectId, option.file)} playsInline preload="auto" aria-hidden="true"
+                    onLoadedMetadata={(event) => { if (!started.current.has(option.letter)) event.currentTarget.currentTime = (event.currentTarget.duration || length) / 2; }}
+                    onTimeUpdate={(event) => { if (plays) setTime(event.currentTarget.currentTime); }}
+                    onEnded={() => setPlaying((now) => (now === option.letter ? null : now))} />
+                  <button type="button" className="try-play" aria-pressed={plays}
+                    aria-label={`${plays ? "Pause" : "Play"} sketch ${option.letter}: ${option.name}, with sound`} onClick={() => toggle(option.letter)}>
+                    <PlayIcon playing={plays} />
+                  </button>
+                  {plays ? <span className="try-progress" style={{ width: `${Math.min(100, (time / length) * 100)}%` }} aria-hidden="true" /> : null}
+                </>) : <span className="try-missing">{option.error ? "Could not be made" : "Making it"}</span>}
+              </div>
+              <figcaption>
+                <span className="try-name" title={option.name}>{option.name}</span>
+                {on && plays ? <span className="try-clock" aria-live="off">{clockWords(time)} / {clockWords(length)}</span> : null}
+                {round.pick === option.letter ? <span className="ui-chip accent">Picked</span>
+                  : on && open && option.ready ? <Btn kind="primary" icon="check" onClick={() => choose(option.letter, `${option.letter}, ${option.name}`)} aria-label={`Pick ${option.letter}: ${option.name}`}>Pick</Btn> : null}
+              </figcaption>
+            </figure>
+          );
+        })}
+      </div>
+      <Ask round={round} open={open} answer={answer} sent={sent} onChoose={choose} />
+    </div>
+  );
+}
+
+// A clip round: the 2 s around one moment, 2 to 4 ways, silent, the same size, on one clock.
 function ClipRound({ projectId, round, shots, onAnswer }) {
   const videos = useRef(new Map());
   const [time, setTime] = useState(0);
@@ -145,8 +175,7 @@ function ClipRound({ projectId, round, shots, onAnswer }) {
   const moment = ((round.at - round.from) / length) * 100;
   const total = shots.length ? Math.max(...shots.map((shot) => shot.cue + shot.dur)) : 0;
   return (
-    <div className="try-round">
-      <h3 className="try-question">{round.question}</h3>
+    <div className="try-round try-clips">
       {round.status === "failed" ? <p className="err">These options could not be made: {round.error}.</p> : null}
       <div className={`try-options count-${round.options.length}`}>
         {round.options.map((option) => (
@@ -154,42 +183,34 @@ function ClipRound({ projectId, round, shots, onAnswer }) {
             <div className="try-video">
               {option.ready ? (
                 <video ref={(element) => { if (element) videos.current.set(option.letter, element); else videos.current.delete(option.letter); }}
-                  src={clipUrl(projectId, option.file)} muted playsInline preload="auto" aria-label={`option ${option.letter}: ${option.name}`} />
-              ) : <span className="try-missing">{option.error ? "could not be made" : "making…"}</span>}
-              <span className="try-letter" aria-hidden="true">{round.pick === option.letter ? "✓" : option.letter}</span>
-              {open && option.ready ? (
-                <button type="button" className="tb tb-box try-pick" onClick={() => choose(option.letter, `${option.letter} · ${option.name}`)}>✓ pick {option.letter}</button>
-              ) : null}
+                  src={clipUrl(projectId, option.file)} muted playsInline preload="auto" aria-label={`Option ${option.letter}: ${option.name}`} />
+              ) : <span className="try-missing">{option.error ? "Could not be made" : "Making it"}</span>}
             </div>
-            <figcaption>{option.name}</figcaption>
+            <figcaption>
+              <span className="try-name" title={option.name}>{option.name}</span>
+              {round.pick === option.letter ? <span className="ui-chip accent">Picked</span>
+                : open && option.ready ? <Btn icon="check" onClick={() => choose(option.letter, `${option.letter}, ${option.name}`)} aria-label={`Pick ${option.letter}: ${option.name}`}>Pick</Btn> : null}
+            </figcaption>
           </figure>
         ))}
       </div>
       <div className="try-controls">
-        <button type="button" className="tb tb-box" aria-pressed={playing} aria-label={playing ? "Pause" : "Play every option together (no sound)"} onClick={() => setPlaying(!playing)}>
-          <span aria-hidden="true">{playing ? "❚❚" : "▶"}</span>
+        <button type="button" className="try-all" aria-pressed={playing} aria-label={playing ? "Pause" : "Play every option together (no sound)"} onClick={() => setPlaying(!playing)}>
+          <PlayIcon playing={playing} />
         </button>
         <span className="try-scrub">
           <input type="range" min={0} max={length} step={1 / 30} value={time} aria-label="Time in the options" onChange={(event) => seek(Number(event.target.value))} />
-          <span className="try-moment" style={{ left: `${moment}%` }} title="the moment" aria-hidden="true" />
+          <span className="try-moment" style={{ left: `${moment}%` }} title="The moment" aria-hidden="true" />
         </span>
         <span className="try-clock">{clockWords(time)} / {clockWords(length)}</span>
       </div>
-      {open ? (
-        <div className="actions try-answers">
-          <button type="button" className="tb" onClick={() => choose("none", ANSWER_WORDS.none)}>none of these</button>
-          <button type="button" className="tb" onClick={() => choose("skip", ANSWER_WORDS.skip)}>skip</button>
-        </div>
-      ) : answer ? <p className="try-answer" role="status">you picked: {answer}{sent ? " · the agent hears it with its next call" : ""}</p> : null}
       {total > 0 ? (
         <div className="try-shots" aria-hidden="true">
-          <span className="faint">shots</span>
-          <span className="try-strip">
-            {shots.map((shot, index) => <span key={shot.id ?? index} className="try-shot" style={{ left: `${(shot.cue / total) * 100}%`, width: `${(shot.dur / total) * 100}%` }}>{index + 1}</span>)}
-            <span className="try-at" style={{ left: `${(round.at / total) * 100}%` }} />
-          </span>
+          {shots.map((shot, index) => <span key={shot.id ?? index} className="try-shot" style={{ left: `${(shot.cue / total) * 100}%`, width: `${(shot.dur / total) * 100}%` }}>{index + 1}</span>)}
+          <span className="try-at" style={{ left: `${(round.at / total) * 100}%` }} />
         </div>
       ) : null}
+      <Ask round={round} open={open} answer={answer} sent={sent} onChoose={choose} />
     </div>
   );
 }

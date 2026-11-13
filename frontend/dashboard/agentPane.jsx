@@ -129,7 +129,7 @@ function NoteBox({ data, agents, to, onTo, onPoint, inputRef }) {
           </select>
         </label>
       ) : null}
-      <textarea id="message-text" ref={inputRef} rows={1} value={text} maxLength={2000} placeholder={agents.length > 1 ? "note" : `note for ${name}`} aria-label={`Note for ${name} about the whole video`}
+      <textarea id="message-text" ref={inputRef} rows={1} value={text} maxLength={2000} placeholder={agents.length > 1 ? "Note" : `Note for ${name}`} aria-label={`Note for ${name} about the whole video`}
         onChange={(event) => setText(event.target.value)}
         onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); send(event.metaKey || event.ctrlKey); } }} />
       <button type="button" className="tb icon-button note-point" onClick={onPoint} aria-label="Point at the stage" title="Point at something on the stage (n)" aria-keyshortcuts="n"><Glyph name="point" /></button>

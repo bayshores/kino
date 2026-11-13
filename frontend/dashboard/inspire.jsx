@@ -4,22 +4,21 @@
 // being read, as it is read (WatchView); else the full breakdown below. i switches between the
 // simple view and the full page, by its buttons.
 //
-// The full page is made for the mouse: on the left the boards (each search one board, with "All
-// found" and "Saved" pinned on top), in the middle what was found (videos as shelves or a grid,
-// music, sounds with a player), on the right the picked one in detail (cuts on the beat in
-// orange, or a sound's waveform). Every action is a button; Esc closes the detail. Its data
-// comes from inspireView.js; every action is an agent verb run as you (api.act), like the rest
-// of the dashboard.
+// The full page is made for the mouse, one column top to bottom: the search and the kinds, the
+// picked reference big (its picture, facts and cut barcode, or a sound's waveform), the boards as
+// chips (each search one board, "All found" and "Saved" first), and what was found (videos as a
+// row of thumbnails or shelves, music, sounds with a player). Every action is a button; Esc
+// closes the detail. Its data comes from inspireView.js; every action is an agent verb run as
+// you (api.act), like the rest of the dashboard.
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import "./inspire.css";
 import { act } from "./api.js";
 import { Bot } from "./bot.jsx";
-import { moodOfRow } from "./bot.js";
 import { ResolveImage } from "./resolve.jsx";
 import { asciiCells } from "./resolveCells.js";
 import {
-  BOARD_LIMIT, SHOW_OPTIONS, SORT_OPTIONS, SOUND_CATEGORIES, arrange, boardRows, boardTiles, briefLine, clockWords, detailRows, filmCells, filterBoards, ideaFrames, ideasSummary,
-  ideaTimeWords, kindCounts, lengthWords, searcher, shelves, soFarWords, soundDetail, soundNote, soundRow, soundtrackRows, musicOrder, seekTime, sourceWords, songPlayhead, songSeek, stepStates, ticks, tileChips, tileLabel, tileWords, tiles, watchSentence,
+  BOARD_LIMIT, SHOW_OPTIONS, SORT_OPTIONS, SOUND_CATEGORIES, arrange, boardRows, boardTiles, clockWords, factRows, filmCells, filterBoards, ideaFrames, ideasSummary,
+  ideaTimeWords, kindCounts, searcher, shelves, soFarWords, soundDetail, soundNote, soundRow, soundtrackRows, musicOrder, seekTime, songPlayhead, songSeek, stepStates, ticks, tileChips, tileLabel, tileWords, tiles, viewWords, watchSentence,
 } from "./inspireView.js";
 
 // The tall thumbnail of a Short gets its own address: the route is cached for good, so the same
@@ -54,19 +53,6 @@ function Thumb({ tile }) {
     <span className={`insp-thumb${tile.ref?.vertical ? " vertical" : ""}`}>
       {tile.ref?.thumb ? <ResolveImage src={thumbUrl(tile.id, tile.ref)} alt="" draggable={false} /> : <Shades seed={tile.id} />}
     </span>
-  );
-}
-
-/**
- * A box with its `[n] title` set into the top border, as the panes in the design. The body
- * scrolls inside the box, so the title on the border is never clipped by the scroll.
- */
-function Box({ title, className = "", labelId, children, style }) {
-  return (
-    <section className={`insp-box ${className}`} aria-labelledby={labelId} style={style}>
-      <h3 className="insp-title" id={labelId}>{title}</h3>
-      <div className="insp-body">{children}</div>
-    </section>
   );
 }
 
@@ -195,8 +181,8 @@ function WatchView({ data, ref_: ref, live, onBack, onFull, still }) {
         ) : null}
       </div>
       <nav className="insp-keyline" aria-label="Inspire views">
-        <button type="button" className="insp-btn" onClick={onFull}>all found</button>
-        <button type="button" className="insp-btn" onClick={onBack}>back to stage</button>
+        <button type="button" className="insp-btn" onClick={onFull}>All found</button>
+        <button type="button" className="insp-btn" onClick={onBack}>Back to stage</button>
       </nav>
     </section>
   );
@@ -254,8 +240,8 @@ function IdeasView({ data, ideas, projectId, onBack, onFull, say, keysRef }) {
     <section ref={sectionRef} className="screen inspire iv ii" tabIndex={-1} aria-labelledby="ii-title" onKeyDown={onKeyDown}>
       <div className="iv-body ii-body">
         <Head agent={agent} mood={open ? "wait" : "idle"} title={<span id="ii-title">{agent.name} found {ideas.take.length} idea{ideas.take.length === 1 ? "" : "s"} in "{ideas.title}". which should it use?</span>}
-          sub={open ? <>the <span className="ii-orange">orange</span> parts of their video are the ideas. turn each one on or off, then allow.</>
-            : <>the <span className="ii-orange">orange</span> parts of their video are the ideas you {ideas.status === "allowed" ? "allowed" : "held"}.</>} />
+          sub={open ? <>The <span className="ii-orange">marked</span> parts of their video are the ideas. Turn each one on or off, then allow.</>
+            : <>The <span className="ii-orange">marked</span> parts of their video are the ideas you {ideas.status === "allowed" ? "allowed" : "held"}.</>} />
 
         <div className="ii-theirs">
           <p className="ii-label"><strong>their video</strong><span className="faint">{clockWords(seconds)}</span></p>
@@ -341,8 +327,8 @@ function IdeasView({ data, ideas, projectId, onBack, onFull, say, keysRef }) {
         </div> : null}
       </div>
       <nav className="insp-keyline" aria-label="Inspire views">
-        <button type="button" className="insp-btn" onClick={onFull}>all found</button>
-        <button type="button" className="insp-btn" onClick={onBack}>back to stage</button>
+        <button type="button" className="insp-btn" onClick={onFull}>All found</button>
+        <button type="button" className="insp-btn" onClick={onBack}>Back to stage</button>
       </nav>
     </section>
   );
@@ -375,6 +361,8 @@ const ICONS = {
   retry: "M13 8a5 5 0 1 1-1.5-3.5M13 2.5v3h-3",
   eye: "M1.5 8s2.5-4.5 6.5-4.5 6.5 4.5 6.5 4.5-2.5 4.5-6.5 4.5S1.5 8 1.5 8zM8 10a2 2 0 1 0 0-4 2 2 0 0 0 0 4z",
   sort: "M5 2.5v11M2.5 11l2.5 2.5L7.5 11M11 13.5v-11M8.5 5L11 2.5 13.5 5",
+  arrow: "M2.5 8h11M9 3.5L13.5 8 9 12.5",
+  check: "M3 8.5l3 3 7-7",
 };
 
 /** A 16 px line icon (decorative: the button it sits in carries the words). */
@@ -440,16 +428,7 @@ const categoryPeaks = (name) => Array.from({ length: 28 }, (_, index) => {
   return Math.max(0.05, CATEGORY_SHAPES[name](x) * (0.75 + 0.25 * Math.abs(Math.sin(index * 2.3))));
 });
 
-/** A board's cover: up to four thumbnails, 2 by 2. */
-function Cover({ ids, seed, refs }) {
-  return (
-    <span className={`insp-cover n${Math.min(4, ids.length)}`} aria-hidden="true">
-      {ids.length ? ids.map((id) => <img key={id} src={thumbUrl(id, refs?.[id])} alt="" draggable={false} />) : <Shades seed={seed} />}
-    </span>
-  );
-}
-
-/** A labeled native menu, drawn as a chip. */
+/** A labeled native menu, drawn as an icon with the chosen words. */
 function Menu({ label, value, options, onChange, icon }) {
   return (
     <label className="insp-menu" title={label}>
@@ -470,7 +449,7 @@ function Menu({ label, value, options, onChange, icon }) {
  * you press play); the curve shows the playhead and a click on it plays from there.
  */
 function Soundtrack({ rows, projectId, say, player, onPlay }) {
-  if (!rows.length) return <p className="faint insp-none">No songs yet.</p>;
+  if (!rows.length) return <p className="insp-none">No songs yet.</p>;
   const use = async (row, word = "use") => {
     try {
       const reply = await act("library", { project: projectId, topic: "soundtrack", name: `${word} ${row.id}` });
@@ -493,9 +472,9 @@ function Soundtrack({ rows, projectId, say, player, onPlay }) {
           <li key={row.id} className={`insp-row music${row.picked ? " picked" : ""}${row.rejected ? " rejected" : ""}`}>
             {row.preview ? (
               <button type="button" className={`insp-play${playing ? " on" : ""}`} onClick={() => onPlay(row)}
-                aria-label={`${playing ? "pause" : "play"} ${row.title}`} title={playing ? "pause" : "play"}><Icon name={playing ? "pause" : "play"} /></button>
+                aria-label={`${playing ? "pause" : "play"} ${row.title}`} title={playing ? "Pause" : "Play"}><Icon name={playing ? "pause" : "play"} /></button>
             ) : row.measured ? (
-              <button type="button" className="insp-play" disabled aria-label={`${row.title}: measure again to listen`} title="measure again to listen"><Icon name="play" /></button>
+              <button type="button" className="insp-play" disabled aria-label={`${row.title}: measure again to listen`} title="Measure again to listen"><Icon name="play" /></button>
             ) : <span className="insp-row-icon" aria-hidden="true"><Icon name="note" /></span>}
             <span className="insp-row-words">
               <span className="insp-row-title" title={row.title}>{row.title}</span>
@@ -511,8 +490,8 @@ function Soundtrack({ rows, projectId, say, player, onPlay }) {
               {head != null ? <line x1={head} x2={head} y1="0" y2="24" className="insp-curve-head" /> : null}
             </svg>
             <span className="insp-row-acts">
-              <button type="button" className={`insp-btn${row.picked ? " on" : ""}`} onClick={() => use(row)} aria-pressed={row.picked}>{row.picked ? "picked" : "use"}</button>
-              <button type="button" className={`insp-btn${row.rejected ? " on" : ""}`} onClick={() => use(row, "no")} aria-pressed={row.rejected} aria-label={`no to ${row.title}`}>no</button>
+              <button type="button" className={`insp-btn${row.picked ? " on" : ""}`} onClick={() => use(row)} aria-pressed={row.picked}>{row.picked ? "Picked" : "Use"}</button>
+              <button type="button" className={`insp-btn${row.rejected ? " on" : ""}`} onClick={() => use(row, "no")} aria-pressed={row.rejected} aria-label={`no to ${row.title}`}>No</button>
             </span>
           </li>
         );
@@ -526,41 +505,44 @@ function Tile({ entry, picked, saved, looking, onPick, onSave, onOpen, onRetry }
   if (!entry.id) return <li className="insp-tile s-searching" aria-hidden="true"><Thumb tile={entry} /></li>;
   const ref = entry.ref ?? {};
   const failed = entry.state === "failed";
+  const doubts = tileChips(ref).filter((chip) => chip.doubt).slice(0, 2);
   return (
     <li className={`insp-tile s-${entry.state}${picked ? " picked" : ""}`}>
-      <button type="button" className="insp-pick" aria-pressed={picked} aria-label={tileLabel(entry)} onClick={onPick}>
+      <button type="button" className="insp-pick" aria-pressed={picked} aria-label={tileLabel(entry)} title={ref.title ?? entry.id} onClick={onPick}>
         <span className="insp-frame" style={looking?.color ? { "--looker": looking.color } : undefined}>
           <Thumb tile={entry} />
           {looking ? <span className="insp-looking" aria-hidden="true"><span className="insp-brackets" /><Bot color={looking.color} mood="look" size={16} /></span> : null}
         </span>
         <Ticks numbers={ref.numbers} />
         <span className="insp-words">
-          <span className="insp-tile-title">{ref.title ?? entry.id}</span>
-          {failed ? <span className="err">failed</span> : entry.state === "measuring" ? <span className="insp-spin" aria-label="reading" /> : <span>{lengthWords(ref.duration)}</span>}
+          <span className="insp-len">{clockWords(ref.duration)}</span>
+          {failed ? <span className="err">failed</span> : entry.state === "measuring" ? <span className="insp-spin" aria-label="reading" /> : null}
+          {doubts.length ? <span className="insp-chips">{doubts.map((chip) => <span key={chip.text} className="insp-chip doubt">{chip.text}</span>)}</span> : null}
         </span>
-        <span className="insp-chips">{tileChips(ref).slice(0, 3).map((chip) => <span key={chip.text} className={`insp-chip${chip.doubt ? " doubt" : ""}`}>{chip.text}</span>)}</span>
       </button>
       <span className={`insp-over${saved ? " has-saved" : ""}`}>
-        <button type="button" className={`insp-ibtn${saved ? " on" : ""}`} onClick={onSave} aria-pressed={saved} aria-label={saved ? "saved" : "save"} title={saved ? "saved" : "save"}><Icon name="star" filled={saved} /></button>
-        <button type="button" className="insp-ibtn hover-only" onClick={onOpen} aria-label="open on YouTube" title="open on YouTube"><Icon name="open" /></button>
+        <button type="button" className="insp-ibtn hover-only" onClick={onOpen} aria-label="open on YouTube" title="Open on YouTube"><Icon name="open" /></button>
+        <button type="button" className={`insp-ibtn${saved ? " on" : ""}`} onClick={onSave} aria-pressed={saved} aria-label={saved ? "saved" : "save"} title={saved ? "Saved" : "Save"}><Icon name="star" filled={saved} /></button>
       </span>
-      {failed ? <button type="button" className="insp-retry" onClick={onRetry}><Icon name="retry" /> try again</button> : null}
+      {failed ? <button type="button" className="insp-retry" onClick={onRetry}><Icon name="retry" /> Try again</button> : null}
     </li>
   );
 }
 
-/** The found pane, the boards and the detail: every action a button. */
-function Breakdown({ data, projectId, now, onBack, say, onSimple }) {
+/**
+ * The full page, top to bottom: the search and the kinds; the picked reference big, with its facts
+ * and the cut barcode; the boards as chips; what was found as a row of thumbnails. Every action a button.
+ */
+function Breakdown({ data, projectId, onBack, say, onSimple }) {
   const inspire = data?.inspire ?? null;
   const soundtrack = data?.agent?.soundtrack ?? null;
   const who = searcher(inspire);
   const agentRow = who && !who.you ? data?.agents?.find((agent) => agent.id === who.id) ?? null : data?.agents?.[0] ?? null;
-  const color = agentRow?.color ?? who?.color ?? null;
   const agentName = (who && !who.you ? who.name : agentRow?.name) ?? "agent";
   const [kind, setKind] = useState("videos");
   const [shorts, setShorts] = useState(false); // videos tab: search YouTube Shorts only
   const [board, setBoard] = useState("all");
-  const [view, setView] = useState("shelves");
+  const [view, setView] = useState("grid");
   const [show, setShow] = useState("all");
   const [sort, setSort] = useState("match");
   const [filter, setFilter] = useState("");
@@ -675,31 +657,26 @@ function Breakdown({ data, projectId, now, onBack, say, onSimple }) {
     if (tile) setClosed(true); else onBack();
   };
 
-  const brief = briefLine(data?.agent);
   const busyNow = inspire?.queue?.running || (inspire?.searches ?? []).some((row) => row.state === "searching");
   const lookingAt = (id) => (inspire?.looking?.id === id && inspire.looking.by?.id ? inspire.looking.by : null);
   const tileProps = (entry) => ({
     entry, picked: entry.id === tile?.id, saved: savedSet.has(entry.id), looking: lookingAt(entry.id),
     onPick: () => pick(entry.id), onSave: () => toggleSave(entry.id, entry.ref?.title), onOpen: () => openSource(entry.ref), onRetry: () => measure(entry.id, entry.ref?.title),
   });
-  const boardButton = (row) => (
+  // A board is a chip: its name, its count for the two pinned ones; a search's chip forgets it on hover.
+  const boardChip = (row) => (
     <li key={row.key} className={`insp-board${board === row.key ? " on" : ""}`}>
-      <button type="button" className="insp-board-main" aria-pressed={board === row.key} onClick={() => openBoard(row.key)}>
-        <Cover ids={row.cover} seed={row.key} refs={inspire?.refs} />
-        <span className="insp-board-words">
-          <span className="insp-board-name">{row.name}{row.kind === "sounds" ? <span className="insp-board-kind" title="sounds"><Icon name="wave" /></span> : null}</span>
-          <span className="insp-board-sub">{row.state === "searching" ? <>searching<span className="insp-spin" aria-hidden="true" /></> : row.sub}</span>
-        </span>
+      <button type="button" className="insp-board-main" aria-pressed={board === row.key} onClick={() => openBoard(row.key)} title={row.n ? `${row.name}: ${row.sub}` : row.sub}>
+        {row.kind === "sounds" ? <span className="insp-board-kind" aria-label="sounds"><Icon name="wave" /></span> : null}
+        <span className="insp-board-name">{row.name}</span>
+        {row.state === "searching" ? <span className="insp-spin" aria-label="searching" /> : !row.n ? <span className="insp-board-n">{row.count}</span> : null}
       </button>
-      {row.n ? <button type="button" className="insp-ibtn insp-forget" onClick={() => forget(row)} aria-label={`forget ${row.name}`} title="forget this search"><Icon name="x" /></button> : null}
+      {row.n ? <button type="button" className="insp-ibtn insp-forget" onClick={() => forget(row)} aria-label={`forget ${row.name}`} title="Forget this search"><Icon name="x" /></button> : null}
     </li>
   );
 
-  const boardHead = board !== "all" ? (
-    <p className="insp-shelf-head">
-      <button type="button" className="insp-link" onClick={() => setBoard("all")}>All found</button>
-      <span className="faint" aria-hidden="true">/</span><strong>{boardRow.name}</strong><span className="faint">{rows.length}</span>
-    </p>
+  const boardHead = board !== "all" && kind === "sounds" ? (
+    <p className="insp-shelf-head"><strong>{boardRow.name}</strong><span className="insp-n">{rows.length}</span></p>
   ) : null;
 
   let found;
@@ -716,7 +693,7 @@ function Breakdown({ data, projectId, now, onBack, say, onSimple }) {
               <li key={word}>
                 <button type="button" className={`insp-cat${match && board === match.key ? " on" : ""}`} aria-pressed={Boolean(match && board === match.key)} onClick={() => category(word)}>
                   <Wave peaks={categoryPeaks(word)} played={match && board === match.key ? 1 : 0} />
-                  <span className="insp-cat-words"><span>{word}</span><span className="faint">{match ? match.count : ""}</span></span>
+                  <span className="insp-cat-words"><span>{word[0].toUpperCase() + word.slice(1)}</span><span className="insp-n">{match ? match.count : ""}</span></span>
                 </button>
               </li>
             );
@@ -724,65 +701,111 @@ function Breakdown({ data, projectId, now, onBack, say, onSimple }) {
         </ul>
         {boardHead}
         {rows.length ? (
-          <>
-            <p className="insp-colhead" aria-hidden="true"><span>sound</span><span>length</span></p>
-            <ul className="insp-rowlist" aria-label="sounds">
-              {rows.map((entry) => {
-                const row = soundRow(entry, saved);
-                const on = entry.id === tile?.id;
-                const playing = player.id === entry.id && player.playing;
-                return (
-                  <li key={entry.id} className={`insp-row sound${on ? " picked" : ""}`} onClick={() => pick(entry.id)}>
-                    <button type="button" className={`insp-play${playing ? " on" : ""}`} onClick={(event) => { event.stopPropagation(); pick(entry.id); playSound(entry.id); }}
-                      aria-label={`${playing ? "pause" : "play"} ${row.title}`} title={playing ? "pause" : "play"}><Icon name={playing ? "pause" : "play"} /></button>
-                    <button type="button" className="insp-row-words" aria-pressed={on} onClick={(event) => { event.stopPropagation(); pick(entry.id); }}>
-                      <span className="insp-row-title">{row.title}</span>
-                      <span className="insp-row-sub"><span>{row.source}</span>
-                        {row.match != null ? <span className="insp-chip fit" title={`how it sounds against the words${row.alike ? `; ${row.alike} alike folded in` : ""}`}>match {row.match}</span> : null}
-                        {row.taste != null ? <span className="insp-chip lane" title={row.why || "your use and no on sounds"}>taste {row.taste}</span> : null}
-                        {row.tags.slice(0, 2).map((tag) => <span key={tag} className="insp-chip">{tag}</span>)}
-                        {entry.state !== "measured" ? <span className={entry.state === "failed" ? "err" : "faint"}>{tileWords(entry).left}</span> : null}</span>
-                    </button>
-                    <Wave peaks={row.peaks} played={played(entry.id)} />
-                    <span className="insp-row-len">{row.length}</span>
-                    <span className="insp-row-acts">
-                      <button type="button" className={`insp-ibtn${row.saved ? " on" : ""}`} onClick={(event) => { event.stopPropagation(); toggleSave(entry.id, row.title); }} aria-pressed={row.saved}
-                        aria-label={row.saved ? "saved" : "save"} title={row.saved ? "saved" : "save"}><Icon name="star" filled={row.saved} /></button>
-                      {entry.ref?.sound ? <button type="button" className="insp-btn hover-only" onClick={(event) => { event.stopPropagation(); markSound(entry.id, "use"); }}>use</button> : null}
-                      {entry.ref?.sound ? <button type="button" className="insp-btn hover-only" onClick={(event) => { event.stopPropagation(); markSound(entry.id, "no"); }} aria-label={`no to ${row.title}`}>no</button> : null}
-                      <button type="button" className="insp-ibtn hover-only" onClick={(event) => { event.stopPropagation(); sendSound(entry.ref ?? { id: entry.id, title: row.title }); }}
-                        aria-label={`send to ${agentName}`} title={`send to ${agentName}`}><Icon name="send" /></button>
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-          </>
-        ) : <p className="faint insp-none">{busyNow ? "searching" : "No sounds yet."}</p>}
+          <ul className="insp-rowlist" aria-label="sounds">
+            {rows.map((entry) => {
+              const row = soundRow(entry, saved);
+              const on = entry.id === tile?.id;
+              const playing = player.id === entry.id && player.playing;
+              return (
+                <li key={entry.id} className={`insp-row sound${on ? " picked" : ""}`} onClick={() => pick(entry.id)}>
+                  <button type="button" className={`insp-play${playing ? " on" : ""}`} onClick={(event) => { event.stopPropagation(); pick(entry.id); playSound(entry.id); }}
+                    aria-label={`${playing ? "pause" : "play"} ${row.title}`} title={playing ? "Pause" : "Play"}><Icon name={playing ? "pause" : "play"} /></button>
+                  <button type="button" className="insp-row-words" aria-pressed={on} onClick={(event) => { event.stopPropagation(); pick(entry.id); }}>
+                    <span className="insp-row-title">{row.title}</span>
+                    <span className="insp-row-sub"><span>{row.source}</span>
+                      {row.match != null ? <span className="insp-chip fit" title={`how it sounds against the words${row.alike ? `; ${row.alike} alike folded in` : ""}`}>match {row.match}</span> : null}
+                      {row.taste != null ? <span className="insp-chip lane" title={row.why || "your use and no on sounds"}>taste {row.taste}</span> : null}
+                      {row.tags.slice(0, 2).map((tag) => <span key={tag} className="insp-chip">{tag}</span>)}
+                      {entry.state !== "measured" ? <span className={entry.state === "failed" ? "err" : "faint"}>{tileWords(entry).left}</span> : null}</span>
+                  </button>
+                  <Wave peaks={row.peaks} played={played(entry.id)} />
+                  <span className="insp-row-len">{row.length}</span>
+                  <span className="insp-row-acts">
+                    <button type="button" className={`insp-ibtn${row.saved ? " on" : ""}`} onClick={(event) => { event.stopPropagation(); toggleSave(entry.id, row.title); }} aria-pressed={row.saved}
+                      aria-label={row.saved ? "saved" : "save"} title={row.saved ? "Saved" : "Save"}><Icon name="star" filled={row.saved} /></button>
+                    {entry.ref?.sound ? <button type="button" className="insp-btn hover-only" onClick={(event) => { event.stopPropagation(); markSound(entry.id, "use"); }}>Use</button> : null}
+                    {entry.ref?.sound ? <button type="button" className="insp-btn hover-only" onClick={(event) => { event.stopPropagation(); markSound(entry.id, "no"); }} aria-label={`no to ${row.title}`}>No</button> : null}
+                    <button type="button" className="insp-ibtn hover-only" onClick={(event) => { event.stopPropagation(); sendSound(entry.ref ?? { id: entry.id, title: row.title }); }}
+                      aria-label={`send to ${agentName}`} title={`Send to ${agentName}`}><Icon name="send" /></button>
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        ) : <p className="insp-none">{busyNow ? "Searching" : "No sounds yet."}</p>}
       </>
     );
   } else if (board === "all" && view === "shelves" && show === "all" && sort === "match") {
-    const groups = shelves(inspire, "videos");
+    const groups = shelves(inspire, "videos", 6);
     found = groups.length ? groups.map((group) => (
       <section key={group.key} className="insp-shelf" aria-label={group.name}>
-        <p className="insp-shelf-head"><strong>{group.name}</strong><span className="faint">{group.count}</span>
-          {group.count > 4 ? <button type="button" className="insp-link right" onClick={() => setBoard(group.key)}>see all <span aria-hidden="true">→</span></button> : null}</p>
-        <ul className="insp-tiles shelf">{group.tiles.map((entry) => <Tile key={entry.key} {...tileProps(entry)} />)}</ul>
+        <p className="insp-shelf-head"><strong title={group.name}>{group.name}</strong><span className="insp-n">{group.count}</span>
+          {group.count > 6 ? <button type="button" className="insp-link right" onClick={() => setBoard(group.key)}>See all <Icon name="arrow" /></button> : null}</p>
+        <ul className="insp-tiles">{group.tiles.map((entry) => <Tile key={entry.key} {...tileProps(entry)} />)}</ul>
       </section>
-    )) : <p className="faint insp-none">No searches yet.</p>;
+    )) : <p className="insp-none">No searches yet.</p>;
   } else {
-    found = (
-      <>
-        {boardHead}
-        {list.length ? <ul className="insp-tiles">{list.map((entry) => <Tile key={entry.key} {...tileProps(entry)} />)}</ul> : <p className="faint insp-none">Nothing here.</p>}
-      </>
-    );
+    found = list.length ? <ul className="insp-tiles">{list.map((entry) => <Tile key={entry.key} {...tileProps(entry)} />)}</ul> : <p className="insp-none">Nothing here.</p>;
   }
 
   const isSoundRef = ref?.kind === "sound";
-  const detail = detailRows(ref);
+  const facts = factRows(ref);
   const sound = isSoundRef && tile ? soundRow(tile, saved) : null;
   const soundPlayed = sound && player.id === sound.id && player.d ? player.t / player.d : 0;
+  const isSaved = Boolean(tile?.id && savedSet.has(tile.id));
+  const doubts = tileChips(ref).filter((chip) => chip.doubt);
+
+  // The picked one, big: its picture (or a sound's waveform) on the left, its facts on the right.
+  let hero = null;
+  if (kind !== "music") {
+    hero = tile?.id ? (
+      <div className={`insp-hero${isSoundRef ? " sound" : ""}`}>
+        {isSoundRef ? (
+          <div className="insp-bigwave">
+            <Wave peaks={sound.peaks} played={soundPlayed || (sound.peak ?? 0)} peak={sound.peak} label={`${sound.title}: waveform${sound.peak != null ? ", the peak marked" : ""}`} />
+            <p className="insp-axis" aria-hidden="true">{[0, 0.25, 0.5, 0.75, 1].map((x) => <span key={x}>{(Math.round(x * sound.seconds * 10) / 10).toFixed(1)}</span>)}</p>
+          </div>
+        ) : (
+          <span className="insp-ref-thumb"><Thumb tile={tile} />
+            <button type="button" className="insp-thumb-play" onClick={() => openSource(ref)} aria-label={`play ${ref?.title ?? ""} on YouTube`} title="Play on YouTube"><Icon name="play" /></button></span>
+        )}
+        <section className="insp-ref" aria-labelledby="insp-ref-title">
+          <h3 id="insp-ref-title" className="insp-ref-title" title={ref?.title}>{ref?.title ?? tile.id}</h3>
+          <p className="insp-ref-sub">
+            {ref?.duration ? <span className="insp-n">{isSoundRef ? soundDetail(ref)[0][1] : clockWords(ref.duration)}</span> : null}
+            {viewWords(ref?.views) ? <span className="insp-n">{viewWords(ref.views)}</span> : null}
+            {ref?.channel ? <span className="insp-channel" title={ref.verified ? "verified channel" : undefined}>{ref.channel}{ref.verified ? <Icon name="check" /> : null}</span> : null}
+            {doubts.map((chip) => <span key={chip.text} className="insp-chip doubt" title={`doubt: ${ref.doubt ?? chip.text}`}>{chip.text}</span>)}
+          </p>
+          {isSoundRef ? (
+            <dl className="insp-rows">{soundDetail(ref).map(([label, value]) => <React.Fragment key={label}><dt>{label[0].toUpperCase() + label.slice(1)}</dt><dd>{value}</dd></React.Fragment>)}</dl>
+          ) : ref?.numbers ? (
+            <>
+              <span role="img" aria-label={`${ref.numbers.cuts.length} cuts${ref.numbers.onBeat ? `, ${ref.numbers.onBeatCount} on the beat` : ""}`}><Ticks numbers={ref.numbers} beats className="big" /></span>
+              <dl className="insp-rows">{facts.map(([label, value, rest]) => <React.Fragment key={label}><dt>{label}</dt><dd title={rest || undefined}>{value}</dd></React.Fragment>)}</dl>
+            </>
+          ) : (
+            <p className="insp-status">{tileWords(tile).left || "Not read"}
+              {tile.state === "failed" || tile.state === "found" ? <button type="button" className="insp-btn" onClick={() => measure(tile.id, ref?.title)}><Icon name="retry" /> Try again</button> : null}</p>
+          )}
+          <div className="insp-actions">
+            {isSoundRef ? (
+              <button type="button" className="insp-btn primary" onClick={() => sendSound(ref)}><Icon name="send" /> Send to {agentName}</button>
+            ) : (
+              <button type="button" className="insp-btn primary" onClick={() => borrow(false)} disabled={busy === "borrow" || !ref?.numbers} title="Its cuts as cue marks"><Icon name="arrow" /> Borrow its rhythm</button>
+            )}
+            <button type="button" className={`insp-btn${isSaved ? " starred" : ""}`} onClick={() => toggleSave(tile.id, ref?.title)} aria-pressed={isSaved}>
+              <Icon name="star" filled={isSaved} /> {isSaved ? "Saved" : "Save"}</button>
+            <span className="insp-actions-end">
+              {!isSoundRef && ref?.numbers ? <button type="button" className="insp-ibtn" onClick={() => borrow(true)} disabled={busy === "borrow"} aria-label="borrow its rhythm, fit to the scene" title="Borrow, fit to the scene"><Icon name="fit" /></button> : null}
+              <button type="button" className="insp-ibtn" onClick={() => openSource(ref)} aria-label={isSoundRef ? "open the source" : "open on YouTube"} title={isSoundRef ? "Open the source" : "Open on YouTube"}><Icon name="open" /></button>
+              <button type="button" className="insp-ibtn" onClick={() => setClosed(true)} aria-label="close" title="Close"><Icon name="x" /></button>
+            </span>
+          </div>
+        </section>
+      </div>
+    ) : rows.length ? <p className="insp-none insp-hero-none">{kind === "sounds" ? "Pick a sound." : "Pick a video."}</p> : null;
+  }
 
   return (
     <section className="screen inspire" aria-labelledby="inspire-heading" onKeyDown={onKeyDown}>
@@ -791,149 +814,87 @@ function Breakdown({ data, projectId, now, onBack, say, onSimple }) {
         onPlay={() => setPlayer((value) => ({ ...value, playing: true }))} onPause={() => setPlayer((value) => ({ ...value, playing: false }))}
         onTimeUpdate={(event) => { const { currentTime, duration } = event.currentTarget; setPlayer((value) => ({ ...value, t: currentTime, d: Number.isFinite(duration) ? duration : 0 })); }}
         onError={() => player.id && say(player.id.startsWith("song:") ? "That song's preview is gone: ask the agent to measure it again." : "That sound could not be loaded.", true)} />
-      <div className="insp-grid">
-        <Box title={<span style={color ? { color } : undefined}>{agentName}</span>} className="insp-who" labelId="insp-who-title" style={color ? { "--who": color } : undefined}>
-          <p className="insp-agent">
-            {color ? <Bot color={color} mood={agentRow ? moodOfRow(data, agentRow, now) : busyNow ? "work" : "idle"} size={52} /> : null}
-            <span className="insp-brief">{brief || <span className="faint">no brief yet</span>}</span>
-          </p>
-          <p className="insp-boards-head"><span>boards</span>
-            <button type="button" className="insp-link" onClick={() => searchRef.current?.focus()} title="new search"><span aria-hidden="true">+</span> new</button></p>
-          <label className="insp-field small">
-            <Icon name="search" /><span className="sr-only">filter boards</span>
-            <input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder={`filter ${boards.length - 2} boards`} autoComplete="off" spellCheck={false} />
+      <div className="insp-top">
+        <form className="insp-searchbar" onSubmit={search} role="search">
+          <label className="insp-field">
+            <Icon name="search" /><span className="sr-only">{kind === "sounds" ? "search sounds" : "search YouTube"}</span>
+            <input ref={searchRef} value={query} maxLength={120} onChange={(event) => setQuery(event.target.value)}
+              placeholder={kind === "sounds" ? "soft whoosh for a cut" : shorts && kind === "videos" ? "app launch animation" : "walking tour edit"} autoComplete="off" spellCheck={false} />
+            {query ? <button type="button" className="insp-ibtn" onClick={() => { setQuery(""); searchRef.current?.focus(); }} aria-label="clear" title="Clear"><Icon name="x" /></button> : null}
+            <button type="submit" className="insp-ibtn insp-go" disabled={busy === "search" || !query.trim()} aria-label="search" title="Search"><Icon name="arrow" /></button>
           </label>
-          <ul className="insp-boards" aria-label="boards">
-            {pinned.map(boardButton)}
-            <li className="insp-boards-rule" aria-hidden="true" />
-            {shown.map(boardButton)}
-          </ul>
-          {more ? <button type="button" className="insp-more" onClick={() => setAllBoards(true)}>{more} more boards <span aria-hidden="true">⌄</span></button>
-            : allBoards ? <button type="button" className="insp-more" onClick={() => setAllBoards(false)}>fewer boards <span aria-hidden="true">⌃</span></button> : null}
-        </Box>
-
-        <Box title="Found" className="insp-found" labelId="insp-found-title">
-          <div className="insp-top">
-            <form className="insp-searchbar" onSubmit={search} role="search">
-              <label className="insp-field">
-                <Icon name="search" /><span className="sr-only">{kind === "sounds" ? "search sounds" : "search YouTube"}</span>
-                <input ref={searchRef} value={query} maxLength={120} onChange={(event) => setQuery(event.target.value)}
-                  placeholder={kind === "sounds" ? "soft whoosh for a cut" : shorts && kind === "videos" ? "app launch animation" : "walking tour edit"} autoComplete="off" spellCheck={false} />
-                {query ? <button type="button" className="insp-ibtn" onClick={() => { setQuery(""); searchRef.current?.focus(); }} aria-label="clear" title="clear"><Icon name="x" /></button> : null}
-              </label>
-              {kind === "videos" ? (
-                <button type="button" className={`insp-btn insp-shorts${shorts ? " on" : ""}`} aria-pressed={shorts} onClick={() => setShorts((on) => !on)}
-                  title="YouTube Shorts only (vertical)"><Icon name="tall" />shorts</button>
-              ) : null}
-              <button type="submit" className="insp-btn primary-soft" disabled={busy === "search"}>search</button>
-            </form>
-            <div className="insp-bar">
-              <span className="insp-tabs" role="group" aria-label="kind">
-                {[["videos", "film"], ["music", "note"], ["sounds", "wave"]].map(([name, icon]) => (
-                  <button key={name} type="button" className={`insp-tab${kind === name ? " on" : ""}`} aria-pressed={kind === name}
-                    onClick={() => { setKind(name); setShow("all"); if (board !== "all" && board !== "saved") setBoard("all"); }}>
-                    <Icon name={icon} />{name}<span className="insp-tab-n">{counts[name]}</span>
-                  </button>
-                ))}
-              </span>
-              <span className="insp-bar-end">
-                {busyNow ? <button type="button" className="insp-btn quiet" onClick={stop} title="stop reading">reading<span className="insp-spin" aria-hidden="true" /> stop</button> : null}
-                {onSimple ? <button type="button" className="insp-btn quiet" onClick={onSimple}>live view</button> : null}
-                {kind !== "music" ? <>
-                  <Menu label="show" icon="eye" value={show} options={SHOW_OPTIONS[tabKind]} onChange={setShow} />
-                  <Menu label="sort" icon="sort" value={sort} options={SORT_OPTIONS} onChange={setSort} />
-                </> : null}
-                {kind === "videos" ? (
-                  <span className="insp-toggle" role="group" aria-label="view">
-                    <button type="button" className={`insp-ibtn${view === "shelves" ? " on" : ""}`} aria-pressed={view === "shelves"} onClick={() => setView("shelves")} aria-label="shelves" title="shelves"><Icon name="rows" /></button>
-                    <button type="button" className={`insp-ibtn${view === "grid" ? " on" : ""}`} aria-pressed={view === "grid"} onClick={() => setView("grid")} aria-label="grid" title="grid"><Icon name="grid" /></button>
-                  </span>
-                ) : null}
-              </span>
-            </div>
-          </div>
-          <div className="insp-scroll">{found}</div>
-          {kind === "music" && playerSong ? (
-            <div className="insp-player" role="group" aria-label="player">
-              <button type="button" className={`insp-play big${player.playing ? " on" : ""}`} onClick={() => playSong(playerSong)}
-                aria-label={player.playing ? "pause" : "play"} title={player.playing ? "pause" : "play"}><Icon name={player.playing ? "pause" : "play"} /></button>
-              <span className="insp-player-title">{playerSong.title}</span>
-              <SeekWave peaks={playerSong.peaks} t={player.t} seconds={player.d || playerSong.preview?.seconds || 0} title={playerSong.title} onSeek={(at) => playSong(playerSong, at)} />
-              <span className="insp-player-time">{clockWords(player.t)} / {clockWords(player.d || playerSong.preview?.seconds || 0)}</span>
-              <button type="button" className={`insp-ibtn${player.loop ? " on" : ""}`} aria-pressed={player.loop} onClick={() => setPlayer((value) => ({ ...value, loop: !value.loop }))} aria-label="loop" title="loop"><Icon name="loop" /></button>
-            </div>
+        </form>
+        <span className="insp-kinds">
+          <span className="insp-tabs" role="group" aria-label="kind">
+            {["videos", "music", "sounds"].map((name) => (
+              <button key={name} type="button" className={`insp-tab${kind === name ? " on" : ""}`} aria-pressed={kind === name} title={`${counts[name]} found`}
+                onClick={() => { setKind(name); setShow("all"); if (board !== "all" && board !== "saved") setBoard("all"); }}>
+                {name[0].toUpperCase() + name.slice(1)}
+              </button>
+            ))}
+          </span>
+          {kind === "videos" ? (
+            <button type="button" className={`insp-btn insp-shorts${shorts ? " on" : ""}`} aria-pressed={shorts} onClick={() => setShorts((on) => !on)}
+              title="YouTube Shorts only (vertical)">Shorts</button>
           ) : null}
-          {kind === "sounds" && (playerRef || sound) ? (() => {
-            const target = playerRef ? soundRow({ id: player.id, ref: playerRef, state: playerRef.state }, saved) : sound;
-            const on = player.id === target.id;
-            return (
-              <div className="insp-player" role="group" aria-label="player">
-                <button type="button" className={`insp-play big${on && player.playing ? " on" : ""}`} onClick={() => playSound(target.id)}
-                  aria-label={on && player.playing ? "pause" : "play"} title={on && player.playing ? "pause" : "play"}><Icon name={on && player.playing ? "pause" : "play"} /></button>
-                <span className="insp-player-title">{target.title}</span>
-                <SeekWave peaks={target.peaks} t={on ? player.t : 0} seconds={on && player.d ? player.d : target.seconds || 0} title={target.title} onSeek={(at) => play(target.id, soundUrl(target.id), at)} />
-                <span className="insp-player-time">{clockWords(on ? player.t : 0)} / {clockWords(on && player.d ? player.d : target.seconds)}</span>
-                <button type="button" className={`insp-ibtn${player.loop ? " on" : ""}`} aria-pressed={player.loop} onClick={() => setPlayer((value) => ({ ...value, loop: !value.loop }))} aria-label="loop" title="loop"><Icon name="loop" /></button>
-              </div>
-            );
-          })() : null}
-        </Box>
-
-        <Box title={isSoundRef ? "Sound" : "Reference"} className="insp-ref" labelId="insp-ref-title">
-          {tile?.id ? (
-            <>
-              <div className="insp-ref-head">
-                <span>
-                  <p className="insp-ref-title" title={ref?.title}>{ref?.title}</p>
-                  <p className="insp-ref-sub">{ref?.channel}{ref?.duration ? ` · ${isSoundRef ? soundDetail(ref)[0][1] : lengthWords(ref.duration)}` : ""}{isSoundRef ? "" : sourceWords(ref)}</p>
-                </span>
-                <button type="button" className="insp-ibtn boxed" onClick={() => setClosed(true)} aria-label="close" title="close"><Icon name="x" /></button>
-              </div>
-              {isSoundRef ? (
-                <>
-                  <div className="insp-bigwave">
-                    <Wave peaks={sound.peaks} played={soundPlayed || (sound.peak ?? 0)} peak={sound.peak} label={`${sound.title}: waveform${sound.peak != null ? ", the peak marked" : ""}`} />
-                    <p className="insp-axis" aria-hidden="true">{[0, 0.25, 0.5, 0.75, 1].map((x) => <span key={x}>{(Math.round(x * sound.seconds * 10) / 10).toFixed(1)}</span>)}</p>
-                  </div>
-                  <div className="insp-actions">
-                    <button type="button" className="insp-btn primary" onClick={() => sendSound(ref)}><Icon name="send" /> send to {agentName}</button>
-                    <button type="button" className={`insp-btn${sound.saved ? " starred" : ""}`} onClick={() => toggleSave(tile.id, ref.title)} aria-pressed={sound.saved}><Icon name="star" filled={sound.saved} /> {sound.saved ? "saved" : "save"}</button>
-                    <button type="button" className="insp-ibtn boxed" onClick={() => openSource(ref)} aria-label="open the source" title="open the source"><Icon name="open" /></button>
-                  </div>
-                  <dl className="insp-rows">{soundDetail(ref).map(([label, value]) => <React.Fragment key={label}><dt>{label}</dt><dd>{value}</dd></React.Fragment>)}</dl>
-                </>
-              ) : (
-                <>
-                  <span className="insp-ref-thumb"><Thumb tile={tile} />
-                    <button type="button" className="insp-thumb-play" onClick={() => openSource(ref)}><Icon name="play" /> play</button></span>
-                  <div className="insp-actions two">
-                    <button type="button" className={`insp-btn${savedSet.has(tile.id) ? " primary" : ""}`} onClick={() => toggleSave(tile.id, ref?.title)} aria-pressed={savedSet.has(tile.id)}>
-                      <Icon name="star" filled={savedSet.has(tile.id)} /> {savedSet.has(tile.id) ? "saved" : "save"}</button>
-                    <button type="button" className="insp-btn" onClick={() => openSource(ref)}><Icon name="open" /> YouTube</button>
-                  </div>
-                  {ref?.numbers ? (
-                    <>
-                      <div className="insp-borrow" role="group" aria-labelledby="insp-borrow-title">
-                        <p id="insp-borrow-title" className="insp-borrow-title">borrow its rhythm</p>
-                        <div className="insp-actions two">
-                          <button type="button" className="insp-btn" onClick={() => borrow(false)} disabled={busy === "borrow"} title="its cuts as cue marks"><Icon name="copy" /> as is</button>
-                          <button type="button" className="insp-btn" onClick={() => borrow(true)} disabled={busy === "borrow"} title="its cuts scaled to the scene"><Icon name="fit" /> fit to scene</button>
-                        </div>
-                      </div>
-                      <p className="insp-beat"><span className="dim">cuts on the beat</span><span className="insp-beat-n">{detail.beat ? `${detail.beat.n} of ${detail.beat.m}` : "no beat"}</span></p>
-                      <Ticks numbers={ref.numbers} beats className="big" />
-                      <dl className="insp-rows">{detail.rows.filter(([label]) => label !== "kept").map(([label, value]) => <React.Fragment key={label}><dt>{label}</dt><dd>{value}</dd></React.Fragment>)}</dl>
-                    </>
-                  ) : (
-                    <p className="insp-status">{tileWords(tile).left || "not read"}
-                      {tile.state === "failed" || tile.state === "found" ? <button type="button" className="insp-btn" onClick={() => measure(tile.id, ref?.title)}><Icon name="retry" /> try again</button> : null}</p>
-                  )}
-                </>
-              )}
-            </>
-          ) : <p className="faint insp-none">{kind === "sounds" ? "Pick a sound." : kind === "music" ? "Pick a song with use." : "Pick a video."}</p>}
-        </Box>
+        </span>
       </div>
+      {hero}
+      <div className="insp-bar">
+        {kind !== "music" ? (
+          <ul className="insp-boards" aria-label="boards">
+            {pinned.map(boardChip)}
+            {shown.map(boardChip)}
+            {more ? <li><button type="button" className="insp-more" onClick={() => setAllBoards(true)}>{more} more</button></li>
+              : allBoards ? <li><button type="button" className="insp-more" onClick={() => setAllBoards(false)}>Fewer</button></li> : null}
+            {boards.length - 2 > BOARD_LIMIT ? (
+              <li><label className="insp-field small">
+                <Icon name="search" /><span className="sr-only">filter boards</span>
+                <input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Filter" autoComplete="off" spellCheck={false} />
+              </label></li>
+            ) : null}
+          </ul>
+        ) : <span />}
+        <span className="insp-bar-end">
+          {busyNow ? <button type="button" className="insp-btn quiet" onClick={stop} title="Stop reading">Reading<span className="insp-spin" aria-hidden="true" /> Stop</button> : null}
+          {onSimple ? <button type="button" className="insp-btn quiet" onClick={onSimple}>Live view</button> : null}
+          {kind !== "music" ? <>
+            <Menu label="show" icon="eye" value={show} options={SHOW_OPTIONS[tabKind]} onChange={setShow} />
+            <Menu label="sort" icon="sort" value={sort} options={SORT_OPTIONS} onChange={setSort} />
+          </> : null}
+          {kind === "videos" ? (
+            <span className="insp-toggle" role="group" aria-label="view">
+              <button type="button" className={`insp-ibtn${view === "grid" ? " on" : ""}`} aria-pressed={view === "grid"} onClick={() => setView("grid")} aria-label="grid" title="Grid"><Icon name="grid" /></button>
+              <button type="button" className={`insp-ibtn${view === "shelves" ? " on" : ""}`} aria-pressed={view === "shelves"} onClick={() => setView("shelves")} aria-label="shelves" title="Shelves"><Icon name="rows" /></button>
+            </span>
+          ) : null}
+        </span>
+      </div>
+      <div className="insp-found">{found}</div>
+      {kind === "music" && playerSong ? (
+        <div className="insp-player" role="group" aria-label="player">
+          <button type="button" className={`insp-play big${player.playing ? " on" : ""}`} onClick={() => playSong(playerSong)}
+            aria-label={player.playing ? "pause" : "play"} title={player.playing ? "Pause" : "Play"}><Icon name={player.playing ? "pause" : "play"} /></button>
+          <span className="insp-player-title">{playerSong.title}</span>
+          <SeekWave peaks={playerSong.peaks} t={player.t} seconds={player.d || playerSong.preview?.seconds || 0} title={playerSong.title} onSeek={(at) => playSong(playerSong, at)} />
+          <span className="insp-player-time">{clockWords(player.t)} / {clockWords(player.d || playerSong.preview?.seconds || 0)}</span>
+          <button type="button" className={`insp-ibtn${player.loop ? " on" : ""}`} aria-pressed={player.loop} onClick={() => setPlayer((value) => ({ ...value, loop: !value.loop }))} aria-label="loop" title="Loop"><Icon name="loop" /></button>
+        </div>
+      ) : null}
+      {kind === "sounds" && (playerRef || sound) ? (() => {
+        const target = playerRef ? soundRow({ id: player.id, ref: playerRef, state: playerRef.state }, saved) : sound;
+        const on = player.id === target.id;
+        return (
+          <div className="insp-player" role="group" aria-label="player">
+            <button type="button" className={`insp-play big${on && player.playing ? " on" : ""}`} onClick={() => playSound(target.id)}
+              aria-label={on && player.playing ? "pause" : "play"} title={on && player.playing ? "Pause" : "Play"}><Icon name={on && player.playing ? "pause" : "play"} /></button>
+            <span className="insp-player-title">{target.title}</span>
+            <SeekWave peaks={target.peaks} t={on ? player.t : 0} seconds={on && player.d ? player.d : target.seconds || 0} title={target.title} onSeek={(at) => play(target.id, soundUrl(target.id), at)} />
+            <span className="insp-player-time">{clockWords(on ? player.t : 0)} / {clockWords(on && player.d ? player.d : target.seconds)}</span>
+            <button type="button" className={`insp-ibtn${player.loop ? " on" : ""}`} aria-pressed={player.loop} onClick={() => setPlayer((value) => ({ ...value, loop: !value.loop }))} aria-label="loop" title="Loop"><Icon name="loop" /></button>
+          </div>
+        );
+      })() : null}
     </section>
   );
 }

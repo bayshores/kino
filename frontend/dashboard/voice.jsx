@@ -5,6 +5,7 @@
 import React from "react";
 import { voiceLine } from "./agentView.js";
 import { frameUrl } from "./api.js";
+import { clock } from "./format.js";
 import { MaterialChoices } from "./live.jsx";
 
 // One line icon per tool (16 px box, 1.4 px lines), so a line says what kind of call it was
@@ -25,6 +26,10 @@ const SHAPES = {
   undo: "M5.5 4 2.5 7l3 3M3 7h6.5a3.5 3.5 0 0 1 0 7H7",
   arrow: "M3 8h10M9 4l4 4-4 4",
   x: "M4 4l8 8M12 4l-8 8",
+  up: "M8 13V3M4 7l4-4 4 4",
+  pin: "M8 14s4.5-4 4.5-7.5a4.5 4.5 0 1 0-9 0C3.5 10 8 14 8 14zM8 8a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z",
+  record: "M2 4.5h8v7H2zM10 7l4-2v6l-4-2",
+  plug: "M6 2v3M10 2v3M4 5h8v3a4 4 0 0 1-8 0zM8 12v2",
 };
 
 /** A tool's icon ("edit", "look", …); an unknown tool gets the plain lines of "status". */
@@ -47,9 +52,9 @@ function BeforeAfter({ data, scene, time, before, after }) {
  * `agent` is the agent shown; `time` and `scene` what the stage shows. `onRun(action)` runs the
  * dashboard's commands ("allow", "deny", "undo", "hold"), `onAnswer(id, decision, always)` answers
  * an approval, `onMaterial(need, answer)` a material question, `onCancelRender()` stops the
- * render, and `onHistory()` opens the earlier lines.
+ * render, `onStopRecording()` a screen recording, and `onHistory()` opens the earlier lines.
  */
-export function Voice({ data, agent, now, scene, time, still, listOpen = false, onRun, onAnswer, onMaterial, onCancelRender, onHistory }) {
+export function Voice({ data, agent, now, scene, time, still, listOpen = false, onRun, onAnswer, onMaterial, onCancelRender, onStopRecording, onHistory }) {
   const nameOf = (id) => data.agents?.find((entry) => entry.id === id)?.name;
   const line = voiceLine(data, agent, now, nameOf);
   const { need } = line;
@@ -90,6 +95,7 @@ export function Voice({ data, agent, now, scene, time, still, listOpen = false, 
           </span>
         ) : null}
         {line.state === "hold" ? <span className="voice-answers"><button type="button" className="voice-button primary" onClick={() => onRun("hold")} title="Release: agent writes work again (h)" aria-keyshortcuts="h">Release</button></span> : null}
+        {line.state === "recording" ? <span className="voice-answers"><button type="button" className="voice-button rec" onClick={onStopRecording} title="Stop recording (the recording so far is kept)">Stop</button></span> : null}
         {line.state === "render" ? <span className="voice-answers"><button type="button" className="voice-button" onClick={onCancelRender}>Cancel</button></span> : null}
       </div>
       <p className="voice-facts">
@@ -98,6 +104,22 @@ export function Voice({ data, agent, now, scene, time, still, listOpen = false, 
         {need?.more ? <span>{need.more} more waiting</span> : null}
       </p>
     </section>
+  );
+}
+
+/**
+ * The foot line of a page that is not the stage: the frame at the playhead, small, and the
+ * agent's line. A click goes back to the stage (`onStage`).
+ */
+export function PageFoot({ data, agent, now, scene, time, onStage }) {
+  const nameOf = (id) => data.agents?.find((entry) => entry.id === id)?.name;
+  const line = voiceLine(data, agent, now, nameOf);
+  return (
+    <button type="button" className={`page-foot is-${line.state}`} onClick={onStage} aria-label={`Back to the stage. ${line.text}`}>
+      {scene && data.projectId ? <img src={frameUrl({ projectId: data.projectId, sceneId: scene.id, time, width: 192, rev: data.record?.revision, low: true })} alt="" draggable={false} /> : null}
+      <span className="voice-line"><ToolIcon name={line.verb} /><span>{line.text}</span></span>
+      {scene ? <span className="page-foot-time">{clock(time)}</span> : null}
+    </button>
   );
 }
 

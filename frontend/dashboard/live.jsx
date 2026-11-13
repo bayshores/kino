@@ -190,14 +190,14 @@ export function MaterialChoices({ need, onPick, className = "tb", recommendedCla
         const label = optionLabel(option);
         return (
           <button key={n} type="button" className={`${className}${n === rec ? ` ${recommendedClass}` : ""}`} onClick={() => onPick(need, `option ${n}`)}
-            title={`${label} · cost: ${option.cost}${n === rec ? " (recommended, a)" : ""}`} aria-keyshortcuts={n === rec ? "a" : undefined}
+            title={`${label}. Cost: ${option.cost}${n === rec ? " (recommended)" : ""}`} aria-keyshortcuts={n === rec ? "a" : undefined}
             aria-label={`Option ${n}${n === rec ? ", recommended" : ""}: ${label}. Cost: ${option.cost}.`}>
-            {n}{n === rec ? <span aria-hidden="true"> ★</span> : null} {cutWords(label, 34)}
+            {cutWords(label, 34).replace(/^./, (letter) => letter.toUpperCase())}
           </button>
         );
       })}
-      <button type="button" className={className} onClick={() => onPick(need, "have")} title="I have it: I will send it" aria-label="I have it and will send it">have it</button>
-      <button type="button" className={className} onClick={() => onPick(need, "drop")} title="do without it" aria-label="Do without it">drop</button>
+      <button type="button" className={className} onClick={() => onPick(need, "have")} title="I will send it" aria-label="I have it and will send it">I have it</button>
+      <button type="button" className={className} onClick={() => onPick(need, "drop")} title="Do without it" aria-label="Do without it">Drop it</button>
     </>
   );
 }

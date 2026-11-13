@@ -28,7 +28,13 @@ const ICONS = {
   timer: "M8 14a5.5 5.5 0 1 0 0-11 5.5 5.5 0 0 0 0 11zM8 5.5V8.5l2 1.5M6.5 1.5h3",
   detect: "M2 5V2h3M11 2h3v3M14 11v3h-3M5 14H2v-3M8 10a2 2 0 1 0 0-4 2 2 0 0 0 0 4z",
   check: "M3 8.5l3 3 7-7",
+  undo: "M3 6.5h7a3.5 3.5 0 0 1 0 7H6M3 6.5l3-3M3 6.5l3 3",
   chevron: "M6 4l4 4-4 4",
+  frame: "M2.5 3.5h11v9h-11zM5.5 3.5v9M10.5 3.5v9",
+  grid: "M2.5 2.5H7V7H2.5zM9 2.5h4.5V7H9zM2.5 9H7v4.5H2.5zM9 9h4.5v4.5H9z",
+  layers: "M8 2.5l6 3-6 3-6-3zM2 8.5l6 3 6-3M2 11.5l6 3 6-3",
+  download: "M8 2.5v8M4.5 7.5L8 11l3.5-3.5M3 13.5h10",
+  film: "M2.5 3h11v10h-11zM5.5 3v10M10.5 3v10M2.5 6.3h3M2.5 9.7h3M10.5 6.3h3M10.5 9.7h3",
 };
 
 /** A 16 px line icon. Decorative: the control it sits in carries the words. */
@@ -45,7 +51,7 @@ export function Icon({ name, className = "" }) {
  * words), "quiet" (no border). `keys` is the key that does the same, shown in the tooltip.
  */
 export function Btn({ icon, kind = "", keys, title, children, className = "", ...rest }) {
-  const tip = [title, keys ? `key: ${keys}` : ""].filter(Boolean).join(" · ") || undefined;
+  const tip = (title && keys ? `${title} (key ${keys})` : title || (keys ? `Key ${keys}` : "")) || undefined;
   return (
     <button type="button" className={`ui-btn${kind ? ` ${kind}` : ""}${className ? ` ${className}` : ""}`} title={tip} aria-keyshortcuts={keys || undefined} {...rest}>
       {icon ? <Icon name={icon} /> : null}{children}
@@ -64,7 +70,7 @@ export function Segmented({ name, label, value, options, onChange, className = "
             <input type="radio" className="sr-only" name={name} checked={on} disabled={disabled || option.disabled} onChange={() => onChange(option.value)} />
             {option.icon ? <Icon name={option.icon} /> : null}
             <span>{option.text ?? String(option.value)}</span>
-            {option.count != null ? <span className="ui-seg-n">· {option.count}</span> : null}
+            {option.count != null ? <span className="ui-seg-n">{option.count}</span> : null}
           </label>
         );
       })}

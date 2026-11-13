@@ -1,61 +1,123 @@
-/* The library screen (library.jsx): the lists on the left, the cards in the middle, the open entry
-   on the right and the note to the agent along the bottom. Orange is the open card and what you
-   picked, teal what this video already uses. */
-.library-screen { display: flex; flex-direction: column; min-height: 100%; }
-.lib-sub { margin-left: 2ch; color: var(--fg1); font-weight: 400; }
-.lib-search { margin-left: auto; width: min(36ch, 40vw); height: 26px; padding: 0 1ch; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg1); color: var(--fg0); font: inherit; font-weight: 400; }
-.lib-scope { display: inline-flex; margin-left: 1ch; border: 1px solid var(--line); border-radius: var(--radius); font-weight: 400; }
-.lib-scope .tb { padding: 0 1ch; color: var(--fg1); }
-.lib-scope .tb[aria-pressed="true"] { background: var(--bg2); color: var(--fg0); }
-.lib-body { flex: 1; display: grid; grid-template-columns: minmax(18ch, 26ch) minmax(0, 1fr) minmax(30ch, 46ch); gap: 0 3ch; align-items: start; }
-.lib-nav { display: grid; gap: 2px; }
-.lib-label { margin: 0.5lh 0 0; color: var(--fg1); }
-.lib-pick { display: flex; justify-content: space-between; padding: 2px 1ch; border: 0; border-left: 2px solid transparent; background: none; color: var(--fg-mid); font: inherit; text-align: left; cursor: pointer; }
+/* The library screen (library.jsx): the search and the lists at the top, the open entry under them
+   (its sample beside its words), then a still of every entry in the list, and the note to the agent
+   along the bottom. The chosen list and the open card are drawn in the solid color. */
+.dash .screen-wrap > .screen.library-screen { display: flex; flex-direction: column; min-height: 100%; overflow: visible; }
+.dash .screen.library-screen > * { flex-shrink: 0; }
+.dash .screen.library-screen:focus-visible { outline: none; }
+/* The page's own title is for screen readers: the lists name what is shown. */
+.dash .screen.library-screen > h2 {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+}
+
+/* ---- the top line: search, how many, all or in this video, back ---- */
+.lib-top { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 18px; }
+.dash .lib-field { display: flex; align-items: center; width: min(400px, 100%); border: 1px solid var(--line); color: var(--fg1); }
+.dash .lib-field:hover { border-color: var(--fg1); }
+.lib-search { flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; outline: 0; background: none; color: var(--fg0); font: inherit; }
+.lib-search::placeholder { color: var(--fg2); }
+.lib-search::-webkit-search-cancel-button { cursor: pointer; }
+.lib-found { font-family: var(--mono-ui); font-size: 12px; color: var(--fg1); }
+.lib-scope { display: inline-flex; margin-left: auto; padding: 2px; border: 1px solid var(--line); }
+.lib-scope button {
+  appearance: none; display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 10px; border: 0; background: none;
+  color: var(--fg1); font: inherit; font-size: 13px; cursor: pointer; transition: color var(--quick) var(--ease-in), background-color var(--quick) var(--ease-in);
+}
+.lib-scope button:hover { color: var(--fg0); }
+.lib-scope button[aria-pressed="true"] { background: var(--solid); color: var(--on-solid); font-weight: 700; }
+.lib-scope button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.dash .lib-top > .ui-btn { min-height: 32px; padding: 0 4px; border-color: transparent; color: var(--fg1); font-weight: 500; }
+.dash .lib-top > .ui-btn:hover:not(:disabled) { background: none; border-color: transparent; color: var(--fg0); }
+
+/* ---- the lists: by what it does, then by kind ---- */
+.lib-nav { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 28px; margin: 14px 0 19px; }
+.lib-tabs { display: flex; flex-wrap: wrap; gap: 2px; }
+.lib-pick {
+  appearance: none; display: inline-flex; align-items: center; gap: 6px; height: 27px; padding: 0 11px; border: 0; background: none;
+  color: var(--fg1); font: inherit; font-size: 13px; cursor: pointer; white-space: nowrap;
+  transition: color var(--quick) var(--ease-in), background-color var(--quick) var(--ease-in);
+}
 .lib-pick:hover { color: var(--fg0); }
-.lib-pick[aria-current="true"] { border-left-color: var(--accent); background: var(--bg1); color: var(--fg0); font-weight: 700; }
-.lib-count { color: var(--fg1); font-weight: 400; }
-.lib-main { min-width: 0; }
-.lib-heading { margin: 0.5lh 0; }
-.lib-heading span { color: var(--fg1); }
-.lib-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(22ch, 1fr)); gap: 1lh 2ch; margin: 0; padding: 0; list-style: none; }
-.lib-card { display: grid; gap: 4px; width: 100%; padding: 0; border: 0; background: none; color: var(--fg-mid); font: inherit; text-align: left; cursor: pointer; }
-.lib-thumb { position: relative; display: grid; place-items: center; aspect-ratio: 16 / 9; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg1); }
-.lib-card:hover .lib-thumb { border-color: var(--fg1); }
-.lib-card.open .lib-thumb { border-color: var(--accent); }
-.lib-card.open .lib-card-name { color: var(--fg0); font-weight: 700; }
-.lib-kind { color: var(--fg1); font-weight: 400; }
-.lib-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-.lib-none { padding: 0 1ch; color: var(--fg1); text-align: center; }
-.lib-badge { position: absolute; top: 6px; left: 6px; padding: 0 0.5ch; border-radius: 2px; background: rgb(11 14 18 / 0.85); color: var(--agent); }
-.lib-detail { position: sticky; top: 0; display: grid; gap: 0.5lh; padding: 1lh 2ch; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg1); }
-.lib-player { display: grid; gap: 4px; }
-.lib-stage { position: relative; display: grid; place-items: center; aspect-ratio: 16 / 9; overflow: hidden; background: #000; }
+.lib-pick[aria-current="true"] { background: var(--solid); color: var(--on-solid); font-weight: 700; }
+.lib-pick:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.lib-count, .lib-n { font-family: var(--mono-ui); font-size: 11px; font-weight: 500; color: inherit; opacity: 0.8; }
+
+/* ---- the open entry: its sample beside its words ---- */
+.lib-detail { display: grid; grid-template-columns: minmax(0, 520fr) minmax(0, 530fr); gap: 24px; align-items: stretch; }
+.lib-player { display: grid; gap: 6px; align-content: start; }
+.lib-stage { position: relative; display: grid; place-items: center; aspect-ratio: 16 / 9; overflow: hidden; background: var(--well); }
 .lib-stage > :not(.lib-none) { position: absolute; inset: 0; }
 .lib-stage .lib-under { width: 100%; height: 100%; object-fit: cover; }
 /* The sample draws at its own size (960 x 540); it is fitted to the box, as the stage fits its frame. */
 .lib-stage .scene-svg, .lib-stage .scene-svg > svg { display: block; width: 100%; height: 100%; }
-.lib-controls { display: flex; align-items: center; gap: 1ch; }
-.lib-bar { flex: 1; height: 2px; background: var(--line); }
-.lib-bar span { display: block; height: 100%; background: var(--accent); }
-.library-screen .lib-name { margin: 0.5lh 0 0; font-weight: 700; color: var(--fg0); }
-.lib-line, .lib-fits { margin: 0; color: var(--fg-mid); }
-.lib-fits { color: var(--fg0); }
-.lib-used { margin: 0; color: var(--agent); }
-.lib-ask { display: flex; gap: 1ch; }
-.lib-ask .tb-accent { flex: 1; justify-content: center; color: var(--accent); }
-.lib-ask select { height: 26px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg1); color: var(--fg0); font: inherit; }
-.lib-tray { position: sticky; bottom: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 1ch 2ch; margin-top: 1lh; padding: 0.5lh 1ch; border-top: 1px solid var(--line); background: var(--bg0); }
-.lib-tray-label { color: var(--fg-mid); }
-.lib-chip { display: inline-flex; align-items: center; gap: 0.5ch; padding: 0 0 0 1ch; border: 1px solid var(--line); border-radius: 2px; background: var(--bg1); color: var(--fg0); }
-.lib-chip .tb { padding: 0 0.75ch; color: var(--fg1); }
-.lib-words { flex: 1; min-width: 20ch; height: 26px; padding: 0 1ch; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg1); color: var(--fg0); font: inherit; }
-.lib-tray .tb-accent { color: var(--accent); }
-/* Narrow: the open entry under the cards; a phone: the lists as a row, one column of cards. */
-.library-screen h2 { flex-wrap: wrap; row-gap: 0.5lh; }
-@media (max-width: 1100px) { .lib-body { grid-template-columns: minmax(16ch, 22ch) minmax(0, 1fr); } .lib-detail { grid-column: 1 / -1; position: static; } .lib-sub { display: none; } }
-@media (max-width: 800px) { .lib-search { flex: 1; width: auto; min-width: 16ch; } }
-.phone .lib-body { grid-template-columns: minmax(0, 1fr); }
-.phone .lib-nav { display: flex; flex-wrap: wrap; gap: 0 1ch; }
-.phone .lib-label { width: 100%; }
-.phone .lib-search { width: 100%; margin: 0.5lh 0 0; }
-.phone .library-screen h2 { flex-wrap: wrap; }
+.lib-controls { display: flex; align-items: center; gap: 10px; }
+.lib-play {
+  appearance: none; display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; background: none; color: var(--fg1); cursor: pointer;
+}
+.lib-play:hover { color: var(--fg0); }
+.lib-play:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.lib-play .ui-icon { width: 14px; height: 14px; }
+.lib-play svg path { fill: currentColor; }
+.lib-bar { flex: 1; height: 2px; background: var(--line-soft); }
+.lib-bar span { display: block; height: 100%; background: var(--fg1); }
+
+.lib-info { display: flex; flex-direction: column; min-width: 0; padding-top: 2px; }
+.dash .screen.library-screen .lib-name { margin: 0 0 12px; font-size: 30px; line-height: 1.15; font-weight: 700; letter-spacing: -0.015em; color: var(--fg0); }
+.dash .screen .lib-info p { max-width: 60ch; }
+.dash .lib-line { margin: 0; font-size: 15px; line-height: 1.5; color: var(--fg-mid); }
+.dash .lib-meta { display: flex; flex-wrap: wrap; gap: 6px 22px; margin: 10px 0 0; font-size: 13px; color: var(--fg1); }
+.lib-meta > span { display: inline-flex; align-items: center; gap: 6px; }
+.lib-meta .ui-icon { width: 14px; height: 14px; }
+.lib-mono { font-family: var(--mono-ui); font-size: 12px; }
+.lib-used { color: var(--fg0); }
+.dash .lib-fits { margin: 14px 0 0; font-size: 13px; line-height: 1.5; color: var(--fg1); }
+.lib-fits-word { color: var(--fg0); font-weight: 600; }
+.lib-ask { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: auto; padding-top: 20px; }
+.lib-drop { position: relative; display: inline-flex; }
+.lib-drop select {
+  appearance: none; height: 34px; padding: 0 30px 0 12px; border: 1px solid var(--line); border-radius: 0; background: none;
+  color: var(--fg0); font: inherit; font-size: 13px; cursor: pointer; transition: border-color var(--quick) var(--ease-in);
+}
+.lib-drop select:hover { border-color: var(--fg1); }
+.lib-drop select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.lib-drop::after { content: "▾"; position: absolute; right: 10px; top: 50%; transform: translateY(-50%); color: var(--fg2); pointer-events: none; }
+
+/* ---- every entry in the list ---- */
+.dash .lib-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px 8px; margin: 28px 0 0; padding: 0; list-style: none; }
+.lib-card { display: grid; gap: 8px; width: 100%; padding: 0; border: 0; background: none; color: var(--fg1); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.lib-thumb { position: relative; display: grid; place-items: center; aspect-ratio: 16 / 9; overflow: hidden; background: var(--well); outline: 2px solid transparent; outline-offset: -2px; transition: outline-color var(--quick) var(--ease-in); }
+.lib-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transition: transform var(--panel) var(--ease-in); }
+.lib-card:hover .lib-img { transform: scale(1.03); }
+.lib-card:hover { color: var(--fg0); }
+.lib-card.open .lib-thumb { outline-color: var(--fg0); }
+.lib-card.open .lib-card-name { color: var(--fg0); font-weight: 700; }
+.lib-card:focus-visible { outline: none; }
+.lib-card:focus-visible .lib-thumb { outline-color: var(--accent); }
+.lib-kind { color: var(--fg2); font-weight: 400; }
+.lib-none { padding: 0 12px; color: var(--fg1); font-size: 13px; text-align: center; }
+.lib-badge { position: absolute; top: 6px; left: 6px; display: grid; place-items: center; width: 18px; height: 18px; background: var(--solid); color: var(--on-solid); }
+.lib-badge .ui-icon { width: 12px; height: 12px; }
+.dash .lib-empty { margin: 28px 0 0; }
+
+/* ---- the note to the agent ---- */
+.lib-tray {
+  position: sticky; bottom: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin-top: 28px; padding: 12px 0;
+  border-top: 1px solid var(--line-soft); background: var(--bg0); color: var(--fg1);
+}
+.lib-tray > .ui-icon { width: 16px; height: 16px; }
+.lib-chip { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 0 0 10px; border: 1px solid var(--line); color: var(--fg0); font-size: 13px; }
+.lib-chip-shot { font-family: var(--mono-ui); font-size: 11px; color: var(--fg1); }
+.lib-chip button { appearance: none; display: grid; place-items: center; width: 26px; height: 26px; padding: 0; border: 0; background: none; color: var(--fg1); cursor: pointer; }
+.lib-chip button:hover { color: var(--fg0); }
+.lib-chip button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.lib-chip .ui-icon { width: 12px; height: 12px; }
+.lib-words { flex: 1; min-width: 16ch; height: 34px; padding: 0 12px; border: 1px solid var(--line); border-radius: 0; background: none; color: var(--fg0); font: inherit; font-size: 13px; }
+.lib-words::placeholder { color: var(--fg2); }
+.lib-words:focus-visible { outline: none; border-color: var(--fg0); }
+
+/* Narrow: the open entry's words under its sample. */
+@media (max-width: 900px) {
+  .lib-detail { grid-template-columns: minmax(0, 1fr); }
+  .lib-scope { margin-left: 0; }
+}
+.phone .lib-detail { grid-template-columns: minmax(0, 1fr); }
+.phone .lib-field { width: 100%; }

@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  SEARCHING_TILES, arrange, boardRows, boardTiles, briefLine, detailRows, filmCells, filterBoards, foundCount, ideaFrames, kindCounts, shelves, soundDetail, soundNote, soundRow, ideasSummary, ideaTimeWords, lengthWords, motionWords, searcher, soFarWords, soundtrackRows, musicOrder, seekTime, songPlayhead, songSeek, sourceWords, stepStates, ticks, tileChips, tileLabel, tileWords, tiles,
+  SEARCHING_TILES, arrange, boardRows, boardTiles, briefLine, detailRows, factRows, viewWords, filmCells, filterBoards, foundCount, ideaFrames, kindCounts, shelves, soundDetail, soundNote, soundRow, ideasSummary, ideaTimeWords, lengthWords, motionWords, searcher, soFarWords, soundtrackRows, musicOrder, seekTime, songPlayhead, songSeek, sourceWords, stepStates, ticks, tileChips, tileLabel, tileWords, tiles,
   watchSentence, withInspireEvent,
 } from "./dashboard/inspireView.js";
 import { applyEvent, fromSnapshot, needKey, needsYouRows, optionLabel } from "./dashboard/state.js";
@@ -83,6 +83,11 @@ test("panel 3: shots, cuts a second, longest and where, length, beat, and cuts o
   assert.equal(sourceWords({ views: 1_234_567, verified: true }), " · 1.2M views · verified");
   assert.equal(sourceWords({ views: 618, doubt: "few views" }), " · 618 views · doubt: few views");
   assert.equal(sourceWords({}), "");
+  // The page's facts list: plain labels, the rest of a row kept for hover.
+  assert.deepEqual(factRows(printed).map(([label, value]) => `${label}: ${value}`), ["Cuts on the beat: 3 of 4", "Shots: 5 in 39 s", "Cuts a second: 0.1",
+    "Longest shot: 12.9 s, from 0:20", "Beat: 124 bpm", "Camera moves: 58%", "Text on screen: 47%", "Blur dips: 12"]);
+  assert.equal(factRows(printed)[6][2], "80% lowercase, 56% word by word");
+  assert.deepEqual([factRows({ state: "queued" }), viewWords(2_140_000), viewWords(null)], [[], "2.1M views", ""]);
   // The tile's chips: views, then why kino doubts it, same frames and hidden copies, in few words.
   assert.deepEqual(tileChips({ views: 12_400, doubt: "ai title, template, very short", same: true, copies: ["yt:a"] }).map((chip) => chip.text), ["12k", "ai", "template", "short", "same frames", "+1 copy"]);
   assert.deepEqual(tileChips({}), []);

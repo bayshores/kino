@@ -1,112 +1,130 @@
-/* The crew screen (crew.jsx), as the design 02-crew: five boxes with "n title" set into the top
-   border, then the crew's own key line. Colors come from dashboard.css's tokens; an agent's own
-   color is --who on its row, box or lane. */
+/* The crew page (crew.jsx): one row per agent in the page column (page.css), then a hairline with
+   start an agent, who holds what and the limits, and a quiet row with who may start agents,
+   timers and references. Colors come from dashboard.css's tokens; an agent's own color is --who
+   on its row. The rules start with .dash .crew2 so they win over the older crew rules in
+   screens.css. */
 
-/* The screen fills the window under the top line, without the frame other screens get. */
-.screen-wrap:has(> .screen.crew) { margin: 0; border: 0; border-radius: 0; overflow: hidden !important; }
-.screen.crew {
-  display: grid; grid-template-rows: minmax(0, 1fr) auto; height: 100%; overflow: hidden; padding: 0;
-  font-size: 12px; line-height: 1.5;
+.dash .crew2 { --thumb: 240px; --thumb-h: 135px; --col-gap: 24px; font-size: 13px; line-height: 1.4; }
+
+/* ---- the agents ---- */
+.dash .crew2 .crew-cards { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 28px; outline: none; max-height: none; overflow: visible; }
+.dash .crew2 .crew-card {
+  display: grid; grid-template-columns: var(--thumb) minmax(0, 1fr) auto; column-gap: var(--col-gap); align-items: center;
+  padding: 0; background: none; border: 0; cursor: pointer; flex: none; position: relative;
 }
-.crew-name { font-weight: 700; color: var(--fg0); text-transform: lowercase; white-space: nowrap; }
-.crew-name.you { color: var(--fg0); }
-/* "you" is a white square, as in the design. */
-.crew-you-mark { display: inline-block; flex: none; width: 14px; height: 14px; background: var(--fg0); }
-.crew-you-mark.big { width: 40px; height: 40px; }
+.dash .crew2 .crew-card::before { content: none; }
+.dash .crew2 .crew-card:hover, .dash .crew2 .crew-card[aria-selected="true"] { border: 0; }
+/* The keyboard's pick: a ring around the row while the list has the keyboard focus. */
+.dash .crew2 .crew-cards:focus-visible :is(.crew-card, .crew-you-card)[aria-selected="true"] { outline: 1px solid var(--accent); outline-offset: 8px; }
 
-/* ---- 1 crew: who, started by, doing, holding ------------------------------------------------ */
-.crew-table [role="listbox"] { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: auto; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
-.crew-table [role="listbox"]:focus-visible { outline: none; }
-.crew-empty { padding: 0.5lh 15px; }
+.dash .crew2 .crew-thumb { width: var(--thumb); height: var(--thumb-h); display: grid; place-items: center; background: var(--well); overflow: hidden; align-self: start; }
+.dash .crew2 .crew-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
 
-/* ---- 3 last 10 min: lanes ------------------------------------------------------------------- */
-/* --lanes is the agents' lanes (crew.jsx); with yours, the axis (22 px) and the legend (about
-   26 px) they share the box's height. */
-.lanes { --name: 86px; --lane-h: clamp(34px, (100cqh - 52px) / (var(--lanes, 0) + 1), 52px); }
-.lane-row { display: grid; grid-template-columns: var(--name) minmax(0, 1fr); gap: 0 14px; align-items: center; height: var(--lane-h); }
-.lane-axis { height: 22px; color: var(--fg1); font-size: 10px; }
-.lane-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 700; display: flex; align-items: center; gap: 1ch; }
-.lane-name .crew-you-mark { width: 12px; height: 12px; }
-.lane-track { position: relative; height: 100%; }
-.lane-row:not(.lane-axis) > .lane-track::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; border-top: 1px solid var(--line-soft); }
-.lane-tick { position: absolute; top: 0; transform: translateX(-50%); white-space: nowrap; }
-.lane-tick:first-child { transform: none; }
-.lane-tick:last-child { transform: translateX(-100%); }
-/* A run of calls: edits solid in the agent's color, looks a darker shade of it. */
-.lane-block { position: absolute; top: calc(50% - 5px); height: 10px; min-width: 3px; background: var(--who, var(--fg1)); }
-.lane-block.k-look { background: color-mix(in srgb, var(--who, var(--fg1)) 38%, var(--bg0)); }
-.lane-block.error { box-shadow: inset 0 -2px 0 var(--err); }
-/* A request to you: an orange box while it waits, faint once answered. */
-.lane-wait { position: absolute; top: calc(50% - 6px); height: 12px; min-width: 3px; border: 1px solid var(--line); overflow: hidden; }
-.lane-wait > span { display: block; padding-left: 6px; font-size: 10px; line-height: 10px; color: var(--fg1); white-space: nowrap; }
-.lane-wait.open { border-color: var(--urgent); }
-.lane-wait.open > span { color: var(--urgent); }
-/* Held: a thin line in the faint color with "held" on it. */
-.lane-held { position: absolute; top: 50%; height: 1px; background: var(--fg2); z-index: 1; }
-.lane-held > span { position: absolute; left: 8px; top: 0; transform: translateY(-50%); padding: 0 6px; background: var(--bg0); color: var(--fg1); line-height: 1.5; }
-.lane-held.flip > span { left: auto; right: calc(100% + 4px); }
-.lane-mark { position: absolute; top: 50%; transform: translate(-50%, -50%); font-size: 10px; line-height: 1; color: var(--fg1); }
-.lane-mark.m-handed-back { color: var(--who); }
-.lane-note { position: absolute; left: 0; top: 50%; transform: translateY(-50%); padding-right: 8px; background: var(--bg0); color: var(--fg1); white-space: nowrap; }
-.lane-you { position: absolute; top: calc(50% - 7px); height: 14px; border-left: 2px solid var(--fg0); padding-left: 5px; color: var(--fg1); white-space: nowrap; line-height: 14px; }
-.lane-you.flip { border-left: 0; border-right: 2px solid var(--fg0); padding: 0 5px 0 0; transform: translateX(-100%); }
-/* The links between lanes: a helper's start from its lead, a hand-back to the lead. */
-.lane-agents { position: relative; }
-.lane-links { position: absolute; top: 0; bottom: 0; left: calc(var(--name) + 14px); right: 0; pointer-events: none; }
-.lane-link { position: absolute; width: 1px; background: var(--fg2); }
-.lane-link.l-handed-back { background: var(--fg1); }
-.lane-legend { margin-top: 2px; padding-left: calc(var(--name) + 14px); color: var(--fg1); font-size: 11px; display: flex; align-items: center; gap: 0 0.8ch; flex-wrap: wrap; }
-.lane-legend > span { white-space: nowrap; display: inline-flex; align-items: center; gap: 0.6ch; margin-right: 2.4ch; }
-.legend-edit, .legend-look { display: inline-block; width: 7px; height: 12px; background: var(--fg1); }
-.legend-look { background: repeating-linear-gradient(45deg, var(--fg1) 0 1px, transparent 1px 3px); }
-.legend-wait { display: inline-block; width: 14px; height: 10px; border: 1px solid var(--urgent); }
-.legend-diamond { color: var(--link); }
+.dash .crew2 .crew-card-main { min-width: 0; align-self: start; padding-top: 2px; }
+.dash .crew2 .crew-card-name { margin: 0; display: flex; align-items: baseline; gap: 10px; min-width: 0; white-space: nowrap; overflow: hidden; }
+.dash .crew2 .crew-card-name strong { font-size: 21px; font-weight: 700; letter-spacing: -0.015em; line-height: 28px; color: var(--fg0); margin: 0; }
+.dash .crew2 .crew-card-name span { color: var(--fg1); font-size: 13px; overflow: hidden; text-overflow: ellipsis; }
 
-/* ---- 4 who holds what ------------------------------------------------------------------------ */
-.c-holder, .c-waiting { display: inline-flex; align-items: center; gap: 0.8ch; }
-.c-waiting { gap: 1.5ch; }
-.crew-free { color: var(--fg1); }
-.crew-free:hover, .crew-free:focus-visible { color: var(--accent); }
+/* What it does now: the stage's sentence (stage.css .voice-line), smaller. */
+.dash .crew2 .crew-card .voice-line { margin: 6px 0 0 -6px; width: fit-content; max-width: calc(100% + 6px); padding: 2px 6px; gap: 8px; font-size: 18px; line-height: 26px; }
+.dash .crew2 .crew-card .voice-line .tool-icon { width: 17px; height: 17px; }
+.dash .crew2 .crew-card:is(.is-idle, .is-empty) .voice-line { color: var(--fg-mid); background: none; font-weight: 500; }
+.dash .crew2.still .voice-line { animation: none; }
 
-/* ---- 5 who may start agents ------------------------------------------------------------------- */
-.crew-rules { display: grid; gap: 12px; }
-.crew-check { display: inline-flex; align-items: center; gap: 1.2ch; cursor: pointer; color: var(--fg0); }
-.crew-check:has(input:not(:checked)) > span:last-child { color: var(--fg1); }
-.crew-check.disabled { cursor: default; }
-.crew-check:focus-within { outline: 1px solid var(--accent); outline-offset: 2px; }
-.crew-number-field {
-  font: inherit; font-weight: 700; color: var(--fg0); background: none; border: 0; border-bottom: 1px solid transparent;
-  padding: 0; text-align: center; -moz-appearance: textfield; appearance: textfield;
+.dash .crew2 .crew-card-facts { margin: 6px 0 0; display: flex; flex-wrap: wrap; gap: 2px 20px; color: var(--fg1); font-size: 12.5px; }
+.dash .crew2 .crew-holds-chip { display: inline-flex; align-items: center; gap: 6px; color: var(--fg0); }
+.dash .crew2 .crew-holds-chip .ui-icon { width: 12px; height: 12px; color: var(--who, var(--fg1)); }
+
+/* Its last 10 minutes: a tick per run of calls on one hairline, "10 min" at the end. */
+.dash .crew2 .crew-lane { display: flex; align-items: flex-end; gap: 10px; margin-top: 18px; max-width: 554px; }
+.dash .crew2 .lane-track { position: relative; flex: 1; height: 16px; border-bottom: 1px solid var(--line); }
+.dash .crew2 .lane-track::before { content: none; }
+.dash .crew2 .crew-lane-span { flex: none; font-family: var(--mono-ui); font-size: 11px; line-height: 1; color: var(--fg2); transform: translateY(5px); }
+.dash .crew2 .lane-block { position: absolute; bottom: 2px; top: auto; height: 12px; min-width: 2px; border: 0; border-radius: 0; background: var(--fg1); box-shadow: none; }
+.dash .crew2 .lane-block.k-look { background: var(--fg2); }
+.dash .crew2 .lane-block.k-render { height: 4px; background: var(--fg0); }
+.dash .crew2 .lane-block.error { background: var(--err); }
+.dash .crew2 .lane-wait { position: absolute; bottom: 2px; top: auto; height: 12px; min-width: 3px; border: 1px solid var(--fg2); }
+.dash .crew2 .lane-wait.open { border-color: var(--yellow); }
+.dash .crew2 .lane-held { position: absolute; bottom: -1px; top: auto; height: 3px; background: var(--fg0); }
+.dash .crew2 .lane-mark { position: absolute; bottom: 14px; top: auto; transform: translateX(-50%); font-size: 9px; line-height: 1; color: var(--fg1); }
+.dash .crew2 .lane-mark.m-handed-back { color: var(--who, var(--fg0)); }
+.dash .crew2 .lane-you { position: absolute; bottom: 2px; top: auto; width: 2px; height: 12px; border: 0; padding: 0; background: var(--fg0); }
+
+/* Its buttons: Hold (an icon), Watch, Stop. */
+.dash .crew2 .crew-card-keys { display: inline-flex; align-items: center; gap: 8px; }
+.dash .crew2 .crew-card-keys .ui-btn { min-height: 36px; padding: 0 14px; font-size: 13px; color: var(--fg0); }
+.dash .crew2 .crew-card-keys .ui-btn.icon-only { width: 36px; padding: 0; color: var(--fg1); }
+.dash .crew2 .crew-card-keys .ui-btn[aria-pressed="true"] { color: var(--on-yellow); background: var(--yellow); }
+
+/* You: your own marks on the same time line, under the agents. */
+.dash .crew2 .crew-you-card {
+  display: grid; grid-template-columns: var(--thumb) minmax(0, 1fr) auto; column-gap: var(--col-gap); align-items: end;
+  padding: 0; border: 0; cursor: pointer; flex: none; margin-top: -6px;
 }
-.crew-number-field::-webkit-inner-spin-button, .crew-number-field::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
-.crew-number-field:hover { border-bottom-color: var(--line); }
-.crew-number-field:focus-visible { outline: none; border-bottom-color: var(--accent); }
-.crew-start .tb { padding: 0; }
-.crew-start .tb[disabled] { color: var(--fg2); cursor: not-allowed; }
-.crew-start .tb[disabled] .key { color: var(--fg2); }
-.crew-reason { color: var(--urgent); }
-.crew-start { display: grid; gap: 8px; }
-.crew-start-task { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 1.5ch; align-items: center; }
-.crew-start input[type="text"], .crew-time {
-  font: inherit; color: var(--fg0); background: var(--bg1); border: 1px solid var(--line); padding: 2px 6px; min-width: 0;
-}
-.crew-time { color-scheme: dark; }
-.crew-start input[type="text"]:focus-visible, .crew-time:focus-visible { outline: none; border-color: var(--accent); }
-.crew-start-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 4ch; }
-.crew-choice { display: inline-flex; flex-wrap: wrap; gap: 0 2ch; }
+.dash .crew2 .crew-you-name { display: inline-flex; align-items: center; gap: 8px; color: var(--fg1); font-size: 13px; justify-self: end; line-height: 1; }
+.dash .crew2 .crew-you-mark { display: inline-block; width: 9px; height: 9px; background: var(--fg1); }
+.dash .crew2 .crew-you-card .crew-lane { margin-top: 0; grid-column: 2; }
+.dash .crew2 .crew-empty { margin: 0 0 18px; color: var(--fg1); }
 
-/* Reduced motion: nothing here moves (the bots keep still themselves). */
-@media (prefers-reduced-motion: reduce) {
-  .lane-block { transition: none; }
-}
+/* ---- under the hairline ---- */
+.dash .crew2 .crew-rules { display: block; margin-top: 24px; }
+.dash .crew2 .crew-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; padding-top: 19px; border-top: 1px solid var(--line); }
+.dash .crew2 .crew-start-btn { min-height: 36px; padding: 0 16px; font-size: 13px; color: var(--fg0); }
 
-/* A narrow window: the boxes stack and the screen scrolls. */
-@media (max-width: 900px) {
-  .screen.crew { height: auto; overflow: visible; grid-template-rows: auto auto; }
-  .screen-wrap:has(> .screen.crew) { overflow: auto !important; }
-  .lane-tick.minor { display: none; }
-  .lanes { --name: 66px; --lane-h: 34px; }
-  .lane-row { gap: 0 8px; }
-  .lane-links, .lane-legend { left: calc(var(--name) + 8px); }
-  .lane-legend { padding-left: 0; }
+.dash .crew2 .crew-hold-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 18px; }
+.dash .crew2 .crew-hold-row { display: inline-flex; align-items: center; gap: 8px; min-height: 0; padding: 0; background: none; color: var(--fg1); font-size: 13px; }
+.dash .crew2 .crew-hold-row.held { color: var(--fg0); }
+.dash .crew2 .crew-hold-mark { width: 9px; height: 9px; background: var(--fg2); flex: none; }
+.dash .crew2 .crew-hold-row.held .crew-hold-mark, .dash .crew2 .crew-hold-row.held .ui-icon { background: none; color: var(--who, var(--fg0)); }
+.dash .crew2 .crew-hold-row.held .crew-hold-mark { background: var(--who, var(--fg0)); }
+.dash .crew2 .crew-free { width: 26px; min-height: 26px; color: var(--fg1); }
+
+.dash .crew2 .crew-limits { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; margin-left: auto; }
+.dash .crew2 .crew-rule-num { display: inline-flex; align-items: center; gap: 8px; min-height: 0; color: var(--fg1); font-size: 13px; }
+.dash .crew2 .crew-rule-num > span:first-child { flex: none; }
+.dash .crew2 .crew-limits .ui-stepper { height: 26px; border-color: var(--line); }
+.dash .crew2 .crew-limits .ui-stepper button { width: 18px; color: var(--fg2); }
+.dash .crew2 .crew-limits .ui-stepper button:hover:not(:disabled) { color: var(--fg0); }
+.dash .crew2 .crew-limits .ui-stepper input { font-size: 13px; font-weight: 500; color: var(--fg0); padding: 0; }
+/* A number with its unit in one box: "60 calls". */
+.dash .crew2 .crew-unit { display: inline-flex; align-items: center; gap: 2px; height: 26px; padding-right: 10px; border: 1px solid var(--line); font-family: var(--mono-ui); font-size: 13px; color: var(--fg0); }
+.dash .crew2 .crew-unit .ui-stepper { border: 0; height: 24px; }
+
+/* The quiet row: who may start agents, timers, references. */
+.dash .crew2 .crew-more { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; margin-top: 14px; }
+.dash .crew2 .crew-rule-list { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; flex-direction: row; }
+.dash .crew2 .crew-more-label { color: var(--fg2); font-size: 13px; }
+.dash .crew2 .crew-check { display: inline-flex; align-items: center; gap: 7px; min-height: 26px; cursor: pointer; color: var(--fg0); font-size: 13px; }
+.dash .crew2 .crew-check:has(input:not(:checked)) > span { color: var(--fg1); }
+.dash .crew2 .crew-check.disabled { cursor: default; }
+.dash .crew2 .crew-check:focus-within { outline: none; }
+.dash .crew2 .crew-check input { appearance: none; width: 14px; height: 14px; margin: 0; border: 1px solid var(--line); background: none; display: inline-grid; place-items: center; cursor: pointer; flex: none; }
+.dash .crew2 .crew-check input:checked { background: var(--yellow); border-color: var(--yellow); }
+.dash .crew2 .crew-check input:checked::after { content: ""; width: 7px; height: 3px; border: solid var(--on-yellow); border-width: 0 0 1.5px 1.5px; transform: translateY(-1px) rotate(-45deg); }
+.dash .crew2 .crew-check input:disabled { cursor: default; }
+.dash .crew2 .crew-check input:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+.dash .crew2 .crew-more-keys { display: inline-flex; gap: 4px; margin-left: auto; }
+.dash .crew2 .crew-more-keys .ui-btn { min-height: 30px; padding: 0 10px; font-size: 13px; color: var(--fg1); }
+.dash .crew2 .crew-more-keys .ui-btn:hover { color: var(--fg0); }
+
+/* The form to start an agent or add a timer. */
+.dash .crew2 .crew-start { display: grid; gap: 10px; margin-top: 16px; }
+.dash .crew2 .crew-start .ui-field { margin: 0; }
+.dash .crew2 .crew-start-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 0; }
+.dash .crew2 .crew-start-go { display: inline-flex; gap: 8px; margin-left: auto; }
+.dash .crew2 .crew-time { font: inherit; font-family: var(--mono-ui); color: var(--fg0); background: none; border: 1px solid var(--line); height: 30px; padding: 0 8px; min-width: 0; color-scheme: light dark; }
+.dash .crew2 .crew-time:focus-visible { outline: none; border-color: var(--fg0); }
+.dash .crew2 .crew-hours { display: inline-flex; align-items: center; gap: 6px; color: var(--fg1); }
+.dash .crew2 .crew-reason { margin: 8px 0 0; color: var(--fg1); font-size: 12px; }
+
+/* A narrow window: a smaller frame, the buttons under the words. */
+@media (max-width: 1000px) {
+  .dash .crew2 { --thumb: 144px; --thumb-h: 81px; --col-gap: 16px; }
+  .dash .crew2 .crew-card { grid-template-columns: var(--thumb) minmax(0, 1fr); row-gap: 12px; }
+  .dash .crew2 .crew-card-keys { grid-column: 2; justify-self: start; }
+  .dash .crew2 .crew-card .voice-line { font-size: 16px; line-height: 22px; }
+  .dash .crew2 .crew-card-name strong { font-size: 18px; }
+  .dash .crew2 .crew-limits { margin-left: 0; }
+  .dash .crew2 .crew-more-keys { margin-left: 0; }
 }
