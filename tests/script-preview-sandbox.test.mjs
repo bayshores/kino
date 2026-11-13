@@ -12,12 +12,13 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { sendScriptFrame } from "../backend/script-frame-page.mjs";
+import { sendScriptFrame, sendScriptLibrary } from "../backend/script-frame-page.mjs";
+import { CUBE_SCRIPT, makeGlb } from "../backend/glb.test.support.mjs";
 import { SCRIPT_FRAME_CSP, SCRIPT_LIMITS, scriptFrameHtml } from "../engine/scriptRuntime.js";
 import { Browser } from "./dashboard-browser.support.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-let browser, folder, page, other;
+let browser, folder, page, other, pageUrl;
 const otherRequests = [];
 
 function listen(server) {
@@ -37,6 +38,7 @@ before(async () => {
     const url = new URL(req.url, "http://localhost");
     if (url.pathname === "/") return res.writeHead(200, { "Content-Type": "text/html" }).end(HOST_PAGE);
     if (url.pathname === "/api/script-frame") return sendScriptFrame(req, res);
+    if (url.pathname === "/api/script-library") return sendScriptLibrary(req, res, url.searchParams.get("name"));
     // The backend renderer's page: the module runs in the frame itself (direct mode).
     if (url.pathname === "/direct-frame") return res.writeHead(200, { "Content-Type": "text/html", "Content-Security-Policy": SCRIPT_FRAME_CSP }).end(scriptFrameHtml());
     if (/^\/(frontend|engine)\/[\w/.-]+\.js$/.test(url.pathname)) {
@@ -48,6 +50,7 @@ before(async () => {
   other = http.createServer((req, res) => { otherRequests.push(req.url); res.writeHead(200, { "Access-Control-Allow-Origin": "*" }).end("reached"); });
   other.on("upgrade", (req, socket) => { otherRequests.push(`upgrade ${req.url}`); socket.destroy(); });
   const pagePort = await listen(page);
+  pageUrl = `http://127.0.0.1:${pagePort}`;
   other.port = await listen(other);
   folder = await mkdtemp(path.join(tmpdir(), "kino-script-preview-"));
   browser = await Browser.open(path.join(folder, "electron"));
@@ -143,6 +146,49 @@ function browserCpuSeconds() {
     resolve(rows.filter(([pid]) => ours.has(pid)).reduce((total, [, , time]) => total + seconds(time), 0));
   }));
 }
+
+test("a 3D module with a .glb model draws in the preview's Worker: the model's color, an embedded texture, a turn, nothing sent out", async () => {
+  const before = otherRequests.length;
+  // The library route serves only the two names a script may import, as script text.
+  const served = await fetch(`${pageUrl}/api/script-library?name=three`);
+  assert.deepEqual([served.status, served.headers.get("x-content-type-options"), served.headers.get("content-type")], [200, "nosniff", "text/javascript; charset=utf-8"]);
+  for (const name of ["three/../../package.json", "../package.json", "three.js", "", "gltf-loader.js"])
+    assert.equal((await fetch(`${pageUrl}/api/script-library?name=${encodeURIComponent(name)}`)).status, 404, name);
+  const drawn = await browser.evaluate(`(async () => {
+    const decode = (text) => Uint8Array.from(atob(text), (character) => character.charCodeAt(0)).buffer;
+    const libraries = {};
+    for (const name of ["three", "three/addons/loaders/GLTFLoader.js"]) libraries[name] = await (await fetch("/api/script-library?name=" + encodeURIComponent(name))).text();
+    const picture = async (glb, times) => {
+      const host = window.createScriptHost({ src: "/api/script-frame" });
+      const mounted = await host.mount({ script: ${JSON.stringify(CUBE_SCRIPT)}, width: 80, height: 60, pixelRatio: 1, name: "cube", images: {}, models: { model: decode(glb) }, libraries });
+      if (!mounted.ok) { host.destroy(); return { error: mounted.message }; }
+      const pixels = [];
+      for (const time of times) {
+        const reply = await host.draw({ time, duration: 2, progress: time / 2, values: { model: "/api/media/cube.glb" }, width: 80, height: 60 });
+        if (!reply.ok) { host.destroy(); return { error: reply.message }; }
+        const canvas = new OffscreenCanvas(80, 60);
+        canvas.getContext("2d").drawImage(reply.bitmap, 0, 0);
+        const data = canvas.getContext("2d").getImageData(0, 0, 80, 60).data;
+        pixels.push({ middle: [...data.subarray((30 * 80 + 40) * 4, (30 * 80 + 40) * 4 + 4)], corner: [...data.subarray(4, 8)] });
+      }
+      host.destroy();
+      return pixels;
+    };
+    return { plain: await picture(${JSON.stringify(makeGlb().toString("base64"))}, [0, 0.25]),
+      textured: await picture(${JSON.stringify(makeGlb({ texture: "#00ff00" }).toString("base64"))}, [0]) };
+  })()`, 30_000);
+  assert.ok(Array.isArray(drawn.plain), `the plain cube: ${JSON.stringify(drawn.plain)}`);
+  assert.ok(Array.isArray(drawn.textured), `the textured cube: ${JSON.stringify(drawn.textured)}`);
+  const [first, turned] = drawn.plain;
+  // Compared loosely: the test browser's WebGL shading may differ by a few levels from the hidden window's.
+  assert.ok(first.middle[0] > 150 && first.middle[1] < 60 && first.middle[2] < 60, `red in the middle: ${first.middle}`);
+  assert.deepEqual(first.corner, [0, 0, 0, 0], "transparent around the cube");
+  assert.notDeepEqual(first.middle, turned.middle, "the turn changes the shading");
+  const green = drawn.textured[0].middle;
+  assert.ok(green[1] > 150 && green[0] < 60, `the embedded texture's green: ${green}`);
+  assert.equal(otherRequests.length, before, "nothing reached the other host");
+  console.log(`# 3D in the preview Worker: red ${first.middle}, turned ${turned.middle}, textured ${green}`);
+});
 
 test("a module stuck in an endless loop is stopped at the limit; its Worker is gone and the same frame draws a corrected module at once", async () => {
   const stuck = "export default function setup() { return function draw() { for (;;) {} }; }";

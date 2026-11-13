@@ -1197,7 +1197,9 @@ const server = http.createServer(async (req, res) => {
     if (parts[0] === "api") {
       // The live preview's sandboxed script frame: the same page for everyone, no data in it.
       if (url.pathname === SCRIPT_FRAME_PATH && ["GET", "HEAD"].includes(req.method)) return sendScriptFrame(req, res);
-      // The library module text a script layer imports (public package text, the same for everyone).
+      // The library module text a script layer imports: public package text, the same for everyone,
+      // so like the frame page it needs no origin check. Only the two known names answer; the
+      // query never becomes a file path (script-libraries.mjs maps each name to a fixed file).
       if (url.pathname === SCRIPT_LIBRARY_PATH && ["GET", "HEAD"].includes(req.method)) return sendScriptLibrary(req, res, url.searchParams.get("name"));
       if (!acceptableOrigin(req.headers.origin))
         return json(res, 403, {
