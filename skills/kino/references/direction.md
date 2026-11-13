@@ -88,6 +88,9 @@ studied reference prints a `skeleton:` line (its shots, holds, fast runs and cha
   pick, the pick is not saved and the inbox line says which idea the sketch showed.
 - With no treatments saved, `options:[{name, ops}]` over `from`, `to` makes named sketches with
   sound. A pick reaches the inbox with its ops.
+- While someone is at the kino app, `status` `next:` after the treatments is this round, filled
+  (letters, clips, lines), also under "just start": choose each `song` and `font`. One round per
+  set of treatments; without a pick the pick is yours, with why.
 - The receipt prints per sketch: render seconds per sketch second, picture changes, median
   shot, lettering share, LUFS and top colors, then the closest pair and their color overlap.
   They are facts: kino never warns on them. Details: `library {topic:"rules", name:"sketches"}`.

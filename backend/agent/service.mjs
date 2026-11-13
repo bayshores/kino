@@ -132,6 +132,7 @@ import { heardLines as soundLines, sectionsInVideo, soundMapImage, soundMapText,
 // look sound measures each line on its own layer alone for at most this many layers (one FFmpeg run each).
 const SOUND_LINE_LAYERS = 6;
 import { createTries, pickQuote, triesView } from "./tries.mjs";
+import { pickedSketch } from "./sketch-step.mjs";
 import { measureSketch } from "./sketches.mjs";
 import { boardRefKeys, createJudge, judgeLine, judgeLost, pairCount, pinnedPairs, refForKey, resultText, roundView, tally, VERSUS_ROWS } from "./judge.mjs";
 import { createPicks, SITTING_PICKS } from "./picks.mjs";
@@ -616,9 +617,21 @@ function propertyPresetHelp() {
  * - voiceMedia: makes voice and background media for isolate_voice (backend/voice/media.mjs)
  * - cutoutMedia: makes subject, matte and silhouette media for cut_out (backend/cutout/media.mjs)
  */
+// How long after its last read the kino app still counts as open. The app never polls: it reads
+// the snapshot once and holds the event stream open, which the server pings every 15 s
+// (dashboard-routes.mjs HEARTBEAT_MS) and the app reopens within 8 s after a drop (stream.js).
+// Two pings' time covers a drop and a reload.
+export const APP_SEEN_MS = 30_000;
+
 export function createAgentService(deps) {
   const { store, agentState, look, fontCatalog, loadFonts, operationContext, exportBatches, agentDirectory } = deps;
   const now = deps.now ?? Date.now;
+  // Someone at the kino app: the dashboard window's reads (dashboard-routes.mjs calls appSeen;
+  // agent calls never do). change +1 opens a stream, -1 closes one, 0 is a read or a ping.
+  let appStreams = 0;
+  let appSeenAt = -Infinity;
+  const appSeen = (change = 0) => { appStreams = Math.max(0, appStreams + change); appSeenAt = now(); };
+  const appSeenWithin = (ms = APP_SEEN_MS) => appStreams > 0 || now() - appSeenAt <= ms;
   const quality = deps.quality ?? createQualityChecker({ mediaRoot: deps.mediaRoot, renderFrames: deps.renderFrames ?? renderSceneFrames,
     // screen_unreadable: a video measured before kino read its picture facts gets them once.
     videoFacts: deps.videoFacts ?? null,
@@ -1318,6 +1331,14 @@ export function createAgentService(deps) {
     // The signature step offers the product's own picture: read the library only while it is next.
     const brief = (await agentState.read(document.id)).brief;
     if (brief?.treatments?.picked && !brief.style?.signatures?.length) facts.picture = await productPicture(document.id);
+    // The pick: someone at the app picks from sketches of the project's own clips (sketch-step.mjs).
+    if (brief?.treatments?.list && !brief.treatments.picked) {
+      facts.appSeen = appSeenWithin();
+      if (facts.appSeen) facts.files = ((await deps.listMedia?.().catch(() => [])) ?? [])
+        .filter((item) => mediaAllowedIn(item, document.id) && /^(video|image)\//.test(item.mime ?? "") && typeof item.name === "string").map((item) => item.name);
+    }
+    // The song is a step of its own before the plan when nothing chose one (nextMove).
+    if (deps.soundtrack && brief?.treatments?.picked && notBuilt(document)) facts.songNeeded = await songNeeded(document);
     // A measured song puts the drafted payoff on its drop (draftSpine); read only while the spine is next.
     if (brief?.treatments?.picked) {
       const song = await songFactsFor(document.id);
@@ -1340,6 +1361,15 @@ export function createAgentService(deps) {
     if (!storied) return facts;
     const checked = Boolean((await agentState.read(document.id)).needs?.checked);
     return { ...facts, needs: { checked, ...(footageSearchOn() ? { search: true } : {}) } };
+  }
+  // No song chosen yet: no audio layer, no soundtrack candidate (a named song is one), no song-long
+  // audio in the project and no song in the sketch they picked.
+  async function songNeeded(document) {
+    if (document.scenes.some((scene) => !scene.isComponent && scene.layers.some((layer) => layer.type === "audio"))) return false;
+    const state = await agentState.read(document.id);
+    if (state.soundtrack?.candidates?.length || pickedSketch(state)?.song) return false;
+    const media = (await deps.listMedia?.().catch(() => [])) ?? [];
+    return !media.some((item) => mediaAllowedIn(item, document.id) && String(item.mime ?? "").startsWith("audio/") && item.duration >= 20);
   }
   // The project's own picture for a signature: its largest screenshot or image (not a logo or
   // icon), else its longest clip, by the library's name; null with neither.
@@ -5647,7 +5677,7 @@ export function createAgentService(deps) {
     if (passedOnce) return null;
     return boardFacts(saved).board
       ? { step: "ask board", call: nextOf("notes", { action: "checkpoint", id: "board" }) }
-      : { step: "save the storyboard", call: nextOf("edit", { ops: [{ op: "board", music: "<song layer or file>", shots: [{ '<library {topic:"op", name:"board"}>': "" }] }] }) };
+      : { step: "save the storyboard", call: nextOf("edit", { ops: [{ op: "board", music: pickedSketch(state)?.song ?? "<song layer or file>", shots: [{ '<library {topic:"op", name:"board"}>': "" }] }] }) };
   }
   // Video layers that play one after another (a cut): two enabled ones in a scene whose time
   // ranges differ. A clip placed later on top of a longer one cuts to it as much as one placed
@@ -8461,8 +8491,9 @@ export function createAgentService(deps) {
       const found = deps.soundLibrary.listMusic({ mood: input.mood ?? names, energy: input.energy, bpm: input.bpm, search }, { seed: record.document.id });
       // No music answer in the brief yet: the person picks the feel first (or sends a song).
       const ask = fields.look_sound?.text ? "" : "The brief has no music answer (look_sound): ask the person for a mood or their own song before you pick.\n";
-      const songs = deps.soundtrack ? '\nA real song fits most videos better: library {topic:"soundtrack", song:"<title> by <artist>"}, search or explore:true.' : "";
-      return { text: ask + musicText(found) + songs, data: { music: found.results.slice(0, 8).map(({ url, sha256, bytes, credit, ...track }) => ({ ...track, id: `music:${track.id}` })) } };
+      // The real-song line comes first; the bundled tracks follow it.
+      const songs = deps.soundtrack ? 'A real song fits most videos better: library {topic:"soundtrack", song:"<title> by <artist>"}, search or explore:true.\n' : "";
+      return { text: ask + songs + musicText(found), data: { music: found.results.slice(0, 8).map(({ url, sha256, bytes, credit, ...track }) => ({ ...track, id: `music:${track.id}` })) } };
     }
     if (topic === "sounds") {
       if (!deps.soundSearch) throw new AgentError("failed", "Sound search is not available here.");
@@ -10602,7 +10633,7 @@ export function createAgentService(deps) {
     return { rev: record.revision, sceneId, shots, voice: await voiceSentences(scene, record.document) };
   }
 
-  return { call, verbs: VERBS, renderJobs, picks, lanes, librarySample, libraryStill, libraryWarm, soundtrackMeasuring: (projectId) => exploring.get(projectId) ?? Promise.resolve(), answerStop, reopenStop, afterYourStop, boardPage, boardData, boardShot, settleStop, currentProject: readCurrent, finalRefused };
+  return { call, verbs: VERBS, appSeen, appSeenWithin, renderJobs, picks, lanes, librarySample, libraryStill, libraryWarm, soundtrackMeasuring: (projectId) => exploring.get(projectId) ?? Promise.resolve(), answerStop, reopenStop, afterYourStop, boardPage, boardData, boardShot, settleStop, currentProject: readCurrent, finalRefused };
 }
 
 /**
