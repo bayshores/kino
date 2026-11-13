@@ -296,6 +296,15 @@ export const textOf = (selector) => `(${q(selector)}?.innerText ?? "")`;
 export const button = (text, scope = "body") =>
   `[...document.querySelectorAll(${JSON.stringify(`${scope} button, ${scope} a, ${scope} [role=tab]`)})].find((element) => element.textContent.replace(/\\s+/g, " ").trim().includes(${JSON.stringify(text)}) && element.getClientRects().length)`;
 export const layerButton = (name) => `[...document.querySelectorAll(".p-timeline .row-button")].find((element) => element.innerText.trim() === ${JSON.stringify(name)})`;
+/**
+ * The timeline shows the shot strip until "Show every lane and layer" is pressed (the layer rows,
+ * the agent's lane and the zoom buttons come with it). Opens them, or does nothing if already open.
+ */
+export async function showLanes(browser) {
+  const toggle = q('.p-timeline button[aria-label="Show every lane and layer"]');
+  if (await browser.evaluate(`!!${toggle}`)) await browser.click(toggle);
+  await browser.waitFor(`!!${q(".p-timeline .row-button")}`, { what: "the layer rows" });
+}
 export const pageHas = (text, selector = "body") => `${textOf(selector)}.includes(${JSON.stringify(text)})`;
 
 /** Calls `check` until it gives something truthy. */

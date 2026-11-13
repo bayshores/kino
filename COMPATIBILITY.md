@@ -1998,9 +1998,14 @@ How to read it:
 
 The dashboard is the app's main window (`frontend/dashboard/`, `backend/dashboard-routes.mjs`,
 `backend/agent/dashboard.mjs`): people watch, approve, hold, undo turns and leave notes, but do not
-edit by hand. Dark only, no purple. Main tests: `backend/dashboard.test.mjs`, `frontend/dashboardModules.test.js`,
+edit by hand. Dark and light, no purple. Main tests: `backend/dashboard.test.mjs`, `frontend/dashboardModules.test.js`,
 `tests/dashboard-browser.test.mjs`, `tests/dashboard-live-browser.test.mjs` (hidden Electron).
 
+- **Screening look and theme**: Verified in the desktop app, dark and light. The stage is the frame, one
+  sentence for what the agent does now (question, hold, recording, render, ready, not connected), the
+  note box and the shot strip; earlier lines, looks, checks, notes and session open under the frame.
+  The theme switch and `:theme` keep the choice. Not built: a live picture of a recorded screen.
+  Tests: `frontend/dashboardAgentView.test.js`, `tests/dashboard-browser.test.mjs`.
 - **Event stream**: Verified. Replays missed events and resyncs after a server restart; stage frames
   come from the export renderer. Evidence: `backend/dashboard.test.mjs`.
 - **Live playback speed**: Verified on an 81 s trailer in the desktop app (page thread busy 84%

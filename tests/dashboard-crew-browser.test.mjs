@@ -51,27 +51,33 @@ after(async () => {
   if (home) await rm(home, { recursive: true, force: true });
 });
 
-test("the five boxes show the real crew: the agents, their lanes, the picked one, what it holds, the rules", async () => {
-  const titles = await browser.evaluate(`[...document.querySelectorAll(".screen.crew .ui-box-title")].map((title) => title.innerText.replace(/\\s+/g, " ").trim())`);
-  assert.deepEqual(titles, ["agents 1 working", "last 10 min", "nova · working with you", "who holds what", "who may start agents"]);
+test("the crew page shows the real crew: the agents, their lanes, what is held, the rules", async () => {
+  // No titled boxes any more: the lists carry their names as labels.
+  assert.equal(await browser.evaluate(`document.querySelectorAll(".screen.crew .ui-box-title").length`), 0);
+  assert.equal(await browser.evaluate(`${q(".crew-table [role=listbox]")}.getAttribute("aria-label")`), "Agents");
+  assert.equal(await browser.evaluate(`${q(".crew-holds")}.getAttribute("aria-label")`), "Who holds what");
+  assert.equal(await browser.evaluate(`${q(".crew-rules .crew-rule-list")}.getAttribute("aria-label")`), "Who may start agents");
   const rows = await browser.evaluate(`[...document.querySelectorAll(".crew-table [role=option]")].map((row) => row.getAttribute("aria-label"))`);
-  assert.deepEqual(rows, ["Nova, lead, started by you, editing, holding hero-5 caption", "you"]);
-  // Nova is picked first: her card has its buttons, her box its facts and buttons, and her lane.
-  assert.match(await browser.evaluate(textOf(".crew-card[aria-selected=true]")), /Nova[\s\S]*started by you[\s\S]*hero-5 caption[\s\S]*watch\s+hold\s+stop/);
-  assert.match(await browser.evaluate(textOf(".crew-agent")), /may\s+everything[\s\S]*spent[\s\S]*watch on stage\s+references/);
+  assert.equal(rows.length, 2);
+  assert.match(rows[0], /^Nova, Lead, .+ Holds hero-5 caption\.$/);
+  assert.equal(rows[1], "You");
+  // Nova is picked first: her row has her facts, her hold and her buttons (Hold icon, Watch, Stop), and her lane.
+  assert.match(await browser.evaluate(textOf(".crew-card[aria-selected=true]")), /Nova[\s\S]*Lead[\s\S]*May do everything[\s\S]*hero-5 caption[\s\S]*Watch\s+Stop/);
+  assert.equal(await browser.evaluate(`${q(".crew-card[aria-selected=true] .crew-card-keys button")}.getAttribute("aria-label")`), "Hold Nova");
+  assert.equal(await browser.evaluate(`${q(".crew-more-keys")}.innerText.includes("References")`), true);
   assert.match(await browser.evaluate(textOf(".crew-lanes .sr-only")), /^Last 10 minutes\. Nova: 1 edit run/);
   assert.equal(await browser.evaluate(`document.querySelectorAll(".crew-lanes .lane-block.k-edit").length > 0`), true);
   assert.equal(await browser.evaluate(`${q(".crew-lanes [aria-hidden=true]")} !== null`), true, "the lanes are hidden from screen readers");
   // Who holds what: Nova holds the caption; render is free.
-  assert.match(await browser.evaluate(textOf(".crew-holds")), /hero-5 caption\s+nova\s+render\s+free/i);
+  assert.match(await browser.evaluate(textOf(".crew-holds")), /^Nobody is rendering\s+Nova holds hero-5 caption$/);
   // The rules as they are: you, not your notes, leads up to 3 helpers, not timers, 4 at once, 60 calls or 15 min.
   const checks = await browser.evaluate(`[...document.querySelectorAll(".crew-rules input[type=checkbox]")].map((box) => [box.closest("label").innerText.replace(/\\s+/g, " ").trim(), box.checked, box.disabled])`);
-  assert.deepEqual(checks, [["you", true, true], ["your notes", false, false], ["Nova", true, false], ["timers", false, false]]);
+  assert.deepEqual(checks, [["You", true, true], ["Your notes", false, false], ["Nova", true, false], ["Timers", false, false]]);
   const numbers = await browser.evaluate(`[...document.querySelectorAll(".crew-rules input[type=number]")].map((field) => [field.getAttribute("aria-label"), field.value])`);
   assert.deepEqual(numbers.map(([, value]) => value), ["3", "4", "60", "15"]);
   // No key line: the keys are in the buttons' tooltips; the dashboard's own key line is not shown here either.
   assert.equal(await browser.evaluate(`${q(".crew-keyline")} === null`), true);
-  assert.equal(await browser.evaluate(`${q(".crew-card[aria-selected=true] button[aria-keyshortcuts=h]")}.title`), "key: h");
+  assert.equal(await browser.evaluate(`${q(".crew-card[aria-selected=true] button[aria-keyshortcuts=h]")}.title`), "Hold (key h)");
   assert.equal(await browser.evaluate(`${q(".keyline")} === null`), true);
   await browser.shot("crew-1-boxes");
   // i opens the inspire screen (F3); F2 comes back.
@@ -82,9 +88,9 @@ test("the five boxes show the real crew: the agents, their lanes, the picked one
 });
 
 test("the start rules change by mouse and by keyboard, and the server keeps them", async () => {
-  await browser.click(`[...document.querySelectorAll(".crew-rules .crew-check")].find((label) => label.innerText.includes("your notes"))`, "the your notes box");
+  await browser.click(`[...document.querySelectorAll(".crew-rules .crew-check")].find((label) => label.innerText.includes("Your notes"))`, "the your notes box");
   await until(async () => (await crew()).rules.notes === true, "notes on");
-  await browser.waitFor(`[...document.querySelectorAll(".crew-rules .crew-check")].find((label) => label.innerText.includes("your notes")).querySelector("input").checked`, { what: "your notes ticked" });
+  await browser.waitFor(`[...document.querySelectorAll(".crew-rules .crew-check")].find((label) => label.innerText.includes("Your notes")).querySelector("input").checked`, { what: "your notes ticked" });
   // Keyboard: the timers box takes Space; the "at most" number takes typing and Enter.
   await browser.evaluate(`[...document.querySelectorAll(".crew-rules input[type=checkbox]")].at(-1).focus()`);
   await browser.keys(" ");
@@ -114,11 +120,11 @@ test("s starts an agent: codex says it is not installed, claude code starts, h h
   await browser.waitFor(`document.activeElement?.closest(".crew-start") && document.activeElement.type === "text"`, { what: "the task field" });
   await browser.type("wait forever");
   // Codex is not on this computer: the form says so and will not start it.
-  await browser.click(`[...document.querySelectorAll(".crew-start .ui-seg-item")].find((label) => label.innerText.includes("codex"))`, "codex");
+  await browser.click(`[...document.querySelectorAll(".crew-start .ui-seg-item")].find((label) => label.innerText.includes("Codex"))`, "codex");
   await browser.waitFor(`${textOf(".crew-start")}.includes("codex was not found on this computer")`, { what: "the reason codex cannot start" });
-  assert.equal(await browser.evaluate(`${button("start", ".crew-start")}.disabled`), true);
-  await browser.click(`[...document.querySelectorAll(".crew-start .ui-seg-item")].find((label) => label.innerText.includes("claude code"))`, "claude code");
-  await browser.click(`[...document.querySelectorAll(".crew-start .ui-seg-item")].find((label) => label.innerText.includes("look only"))`, "look only");
+  assert.equal(await browser.evaluate(`${button("Start", ".crew-start")}.disabled`), true);
+  await browser.click(`[...document.querySelectorAll(".crew-start .ui-seg-item")].find((label) => label.innerText.includes("Claude code"))`, "claude code");
+  await browser.click(`[...document.querySelectorAll(".crew-start .ui-seg-item")].find((label) => label.innerText.includes("Look only"))`, "look only");
   await browser.evaluate(`${q(".crew-start input[type=text]")}.focus()`);
   await browser.keys("Enter");
   const started = await until(async () => (await crew()).members.find((member) => member.launched && member.task === "wait forever"), "the started agent");
@@ -126,14 +132,15 @@ test("s starts an agent: codex says it is not installed, claude code starts, h h
   assert.equal(started.may, "look");
   // The new agent is selected and its detail shows its task and who started it.
   await browser.waitFor(`${selectedRow}.startsWith(${JSON.stringify(started.name)})`, { what: "the new agent selected" });
-  await browser.waitFor(`${textOf(".crew-agent")}.includes("wait forever") && ${textOf(".crew-agent")}.includes("look and search only")`, { what: "its detail" });
-  assert.match(await browser.evaluate(selectedRow), /started by you/);
+  // Its row says what it may do; its task is in the tooltip of the line under its name.
+  await browser.waitFor(`${textOf(".crew-card[aria-selected=true] .crew-card-facts")}.includes("May look and search only") && ${q(".crew-card[aria-selected=true] .crew-card-name span")}.title.includes("wait forever")`, { what: "its row" });
+  assert.match(await browser.evaluate(selectedRow), new RegExp(`^${started.name}, Lead, `));
 
   // h holds it (the server refuses its writes), h again releases it.
   await pressOnTable("h");
   await until(async () => (await memberNamed(started.name))?.heldBy === "you", "the agent held");
-  await browser.waitFor(`${selectedRow}.includes(", held,")`, { what: "the row says held" });
-  await browser.waitFor(`${textOf(".crew-card[aria-selected=true] .crew-card-keys")}.includes("release")`, { what: "the release button" });
+  await browser.waitFor(`${selectedRow}.includes(", Held.")`, { what: "the row says held" });
+  await browser.waitFor(`${q(".crew-card[aria-selected=true] .crew-card-keys button")}.getAttribute("aria-label") === "Release ${started.name}"`, { what: "the release button" });
   await browser.shot("crew-3-held");
   await pressOnTable("h");
   await until(async () => !(await memberNamed(started.name))?.heldBy, "the agent released");
@@ -147,7 +154,7 @@ test("s starts an agent: codex says it is not installed, claude code starts, h h
   await browser.waitFor(`${textOf("body")}.includes("Stop ${started.name}?")`, { what: "the question again" });
   await browser.keys("y");
   await until(async () => (await memberNamed(started.name))?.state === "stopped", "the agent stopped");
-  await browser.waitFor(`${selectedRow}.includes(", stopped,")`, { what: "the row says stopped" });
+  await browser.waitFor(`${selectedRow}.includes(", Stopped.")`, { what: "the row says stopped" });
 });
 
 test("a held part can be freed from who holds what", async () => {
@@ -157,20 +164,23 @@ test("a held part can be freed from who holds what", async () => {
   await browser.waitFor(`!${textOf(".crew-holds")}.includes("hero-5 caption")`, { what: "the row gone" });
   // Your lane shows what you did: the hold, release, stop and free.
   await browser.waitFor(`/hold.*release.*stop.*free/.test(${textOf(".crew-lanes .sr-only")})`, { what: "your lane" });
+  await browser.waitFor(`${textOf(".crew-holds")}.includes("Nobody is rendering")`, { what: "the hold row gone" });
 });
 
 test("at phone width the boxes stack without a sideways scroll", async () => {
   await browser.send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
   try {
-    // The boxes stack by CSS at once; the top line takes its phone form one React update later
-    // (.dash.phone), so the widths are read after both.
-    await browser.waitFor(`getComputedStyle(${q(".crew2-grid")}).gridTemplateAreas.includes("rules") && !!document.querySelector(".dash.phone")`, { what: "the phone layout" });
+    // The row puts its buttons under its words by CSS at once; the top line takes its phone form one
+    // React update later (.dash.phone), so the widths are read after both.
+    await browser.waitFor(`getComputedStyle(${q(".crew-card-keys")}).gridColumnStart === "2" && !!document.querySelector(".dash.phone")`, { what: "the phone layout" });
     const measure = `[document.documentElement.scrollWidth, ${q(".screen-wrap")}.scrollWidth, ${q(".screen-wrap")}.clientWidth]`;
     await browser.waitFor(`((w) => w[0] <= 390 && w[1] <= w[2])(${measure})`, { what: "no sideways scroll", timeout: 5000 }).catch(() => {});
     const widths = await browser.evaluate(measure);
     assert.ok(widths[0] <= 390 && widths[1] <= widths[2], `no sideways scroll: ${widths}`);
-    const tops = await browser.evaluate(`["crew-table", "crew-lanes", "crew-agent", "crew-holds", "crew-rules"].map((name) => document.querySelector("." + name).getBoundingClientRect().top)`);
-    assert.deepEqual([...tops].sort((a, b) => a - b), tops, "one box under the other");
+    // The agents, then the holds and the limits, then who may start agents, one under the other; a row's buttons are under its words.
+    const tops = await browser.evaluate(`[".crew-table", ".crew-holds", ".crew-limits", ".crew-more"].map((selector) => document.querySelector(selector).getBoundingClientRect().top)`);
+    assert.deepEqual([...tops].sort((a, b) => a - b), tops, "one part under the other");
+    assert.equal(await browser.evaluate(`${q(".crew-card-keys")}.getBoundingClientRect().top >= ${q(".crew-card-main")}.getBoundingClientRect().bottom - 1`), true, "the buttons are under the words");
     await browser.shot("crew-4-phone");
   } finally {
     await browser.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
