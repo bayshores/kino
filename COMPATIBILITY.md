@@ -1960,6 +1960,12 @@ How to read it:
 - **Try options**: Partly verified. `notes {action:"try"}` checks 2 to 4 options' ops on a copy, renders the 2 s
   around the moment once per option, and the person's pick (or none, or skip) reaches the inbox with the ops to apply.
   Evidence: `backend/tries.test.mjs`, `frontend/dashboardBoard.test.js`. Gap: the clips are silent, so sound options cannot be heard yet.
+- **Sketch rounds**: Partly verified. `notes {action:"try", from, to, options:[{treatment, ops}]}` renders 2 to 10 s
+  sketches of the shown treatments with sound, cached by ops; the receipt prints render seconds per sketch second and
+  picture changes, median shot, lettering, LUFS, colors and the closest pair; a dashboard pick saves the treatment pick
+  by them. Evidence: `backend/tries.test.mjs` (stubbed render: cache, pick), a 14 s fan edit replay (three 6 s
+  sketches at 2.14 to 3.67 s per sketch second, desktop pick). Without saved treatments, named sketches work the same with no
+  treatment pick. Gaps: no server test renders a sketch with sound; picture changes use a starting threshold (0.05); 9:16 layout not shown in the app.
 - **Library screen** (F4): Partly verified. Every move, effect, animation, recipe, look and video format, by what it
   does or by kind, each with a sample built through the edit path and drawn by the renderer; what this video uses;
   "ask for this" on a shot becomes one note. Evidence: `backend/dashboard.test.mjs`, `frontend/dashboardBoard.test.js`.

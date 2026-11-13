@@ -84,7 +84,7 @@ import { answerStep, checkpointStep, dashboardAnswerStep, finalRefusal, openStop
 import { finishLog, logCall, stepNameOf, stepRows, stepsLine, stepsTable } from "./step-log.mjs";
 import { controlsLine } from "./controls.mjs";
 import { addRejected } from "./style.mjs";
-import { originWord, pickedEnding, pickedType } from "./treatments.mjs";
+import { knownDropped, originWord, pickedEnding, pickedType } from "./treatments.mjs";
 import { askShown } from "../../engine/quality/rules/ask.js";
 import { activeApproval, boardFacts, boardPrint, laterAnswer, reframeApproved, settleBoard } from "./board.mjs";
 import { boardSpan, mainScene, NONE, pinnedDrop, reframeBoard } from "../../engine/board.js";
@@ -131,7 +131,8 @@ import { makeTempFolder, removeTempFolder } from "../temp-folders.mjs";
 import { heardLines as soundLines, sectionsInVideo, soundMapImage, soundMapText, volumeDips } from "./sound-map.mjs";
 // look sound measures each line on its own layer alone for at most this many layers (one FFmpeg run each).
 const SOUND_LINE_LAYERS = 6;
-import { createTries, triesView } from "./tries.mjs";
+import { createTries, pickQuote, triesView } from "./tries.mjs";
+import { measureSketch } from "./sketches.mjs";
 import { boardRefKeys, createJudge, judgeLine, judgeLost, pairCount, pinnedPairs, refForKey, resultText, roundView, tally, VERSUS_ROWS } from "./judge.mjs";
 import { createPicks, SITTING_PICKS } from "./picks.mjs";
 import { rendererIsProcessor } from "../render-devices.mjs";
@@ -254,6 +255,8 @@ const LIBRARY_NAMES = 8;
 const INSPIRE_WAIT_MS = 50_000;
 // How long saving the brief's about line waits for the origin search (inspire.origin) before it answers.
 const ORIGIN_WAIT_MS = 20_000;
+// How long a sketch round's call waits for its clips before its numbers go to the inbox instead.
+const SKETCH_WAIT_MS = 150_000;
 // A skipped origin search (a bot check, a timeout, yt-dlp briefly missing) is tried again on a later
 // save of the same about line, but not within this long of the last try.
 const ORIGIN_RETRY_MS = 10 * 60_000;
@@ -747,9 +750,17 @@ export function createAgentService(deps) {
   const judge = createJudge({ agentState, inspire: deps.inspire, directory: path.join(agentDirectory, "judge"), emit: (...args) => deps.emit?.(...args),
     editFrame: async (document, sceneId, time, width) => (await look.frame(await prepare(document, sceneId, await fontsFor(document)), time, width)).png });
   // Try rounds (tries.mjs): 2 to 4 versions of one moment of the video; the person picks one.
-  const tries = createTries({ agentState, directory: path.join(agentDirectory, "try"), emit: (...args) => deps.emit?.(...args),
+  const tries = createTries({ agentState, directory: path.join(agentDirectory, "try"), cacheDirectory: path.join(agentDirectory, "try-cache"), emit: (...args) => deps.emit?.(...args),
     documentWith: (record, ops) => documentWith(record, ops),
-    renderClip: async (document, sceneId, from, to, outputPath) => look.clip(await prepare(document, sceneId, await fontsFor(document)), { from, to, outputPath }) });
+    renderClip: async (document, sceneId, from, to, outputPath, { sound = false } = {}) => look.clip(await prepare(document, sceneId, await fontsFor(document)), { from, to, outputPath, sound }),
+    // Sketch rounds (sketches.mjs): the shown treatments, the clip's numbers, and the pick saved as their typed pick is.
+    briefOf: (state) => ({ treatments: state.brief?.treatments ?? null, known: Boolean(state.brief?.treatments?.list && knownDropped(state.brief.treatments, state.origin, asksOf(state.brief).map((entry) => entry.text))) }),
+    measureSketch,
+    pickTreatment(state, round, option) {
+      const quote = pickQuote(round, option);
+      const changes = briefChanges(state.brief, { fields: { treatments: { pick: option.treatment, quote } } }, { said: [...saidElsewhere(state), quote], origin: state.origin ?? null });
+      applyBrief(state, changes, { now: now(), client: "dashboard" });
+    } });
   // The blind pick box (picks.mjs): two videos side by side; the person picks, the ladder reads picks.jsonl.
   const picks = createPicks({ directory: deps.tasteDirectory ?? path.join(agentDirectory, "taste"), mediaRoot: deps.mediaRoot,
     emit: (view) => deps.emit?.(null, { kind: "picks", picks: view }) });
@@ -1078,6 +1089,15 @@ export function createAgentService(deps) {
     let round;
     try { round = await tries.start(record, input, { by: meta.by === "you" ? "you" : "agent" }); }
     catch (error) { throw new AgentError("bad_input", error.message, { safeToRetry: true }); }
+    if (round.sketch) {
+      // Sketches render now, one after another; the receipt sets their numbers side by side.
+      await Promise.race([round.rendered, new Promise((resolve) => setTimeout(resolve, SKETCH_WAIT_MS).unref())]);
+      const lines = await tries.sketchReceipt(projectId, round.id);
+      const head = `sketches ${round.id}: ${round.options.length} of ${round.to - round.from > 0 ? Math.round((round.to - round.from) * 100) / 100 : 0} s (${round.from} to ${round.to} s) with sound${round.options.some((option) => option.treatment) ? `, treatments ${round.options.map((option) => option.treatment).join(", ")}` : ""}`;
+      const tail = `The person plays them on the dashboard; a pick ${round.options.some((option) => option.treatment) ? "saves that treatment as theirs and " : ""}reaches your inbox. Nothing waits on it.`;
+      const text = lines ? [`${head}:`, ...lines, tail].join("\n") : `${head}: still rendering; their numbers reach your inbox when ready. ${tail}`;
+      return done(projectId, { text, data: { id: round.id, rev: round.rev, sketch: true, options: round.options.map((option) => ({ letter: option.letter, treatment: option.treatment })) } });
+    }
     const text = `try ${round.id} started: ${round.options.length} options of ${round.from} to ${round.to} s render one by one; the person picks on the dashboard and the pick arrives in your inbox (with the ops to apply). Keep working on other parts.`;
     return done(projectId, { text, data: { id: round.id, rev: round.rev, status: round.status, options: round.options.map((option) => option.letter) } });
   }
@@ -1265,7 +1285,9 @@ export function createAgentService(deps) {
 
   // What the person said outside the brief's asks: their words when they answered a stop and the
   // notes they typed, both recorded by kino (a note an agent adds is not theirs).
-  const saidElsewhere = (state) => [...(state?.stops ?? []).map((round) => round?.answer?.words), ...(state?.notes ?? []).filter((note) => note?.typed === true).map((note) => note.text)]
+  // A sketch they picked on the dashboard counts too (its pick quote, tries.mjs pickQuote).
+  const saidElsewhere = (state) => [...(state?.stops ?? []).map((round) => round?.answer?.words), ...(state?.notes ?? []).filter((note) => note?.typed === true).map((note) => note.text),
+    ...(state?.tries ?? []).filter((round) => round?.treatmentSaved).map((round) => pickQuote(round, round.options.find((option) => option.letter === round.pick)))]
     .filter((words) => typeof words === "string" && words.trim());
 
   // videoFacts plus what the direction step needs about references: how many the project saved

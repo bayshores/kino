@@ -6,7 +6,8 @@
 //
 // Data flow: agent.tries in the snapshot and the "tries" event (state.js) → this screen. The clips
 // are GET /api/dashboard/try/<project>/<T1-B.mp4>; an answer is notes {action:"try", round, pick}
-// (Dashboard.jsx). The clips are silent and play only when play is pressed.
+// (Dashboard.jsx). The clips are silent and play only when play is pressed; a sketch round's clips
+// (SketchRound) carry their sound and play one at a time on a click.
 import React, { useEffect, useRef, useState } from "react";
 import { clockWords } from "./boardRows.js";
 import { ANSWER_WORDS, answerWords, roundList, shownRound } from "./tryRows.js";
@@ -39,7 +40,72 @@ export function TryScreen({ projectId, tries, shots = [], onAnswer, onBack }) {
   );
 }
 
-function TryRound({ projectId, round, shots, onAnswer }) {
+// A sketch round (backend/agent/sketches.mjs): each option is a 2 to 10 s sketch of one treatment
+// with its sound. A click plays that one (the others stop, so only one is heard), a second click
+// pauses; nothing plays by itself. One click on ✓ picks it, which saves that treatment as theirs.
+function SketchRound({ projectId, round, onAnswer }) {
+  const videos = useRef(new Map());
+  const [playing, setPlaying] = useState(null);
+  const [time, setTime] = useState(0);
+  const [sent, setSent] = useState(null);
+  const open = round.status === "waiting" && !sent;
+  const answer = sent ?? (round.pick ? answerWords(round) : null);
+  const stopAll = () => { for (const video of videos.current.values()) video.pause(); setPlaying(null); };
+  const toggle = (letter) => {
+    const video = videos.current.get(letter);
+    if (!video) return;
+    if (playing === letter) { stopAll(); return; }
+    stopAll();
+    if (video.ended || video.currentTime >= (video.duration || Infinity) - 0.05) video.currentTime = 0;
+    video.play().then(() => setPlaying(letter)).catch(() => setPlaying(null));
+  };
+  const choose = (pick, words) => { stopAll(); setSent(words); onAnswer(round, pick); };
+  useEffect(() => () => stopAll(), []);
+  return (
+    <div className="try-round try-sketches">
+      <h3 className="try-question">{round.question}</h3>
+      {round.status === "failed" ? <p className="err">These sketches could not be made: {round.error}.</p> : null}
+      <div className={`try-options count-${round.options.length}`}>
+        {round.options.map((option) => (
+          <figure key={option.letter} className={`try-option${round.pick === option.letter ? " picked" : ""}${playing === option.letter ? " playing" : ""}`}>
+            <div className="try-video">
+              {option.ready ? (<>
+                <video ref={(element) => { if (element) videos.current.set(option.letter, element); else videos.current.delete(option.letter); }}
+                  src={clipUrl(projectId, option.file)} playsInline preload="auto" aria-hidden="true"
+                  onTimeUpdate={(event) => { if (playing === option.letter) setTime(event.currentTarget.currentTime); }}
+                  onEnded={() => setPlaying((now) => (now === option.letter ? null : now))} />
+                <button type="button" className="try-play" aria-pressed={playing === option.letter}
+                  aria-label={`${playing === option.letter ? "Pause" : "Play"} sketch ${option.letter}: ${option.name}, with sound`} onClick={() => toggle(option.letter)}>
+                  <span aria-hidden="true">{playing === option.letter ? "❚❚" : "▶"}</span>
+                </button>
+              </>) : <span className="try-missing">{option.error ? "could not be made" : "making…"}</span>}
+              <span className="try-letter" aria-hidden="true">{round.pick === option.letter ? "✓" : option.letter}</span>
+              {open && option.ready ? (
+                <button type="button" className="tb tb-box try-pick" onClick={() => choose(option.letter, `${option.letter} · ${option.name}`)}>✓ pick {option.letter}</button>
+              ) : null}
+            </div>
+            <figcaption>{option.name}</figcaption>
+          </figure>
+        ))}
+      </div>
+      <div className="try-controls">
+        <span className="try-clock" aria-live="off">{playing ? `${playing} · ${clockWords(time)} / ${clockWords(Math.max(0.1, round.to - round.from))}` : clockWords(Math.max(0.1, round.to - round.from))}</span>
+      </div>
+      {open ? (
+        <div className="actions try-answers">
+          <button type="button" className="tb" onClick={() => choose("none", ANSWER_WORDS.none)}>none of these</button>
+          <button type="button" className="tb" onClick={() => choose("skip", ANSWER_WORDS.skip)}>skip</button>
+        </div>
+      ) : answer ? <p className="try-answer" role="status">you picked: {answer}{sent ? " · the agent hears it with its next call" : ""}</p> : null}
+    </div>
+  );
+}
+
+function TryRound(props) {
+  return props.round.sketch ? <SketchRound {...props} /> : <ClipRound {...props} />;
+}
+
+function ClipRound({ projectId, round, shots, onAnswer }) {
   const videos = useRef(new Map());
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
