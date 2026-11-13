@@ -38,16 +38,28 @@ test("a capture gives up after five attempts and never retries other errors", as
   assert.equal(gone.invalidations, 0);
 });
 
-// A stand-in for a captured image: `grey` is the one-pixel row under a width x height picture.
-function capturedImage(width, height, grey) {
+// A stand-in for a captured image: two rows under a width x height picture, an empty one that the
+// picture may leak into (`leaked`) and the marker row, `grey`.
+function capturedImage(width, height, grey, leaked = 0) {
   return {
-    getSize: () => ({ width, height: height + 1 }),
+    getSize: () => ({ width, height: height + 2 }),
     crop(area) {
-      if (area.y === height) return { toBitmap: () => Buffer.from([grey, grey, grey, 255]) };
+      if (area.y === height + 1) return { toBitmap: () => Buffer.from([grey, grey, grey, 255]) };
+      if (area.y === height) return { toBitmap: () => Buffer.from([leaked, leaked, leaked, 255]) };
       return { picture: area };
     },
   };
 }
+
+test("the grey row is read under an empty row, which a picture past the bottom edge may leak into", async () => {
+  // Measured on a 1920x1080 frame with a zoomed video past the bottom: the row right under the
+  // picture read 201 for the grey 208, so frames with that grey ran out of time.
+  const marker = frameMarker(11);
+  const contents = { captures: 0, async capturePage() { this.captures += 1; return capturedImage(4, 3, marker, 201); }, invalidate() {} };
+  const image = await captureFrame(contents, { width: 4, height: 3, marker, wait: noWait });
+  assert.deepEqual(image.picture, { x: 0, y: 0, width: 4, height: 3 });
+  assert.equal(contents.captures, 1);
+});
 
 test("an export frame is captured only once the page shows this request's grey row", async () => {
   const marker = frameMarker(7);
