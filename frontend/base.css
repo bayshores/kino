@@ -58,7 +58,7 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: var(--bg0); }
 /* The dashboard's light theme (dashboard/theme.js): the page behind it and the startup line. */
-:root[data-theme="light"] { --bg0: #f4f2ec; --bg1: #e6e3da; --line: #c4c0b5; --fg0: #121212; --fg1: #55524b; --accent: #121212; color-scheme: light; }
+:root[data-theme="light"] { --bg0: #f4f2ec; --bg1: #e6e3da; --bg2: #dcd8ce; --line: #c4c0b5; --fg0: #121212; --fg1: #55524b; --accent: #121212; color-scheme: light; }
 :root[data-theme="dark"] { --bg0: #0a0a0a; }
 button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
