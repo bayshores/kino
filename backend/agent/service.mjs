@@ -17,7 +17,7 @@ import { uptime } from "node:os";
 import { EASINGS, lowpassSampler, PRESETS, speedAnimations } from "../../engine/animation.js";
 import { addNeeds, answerNeed, emptyNeeds, finishNeed, needsCall, needsLine, needState, NEEDS_WAIVER, openNeeds, parseNeedItems, splitImported } from "./needs.mjs";
 import { LIBRARY_TOPICS, NOTES_ACTIONS } from "./actions.mjs";
-import { markReactionsRead, reactionLines, reactionMarks, reactionWordsAt, recordReactions } from "./reactions.mjs";
+import { markReactionsRead, reactionLines, reactionMarks, reactionRowsAt, recordReactions } from "./reactions.mjs";
 import { addCandidates, createFootageActions, FootageError, FOOTAGE_RESULT_KEEP_MS, FOOTAGE_TOPIC_LINE, isFoundClip, markPlaces, parseRef as parseFootageRef, personClipCount, personClipsLine, scanIdOf } from "../footage-finder/actions.mjs";
 import { elsewhereLine, knownEdits, withStudies } from "../footage-finder/search.mjs";
 import { findCutClips, importedSeconds, planTake, takeText } from "../footage-finder/take.mjs";
@@ -5831,7 +5831,8 @@ export function createAgentService(deps) {
     for (const [index, entry] of ordered.entries()) entry.n = index + 1;
     const images = [];
     const lines = [];
-    let reactionLinesLeft = 3;
+    // The person's unread marks, looks-again and skips, each on its nearest moment (at most 3 rows a call).
+    const reacted = reactionRowsAt(state, scene.id, ordered.map((entry) => entry.event.time), { document, rev: record.revision });
     let pageNumber = 0;
     for (const size of ["full", "compact"]) {
       const entries = picked[size];
@@ -5844,11 +5845,7 @@ export function createAgentService(deps) {
         const members = entries.filter((entry) => page.frames.some((item) => item.time === entry.event.time));
         lines.push(`page ${pageNumber} (${size === "full" ? "full size" : "compact"}) ${file}: ${members.map((entry) => `${entry.n}=${eventWords(entry.event)}`).join(" · ")}`);
         for (const entry of members) for (const note of entry.notes.slice(0, 3)) lines.push(`  ${entry.n} @${entry.event.time}s ${note}`);
-        // The person's unread marks, looks-again and skips on this moment (at most 3 rows a call).
-        for (const entry of members) {
-          const reacted = reactionLinesLeft > 0 ? reactionWordsAt(state, scene.id, entry.event.time) : "";
-          if (reacted) { reactionLinesLeft -= 1; lines.push(`  ${entry.n} @${entry.event.time}s ${reacted}`); }
-        }
+        for (const entry of members) if (reacted.has(entry.event.time)) lines.push(`  ${entry.n} @${entry.event.time}s ${reacted.get(entry.event.time)}`);
       }
     }
     // One seam a cut: events within SEAM_MERGE of the same cut share it.
@@ -6853,7 +6850,8 @@ export function createAgentService(deps) {
   // sends are not kept.
   async function notesReactions(record, input, meta, codes) {
     const projectId = record.document.id;
-    const you = meta.by === "you";
+    // Only the app's own call (dashboard act, marked reviewed) is the person's viewing: an agent's by:"you" is not.
+    const you = meta.by === "you" && meta.reviewed === true;
     if (you) {
       const outcome = await agentState.update(projectId, (state) => recordReactions(state, input, { document: record.document, rev: record.revision, now: now() }));
       return { project: projectId, text: outcome.cleared ? `cleared ${plural(outcome.cleared, "reaction")}` : `kept ${plural(outcome.kept, "reaction")}${outcome.removed ? `, removed ${outcome.removed}` : ""}`,
@@ -6959,7 +6957,7 @@ export function createAgentService(deps) {
     // resolve {id:"reactions"}: the agent read the person's reactions (reactions.mjs).
     if (action === "resolve" && input.id === "reactions") return notesReactions(record, { read: true }, { ...meta, by: "agent" }, codes);
     if (action === "reply" || action === "resolve") {
-      if (!input.id)throw new AgentError("bad_input", `${action} needs id (such as N2).`);
+      if (!input.id) throw new AgentError("bad_input", `${action} needs id (such as N2).`);
       const outcome = await agentState.update(projectId, (state) => {
         const note = state.notes.find((entry) => entry.id.toLowerCase() === String(input.id).toLowerCase());
         if (!note) return { missing: closest(String(input.id), state.notes.map((entry) => entry.id)) };

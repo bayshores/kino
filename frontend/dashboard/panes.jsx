@@ -1082,12 +1082,18 @@ export function StagePane({ data, scene, time, rev, checkpoint, full, playing, f
             {(data.agent?.notes ?? []).filter((note) => note.time != null && (!note.sceneId || note.sceneId === scene.id)).map((note) => (
               <span key={note.id} className={`scrub-note${note.status === "resolved" ? " done" : ""}`} style={{ left: `${Math.min(100, (note.time / Math.max(0.001, scene.duration)) * 100)}%` }} aria-hidden="true" />
             ))}
-            {/* Your good and bad marks (reactionTrack.js): a mark made while playing spans the 3 s before the click. A click removes one. */}
-            {marks.filter((mark) => mark.scene === scene.id).map((mark) => (
-              <button key={mark.id} type="button" className={`scrub-mark ${mark.kind}`} aria-label={`Remove ${mark.kind} mark at ${mark.b} s`} title={`${mark.kind} ${mark.a === mark.b ? `${mark.b}` : `${mark.a} to ${mark.b}`} s (click removes)`}
-                style={{ left: `${Math.min(100, (mark.a / Math.max(0.001, scene.duration)) * 100)}%`, width: `${Math.max(0, ((mark.b - mark.a) / Math.max(0.001, scene.duration)) * 100)}%` }}
-                onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onUnmark?.(mark); }} />
-            ))}
+            {/* Your good and bad marks (reactionTrack.js): a mark made while playing spans the 3 s before the click, drawn as a band
+                that lets scrub clicks through; only the tick at the click time is a button, and a click on it removes the mark. */}
+            {marks.filter((mark) => mark.scene === scene.id).map((mark) => {
+              const at = (value) => `${Math.min(100, (value / Math.max(0.001, scene.duration)) * 100)}%`;
+              return (
+                <React.Fragment key={mark.id}>
+                  {mark.b > mark.a ? <span className={`scrub-mark-range ${mark.kind}`} style={{ left: at(mark.a), width: `calc(${at(mark.b)} - ${at(mark.a)})` }} aria-hidden="true" /> : null}
+                  <button type="button" className={`scrub-mark ${mark.kind}`} aria-label={`Remove ${mark.kind} mark at ${mark.b} s`} title={`${mark.kind} ${mark.a === mark.b ? `${mark.b}` : `${mark.a} to ${mark.b}`} s (click removes)`}
+                    style={{ left: at(mark.b) }} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onUnmark?.(mark); }} />
+                </React.Fragment>
+              );
+            })}
           </span>
           <span className="transport-marks" role="group" aria-label="Your marks">
             <button type="button" className="tb icon-button mark-chip good" onClick={() => onKey("mark-good")} aria-label="Good moment" aria-keyshortcuts="m" title="Good moment (m)"><Icon name="mark-good" /></button>

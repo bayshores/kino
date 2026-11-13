@@ -411,7 +411,8 @@ export function Dashboard() {
   useEffect(() => () => mediaKeys.close(), [mediaKeys]);
 
   // The reaction track (useReactions.js): what you do while watching, and your good and bad marks.
-  const reactions = useReactions({ projectId, revision, savedMarks: data?.agent?.marks, onError: (text) => say(text, true) });
+  // Each entry carries the revision on the stage (a turn's checkpoint while one is shown).
+  const reactions = useReactions({ projectId, revision: checkpoint?.rev ?? revision, savedMarks: data?.agent?.marks, onError: (text) => say(text, true) });
   const { track: reactionTrack, flush: flushReactions } = reactions;
   const sceneRef = useRef(null);
   sceneRef.current = scene ? { id: scene.id, duration } : null;

@@ -20,7 +20,7 @@ const MAIN = {
   " ": "play", ",": "frame-back", ".": "frame-forward", "[": "turn-back", "]": "turn-forward", "{": "scene-back", "}": "scene-forward",
   c: "note", n: "note", a: "allow", A: "allow-always", d: "deny", D: "deny-always", u: "undo", H: "hold", h: "hold", o: "full-frame", e: "export", r: "export",
   s: "safe", g: "grid", b: "boxes", m: "mark-good", M: "mark-bad",
-  t:"transcript", x: "cancel-render", f: "follow", l: "seen", "+": "zoom", "=": "zoom", _: "unzoom",
+  t: "transcript", x: "cancel-render", f: "follow", l: "seen", "+": "zoom", "=": "zoom", _: "unzoom",
   j: "down", k: "up", ArrowDown: "down", ArrowUp: "up", ArrowLeft: "left", ArrowRight: "right", Enter: "open", Escape: "back",
 };
 

@@ -216,22 +216,37 @@ export function reactionLines(state, document, rev, { name = (id) => id } = {}) 
 }
 
 /**
- * Short words for one moment of look review: the unread marks, looks-again and skips whose range
- * holds `time` (with 0.3 s either side). "" when none.
+ * The review rows for one look review call: each unread mark, look-again or skip goes to the one
+ * moment in `moments` (seconds) nearest its range (so a range over several moments prints once), and at most
+ * `limit` rows are kept, the ones holding a mark first. Map of moment time to words.
  */
-export function reactionWordsAt(state, sceneId, time) {
+export function reactionRowsAt(state, sceneId, moments, { limit = 3, document = null, rev = null } = {}) {
   const track = reactionsOf(state);
-  const near = track.entries.filter((entry) => idNumber(entry) > (track.readId ?? 0) && entry.scene === sceneId
-    && ["again", "skip", "good", "bad"].includes(entry.kind) && time >= entry.a - 0.3 && time <= entry.b + 0.3);
-  if (!near.length) return "";
-  const words = [];
-  for (const kind of ["good", "bad"]) {
-    const marks = near.filter((entry) => entry.kind === kind);
-    if (marks.length) words.push(`${kind} ${marks.map((entry) => range(entry.a, entry.b)).slice(0, 2).join(", ")}`);
+  const byTime = new Map();
+  for (const entry of track.entries) {
+    if (idNumber(entry) <= (track.readId ?? 0) || entry.scene !== sceneId || !["again", "skip", "good", "bad"].includes(entry.kind)) continue;
+    const covered = moments.filter((time) => time >= entry.a - 0.3 && time <= entry.b + 0.3);
+    if (!covered.length) continue;
+    const middle = MARK_KINDS.has(entry.kind) ? entry.b : (entry.a + entry.b) / 2;
+    const time = covered.reduce((best, item) => (Math.abs(item - middle) < Math.abs(best - middle) ? item : best));
+    byTime.set(time, [...(byTime.get(time) ?? []), entry]);
   }
-  for (const [kind, label] of [["again", "looked again"], ["skip", "skipped"]]) {
-    const group = groupRanges(near.filter((entry) => entry.kind === kind))[0];
-    if (group) words.push(`${label} ${range(group.a, group.b)} ${times(group.count)}`);
+  const rows = [...byTime].map(([time, entries]) => ({ time, entries, marked: entries.some((entry) => MARK_KINDS.has(entry.kind)) }))
+    .sort((x, y) => Number(y.marked) - Number(x.marked) || x.time - y.time).slice(0, limit);
+  const words = new Map();
+  for (const { time, entries } of rows) {
+    const parts = [];
+    for (const kind of ["good", "bad"]) {
+      const marks = entries.filter((entry) => entry.kind === kind);
+      if (marks.length) parts.push(`${kind} ${marks.map((entry) => range(entry.a, entry.b)).slice(0, 2).join(", ")}`);
+    }
+    for (const [kind, label] of [["again", "looked again"], ["skip", "skipped"]]) {
+      const group = groupRanges(entries.filter((entry) => entry.kind === kind))[0];
+      if (group) parts.push(`${label} ${range(group.a, group.b)} ${times(group.count)}`);
+    }
+    // One made on an older revision says whether the shot under it changed since.
+    const older = document ? [...entries].sort((x, y) => Number(MARK_KINDS.has(y.kind)) - Number(MARK_KINDS.has(x.kind))).find((entry) => entry.rev !== rev) : null;
+    words.set(time, `person: ${parts.join("; ")}${older ? ` (${shotWords(older, document, rev)})` : ""}`);
   }
-  return `person: ${words.join("; ")}`;
+  return words;
 }
