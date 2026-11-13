@@ -65,6 +65,24 @@ Everything goes in `.local/taste/runs/<run-id>/`:
 
 Env: `KINO_FIRSTPASS_MODEL` (default the `model` in `~/.claude/settings.json`), `KINO_FIRSTPASS_MINUTES` (time budget, default 45), `KINO_FIRSTPASS_REPLIES` (default 10), `KINO_FIRSTPASS_HOUSE` (snapshot folder in `house/`, default `launch-v1`; `none` starts with an empty house). Uses your Claude Code login. Delete `data/` when the run has been judged.
 
+### Person mode: you sit at the app
+
+```sh
+KINO_FIRSTPASS_PERSON=1 node evals/taste/firstpass.mjs <brief> [--run-id <id>] [--dry-run]
+```
+
+Without `KINO_FIRSTPASS_PERSON=1` nothing above changes (`run.json` gets `person: { mode: false }`). With it, the run is the same except for these:
+
+- **The server is the desktop app.** The runner does not fork `backend/index.mjs`. It writes `data/agent/dashboard.json` as before, then starts the app from this checkout (`node_modules/electron`, `--user-data-dir=<new temporary folder>`, `MOTION_DATA_DIR=<run>/data`), visible, and waits for the `runtime.json` the app writes in that folder. The app reads the same settings file, so approvals, the export folder and sound search apply. The agent's `kino` command reaches the app through `KINO_RUNTIME_FILE` (the file also holds the owner token); the runner reads the snapshot with it. Your own open app is never touched (its profile and `runtime.json` differ). `--dry-run` prints the app command and data folder and starts nothing.
+- **A pick.** When the agent ends a turn and a try round of the project is `waiting` (or `rendering`: the clips are being made), the runner prints `waiting for your pick in the app: <question>` and checks every 2 s. You click a clip on the try screen. When the round is no longer waiting, the agent gets `I picked in the app.`
+- **A watch.** The first time a turn ends with a kino MP4 in the run, the runner prints `watch it in the app, mark good and bad moments; I continue when you stop`. Play the stage (look again, skip, mark good or bad moments). Once there is a reaction newer than that turn end and no new one for 20 s, the agent gets `I watched it in the app.` and may revise. The run ends at the next turn end that has an MP4.
+- **Time.** Each wait is at most `KINO_FIRSTPASS_PERSON_MINUTES` (default 30). A pick that runs out gets `your call`; a watch that runs out ends the run. Waiting does not use the agent's `KINO_FIRSTPASS_MINUTES` budget.
+- **Stops** still get the brief's reply or `looks good, keep going`: you do not answer them.
+- **The end.** The app stays open. The runner prints its pid; close it with Cmd+Q in the app or `kill <pid>`. Its temporary profile is removed when it exits.
+- `run.json`: `person: { mode: true, waits: [{ kind: "pick" | "watch", seconds, timedOut }] }`, so your time is measured. `yourCallReplies` leaves out the picks and watches you answered. `serverLog` is `app.log` (the app's error output).
+- Reactions are read from the project's agent state file (`data/agent/projects/<id>.json`, `reactions.entries`): the dashboard snapshot holds only the good and bad marks, without times. Try rounds come from the snapshot (`agent.tries.rounds`).
+- Test only: `KINO_FIRSTPASS_PERSON_HIDDEN=1` starts the app through Playwright with every window invisible, muted and unfocusable (like `scripts/desktop-shot.mjs`) and closes it when the run ends.
+
 ## Owner picks: `picks.jsonl`
 
 One JSON line per pick, written by hand (ignored by Git). The app's pick box keeps its own file (`picks.md`); the ladder reads both.

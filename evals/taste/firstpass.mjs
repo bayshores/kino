@@ -11,10 +11,16 @@
 // Claude Code's own), KINO_FIRSTPASS_MINUTES (default 45),
 // KINO_FIRSTPASS_REPLIES (most "your call" replies, default 10), KINO_FIRSTPASS_HOUSE (the house
 // memory snapshot in evals/taste/house, default launch-v1; none: an empty house).
+//
+// Person mode (KINO_FIRSTPASS_PERSON=1): someone sits at the kino desktop app during the run. The
+// runner starts the app instead of its own server, and waits for the person at a try round (their
+// pick) and at the first MP4 (their watch). KINO_FIRSTPASS_PERSON_MINUTES (default 30) is the most it
+// waits for one of those; KINO_FIRSTPASS_PERSON_HIDDEN=1 (test only) keeps the app invisible and silent.
 import { fork, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { createWriteStream, existsSync, readFileSync } from "node:fs";
-import { chmod, copyFile, cp, mkdir, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { createWriteStream, existsSync, openSync, readFileSync } from "node:fs";
+import { chmod, copyFile, cp, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -162,6 +168,82 @@ export function stopEntry(stop, askedAfter, reply) {
   return { kind: stop.kind, id: stop.id, askedAfter, reply, nextToolAfter: null };
 }
 
+// ---- person mode: someone sits at the app (KINO_FIRSTPASS_PERSON=1) -----------------------------------
+
+export const PICK_REPLY = "I picked in the app.";
+export const WATCH_REPLY = "I watched it in the app.";
+/** The watch is over once the person's last reaction is this old. */
+export const WATCH_QUIET_MS = 20_000;
+/** Polls every this long; gives up on an unreadable server after this many reads in a row. */
+export const POLL_MS = 2_000;
+export const POLL_FAILURES = 5;
+
+/**
+ * The try round the person has still to pick in, from the dashboard snapshot (agent.tries.rounds,
+ * backend/agent/tries.mjs triesView): { id, question, status } or null. A round is "rendering"
+ * while its clips are made and "waiting" once the person can pick; both count, because the agent
+ * ends its turn right after asking and the person picks as soon as the clips are ready.
+ */
+export function pendingPick(snapshot, id = null) {
+  const round = (snapshot?.agent?.tries?.rounds ?? []).find((entry) => (entry.status === "waiting" || entry.status === "rendering") && (id === null || entry.id === id));
+  return round ? { id: String(round.id), question: String(round.question ?? ""), status: round.status } : null;
+}
+
+/**
+ * What the runner does when the agent's turn ends in person mode, from the snapshot and the run so
+ * far (`hasMp4`: a render exists in the run, `watchStarted`: the watch already happened):
+ *   stop   a kino stop waits: the runner's plain approval or the brief's reply (as without person mode)
+ *   pick   a try round waits for the person's pick
+ *   watch  the first MP4 exists: the person watches it in the app and marks moments
+ *   reply  nothing waits: "your call"
+ * Stops come first: answering one takes no time. { action, message, ... }.
+ */
+export function personStep(snapshot, { brief, stops = [], hasMp4 = false, watchStarted = false } = {}) {
+  const stop = waitingFromSnapshot(snapshot);
+  if (stop) return { action: "stop", stop, message: replyFor(stop, brief, stops) };
+  const round = pendingPick(snapshot);
+  if (round) return { action: "pick", round, message: PICK_REPLY, line: `waiting for your pick in the app: ${round.question}` };
+  if (hasMp4 && !watchStarted && snapshot?.projectId)
+    return { action: "watch", projectId: snapshot.projectId, message: WATCH_REPLY, line: "watch it in the app, mark good and bad moments; I continue when you stop" };
+  return { action: "reply", message: REPLY };
+}
+
+/**
+ * Whether the person is done watching: the project's reactions (agent state, reactions.entries,
+ * each with an ISO `at`) hold at least one entry newer than the agent's turn end (`turnEndMs`) and
+ * the newest one is `quietMs` old. Reactions arrive in batches when playing stops, so a quiet
+ * stretch after one means they stopped.
+ */
+export function watchOver(entries, turnEndMs, nowMs, quietMs = WATCH_QUIET_MS) {
+  const times = (entries ?? []).map((entry) => Date.parse(entry?.at ?? "")).filter((time) => Number.isFinite(time) && time > turnEndMs);
+  return times.length > 0 && nowMs - Math.max(...times) >= quietMs;
+}
+
+/**
+ * Calls `check()` every `everyMs` until it answers true (done), "stop" (give up, counted as timed
+ * out) or `limitMs` pass. Gives { seconds, timedOut }. now and sleep are injectable for tests.
+ */
+export async function pollUntil(check, { limitMs, everyMs = POLL_MS, now = Date.now, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) } = {}) {
+  const begun = now();
+  for (;;) {
+    const answer = await check();
+    if (answer === true) return { seconds: seconds1(now() - begun), timedOut: false };
+    if (answer === "stop" || now() - begun >= limitMs) return { seconds: seconds1(now() - begun), timedOut: true };
+    await sleep(Math.min(everyMs, Math.max(1, limitMs - (now() - begun))));
+  }
+}
+
+/** One line of run.json's person.waits. */
+export const waitEntry = (kind, wait) => ({ kind, seconds: wait.seconds, timedOut: wait.timedOut });
+
+/** What the app is started with: the electron program, its arguments and the one env var it needs. */
+export function appCommand({ repoRoot, dataDir, profileDir, electronPath }) {
+  return { command: electronPath, args: [repoRoot, `--user-data-dir=${profileDir}`], env: { MOTION_DATA_DIR: dataDir } };
+}
+
+/** The file the app keeps a project's agent state in (backend/agent/state.mjs). */
+export const agentStateFile = (dataDir, projectId) => path.join(dataDir, "agent", "projects", `${encodeURIComponent(projectId)}.json`);
+
 /** True for a stream event where the agent itself (not a helper it started) calls a tool. */
 export function callsTool(event) {
   return event?.type === "assistant" && !event.parent_tool_use_id && (event.message?.content ?? []).some((part) => part.type === "tool_use");
@@ -200,11 +282,71 @@ function loadBrief(name) {
 
 // The dashboard snapshot of the run's kino server (read only), or null when it cannot be read: the
 // runner then says "your call", and run.json counts the failure so a missing stop is not silent.
-async function readSnapshot(url) {
+// `where` is { url, ownerToken } (the private server has no token; the app's server needs its owner token).
+export async function readSnapshot(where) {
   try {
-    const response = await fetch(`${url}/api/dashboard/snapshot`, { signal: AbortSignal.timeout(15_000) });
+    const response = await fetch(`${where.url}/api/dashboard/snapshot`, { headers: where.ownerToken ? { "X-Kino-Owner": where.ownerToken } : {}, signal: AbortSignal.timeout(15_000) });
     return response.ok ? await response.json() : null;
   } catch { return null; }
+}
+
+// ---- person mode: the desktop app ---------------------------------------------------------------
+
+/**
+ * Starts the kino desktop app from this checkout on the run's data folder, with its own new
+ * temporary profile (so it never takes over your open app or its runtime.json). Gives
+ * { pid, profileDir, runtimeFile, close() }. Visible: a plain detached process that outlives the
+ * runner; a small shell watches it and removes the profile when it exits. Hidden (test-only,
+ * KINO_FIRSTPASS_PERSON_HIDDEN=1): started through Playwright like scripts/desktop-shot.mjs, every
+ * window invisible, muted and unfocusable; close() quits it and removes the profile.
+ */
+export async function launchApp({ dataDir, logFile, hidden = false }) {
+  const electronPath = createRequire(import.meta.url)("electron");
+  const profileDir = await mkdtemp(path.join(os.tmpdir(), "kino-firstpass-profile-"));
+  const spec = appCommand({ repoRoot: root, dataDir, profileDir, electronPath });
+  const env = { ...process.env, ...spec.env };
+  for (const key of ["ELECTRON_RUN_AS_NODE", "KINO_PUBLIC_URL", "KINO_OWNER_TOKEN", "KINO_SHARE_TOKEN", "MOTION_API_URL", "MOTION_API_PORT"]) delete env[key];
+  const runtimeFile = path.join(profileDir, "runtime.json");
+  if (hidden) {
+    const { _electron } = await import("playwright-core");
+    const app = await _electron.launch({ executablePath: spec.command, args: spec.args, env });
+    hiddenApp = app;
+    await app.firstWindow();
+    await app.evaluate(({ BrowserWindow }) => {
+      for (const each of BrowserWindow.getAllWindows()) { each.setFocusable(false); each.blur(); each.setOpacity(0); each.webContents.setAudioMuted(true); }
+    });
+    return { pid: app.process().pid, profileDir, runtimeFile, hidden: true, close: async () => { hiddenApp = null; await app.close().catch(() => {}); await rm(profileDir, { recursive: true, force: true }); } };
+  }
+  const log = openSync(logFile, "a");
+  const child = spawn(spec.command, spec.args, { env, cwd: root, stdio: ["ignore", log, log], detached: true });
+  child.unref();
+  // The app may be closed long after the runner is gone: a shell waits for it, then removes the profile.
+  spawn("/bin/sh", ["-c", 'while kill -0 "$1" 2>/dev/null; do sleep 5; done; rm -rf "$2"', "sh", String(child.pid), profileDir], { detached: true, stdio: "ignore" }).unref();
+  return { pid: child.pid, profileDir, runtimeFile, hidden: false, close: async () => { try { process.kill(child.pid, "SIGTERM"); } catch { /* gone */ } } };
+}
+
+// Where the app's kino server is now, from the runtime file the app writes (origin and owner
+// token). Read again each time: a restarted service has a new port and token. null: not there.
+export async function appConnection(runtimeFile) {
+  const { resolveConnection } = await import("../../backend/agent/client.mjs");
+  const connection = await resolveConnection({ KINO_RUNTIME_FILE: runtimeFile });
+  return connection.source === "desktop app" ? connection : null;
+}
+
+export async function waitForApp(runtimeFile, limitMs = 90_000) {
+  const begun = Date.now();
+  while (Date.now() - begun < limitMs) {
+    const connection = await appConnection(runtimeFile);
+    if (connection && await readSnapshot(connection)) return connection;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw new Error(`The kino app did not write ${runtimeFile} and answer within ${limitMs / 1000} s.`);
+}
+
+// The person's reactions for a project: the app keeps them in the project's agent state file
+// (the dashboard snapshot holds only the good and bad marks, without times).
+export async function readReactions(dataDir, projectId) {
+  try { return JSON.parse(await readFile(agentStateFile(dataDir, projectId), "utf8"))?.reactions?.entries ?? []; } catch { return []; }
 }
 
 // Copies the brief's files into the run (the sources are only read), named <n>-<name> so two
@@ -342,9 +484,9 @@ async function listFiles(dir) {
 }
 
 // kino's own check of the open project after the run (the same check that blocks a final render).
-async function kinoCheck(url) {
+async function kinoCheck(where) {
   const { createAgentClient } = await import("../../backend/agent/client.mjs");
-  const client = createAgentClient({ url, ownerToken: null, shareToken: null }, { name: "firstpass" });
+  const client = createAgentClient({ url: where.url, ownerToken: where.ownerToken ?? null, shareToken: null }, { name: "firstpass" });
   try {
     const status = await client.call("status", {});
     const check = await client.call("check", { pixels: false });
@@ -370,8 +512,10 @@ function sessionModel() {
 
 // Children run in their own process groups; Ctrl-C or a kill stops them too.
 const running = new Set();
+// The hidden test app (launchApp), closed with the runner; a visible app is left open on purpose.
+let hiddenApp = null;
 for (const signal of ["SIGINT", "SIGTERM"])
-  process.on(signal, () => { for (const child of running) try { process.kill(-child.pid, "SIGTERM"); } catch { /* gone */ } process.exit(130); });
+  process.on(signal, () => { for (const child of running) try { process.kill(-child.pid, "SIGTERM"); } catch { /* gone */ } try { hiddenApp?.process().kill("SIGTERM"); } catch { /* gone */ } process.exit(130); });
 
 async function main() {
   const args = process.argv.slice(2);
@@ -390,12 +534,34 @@ async function main() {
   const files = await copyMaterial(brief, mediaDir);
   const askedProjectId = projectIdFor(runId);
   const prompt = promptFor(brief, files, askedProjectId);
-  if (args.includes("--dry-run")) { console.log(prompt); return; }
+  const person = process.env.KINO_FIRSTPASS_PERSON === "1";
+  const personMs = Number(process.env.KINO_FIRSTPASS_PERSON_MINUTES ?? 30) * 60_000;
+  const hidden = process.env.KINO_FIRSTPASS_PERSON_HIDDEN === "1";
+  if (args.includes("--dry-run")) {
+    console.log(prompt);
+    if (person) {
+      const spec = appCommand({ repoRoot: root, dataDir, profileDir: "<a new temporary folder, removed when the app exits>", electronPath: createRequire(import.meta.url)("electron") });
+      console.log(`\nperson mode: no private server. Would start the kino app${hidden ? " (hidden, test only)" : ""}:\n  ${spec.command} ${spec.args.join(" ")}\n  env MOTION_DATA_DIR=${spec.env.MOTION_DATA_DIR}\n`
+        + `  the agent reaches it through KINO_RUNTIME_FILE=<profile>/runtime.json; picks and the watch wait up to ${personMs / 60_000} min each (the run's ${minutes} min budget stops while it waits).`);
+    }
+    return;
+  }
   await writeSettings(dataDir, outDir);
   const house = await seedHouse(dataDir, process.env.KINO_FIRSTPASS_HOUSE || "launch-v1");
 
-  const started = Date.now(), deadline = started + minutes * 60_000;
-  const server = await startServer(dataDir, path.join(runDir, "server.log"));
+  const started = Date.now();
+  let deadline = started + minutes * 60_000;
+  // Person mode: the app is the server (it forks backend/index.mjs on this data folder, which reads
+  // the settings written above). `where()` is where it is now: its port and token change on a restart.
+  let app = null, where, server = null;
+  if (person) {
+    app = await launchApp({ dataDir, logFile: path.join(runDir, "app.log"), hidden });
+    where = await waitForApp(app.runtimeFile);
+  } else {
+    server = await startServer(dataDir, path.join(runDir, "server.log"));
+    where = { url: server.url, ownerToken: null };
+  }
+  const connection = async () => { if (person) where = (await appConnection(app.runtimeFile)) ?? where; return where; };
   // The agent's folder is outside this repository, so none of kino's own agent instructions reach
   // it; it holds only the kino skill and a `kino` command pointed at the private server.
   const workDir = await mkdtemp(path.join(os.tmpdir(), "kino-firstpass-"));
@@ -404,8 +570,9 @@ async function main() {
   const shim = path.join(workDir, ".bin", "kino");
   await writeFile(shim, `#!/bin/sh\nexec "${process.execPath}" "${path.join(root, "bin/kino.mjs")}" "$@"\n`);
   await chmod(shim, 0o755);
-  const env = { ...process.env, PATH: `${path.dirname(shim)}:${process.env.PATH}`, MOTION_API_URL: server.url };
-  for (const key of ["KINO_OWNER_TOKEN", "KINO_SHARE_TOKEN", "KINO_PUBLIC_URL", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"]) delete env[key];
+  // Person mode: the `kino` command finds the app's server (and its owner token) in the app's runtime file.
+  const env = { ...process.env, PATH: `${path.dirname(shim)}:${process.env.PATH}`, ...(person ? { KINO_RUNTIME_FILE: app.runtimeFile } : { MOTION_API_URL: where.url }) };
+  for (const key of ["KINO_OWNER_TOKEN", "KINO_SHARE_TOKEN", "KINO_PUBLIC_URL", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", ...(person ? ["MOTION_API_URL"] : [])]) delete env[key];
   // One agent for the whole run, as in a person's Claude Code session. Each reply here is a new
   // `claude -p` process, so kino saw a new crew member every turn, and the last turn's holds
   // (2 quiet minutes) refused this agent's own edits and renders.
@@ -416,7 +583,7 @@ async function main() {
     + "(the same verbs and fields as the tools, `kino help`). `kino look` saves its images as PNG files and prints their paths: open them with Read.\n\n"
     + `The kino skill follows (its references/ links are files in ${skillDir}).\n\n${skill}`;
   const transcript = createWriteStream(path.join(runDir, "transcript.jsonl"));
-  console.log(`firstpass ${runId}: kino at ${server.url}, agent in ${workDir}, budget ${minutes} min`);
+  console.log(`firstpass ${runId}: kino ${person ? `app (pid ${app.pid}) ` : ""}at ${where.url}, agent in ${workDir}, budget ${minutes} min${person ? `, person mode (up to ${personMs / 60_000} min per pick or watch)` : ""}`);
 
   // `kino look` writes its images into <data>/agent/out; the file tools only reach --add-dir
   // folders, so that one is added too (the rest of the data folder stays out of reach).
@@ -425,6 +592,16 @@ async function main() {
   const calls = [];
   const stops = [];
   let sessionId = null, message = prompt, made = null, openStop = null, snapshotFailures = 0;
+  // Person mode: every wait for the person (run.json person.waits), and whether the watch happened.
+  const waits = [];
+  let watchStarted = false, watchEnded = false, personReplies = 0;
+  // A wait for the person does not use the agent's time budget: the deadline moves by it.
+  const waitFor = async (kind, check) => {
+    const wait = await pollUntil(check, { limitMs: personMs });
+    deadline += wait.seconds * 1000;
+    waits.push(waitEntry(kind, wait));
+    return wait;
+  };
   try {
     for (;;) {
       const call = await runClaude({ message, sessionId, workDir, env, transcript, deadline, model, effort, system, addDirs: [mediaDir, outDir, looksDir] });
@@ -435,25 +612,49 @@ async function main() {
       sessionId ??= call.sessionId;
       made = pickMp4([...await listFiles(outDir), ...await listFiles(workDir), ...await listFiles(path.join(dataDir, "exports"))], started);
       console.log(`  turn ${calls.length}: ${call.turns} steps, $${call.cost.toFixed(2)}, ${made ? `mp4 ${made.final ? "final" : "draft"}` : "no mp4"}; ${call.finalMessage.replace(/\s+/g, " ").slice(0, 160)}`);
-      if (made?.final || call.timedOut || Date.now() >= deadline || !sessionId) break;
+      if ((!person && made?.final) || call.timedOut || Date.now() >= deadline || !sessionId) break;
       if (calls.length > replyLimit) break;
       // A stop kino holds for the person gets a person's reply; every other turn end is "your call".
-      const snapshot = await readSnapshot(server.url);
+      const turnEnd = Date.now();
+      const snapshot = await readSnapshot(await connection());
       if (!snapshot) snapshotFailures += 1;
-      const next = nextMessage(snapshot, brief, stops);
-      message = next.message;
-      if (next.stop) {
-        openStop = stopEntry(next.stop, askedAfter(next.stop, started, Date.now()), message);
+      // Without person mode: a stop or "your call". With it, also the person's pick and watch.
+      const step = person ? personStep(snapshot, { brief, stops, hasMp4: Boolean(made), watchStarted }) : (({ message: said, stop }) => ({ action: stop ? "stop" : "reply", message: said, stop }))(nextMessage(snapshot, brief, stops));
+      // The run ends at the first turn end with an MP4 once the person has watched (or the watch timed out).
+      if (person && step.action === "reply" && made && watchEnded) break;
+      message = step.message;
+      if (step.action === "stop") {
+        openStop = stopEntry(step.stop, askedAfter(step.stop, started, Date.now()), message);
         stops.push(openStop);
-        console.log(`  stop ${next.stop.kind} (${next.stop.id}) waiting: replied "${message}"`);
+        console.log(`  stop ${step.stop.kind} (${step.stop.id}) waiting: replied "${message}"`);
+      } else if (step.action === "pick") {
+        console.log(`  ${step.line}`);
+        let failures = 0;
+        const wait = await waitFor("pick", async () => {
+          const now = await readSnapshot(await connection());
+          if (!now) { snapshotFailures += 1; failures += 1; return failures >= POLL_FAILURES ? "stop" : false; }
+          failures = 0;
+          return !pendingPick(now, step.round.id);
+        });
+        if (wait.timedOut) { message = REPLY; console.log(`  no pick after ${wait.seconds} s: replied "${REPLY}"`); }
+        else { personReplies += 1; console.log(`  picked after ${wait.seconds} s`); }
+      } else if (step.action === "watch") {
+        console.log(`  ${step.line}`);
+        watchStarted = true;
+        const wait = await waitFor("watch", async () => watchOver(await readReactions(dataDir, step.projectId), turnEnd, Date.now()));
+        watchEnded = true;
+        // Out of time: the run just ends. Otherwise the agent may revise.
+        if (wait.timedOut) { console.log(`  no watch after ${wait.seconds} s: the run ends`); break; }
+        personReplies += 1;
+        console.log(`  watched for ${wait.seconds} s`);
       }
     }
   } finally {
     transcript.end();
   }
   const seconds = Math.round((Date.now() - started) / 1000);
-  const check = await kinoCheck(server.url);
-  await stopGroup(server.child);
+  const check = await kinoCheck(await connection());
+  if (server) await stopGroup(server.child);
   // The agent may ignore the asked id; then the run shares a deal seed with every run of that id.
   const projectId = projectIdFromStatus(check.status);
   if (projectId !== askedProjectId) console.log(`  warning: asked for project id ${askedProjectId}, the agent made ${projectId ?? "no project"}`);
@@ -471,14 +672,19 @@ async function main() {
     mp4: made?.path ?? null, mp4Final: made?.final ?? false, mp4Info: made ? await probe(made.path) : null,
     // replies is every message the runner sent after the first; yourCallReplies are the ones that
     // were "your call", stops the ones that were a person's reply to a waiting stop.
-    finalMessage: last.finalMessage ?? "", replies: calls.length - 1, replyText: REPLY, yourCallReplies: calls.length - 1 - stops.length, stops, snapshotFailures,
+    // In person mode a pick or watch the person answered is a reply too (person.waits), and not "your call".
+    finalMessage: last.finalMessage ?? "", replies: calls.length - 1, replyText: REPLY, yourCallReplies: calls.length - 1 - stops.length - personReplies, stops, snapshotFailures,
+    // The person's time, measured: each wait for a pick or a watch, its seconds, and whether it ran out.
+    person: person ? { mode: true, waits } : { mode: false },
     // A resumed session's total_cost_usd is the whole session's so far, so the run's cost is the largest.
     costUsd: Math.round(Math.max(0, ...calls.map((call) => call.cost ?? 0)) * 100) / 100,
-    check, calls, sessionId, transcript: path.join(runDir, "transcript.jsonl"), serverLog: path.join(runDir, "server.log"),
+    check, calls, sessionId, transcript: path.join(runDir, "transcript.jsonl"), serverLog: path.join(runDir, person ? "app.log" : "server.log"),
   };
   await writeFile(path.join(runDir, "run.json"), JSON.stringify(result, null, 2) + "\n");
-  console.log(`${path.join(runDir, "run.json")}\n  mp4: ${result.mp4 ?? "none"} (${result.mp4Final ? "final" : "not final"}), ${seconds} s, $${result.costUsd}, ${result.replies} replies (${stops.length} to stops, ${result.yourCallReplies} "${REPLY}")`);
+  console.log(`${path.join(runDir, "run.json")}\n  mp4: ${result.mp4 ?? "none"} (${result.mp4Final ? "final" : "not final"}), ${seconds} s, $${result.costUsd}, ${result.replies} replies (${stops.length} to stops, ${result.yourCallReplies} "${REPLY}"${person ? `, ${personReplies} to your picks and watch` : ""})`);
+  if (app?.hidden) { await app.close(); console.log("  the hidden test app is closed."); }
+  else if (app) console.log(`  the kino app stays open (pid ${app.pid}), in case you are still watching. Close it with Cmd+Q in the app, or: kill ${app.pid}\n  Its temporary profile (${app.profileDir}) is removed when it exits.`);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url))
-  main().catch((error) => { console.error(error.stack ?? error.message); process.exit(1); });
+  main().catch((error) => { console.error(error.stack ?? error.message); try { hiddenApp?.process().kill("SIGTERM"); } catch { /* gone */ } process.exit(1); });

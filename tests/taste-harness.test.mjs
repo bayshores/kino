@@ -9,8 +9,9 @@ import { fromAppPick, fromJudged, ladder } from "../evals/taste/ladder.mjs";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { APPROVAL, askedAfter, callsTool, checkReplies, htmlText, nextMessage, pickMp4, projectIdFor, projectIdFromStatus, promptFor, REPLY, replyFor, seedHouse, stopEntry, summarize } from "../evals/taste/firstpass.mjs";
+import { agentStateFile, APPROVAL, appCommand, askedAfter, callsTool, checkReplies, htmlText, nextMessage, pendingPick, personStep, pickMp4, PICK_REPLY, pollUntil, projectIdFor, projectIdFromStatus, promptFor, REPLY, replyFor, seedHouse, stopEntry, summarize, waitEntry, watchOver, WATCH_REPLY } from "../evals/taste/firstpass.mjs";
 import { stopsSummary } from "../backend/agent/stops.mjs";
+import { triesView } from "../backend/agent/tries.mjs";
 import { projectSeed } from "../engine/deck.js";
 import { createHouseMemory, familyOf } from "../backend/house-memory.mjs";
 
@@ -193,4 +194,64 @@ test("a waiting kino stop gets a person's reply in order, anything else gets you
   assert.deepEqual([askedAfter({ askedAt: "2026-11-11T10:00:07.4Z" }, t0, t0 + 12_500), askedAfter({ askedAt: null }, t0, t0 + 12_500), askedAfter({ askedAt: "nope" }, t0, t0 + 12_500), askedAfter({ askedAt: "2026-11-11T09:00:00Z" }, t0, t0 + 12_500)], [7.4, 12.5, 12.5, 12.5]);
   const tool = { type: "assistant", message: { content: [{ type: "text" }, { type: "tool_use", name: "Bash" }] } };
   assert.deepEqual([callsTool(tool), callsTool({ ...tool, parent_tool_use_id: "t1" }), callsTool({ type: "result" })], [true, false, false], "the agent's own tool calls only");
+});
+
+test("person mode: a stop is answered as before, a waiting try round makes the runner wait for the pick, the first MP4 makes it wait for a watch", () => {
+  // The snapshot's agent.tries is what triesView gives for the project's saved rounds.
+  const round = (id, status) => ({ id, rev: 3, question: "Which opening?", topic: "opening", status, sceneId: "s1", at: 2, from: 1, to: 3, options: [{ letter: "A", name: "slow", ready: true, ops: [] }, { letter: "B", name: "fast", ready: true, ops: [] }] });
+  const snap = (rounds, extra = {}) => ({ projectId: "demo", agent: { stops: stopsSummary({ stops: [] }), tries: triesView({ tries: rounds }) }, waitingStops: {}, ...extra });
+  const brief = { replies: { board: "approved" } };
+  const ask = (snapshot, more = {}) => personStep(snapshot, { brief, stops: [], hasMp4: false, watchStarted: false, ...more });
+
+  assert.deepEqual(pendingPick(snap([round("T1", "picked")])), null, "a picked round is not waiting");
+  assert.deepEqual(pendingPick(snap([round("T1", "picked"), round("T2", "waiting")])), { id: "T2", question: "Which opening?", status: "waiting" });
+  assert.equal(pendingPick(snap([round("T3", "rendering")])).id, "T3", "clips still rendering: the person picks soon, so the runner waits too");
+  assert.equal(pendingPick(snap([round("T2", "waiting")]), "T9"), null, "a poll for one round ignores the others");
+  assert.equal(pendingPick(null), null);
+
+  assert.deepEqual(ask(snap([round("T2", "waiting")])), { action: "pick", round: { id: "T2", question: "Which opening?", status: "waiting" }, message: PICK_REPLY, line: "waiting for your pick in the app: Which opening?" });
+  assert.equal(PICK_REPLY, "I picked in the app.");
+  assert.equal(ask(snap([])).action, "reply", "nothing waits and no MP4: your call");
+  assert.equal(ask(snap([])).message, REPLY);
+  assert.equal(ask(null).action, "reply", "an unreadable snapshot: your call");
+  // A waiting stop comes before a pick, and gets the brief's reply or the plain approval.
+  const stopSnapshot = snap([round("T2", "waiting")], { agent: { stops: stopsSummary({ stops: [{ id: "C1", kind: "board", rev: 4, status: "waiting", askedAt: "2026-11-11T10:00:00Z", ask: "Board." }] }), tries: triesView({ tries: [round("T2", "waiting")] }) } });
+  assert.deepEqual([ask(stopSnapshot).action, ask(stopSnapshot).message], ["stop", "approved"]);
+  assert.equal(ask(snap([]), { hasMp4: true }).action, "watch", "the first MP4: the person watches");
+  assert.equal(ask(snap([]), { hasMp4: true }).message, WATCH_REPLY);
+  assert.equal(ask(snap([]), { hasMp4: true }).projectId, "demo");
+  assert.equal(ask(snap([]), { hasMp4: true, watchStarted: true }).action, "reply", "the watch happens once");
+  assert.equal(ask(snap([round("T4", "waiting")]), { hasMp4: true }).action, "pick", "a pick comes before the watch");
+  assert.equal(ask({ ...snap([]), projectId: null }, { hasMp4: true }).action, "reply", "no project in the snapshot: no watch to read");
+});
+
+test("person mode: the watch is over once a reaction newer than the turn end is 20 s old; a poll stops at its limit", async () => {
+  const turnEnd = Date.parse("2026-11-12T10:00:00Z");
+  const at = (seconds) => new Date(turnEnd + seconds * 1000).toISOString();
+  const entry = (seconds, kind = "played") => ({ id: "R1", kind, at: at(seconds) });
+  assert.equal(watchOver([], turnEnd, turnEnd + 60_000), false, "no reactions: still waiting");
+  assert.equal(watchOver([entry(-30), entry(-1)], turnEnd, turnEnd + 60_000), false, "reactions from before the turn end are an earlier viewing");
+  assert.equal(watchOver([entry(5)], turnEnd, turnEnd + 24_000), false, "the newest is 19 s old");
+  assert.equal(watchOver([entry(5)], turnEnd, turnEnd + 25_000), true, "the newest is 20 s old");
+  assert.equal(watchOver([entry(5), entry(30, "good")], turnEnd, turnEnd + 49_000), false, "a new entry restarts the quiet time");
+  assert.equal(watchOver([entry(5), entry(30, "good")], turnEnd, turnEnd + 50_000), true);
+  assert.equal(watchOver([{ kind: "good", at: "nope" }, { kind: "good" }], turnEnd, turnEnd + 99_000), false, "an entry without a readable time counts for nothing");
+  assert.equal(watchOver(undefined, turnEnd, turnEnd + 99_000), false);
+
+  // pollUntil with a fake clock: the wait is measured, and stops at the limit (timedOut) or when check says stop.
+  let clock = 0;
+  const clockOptions = (limitMs) => ({ limitMs, everyMs: 2000, now: () => clock, sleep: async (ms) => { clock += ms; } });
+  let calls = 0;
+  assert.deepEqual(await pollUntil(async () => ++calls >= 4, clockOptions(60_000)), { seconds: 6, timedOut: false }, "done on the 4th look, 3 sleeps of 2 s");
+  clock = 0;
+  assert.deepEqual(await pollUntil(async () => false, clockOptions(7_000)), { seconds: 7, timedOut: true }, "never done: out of time at the limit");
+  clock = 0;
+  assert.deepEqual(await pollUntil(async () => "stop", clockOptions(60_000)), { seconds: 0, timedOut: true }, "a server that cannot be read gives up");
+  assert.deepEqual(waitEntry("pick", { seconds: 6, timedOut: false }), { kind: "pick", seconds: 6, timedOut: false });
+});
+
+test("person mode starts the kino app from this checkout on the run's data folder, with a profile of its own", () => {
+  const spec = appCommand({ repoRoot: "/repo", dataDir: "/runs/a/data", profileDir: "/tmp/profile-1", electronPath: "/repo/node_modules/electron/dist/Electron" });
+  assert.deepEqual(spec, { command: "/repo/node_modules/electron/dist/Electron", args: ["/repo", "--user-data-dir=/tmp/profile-1"], env: { MOTION_DATA_DIR: "/runs/a/data" } });
+  assert.equal(agentStateFile("/runs/a/data", "kino fp9"), path.join("/runs/a/data", "agent", "projects", "kino%20fp9.json"), "the project's agent state, where the app keeps the person's reactions");
 });
