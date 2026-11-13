@@ -8547,7 +8547,7 @@ export function createAgentService(deps) {
       // No music answer in the brief yet: the person picks the feel first (or sends a song).
       const ask = fields.look_sound?.text ? "" : "The brief has no music answer (look_sound): ask the person for a mood or their own song before you pick.\n";
       // The real-song line comes first; the bundled tracks follow it.
-      const songs = deps.soundtrack ? 'A real song fits most videos better: library {topic:"soundtrack", song:"<title> by <artist>"}, search or explore:true.\n' : "";
+      const songs = deps.soundtrack ? 'A real song fits most videos better (choose by fit: the person checks rights before they publish): library {topic:"soundtrack", song:"<title> by <artist>"}, search or explore:true.\n' : "";
       return { text: ask + songs + musicText(found), data: { music: found.results.slice(0, 8).map(({ url, sha256, bytes, credit, ...track }) => ({ ...track, id: `music:${track.id}` })) } };
     }
     if (topic === "sounds") {

@@ -338,7 +338,7 @@ export function pickLines(brief, origin = null) {
 export const SKETCH_LINE = 'To let them watch and hear these first: notes {action:"try", from, to, options:[{treatment:"A", ops}, ...]} renders 2 to 10 s sketches with sound; their pick saves itself (library {topic:"rules", name:"sketches"}).';
 
 // With someone at the kino app (sketch-step.mjs): the sketch round is the pick, said where the pick text was.
-export const SKETCH_FIRST = "Their pick is the sketch round in next: give each sketch a real song its story calls for, a font and a short line; kino builds them and the app shows them.";
+export const SKETCH_FIRST = "Their pick is the sketch round in next. Each sketch gets a real song its story calls for (choose by fit: the person checks rights before they publish), the face your references' type points to (a different one per sketch; Inter is only kino's placeholder) and a short line. kino builds them and the app shows them.";
 export const SKETCH_WAIT = "The sketches are in the app: their pick saves itself. End your turn.";
 
 // What the agent's own pick is for, and the call that saves it ("just start").
