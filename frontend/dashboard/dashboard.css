@@ -390,7 +390,7 @@
 
 /* Under the frame: ◂◂ ▶ ▸▸, the scrub bar, the time, then [s] safe [g] grid [b] boxes. */
 .stage-transport {
-  display: grid; grid-template-columns: auto minmax(8ch, 1fr) auto auto; align-items: center; column-gap: 2ch;
+  display: grid; grid-template-columns: auto minmax(8ch, 1fr) auto auto auto; align-items: center; column-gap: 2ch;
   height: 44px; padding: 0 0 0 2px;
 }
 .transport-time { color: var(--fg0); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -415,6 +415,16 @@
 /* The round play button. */
 .transport-buttons .play-button { width: 32px; height: 32px; border-radius: 50%; background: var(--fg0); color: var(--bg0); }
 .transport-buttons .play-button:hover { background: #fff; color: var(--bg0); }
+/* Your good and bad marks: two chips, and their ticks on the scrub bar (a mark made while playing
+   spans the 3 s before the click). A tick is a button: a click removes it. */
+.transport-marks { display: flex; align-items: center; gap: 4px; }
+.transport-marks .icon-button { width: 26px; height: 26px; color: var(--fg1); }
+.transport-marks .icon { width: 13px; height: 13px; }
+.transport-marks .mark-chip.good:hover { color: var(--ok); background: var(--bg2); }
+.transport-marks .mark-chip.bad:hover { color: var(--urgent); background: var(--bg2); }
+.scrub-mark { position: absolute; z-index: 2; top: 50%; height: 10px; min-width: 3px; margin-top: -5px; padding: 0; border: 0; border-right: 2px solid; cursor: pointer; }
+.scrub-mark.good { background: color-mix(in srgb, var(--ok) 35%, transparent); border-color: var(--ok); }
+.scrub-mark.bad { background: color-mix(in srgb, var(--urgent) 35%, transparent); border-color: var(--urgent); }
 
 /* While something waits for you: its answers under the frame, the render's facts at the right. */
 .stage-actions { display: flex; align-items: center; gap: 4ch; height: 44px; white-space: nowrap; overflow: hidden; }

@@ -110,6 +110,10 @@ const ICONS = {
   boxes: <g fill="none" stroke="currentColor" strokeWidth="1.3" strokeDasharray="2 1.6"><rect x="2.5" y="2.5" width="11" height="11" rx=".5" /></g>,
   minus: <path d="M3.5 8h9" fill="none" stroke="currentColor" strokeWidth="1.4" />,
   plus: <path d="M3.5 8h9M8 3.5v9" fill="none" stroke="currentColor" strokeWidth="1.4" />,
+  // Your good and bad moment marks (thumb up, thumb down), and clearing them.
+  "mark-good": <g fill="none" stroke="currentColor" strokeWidth="1.3"><path d="M2.5 7.2h2.4v6.3H2.5zM4.9 7.2 7.6 2.6c1 0 1.6.7 1.4 1.8l-.4 2.2h3.9c.8 0 1.3.7 1.1 1.4l-1.2 4.4c-.2.6-.7 1.1-1.3 1.1H4.9" /></g>,
+  "mark-bad": <g fill="none" stroke="currentColor" strokeWidth="1.3"><path d="M2.5 8.8h2.4V2.5H2.5zM4.9 8.8l2.7 4.6c1 0 1.6-.7 1.4-1.8l-.4-2.2h3.9c.8 0 1.3-.7 1.1-1.4L12.4 3.6c-.2-.6-.7-1.1-1.3-1.1H4.9" /></g>,
+  close: <path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" strokeWidth="1.4" />,
 };
 export function Icon({ name }) {
   return <svg className="icon" viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true" focusable="false">{ICONS[name]}</svg>;
@@ -619,7 +623,8 @@ function stopLoading(image) {
 }
 
 export function StagePane({ data, scene, time, rev, checkpoint, full, playing, fps, overlays, findings, selectedLayer, onPin, onFrameShown, timeStore, fontVersion, sound, onSoundOn, still, onToggleOutlines,
-  onKey, onScene, onZoomPane, onNow, phone, onSeek, need = null, draft = null, noteBubble = null, previewList = null, soundTime = null, ...pane }) {
+  onKey, onScene, onZoomPane, onNow, phone, onSeek, need = null, draft = null, noteBubble = null, previewList = null, soundTime = null,
+  marks = [], onUnmark, onClearMarks, ...pane }) {
   const wrapRef = useRef(null);
   const labelRef = useRef(null);
   const [box, setBox] = useState({ width: 0, height: 0 });
@@ -1077,6 +1082,17 @@ export function StagePane({ data, scene, time, rev, checkpoint, full, playing, f
             {(data.agent?.notes ?? []).filter((note) => note.time != null && (!note.sceneId || note.sceneId === scene.id)).map((note) => (
               <span key={note.id} className={`scrub-note${note.status === "resolved" ? " done" : ""}`} style={{ left: `${Math.min(100, (note.time / Math.max(0.001, scene.duration)) * 100)}%` }} aria-hidden="true" />
             ))}
+            {/* Your good and bad marks (reactionTrack.js): a mark made while playing spans the 3 s before the click. A click removes one. */}
+            {marks.filter((mark) => mark.scene === scene.id).map((mark) => (
+              <button key={mark.id} type="button" className={`scrub-mark ${mark.kind}`} aria-label={`Remove ${mark.kind} mark at ${mark.b} s`} title={`${mark.kind} ${mark.a === mark.b ? `${mark.b}` : `${mark.a} to ${mark.b}`} s (click removes)`}
+                style={{ left: `${Math.min(100, (mark.a / Math.max(0.001, scene.duration)) * 100)}%`, width: `${Math.max(0, ((mark.b - mark.a) / Math.max(0.001, scene.duration)) * 100)}%` }}
+                onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onUnmark?.(mark); }} />
+            ))}
+          </span>
+          <span className="transport-marks" role="group" aria-label="Your marks">
+            <button type="button" className="tb icon-button mark-chip good" onClick={() => onKey("mark-good")} aria-label="Good moment" aria-keyshortcuts="m" title="Good moment (m)"><Icon name="mark-good" /></button>
+            <button type="button" className="tb icon-button mark-chip bad" onClick={() => onKey("mark-bad")} aria-label="Bad moment" aria-keyshortcuts="Shift+M" title="Bad moment (M)"><Icon name="mark-bad" /></button>
+            {marks.length ? <button type="button" className="tb icon-button" onClick={() => onClearMarks?.()} aria-label="Clear my marks and viewing" title="Clear my marks and viewing"><Icon name="close" /></button> : null}
           </span>
           {/* The time under the frame (the status line has it on a phone): it says "playing" or
               "paused" to a screen reader, and its data-state says the same. */}
