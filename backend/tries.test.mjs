@@ -195,7 +195,8 @@ test("a try round: the agent asks, kino renders each option's 2 s, the person pi
   const refused = await agent("notes", { project: id, action: "try", question: "q", at: 1, options: [OPTIONS[0], { name: "bad", ops: [{ op: "update_layer", layer: "nothing here", properties: { opacity: 0.5 } }] }] });
   assert.equal(refused.isError, true);
   assert.match(refused.text, /option B \(bad\) was refused/);
-  const started = await agent("notes", { project: id, action: "try", question: "which look for shot 1?", at: 1, options: OPTIONS, later: ["color"] });
+  // An agent on MCP puts try's own keys inside fields (the schema lists only fields): read there.
+  const started = await agent("notes", { project: id, action: "try", fields: { question: "which look for shot 1?", at: 1, options: OPTIONS, later: ["color"] } });
   assert.equal(started.isError, undefined, started.text);
   assert.deepEqual([started.data.id, started.data.status, started.data.options], ["T1", "rendering", ["A", "B"]]);
   // The clips render one after another; the dashboard sees the round wait once both are ready.

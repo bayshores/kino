@@ -339,6 +339,7 @@ export const SKETCH_LINE = 'To let them watch and hear these first: notes {actio
 
 // With someone at the kino app (sketch-step.mjs): the sketch round is the pick, said where the pick text was.
 export const SKETCH_FIRST = "Their pick is the sketch round in next. Each sketch gets a real song its story calls for (choose by fit: the person checks rights before they publish), the face your references' type points to (a different one per sketch; Inter is only kino's placeholder) and a short line. kino builds them and the app shows them.";
+export const SKETCH_SONGS = "They pick from sketches in the app. First each sketch needs its song: next finds real released songs (choose by fit: the person checks rights before they publish, and kino lists every source with the render). Then the sketch round gives each sketch its song, the face your references' type points to (a different one per sketch; Inter is only kino's placeholder) and a short line.";
 export const SKETCH_WAIT = "The sketches are in the app: their pick saves itself. End your turn.";
 
 // What the agent's own pick is for, and the call that saves it ("just start").
@@ -369,7 +370,7 @@ export function treatmentsText(brief, origin = null, { subject = false, sketch =
   return [
     `treatments: dropped the most typical (p ${dropped.p}: ${dropped.idea}); ${sketch ? "someone is at the kino app, so they pick from sketches" : own ? "they said just start, so pick one yourself" : `the next stop's ask shows these ${known ? SHOWN_COUNT + 1 : SHOWN_COUNT} to pick`}:`,
     ...shownLines(treatments), ...(known ? [known] : []),
-    ...(sketch === "show" ? [SKETCH_FIRST] : sketch === "wait" ? [SKETCH_WAIT] : [SKETCH_LINE,
+    ...(sketch === "songs" ? [SKETCH_SONGS] : sketch === "show" ? [SKETCH_FIRST] : sketch === "wait" ? [SKETCH_WAIT] : [SKETCH_LINE,
     own ? `${OWN_PICK}: fields:{treatments:{pick:"A", why:"<why>"}}.` : 'Their pick: fields:{treatments:{pick:"B", quote:"<their words>"}}. With no stop ahead, ask in one message.']),
   ].join("\n");
 }

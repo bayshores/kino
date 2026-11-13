@@ -620,7 +620,7 @@ function questionLimit(state, video) {
 // The person left the treatment pick to the agent ("your call" recorded by notes answer).
 const pickLeftToAgent = (brief) => (brief?.log ?? []).some((entry) => entry?.q === PICK_QUESTION && leavesItToYou(String(entry.a ?? "")));
 // Where the sketch round stands (sketch-step.mjs sketchPhase), for the treatments text.
-const sketchPhaseOf = (state, video) => sketchPhase(state, state?.brief?.treatments, { appSeen: video?.appSeen === true, leftToAgent: pickLeftToAgent(state?.brief) });
+const sketchPhaseOf = (state, video) => sketchPhase(state, state?.brief?.treatments, { appSeen: video?.appSeen === true, leftToAgent: pickLeftToAgent(state?.brief), songCall: video?.songFinder ? songCall(state?.brief) : null });
 
 /**
  * The person's replies as the agent logged them: { count, limit, questions, playbacks, stops }.
@@ -1005,7 +1005,7 @@ function openParts(state, video) {
   // click in the app is not a question (sketch-step.mjs). One round per set of treatments.
   if (!picked) {
     const own = leftToAgent || /just start/i.test(brief.noPlayback?.reason ?? "");
-    const step = pickStep(state, treatments, { appSeen: video.appSeen === true, own, files: video.files ?? [], leftToAgent });
+    const step = pickStep(state, treatments, { appSeen: video.appSeen === true, own, files: video.files ?? [], leftToAgent, songCall: video.songFinder ? songCall(brief) : null });
     if (step) return [...open, step];
     return [...open, { step: "ask their treatment pick", call: briefCall({ treatments: { pick: "<A, B or C>", quote: "<their words>" } }) }];
   }

@@ -112,6 +112,11 @@ test("the pick: someone at the app gets a filled sketch round (also under just s
   assert.match(said, /they pick from sketches[\s\S]*\nstep: show sketches/);
   assert.doesNotMatch(said, /pick one yourself|pick:"A"/);
   assert.match(briefText({ brief }, video), /pick one yourself[\s\S]*\nstep: pick a treatment, with why/, "no one at the app: as before");
+  // With the song finder on and no song candidate yet, the song search is the step itself and the words agree; a candidate moves on to the round.
+  const finder = { ...video, appSeen: true, songFinder: true };
+  assert.deepEqual([statusMove({ brief }, finder).step, statusMove({ brief }, finder).call.input], ["find each sketch's song (real songs first), then show sketches: their pick in the app", { topic: "soundtrack", explore: true }]);
+  assert.match(briefText({ brief }, finder), /they pick from sketches[\s\S]*First each sketch needs its song[\s\S]*\nstep: find each sketch's song/);
+  assert.match(statusMove({ brief, soundtrack: { candidates: [{ id: "yt:a" }] } }, finder).step, /^show sketches: their pick in the app/);
   const round = (status) => ({ id: "T1", sketch: true, status, options: [{ letter: "A", treatment: "A", idea: "one long breath" }, { letter: "B", treatment: "B", idea: "a door opens" }] });
   assert.match(statusMove({ brief, tries: [round("waiting")] }, { ...video, appSeen: true }).step, /their sketch pick in the app \(T1\)/);
   for (const status of ["skipped", "none", "failed"]) assert.equal(statusMove({ brief, tries: [round(status)] }, { ...video, appSeen: true }).step, "pick a treatment, with why", `${status}: never a second round`);

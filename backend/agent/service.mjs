@@ -1338,6 +1338,7 @@ export function createAgentService(deps) {
     // The pick: someone at the app picks from sketches of the project's own clips (sketch-step.mjs).
     if (!brief?.treatments?.picked) {
       facts.appSeen = appSeenWithin();
+      if (facts.appSeen && deps.soundtrack) facts.songFinder = true;
       if (facts.appSeen) facts.files = ((await deps.listMedia?.().catch(() => [])) ?? [])
         .filter((item) => mediaAllowedIn(item, document.id) && /^(video|image)\//.test(item.mime ?? "") && typeof item.name === "string").map((item) => item.name);
     }
@@ -7157,7 +7158,10 @@ export function createAgentService(deps) {
     if (action === "reactions") return notesReactions(record, input, meta, codes);
     if (action === "helper" || action === "release") return notesCrew(projectId, input, meta, action);
     if (action === "judge") return notesJudge(record, input, meta);
-    if (action === "try") return notesTry(record, input, meta);
+    // The tool schema lists `fields` and not try's own keys, so an agent on MCP puts options,
+    // question and seconds inside fields: read them from there (a run's first sketch call was
+    // refused with "try needs question" for it).
+    if (action === "try") return notesTry(record, input.options === undefined && input.fields && typeof input.fields === "object" && !Array.isArray(input.fields) && input.fields.options !== undefined ? { ...input.fields, ...input, fields: undefined } : input, meta);
     if (action === "list") {
       const state = await agentState.read(projectId);
       const open = state.notes.filter((note) => note.status !== "resolved");
