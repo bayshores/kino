@@ -82,8 +82,8 @@ import { createHouseMemory } from "./house-memory.mjs";
 import { createSongShapeCache, songVocals, whisperModelReady } from "./song-shape.mjs";
 import { makeTempFolder, removeTempFolder, sweepSummary, sweepTempFolders } from "./temp-folders.mjs";
 import { stopChildren } from "./child-exit.mjs";
-import { sendScriptFrame } from "./script-frame-page.mjs";
-import { SCRIPT_FRAME_PATH } from "../engine/scriptLayer.js";
+import { sendScriptFrame, sendScriptLibrary } from "./script-frame-page.mjs";
+import { SCRIPT_FRAME_PATH, SCRIPT_LIBRARY_PATH } from "../engine/scriptLayer.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const activeExports = new Set();
@@ -1197,6 +1197,8 @@ const server = http.createServer(async (req, res) => {
     if (parts[0] === "api") {
       // The live preview's sandboxed script frame: the same page for everyone, no data in it.
       if (url.pathname === SCRIPT_FRAME_PATH && ["GET", "HEAD"].includes(req.method)) return sendScriptFrame(req, res);
+      // The library module text a script layer imports (public package text, the same for everyone).
+      if (url.pathname === SCRIPT_LIBRARY_PATH && ["GET", "HEAD"].includes(req.method)) return sendScriptLibrary(req, res, url.searchParams.get("name"));
       if (!acceptableOrigin(req.headers.origin))
         return json(res, 403, {
           error: "This server accepts requests only from its own editor.",

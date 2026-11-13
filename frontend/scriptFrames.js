@@ -13,10 +13,10 @@ export function scriptLayersToDraw(layers) {
   return (layers ?? []).filter((layer) => layer?.type === "script" && typeof layer.script === "string" && layer.script.trim() !== "");
 }
 
-/** The image inputs' sources, {key: src}; an empty src is no picture. */
-export function imageSources(layer) {
+/** The image inputs' sources (or a model input's, `type` "model"), {key: src}; an empty src is none. */
+export function imageSources(layer, type = "image") {
   const sources = {};
-  for (const input of layer.inputs ?? []) if (input.type === "image") sources[input.key] = layer.values?.[input.key] || "";
+  for (const input of layer.inputs ?? []) if (input.type === type) sources[input.key] = layer.values?.[input.key] || "";
   return sources;
 }
 
@@ -38,11 +38,12 @@ export function scriptRequest(layer, time, { sceneDuration, pixelRatio = 1 } = {
   const width = Math.max(1, Math.round(Number(frame.width) || 1));
   const height = Math.max(1, Math.round(Number(frame.height) || 1));
   const images = imageSources(layer);
-  const mountKey = JSON.stringify([scriptKey(layer), width, height, pixelRatio, layer.name ?? "", images]);
+  const models = imageSources(layer, "model");
+  const mountKey = JSON.stringify([scriptKey(layer), width, height, pixelRatio, layer.name ?? "", images, models]);
   const drawn = { ...frame, width, height };
   return {
     mountKey,
-    mount: { script: layer.script, width, height, pixelRatio, name: String(layer.name ?? ""), images },
+    mount: { script: layer.script, width, height, pixelRatio, name: String(layer.name ?? ""), images, models },
     key: `${mountKey}\n${JSON.stringify(drawn)}`,
     frame: drawn,
     sceneTime: time,

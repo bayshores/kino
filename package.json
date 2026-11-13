@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "node scripts/dev.mjs",
-    "build": "vite build",
+    "build": "node backend/script-libraries.mjs && vite build",
     "start": "node backend/index.mjs",
     "test": "node scripts/run-tests.mjs",
     "golden:update": "node --import ./scripts/test-fonts.mjs scripts/golden-update.mjs",
@@ -73,6 +73,7 @@
       "engine/**",
       "assets/**",
       "dist/client/**",
+      "dist/script-libraries/**",
       "package.json",
       "LICENSE",
       "README.md",

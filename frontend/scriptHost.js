@@ -87,9 +87,9 @@ export function createScriptHost({ src, limits = SCRIPT_LIMITS, parent = globalT
   return {
     frame,
     get destroyed() { return destroyed; },
-    /** {script, width, height, pixelRatio, name, images: {key: ArrayBuffer|null}} */
+    /** {script, width, height, pixelRatio, name, images and models: {key: ArrayBuffer|null}, libraries: {specifier: text}} */
     mount(request) {
-      const transfer = Object.values(request.images ?? {}).filter((bytes) => bytes instanceof ArrayBuffer);
+      const transfer = [...Object.values(request.images ?? {}), ...Object.values(request.models ?? {})].filter((bytes) => bytes instanceof ArrayBuffer);
       return call({ type: "mount", ...request }, limits.setupMs, 0, "setup", transfer);
     },
     /** `output`: "bitmap" (the preview) or "png" (bytes, to compare with the backend renderer). */

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createDocument, createLayer, createScene, parseDocument } from "./model.js";
 import { evaluateLayer } from "./animation.js";
 import { renderSceneSvg } from "./render.js";
-import { frameFor, scriptKey, scriptProblem } from "./scriptLayer.js";
+import { frameFor, scriptKey, scriptLibraryNames, scriptProblem } from "./scriptLayer.js";
 
 const SCRIPT = `export default function setup(layer) {
   const ctx = layer.canvas.getContext("2d");
@@ -35,8 +35,13 @@ test("a script layer saves its module, inputs and values", () => {
 });
 
 test("a script layer's module is refused with a sentence for import, no default export and bad syntax", () => {
-  assert.match(scriptProblem(`import x from "y";\nexport default function setup() {}`), /uses import on line 1/);
-  assert.match(scriptProblem(`const a = await import("y");\nexport default function setup() {}`), /uses import on line 1/);
+  assert.match(scriptProblem(`import x from "y";\nexport default function setup() {}`), /imports "y" on line 1; a script may import only "three"/);
+  assert.match(scriptProblem(`import * as THREE from "https://cdn.example/three.js";\nexport default function setup() {}`), /imports "https:\/\/cdn\.example\/three\.js" on line 1/);
+  assert.match(scriptProblem(`const a = await import("three");\nexport default function setup() {}`), /uses import\(\) on line 1; a script may import only "three".*GLTFLoader/);
+  const threeD = `import * as THREE from "three";\nimport { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";\nexport default function setup() { return () => {}; }`;
+  assert.equal(scriptProblem(threeD), "");
+  assert.deepEqual(scriptLibraryNames(threeD), ["three", "three/addons/loaders/GLTFLoader.js"]);
+  assert.match(scriptProblem(`${threeD}\n  .x(`), /syntax error at line 4/, "lines still count from the top of the module");
   assert.match(scriptProblem("function setup() {}"), /has no export default/);
   assert.match(scriptProblem("export default function setup() {\n  return function draw( {\n};\n}"), /syntax error at line 3, column 2: Unexpected token ';'/);
   assert.equal(scriptProblem(SCRIPT), "");
@@ -52,6 +57,8 @@ test("script inputs and values are checked against each input's type and range",
   assert.throws(() => parse(scriptLayer({ inputs: [{ key: "Bad", type: "number" }], values: { Bad: 1 } })), /must start with a lowercase letter/);
   assert.throws(() => parse(scriptLayer({ inputs: [{ key: "a", type: "select", options: ["one"] }], values: { a: "one" } })), /needs 2 to 24 options/);
   assert.throws(() => parse(scriptLayer({ inputs: [{ key: "a", type: "image" }], values: { a: "https://x/y.png" } })), /imported picture's src/);
+  assert.throws(() => parse(scriptLayer({ inputs: [{ key: "m", type: "model" }], values: { m: "/api/media/a.png" } })), /imported \.glb model's src/);
+  assert.doesNotThrow(() => parse(scriptLayer({ inputs: [{ key: "m", type: "model" }], values: { m: "/api/media/a.glb" } })));
   assert.throws(() => parse(createLayer("rectangle", { id: "r", values: {} })), /only a script layer has values/);
 });
 

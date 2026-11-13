@@ -7,6 +7,8 @@ import { createRequire } from "node:module";
 import { after, test } from "node:test";
 import { createCanvas, loadImage } from "@napi-rs/canvas";
 import { createScriptRenderer } from "./script-frames.mjs";
+import { checkGlbModel, gltfRefusal } from "./glb-model.mjs";
+import { CUBE_SCRIPT, makeGlb } from "./glb.test.support.mjs";
 
 const require = createRequire(import.meta.url);
 function electronSkip() {
@@ -209,6 +211,31 @@ test("an image input arrives as an ImageBitmap the module can draw", { skip }, a
   }`;
   const [frame] = await renderer.render({ script, width: 40, height: 20, frames: [frameAt(0, { photo: null })], images: { photo: canvas.toBuffer("image/png") } });
   assert.deepEqual((await pixels(frame.png)).at(20, 10), [0, 0, 255, 255], frame.error?.message);
+});
+
+test("a .glb model input draws with the supplied 3D library: its color, an embedded texture, a turn, no request out", { skip }, async () => {
+  const at = (time) => ({ ...frameAt(time, { model: null }, 2, 80, 60) });
+  const [red, turned] = await renderer.render({ script: CUBE_SCRIPT, width: 80, height: 60, frames: [at(0), at(0.25)], models: { model: makeGlb() } });
+  const [one, two] = [await pixels(red.png), await pixels(turned.png)];
+  const [r, g, b] = one.at(40, 30);
+  assert.ok(r > 150 && g < 60 && b < 60, `the cube's red at the middle, not ${one.at(40, 30)} (${red.error?.message})`);
+  assert.deepEqual(one.at(1, 1), [0, 0, 0, 0], "transparent around the cube");
+  assert.notDeepEqual(one.at(40, 30), two.at(40, 30), "the turn changes the shading");
+  const [again] = await renderer.render({ script: CUBE_SCRIPT, width: 80, height: 60, frames: [at(0)], models: { model: makeGlb() } });
+  assert.ok(red.png.equals(again.png), "the same frame gives the same pixels");
+  const [textured] = await renderer.render({ script: CUBE_SCRIPT, width: 80, height: 60, frames: [at(0)], models: { model: makeGlb({ texture: "#00ff00" }) } });
+  const [tr, tg] = (await pixels(textured.png)).at(40, 30);
+  assert.ok(tg > 150 && tr < 60, "the embedded texture's green, read from a blob: URL in the frame");
+  const seen = await renderer.networkLog();
+  assert.deepEqual(seen.allowed.filter((url) => !/^(kino-script:\/\/app\/(host|frame)\.html|blob:|data:)/.test(url)), []);
+  assert.deepEqual(seen.cancelled, []);
+});
+
+test("a .glb that needs another file or a decoder is refused at import with the fix", () => {
+  assert.deepEqual(checkGlbModel(makeGlb()), { meshes: 1, nodes: 1, materials: 1, images: 0, animations: 0 });
+  assert.throws(() => checkGlbModel(makeGlb({ extensionsRequired: ["KHR_draco_mesh_compression"] })), /uses Draco mesh compression.*export the model again as one self-contained \.glb/);
+  assert.throws(() => checkGlbModel(makeGlb({ externalUri: "cube.bin" })), /points to another file \(cube\.bin\)/);
+  assert.match(gltfRefusal(JSON.stringify({ asset: { version: "2.0" }, buffers: [{ uri: "scene.bin", byteLength: 4 }] })), /^This \.gltf points to other files \(scene\.bin\).*self-contained \.glb/);
 });
 
 test("a webgl2 context clears to a color, when the hidden window has WebGL 2", { skip }, async (t) => {

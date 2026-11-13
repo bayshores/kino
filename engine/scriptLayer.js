@@ -386,6 +386,8 @@ export function frameFor(layer, sceneTime, { sceneDuration } = {}) {
 
 /** Where the server serves the live preview's sandboxed frame page, with that page's own policy. */
 export const SCRIPT_FRAME_PATH = "/api/script-frame";
+/** Where the server serves the text of a library module a script imports (`?name=three`). */
+export const SCRIPT_LIBRARY_PATH = "/api/script-library";
 
 // ---------------------------------------------------------------- cache key
 
