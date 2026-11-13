@@ -3023,6 +3023,8 @@ export function createAgentService(deps) {
     if (error?.cutoutError) details.cutoutError = error.cutoutError;
     // board: which storyboard problem it was (missing_layer, gap, overlap or bad_shot).
     if (error?.boardError) details.boardError = error.boardError;
+    // recipe that stays to the end: the seconds it needs (compose {footage} sizes its end card from it).
+    if (error?.staying !== undefined) details.staying = error.staying;
     const rules = rulesFor(type);
     if (rules) details.rules = rules;
     // A preset on a sound layer (engine/presetCatalog.js): the retry is the same op as a fade, the
@@ -7838,7 +7840,10 @@ export function createAgentService(deps) {
     const translation = translateAll(ops, resolver, document);
     const problems = translation.problems.map(translationProblem);
     const after = await applyAll(document, translation.operations, ops, { resolver, notes: [], reports: new Map() }, problems, translation.blocked);
-    if (problems.length) throw new Error(problems.slice(0, 3).map((entry) => entry.message).join("; "));
+    if (problems.length) {
+      const staying = problems.find((entry) => entry.details?.staying !== undefined)?.details.staying;
+      throw Object.assign(new Error(problems.slice(0, 3).map((entry) => entry.message).join("; ")), staying !== undefined ? { staying } : {});
+    }
     return after;
   }
 

@@ -470,8 +470,9 @@ const TRANSLATE = {
       throw problem(error.message, error.suggestions ?? []);
     }
     const own = Object.keys(definition.fields).map(moveFieldKey);
+    // The keys every move takes (seed, at, dur, ...) are never refused, even when another move has a field of that name.
     for (const key of MOVE_FIELDS)
-      if (operation[key] !== undefined && !own.includes(key)) throw problem(`move ${definition.name} has no field "${key === "layerId" ? "layer" : key === "layerIds" ? "layers" : key}". Its fields: ${Object.keys(definition.fields).join(", ")}.`, closest(key, Object.keys(definition.fields)));
+      if (operation[key] !== undefined && !own.includes(key) && !MOVE_KEYS.includes(key)) throw problem(`move ${definition.name} has no field "${key === "layerId" ? "layer" : key === "layerIds" ? "layers" : key}". Its fields: ${Object.keys(definition.fields).join(", ")}.`, closest(key, Object.keys(definition.fields)));
     // Layer fields name the scene's layers: names and codes become IDs.
     const refs = [];
     for (const [key, field] of Object.entries(definition.fields)) {
@@ -1360,7 +1361,7 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
       throw problem(`${operation.id} would end at ${end} s, after the scene ends (${scene.duration} s). Start it earlier, shorten dur, or lengthen the scene (retime {scene, duration}).`);
     const made = runRecipe(definition, { id: operation.id, settings, style, frame, fonts, start, end, holdUntil: scene.duration, media, logo: logoOf(brand, media), reduced, ...(extras.role ? { role: extras.role } : {}) });
     if (end === null && start + made.staying > scene.duration + 1e-6)
-      throw problem(`${operation.id} needs ${made.staying} s from ${start} s to enter and be read, past the scene's end (${scene.duration} s). Start it earlier or lengthen the scene (retime {scene, duration}).`);
+      throw Object.assign(problem(`${operation.id} needs ${made.staying} s from ${start} s to enter and be read, past the scene's end (${scene.duration} s). Start it earlier or lengthen the scene (retime {scene, duration}).`), { staying: made.staying });
 
     const taken = idsInDocument(document);
     for (const id of idsInLayers(previous)) taken.delete(id);
@@ -1664,12 +1665,15 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     const treatment = treatmentNamed(input.treatment) ?? treatmentFromPick(dealt?.pick) ?? guessTreatment({ speechShare: facts.voice ? 1 : speechSeconds / Math.max(1, Math.min(60, footageSeconds)), bpm: facts.music?.analysis?.bpm ?? null, deck, seed });
     const brand = brandOf(document, undefined);
     const titleText = input.title ?? brand?.logos?.find((logo) => logo.text)?.text ?? brand?.name ?? projectTitle(document.name);
-    let plan;
-    try {
-      // The person's saved words (source {name, text}) lift the spoken lines that share them (engine/footage/lines.js).
-      const message = (document.sources ?? []).map((entry) => entry.text).join(" ");
-      plan = planEdit({ clips: facts.clips, music: facts.music, voice: facts.voice, frame, duration: input.duration, treatment, deck, seed, title: titleText, end: input.end ?? null, pace: input.pace ?? null, accents: input.accents, cards: input.cards, cardGap: input.cardGap, lines: input.lines, message });
-    } catch (error) { throw problem(error.message); }
+    // endRoom: seconds the end card's recipe needs to enter and be read (measured below); left out, the plan keeps its usual end.
+    const planFor = (endRoom) => {
+      try {
+        // The person's saved words (source {name, text}) lift the spoken lines that share them (engine/footage/lines.js).
+        const message = (document.sources ?? []).map((entry) => entry.text).join(" ");
+        return planEdit({ clips: facts.clips, music: facts.music, voice: facts.voice, frame, duration: input.duration, treatment, deck, seed, title: titleText, end: input.end ?? null, pace: input.pace ?? null, accents: input.accents, cards: input.cards, cardGap: input.cardGap, lines: input.lines, message, endRoom });
+      } catch (error) { throw problem(error.message); }
+    };
+    let plan = planFor(undefined);
 
     // The scene: new, or emptied of what compose {footage} made in it before.
     let scene = existing;
@@ -1695,25 +1699,42 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     const keptMoves = new Set((scene.moves ?? []).map((entry) => entry.id));
     scene.footage = { ...input, treatment: plan.treatment, made: [], moves: [] };
     const clips = new Map(facts.clips.map((clip) => [clip.key, clip]));
-    let ops = footageOps(plan, clips, { scene: document.scenes.length > 1 ? scene.id : null });
     // Beside another footage scene, its names take a suffix (a format variant's own, or the scene's id).
     const elsewhere = new Set(document.scenes.filter((item) => item !== scene).flatMap((item) => item.layers.map((layer) => layer.id)));
-    let suffix = "";
-    if (operation.suffix || ops.some((op) => elsewhere.has(op.name) || elsewhere.has(op.id))) {
-      suffix = operation.suffix ?? `-${slug(scene.id)}`;
-      ops = suffixFootageOps(ops, suffix);
-    }
     // Without a brand kit, the edit gets one from its treatment: fonts that are not a default, an
     // accent; titles, captions and the end card use it (set_brand can change it later).
-    if (!brand) {
-      // With saved references the kit keeps colors and motion but no fonts: the type comes from what they show.
-      const fromRefs = Boolean((await savedRefs?.(document))?.length);
-      const kit = footageBrand(plan.treatment, seed, { fonts: !fromRefs });
-      ops.unshift({ op: "set_brand", name: slug(titleText) || "edit", ...kit, ...(titleText ? { logos: [{ text: titleText }] } : {}) });
-      work.notes.push(fromRefs
-        ? `brand ${slug(titleText) || "edit"} made for this edit: colors only, accent ${kit.colors.accent}; fonts come from your references: library {topic:"fonts", search:"<the type your reference strip shows, e.g. condensed bold sans>"}`
-        : `brand ${slug(titleText) || "edit"} made for this edit: ${kit.fonts.map((font) => font.family).join(" and ")}, accent ${kit.colors.accent}`);
+    // With saved references the kit keeps colors and motion but no fonts: the type comes from what they show.
+    const fromRefs = brand ? false : Boolean((await savedRefs?.(document))?.length);
+    const opsOf = (forPlan) => {
+      let list = footageOps(forPlan, clips, { scene: document.scenes.length > 1 ? scene.id : null });
+      let tail = "";
+      if (operation.suffix || list.some((op) => elsewhere.has(op.name) || elsewhere.has(op.id))) {
+        tail = operation.suffix ?? `-${slug(scene.id)}`;
+        list = suffixFootageOps(list, tail);
+      }
+      const kit = brand ? null : footageBrand(forPlan.treatment, seed, { fonts: !fromRefs });
+      if (kit) list.unshift({ op: "set_brand", name: slug(titleText) || "edit", ...kit, ...(titleText ? { logos: [{ text: titleText }] } : {}) });
+      return { list, tail, kit };
+    };
+    let { list: ops, tail: suffix, kit } = opsOf(plan);
+    // The end card's recipe needs time to enter and be read, which grows with its words and depends on
+    // the look and brand: build it once alone in a 1 s scene, where it refuses with the seconds it
+    // needs (runRecipe's `staying`), and plan the edit again with that much room if the plan gave less.
+    const endOp = ops.find((op) => op.op === "recipe" && op.id === `end-card${suffix}`);
+    if (endOp) {
+      const probe = parseDocument(document);
+      probe.scenes.find((item) => item.id === scene.id).duration = 1;
+      const staying = await runOps(probe, [...ops.filter((op) => op.op === "set_brand"), { ...endOp, at: 0 }]).then(() => undefined, (error) => error.staying);
+      if (staying !== undefined && plan.endCard.at + 0.1 + staying > plan.duration + 1e-6) {
+        plan = planFor(staying);
+        scene.duration = plan.duration;
+        work.notes.push(`end card starts at ${round(plan.endCard.at + 0.1)} s: its words need ${staying} s to enter and be read, so the body is that much shorter (the length stays ${plan.duration} s)`);
+        ({ list: ops, tail: suffix, kit } = opsOf(plan));
+      }
     }
+    if (kit) work.notes.push(fromRefs
+      ? `brand ${slug(titleText) || "edit"} made for this edit: colors only, accent ${kit.colors.accent}; fonts come from your references: library {topic:"fonts", search:"<the type your reference strip shows, e.g. condensed bold sans>"}`
+      : `brand ${slug(titleText) || "edit"} made for this edit: ${kit.fonts.map((font) => font.family).join(" and ")}, accent ${kit.colors.accent}`);
     let next;
     try { next = await runOps(parseDocument(document), ops); }
     catch (error) { throw problem(`compose {footage} could not build its plan: ${error.message}`); }

@@ -15,6 +15,11 @@ import { KINO_OWN_FAMILIES, KINO_PAIR_FAMILIES, footageBrand } from "./footage/t
 import { footageCues, footageOps } from "./footage/ops.js";
 import { boardSpans, cueShowLines, cueShows, storyCues } from "./footage/cueShows.js";
 import { createDocument, createLayer, createScene } from "./model.js";
+import { defaultFonts } from "./fonts.js";
+import { styleFor } from "./blocks/looks.js";
+import { parseFormat } from "./blocks/formats.js";
+import { RECIPES } from "./blocks/recipes/index.js";
+import { runRecipe } from "./blocks/recipe.js";
 import { applyOperations } from "./operations.js";
 
 const round3 = (value) => Math.round(value * 1000) / 1000;
@@ -198,6 +203,22 @@ test("spoken lines: with no voice a short clear repeated line is heard, captione
   // A word timed to no length still gets a caption length the caption move takes.
   const zero = paced(null, 18, { clip: { words: [said[0], { ...said[1], start: 5.3, end: 5.3 }], sound: { src: "c.mp4", own: true, duration: 20, loud: -20 } } }).plan;
   assert.ok(zero.captions.length && zero.captions.every((caption) => caption.words.every((word) => word.end > word.at)));
+});
+
+test("end card: the plan keeps the time its recipe needs for a long end line, in a body that is that much shorter", () => {
+  const style = styleFor({ look: "crisp", frame: parseFormat("16:9") });
+  const end = "made by agents. directed by you.";
+  const settings = { copy: { text: "kino", tagline: end } };
+  const staying = runRecipe(RECIPES["logo-sting"], { id: "end-card", settings, style, frame: style.frame, fonts: defaultFonts, start: 0, media: () => null }).staying;
+  const usual = paced(null, 40, { end }).plan;
+  assert.ok(usual.endCard.at + 0.1 + staying > 40, "the usual 2.8 s end is too short for this line (the recipe would refuse it)");
+  const fitted = paced(null, 40, { end, endRoom: staying }).plan;
+  assert.equal(fitted.duration, 40, "the length asked for stays");
+  assert.ok(fitted.endCard.at + 0.1 + staying <= 40, "the card enters and is read before the edit ends");
+  assert.ok(fitted.shots.find((shot) => shot.role === "end").start < usual.shots.find((shot) => shot.role === "end").start, "the body gives up the time");
+  const beated = paced("promo", 40, { end, endRoom: staying }).plan;
+  assert.ok(beated.endCard.at + 0.1 + staying <= 40 + 1e-6, "with a pace the card starts on a beat at or before its time");
+  assert.equal(paced(null, 40, { end, endRoom: 1 }).plan.endCard.at, usual.endCard.at, "a short line keeps the usual end");
 });
 
 test("pace: runs of whole beats on the beat grid, a calm open and an ending twice as fast", () => {
