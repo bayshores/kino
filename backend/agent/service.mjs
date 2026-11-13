@@ -1851,7 +1851,7 @@ export function createAgentService(deps) {
           try {
             const fonts = fontsCache.fonts ??= await fontsFor(next);
             const context = await operationContext(next, [first.operation]);
-            const result = await applyReachOperation(next, first.operation, { store, fonts, agentState, context, mediaRoot: deps.mediaRoot });
+            const result = await applyReachOperation(next, first.operation, { store, fonts, agentState, context, mediaRoot: deps.mediaRoot, pieces: deps.pieces });
             next = parseDocument(result.document);
             (fontsCache.warnings ??= []).push(...(result.warnings ?? []));
             if (result.summary) (fontsCache.summaries ??= []).push(result.summary);
@@ -9830,7 +9830,7 @@ export function createAgentService(deps) {
     const action = input.action ?? "list";
     if (action === "manage") {
       const options = input.options ?? {};
-      const needsProject = ["comments", "shares", "csv", "exports"].includes(options.resource) || options.action === "move" || options.sourceAnimation || (options.resource === "document" && options.action === "export");
+      const needsProject = ["comments", "shares", "csv", "exports"].includes(options.resource) || (options.resource === "pieces" && options.action === "save") || options.action === "move" || options.sourceAnimation || (options.resource === "document" && options.action === "export");
       const record = needsProject ? await projectFor({ project: input.id ?? input.project }) : null;
       if (options.resource === "exports" && (options.action ?? "start") === "start") {
         checkOutFolder(options.out);

@@ -6,6 +6,9 @@ import { copyScene, pasteScene } from "../../engine/sceneClipboard.js";
 import { applySavedTextEffect } from "../../engine/savedTextEffects.js";
 import { applyOperations } from "../../engine/operations.js";
 import { parseDocument } from "../../engine/model.js";
+import { existsSync } from "node:fs";
+import path from "node:path";
+import { delayLayers, selectionStart } from "../../engine/duplicate.js";
 import { assignCodes, createResolver } from "./refs.mjs";
 import { GEOMETRY_OPERATIONS, applyGeometryOperation } from "./reach-geometry.mjs";
 import { parseCsv, writeCsv } from "../../engine/csv.js";
@@ -21,6 +24,7 @@ export const REACH_HELP = {
   trace_image: 'trace_image {layer|media, time?, region?, colors?:4, smooth?:1, minArea?:16, background?, as?, name?}: region [x,y,w,h]; colors 2-12; smooth 0-2; background "auto"|"none"|"#rrggbb"; as "fill"|"outline". A region of a frame becomes a group of flat-color vector paths ("<name> 1" largest first) at the region\'s place; then stroke, roughen, trim-path or animate them. Receipt: paths, points; a warning names a better colors.',
   copy_layers: 'copy_layers {fromProject?,fromScene?,layers,scene?,replaceLayers?}: copy source names/codes across projects with component dependencies, media and fresh IDs. replaceLayers names destination layers for Paste and Replace.',
   copy_scene: 'copy_scene {fromProject?,fromScene,scene?,replace?:false}: copy an artboard across projects; replace retains destination identity.',
+  use_piece: 'use_piece {piece,scene?,at?:s,x?,y?,name?}: put a piece saved in the workspace (project manage pieces) into this project, through the same copy as copy_layers and copy_scene: fresh IDs, components, media, fonts. A layers piece goes into scene, its first Show at at seconds (as saved if omitted) and its top left at x,y; name renames a single top layer. A scene piece becomes a new scene (name names it).',
   copy_animations: 'copy_animations {fromProject?,fromScene?,sourceAnimations,layers,time?:0}: paste source animation names/codes onto destination layers, rebasing rest values.',
   apply_easing: 'apply_easing {name,animationIds}: apply a workspace saved easing by exact name or ID; ambiguous names are refused.',
   apply_text_effect: 'apply_text_effect {name,layers,time?:0}: apply a saved text effect by exact name or ID to unlocked text layers.',
@@ -43,7 +47,53 @@ export async function sourceDocument(document, fromProject, store) {
   return record.document;
 }
 
-export async function applyReachOperation(document, op, { store, fonts, agentState, context = {}, mediaRoot }) {
+// use_piece: a saved piece goes through pasteLayers / pasteScene (the copy_layers path), then the
+// pasted layers are moved in time (at) and place (x, y). Media the library lost is named.
+async function usePiece(document, op, { pieces, fonts, mediaRoot }) {
+  if (!pieces) throw new Error("Pieces are not available here.");
+  if (typeof op.piece !== "string" || !op.piece) throw new Error('use_piece needs piece: the name of a saved piece. List them: project {action:"manage", options:{resource:"pieces", action:"list"}}.');
+  const piece = await pieces.find(op.piece);
+  const warnings = [];
+  for (const item of piece.media)
+    if (mediaRoot && !existsSync(path.join(mediaRoot, path.basename(item.id)))) warnings.push(`${item.type === "font" ? "Font file" : "Media"} "${item.name}" is no longer in the library, so the piece shows it missing.`);
+  if (piece.kind === "scene") {
+    const pasted = pasteScene(document, undefined, piece.envelope, { fonts });
+    let next = pasted.document;
+    if (op.name !== undefined) next = { ...next, scenes: next.scenes.map((scene) => scene.id === pasted.sceneId ? { ...scene, name: String(op.name) } : scene) };
+    return { document: next, warnings: [...warnings, ...(pasted.notes ?? [])] };
+  }
+  const scenes = document.scenes;
+  const sceneId = op.sceneId ?? (scenes.length === 1 ? scenes[0].id : null);
+  if (!sceneId) throw new Error(`use_piece needs scene: this project has ${scenes.length} scenes (${scenes.map((scene) => scene.name).slice(0, 6).join(", ")}).`);
+  const scene = scenes.find((item) => item.id === sceneId);
+  if (op.at !== undefined && (!Number.isFinite(op.at) || op.at < 0 || (Number.isFinite(scene?.duration) && op.at >= scene.duration)))
+    throw new Error(`at must be a time inside the scene (0 to ${scene?.duration} s).`);
+  if (op.name !== undefined && piece.envelope.roots?.length !== 1)
+    throw new Error(`name renames a single top layer; this piece has ${piece.envelope.roots?.length ?? 0}. Rename them after with update_layer.`);
+  const pasted = pasteLayers(document, sceneId, piece.envelope, { fonts });
+  let next = pasted.document;
+  const ids = new Set(pasted.idMap.values());
+  const placed = next.scenes.find((item) => item.id === sceneId).layers.filter((layer) => ids.has(layer.id));
+  if (op.at !== undefined) {
+    const delay = op.at - (selectionStart(placed) ?? 0);
+    if (delay !== 0) next = delayLayers(next, sceneId, ids, delay).document;
+  }
+  if (op.name !== undefined) next = { ...next, scenes: next.scenes.map((item) => item.id !== sceneId ? item : { ...item, layers: item.layers.map((layer) => layer.id === pasted.rootIds[0] ? { ...layer, name: String(op.name) } : layer) }) };
+  if (op.x !== undefined || op.y !== undefined) {
+    const tops = next.scenes.find((item) => item.id === sceneId).layers.filter((layer) => pasted.rootIds.includes(layer.id));
+    const dx = op.x === undefined ? 0 : op.x - Math.min(...tops.map((layer) => layer.x));
+    const dy = op.y === undefined ? 0 : op.y - Math.min(...tops.map((layer) => layer.y));
+    if (![dx, dy].every(Number.isFinite)) throw new Error("x and y must be numbers.");
+    if (dx || dy) next = (await applyGeometryOperation(next, { type: "multi_transform", sceneId, layerIds: pasted.rootIds, action: { kind: "move", dx, dy } }, { fonts })).document;
+  }
+  return { document: next, warnings: [...warnings, ...(pasted.notes ?? [])] };
+}
+
+export async function applyReachOperation(document, op, { store, fonts, agentState, context = {}, mediaRoot, pieces }) {
+  if (op.type === "use_piece") {
+    const used = await usePiece(document, op, { pieces, fonts, mediaRoot });
+    return { document: parseDocument(used.document), warnings: used.warnings };
+  }
   if (GEOMETRY_OPERATIONS.includes(op.type)) return applyGeometryOperation(document, op, { fonts });
   if (op.type === "trace_image") return applyTraceImage(document, op, { mediaRoot });
   if (op.type === "bulk_create") {

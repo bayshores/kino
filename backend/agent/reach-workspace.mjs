@@ -8,6 +8,8 @@ import { savedTextEffectInput } from "../../engine/savedTextEffects.js";
 import { sceneCsvRows } from "../../engine/sceneCsv.js";
 import { writeCsv, parseCsv } from "../../engine/csv.js";
 import { planBulkCreate, bulkCreateSummary, bulkCreateTemplate } from "../../engine/bulkCreate.js";
+import { copyLayers } from "../../engine/layerClipboard.js";
+import { copyScene } from "../../engine/sceneClipboard.js";
 import { namedItem } from "./reach-operations.mjs";
 import { assignCodes, createResolver, documentObjects } from "./refs.mjs";
 import { shareUrl } from "../../engine/shareUrls.js";
@@ -26,6 +28,7 @@ document: import {document} (migrates old versions, creates an independent proje
 csv: template {scene,variants?:true adds the base row and saved variants}, review {scene,csv} (validation and planned changes; nothing is saved).
 media: list {search?}, original {id} (copies original bytes to a private output file), peaks {id} (cached waveform).
 exports: start {sceneIds?,quality:draft|final,options:{format,profile?,width?,height?,fps?,transparent?,loop?,playbackDirection?,time?,design?},out?:absolute folder}; status/wait/cancel/resume/zip/close {batch}. A draft is half size at 30fps (fps up to 30) unless options give a width, height or size. Formats include png, jpeg, apng, lottie, png-sequence, mp4, webm, mov, gif.
+pieces: list, save {name,layers:[..] or scene,description?,replace?}, rename {piece,name}, delete {piece}, export {piece,out?} writes a .kinopiece file, import {file}. edit use_piece {piece,scene?,at?,x?,y?,name?} puts one in a project.
 These are individual workspace actions, not document undo steps. library {topic:"op",name:"apply_easing"|"apply_text_effect"} applies named presets in an atomic edit.`;
 
 export function createReachWorkspace(deps) {
@@ -171,7 +174,56 @@ export function createReachWorkspace(deps) {
         }
       }
     }
-    if (result === undefined) throw new Error(`Unknown workspace action ${resource}/${action}. Read library {topic:"rules",name:"workspace"}.`);
+    else if (resource === "pieces") {
+      const pieces = deps.pieces;
+      if (!pieces) throw new Error("Pieces are not available here.");
+      const ref = input.piece ?? input.id;
+      const brief = (piece) => ({ name: piece.name, id: piece.id, kind: piece.kind, canvas: piece.canvas, length: piece.length, layers: piece.layerCount, fonts: piece.media.filter((item) => item.type === "font").length, media: piece.media.filter((item) => item.type !== "font").length });
+      if (action === "list") {
+        const saved = await pieces.list();
+        result = { pieces: saved.map(brief) };
+        text = saved.length ? saved.map((piece) => pieces.line(piece)).join("\n") : 'No pieces saved yet. Save one: options:{resource:"pieces", action:"save", name, layers:["title"]} (or scene:"s1").';
+      } else if (action === "save") {
+        needProject();
+        const resolver = createResolver(document, assignCodes((await agentState.read(projectId)).codes, document));
+        const fonts = await deps.loadFonts?.();
+        let envelope, scene;
+        if (input.layers !== undefined) {
+          if (!Array.isArray(input.layers) || !input.layers.length) throw new Error("layers must list the layer names or codes to save.");
+          const ids = input.layers.map((item) => resolver.resolve(item, "layer"));
+          const sceneId = input.scene !== undefined ? resolver.resolve(input.scene, "scene") : resolver.sceneOf("layer", ids[0]);
+          scene = document.scenes.find((item) => item.id === sceneId);
+          if (ids.some((id) => !scene?.layers.some((layer) => layer.id === id))) throw new Error("The layers to save must belong to one scene.");
+          envelope = copyLayers(document, sceneId, ids, { fonts });
+        } else if (input.scene !== undefined) {
+          scene = document.scenes.find((item) => item.id === resolver.resolve(input.scene, "scene"));
+          envelope = copyScene(document, scene.id);
+        } else throw new Error('Name what to save: layers:["title","card"] (one scene) or scene:"s1".');
+        const saved = await pieces.save({ name: input.name, description: input.description, envelope, canvas: { width: scene.width, height: scene.height }, replace: input.replace === true });
+        result = brief(saved);
+        text = `Saved piece ${pieces.line(saved)}. Use it in any project: edit {op:"use_piece", piece:"${saved.name}"}.`;
+      } else if (action === "rename") {
+        const renamed = await pieces.rename(ref, input.name);
+        result = brief(renamed);
+      } else if (action === "delete") {
+        result = brief(await pieces.delete(ref));
+        text = `Deleted piece "${result.name}". Projects that already used it keep their copy.`;
+      } else if (action === "export") {
+        const piece = await pieces.find(ref);
+        const folder = path.join(agentDirectory, "out", "pieces");
+        let out = input.out === undefined ? path.join(folder, `${piece.name.replace(/[^A-Za-z0-9 _.-]+/g, "-").trim() || "piece"}.kinopiece`) : input.out;
+        if (typeof out !== "string" || !path.isAbsolute(out)) throw new Error("out must be an absolute path to the .kinopiece file or its folder.");
+        if (!out.endsWith(".kinopiece")) out = path.join(out, `${piece.name.replace(/[^A-Za-z0-9 _.-]+/g, "-").trim() || "piece"}.kinopiece`);
+        await mkdir(path.dirname(out), { recursive: true, mode: 0o700 });
+        result = await pieces.exportTo(piece.id, out);
+        text = `Wrote ${result.path} (${result.bytes} bytes, ${result.media} media file${result.media === 1 ? "" : "s"}).${result.missing ? ` Missing from the library and left out: ${result.missing.join(", ")}.` : ""} Import it elsewhere: project import ${result.path}`;
+      } else if (action === "import") {
+        if (typeof input.file !== "string" || !path.isAbsolute(input.file)) throw new Error("file must be the absolute path of a .kinopiece file.");
+        result = await pieces.importFrom(input.file, { replace: input.replace === true });
+        text = `Imported piece ${result.line}. Use it: edit {op:"use_piece", piece:"${result.piece}"}.`;
+      }
+    }
+    if (result === undefined) throw new Error(`Unknown workspace action ${resource}/${action}. Resources: templates, projects, folders, easings, effects, pieces, comments, trash, shares, document, csv, media, exports. Read library {topic:"rules",name:"workspace"}.`);
     return { text: text ?? JSON.stringify(result), data: result };
   };
 }
