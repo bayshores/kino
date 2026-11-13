@@ -5,6 +5,7 @@ import { callAgent, agentRows, needsYouRows, recommendedOption, WORKING_MS, time
 import { callLine, cut, timeOfDay } from "./format.js";
 import { APPROVAL_WORDS, STOP_WORDS } from "./words.js";
 import { agoWords } from "./timeline.js";
+import { ONE_AGENT, theAgent } from "./agentLabels.js";
 
 // The verbs that change the project are drawn in the agent's color; reads in the text color.
 const WRITE_VERBS = new Set(["edit", "history", "render", "project", "notes"]);
@@ -453,7 +454,7 @@ export function voiceLine(data, agent, now = Date.now(), nameOf = () => null) {
     const words = needWords(need, nameOf);
     return { state: "need", verb: "ask", text: asAsk(words.todo), facts: [words.spec, words.summary].filter(Boolean), before: before(false), need: { row: need, words, more: needs.length - 1 } };
   }
-  if (data?.hold?.on) return { state: "hold", verb: "hold", text: `On hold. ${agent?.name ?? "The agent"} waits for you.`, facts: [], before: before(false) };
+  if (data?.hold?.on) return { state: "hold", verb: "hold", text: `On hold. ${theAgent(agent?.name, true)} waits for you.`, facts: [], before: before(false) };
   // An agent records the screen: said under the frame, with Stop (the top line has one too).
   if (data?.recording) {
     const seconds = Math.max(0, Math.floor((now - data.recording.startedAt) / 1000));
@@ -472,7 +473,8 @@ export function voiceLine(data, agent, now = Date.now(), nameOf = () => null) {
   // so in plain words ("Nova is not connected" told a person nothing: who Nova is, or what to do),
   // that nothing is lost, and how to go on. The line before stays its last call.
   if (!(data?.agents ?? []).some((entry) => entry.id === agent.id) && !last.current) {
-    return { state: "away", verb: "plug", text: `Your agent${agent.name ? ` ${agent.name}` : ""} is not working on this right now.`, facts: [agent.lastAt ? `Last active ${agoWords(agent.lastAt, now)}` : "", "Everything is saved"].filter(Boolean), before: before(false) };
+    const who = !agent.name || agent.name === ONE_AGENT ? "Your agent" : agent.name;
+    return { state: "away", verb: "plug", text: `${who} is not working on this right now.`, facts: [agent.lastAt ? `Last active ${agoWords(agent.lastAt, now)}` : "", "Everything is saved"].filter(Boolean), before: before(false) };
   }
   const working = isWorking(data, agent, now);
   return { state: working ? "working" : "idle", verb: last.verb, kind: last.kind, text: line(last, Boolean(last.current)), facts: [], before: before(true) };

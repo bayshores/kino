@@ -3,6 +3,7 @@
 // the orange "needs you" line and the action strip under the stage.
 import test from "node:test";
 import assert from "node:assert/strict";
+import { agentLabels, withAgentLabels } from "./dashboard/agentLabels.js";
 import { agentGoal, agentLog, asAsk, asSentence, agentOfCalls, agentSaid, agentTask, CREW_MS, crewAgents, crewFeed, currentCall, DETAIL_CHARS, leftWords, paneIdle, railAgents, renderDock, SEEN_MS, seenNow, minutes, needWords, planStep, shownAgent, specWords, stepWords, turnWords, usefulDetails, verbKind, voiceLine } from "./dashboard/agentView.js";
 
 const NOW = Date.parse("2026-10-26T10:00:30Z");
@@ -190,6 +191,22 @@ test("live panels: the seen drawer while a look runs or just ended, the render d
   assert.equal(renderDock(data({ renders: [{ ...job, status: "done" }] }), NOW), null);
 });
 
+test("people never see the names kino gives agents: one is Agent, several are Agent 1, Agent 2 in the order they joined", () => {
+  assert.deepEqual([...agentLabels(data({ agents: [nova], calls: [] }))], [["a1", "Agent"]]);
+  // Juno connected first (its crew start), so it is Agent 1 although Nova called first.
+  const crew = { members: [{ id: "a2", name: "Juno", startedAt: "2026-10-26T09:59:00Z", startedBy: { type: "you", name: "you" } }, { id: "a1", name: "Nova", startedBy: { type: "agent", id: "a2", name: "Juno" } }],
+    locks: [{ key: "render", holder: "a1", holderName: "Nova", waiting: [{ agentId: "a2", name: "Juno" }] }], activity: [{ id: 1, agentId: "a1", name: "Nova", text: "Nova started by Juno: cut the walk" }] };
+  const shown = withAgentLabels(data({ crew, live: { latest: { a1: { agent: { id: "a1", name: "Nova" }, at: "2026-10-26T10:00:20Z" } } }, agent: { stopped: [{ id: "S1", agent: "Nova" }] } }));
+  assert.deepEqual(shown.agents.map((agent) => [agent.name, agent.agentName]), [["Agent 2", "Nova"], ["Agent 1", "Juno"]], "the real name stays for notes to one agent");
+  assert.deepEqual([shown.calls[0].agent.name, shown.live.latest.a1.agent.name, shown.crew.members[1].startedBy.name, shown.crew.locks[0].holderName, shown.crew.locks[0].waiting[0].name], ["Agent 2", "Agent 2", "Agent 1", "Agent 2", "Agent 1"]);
+  assert.equal(shown.crew.activity[0].text, "Agent 2 started by Agent 1: cut the walk");
+  assert.equal(shown.agent.stopped[0].agent, "Agent 2");
+  // A number never moves while the project is open: the order so far comes first.
+  assert.deepEqual([...agentLabels(data(), ["a1"])], [["a1", "Agent 1"], ["a2", "Agent 2"]]);
+  // An older server's agent has no id of its own: it keeps its client's name.
+  assert.equal(withAgentLabels({ agents: [{ id: "legacy-codex", name: "codex" }], calls: [] }).agents[0].name, "codex");
+});
+
 test("the line under the frame: the call as a sentence, the line before it, and what waits for you first", () => {
   assert.equal(asSentence("look at the source of smirk", { running: true }), "Looking at the source of smirk.");
   assert.equal(asSentence("sheet 0:00 to 1:00", { verb: "look" }), "Looked at sheet 0:00 to 1:00.");
@@ -202,10 +219,15 @@ test("the line under the frame: the call as a sentence, the line before it, and 
   assert.equal(idle.verb, "check");
   assert.equal(idle.text, "Checked the video. It failed.");
   assert.equal(idle.before.text, "Looked at sheet 0:00–1:00.");
-  assert.equal(voiceLine(data({ hold: { on: true } }), nova, NOW).state, "hold");
-  // Its session ended: who the name is, that nothing is lost, and how to go on.
-  const away = voiceLine(data({ agents: [] }), nova, NOW);
-  assert.deepEqual([away.state, away.text, away.facts.slice(-1)], ["away", "Your agent Nova is not working on this right now.", ["Everything is saved"]]);
+  // The dashboard draws its data with agent labels (agentLabels.js): one agent is "the agent".
+  const alone = withAgentLabels(data({ agents: [nova], calls: data().calls.filter((call) => call.agent.id === "a1") }));
+  assert.equal(voiceLine({ ...alone, hold: { on: true } }, alone.agents[0], NOW).text, "On hold. The agent waits for you.");
+  // Its session ended: that nothing is lost, and how to go on.
+  const away = voiceLine({ ...alone, agents: [] }, alone.agents[0], NOW);
+  assert.deepEqual([away.state, away.text, away.facts.slice(-1)], ["away", "Your agent is not working on this right now.", ["Everything is saved"]]);
+  const two = withAgentLabels(data());
+  // Juno was seen first (its last call at 09:00), so Nova is Agent 2.
+  assert.equal(voiceLine({ ...two, agents: [] }, two.agents[0], NOW).text, "Agent 2 is not working on this right now.");
   // A render that ended under a minute ago is said to be ready, with its facts.
   const ready = voiceLine(data({ renders: [{ id: "R2", projectId: "walk", status: "done", quality: "final", format: "mp4", width: 1920, height: 1080, duration: 14, size: 12_400_000, finishedAt: new Date(NOW - 5_000).toISOString() }] }), nova, NOW);
   assert.deepEqual([ready.state, ready.text, ready.facts], ["ready", "The final is ready.", ["14 s, 1920 by 1080", "12 MB, MP4"]]);

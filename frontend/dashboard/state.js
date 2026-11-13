@@ -8,6 +8,7 @@ import { buildThreads } from "../comments.js";
 import { callNoWords, shotList } from "./boardRows.js";
 import { callSummary, cut, noteState, timeOfDay, tokens } from "./format.js";
 import { BRIEF_LABELS, READ_WORDS, STOP_WORDS } from "./words.js";
+import { theAgent } from "./agentLabels.js";
 
 // The dashboard's own check after each revision: it renders frames for the pixel rules (contrast,
 // flashing), but listen:false reads only saved transcripts, peaks and people, so opening a
@@ -301,7 +302,7 @@ export const activeAgents = (state, now = Date.now()) => agentRows(state, now).f
 export const AGENT_STATUS_WORDS = { "needs-you": "needs you", failed: "failed", idle: "idle" };
 
 /**
- * The status line's words for more than one active agent: "2 agents · Nova · Juno needs you",
+ * The status line's words for more than one active agent: "2 agents · Agent 1 · Agent 2 needs you",
  * each name followed by its status unless it is working. Null for one or none.
  */
 export function activeAgentsText(agents) {
@@ -329,7 +330,7 @@ export function quietAgents(data, now = Date.now()) {
   }).map((presence) => ({
     // Agent ids and call numbers start over when the server restarts: the key has its boot.
     agent: presence.agent, presence, key: `${data.boot ?? ""}/${presence.agent.id}/${presence.call}`,
-    text: `${presence.agent.name} went quiet: ${presence.label || presence.verb}`,
+    text: `${theAgent(presence.agent.name, true)} went quiet: ${presence.label || presence.verb}`,
   }));
 }
 

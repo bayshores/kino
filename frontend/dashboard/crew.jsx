@@ -62,11 +62,11 @@ function StartForm({ timer, rules, canStart, projectId, onDone, onCancel, fail, 
     try {
       if (timer) {
         const { member } = await server.addTimer({ kind, task: task.trim(), may, project: projectId ?? undefined, ...(when === "daily" ? { daily } : { everyHours: Number(hours) }) });
-        say(`Timer ${member.name} added: ${member.scheduleWords}.${rules?.timers ? "" : " Timers may not start agents yet: tick timers to let it run."}`);
+        say(`Timer added: ${member.scheduleWords}.${rules?.timers ? "" : " Timers may not start agents yet: tick timers to let it run."}`);
         onDone(member.id);
       } else {
         const { member } = await server.startAgent({ kind, task: task.trim(), may, project: projectId ?? undefined });
-        say(`${member.name} started (${KIND_LABELS[member.kind] ?? member.kind}).`);
+        say(`Agent started (${KIND_LABELS[member.kind] ?? member.kind}).`);
         onDone(member.id);
       }
     } catch (cause) { fail(cause); } finally { setBusy(false); }

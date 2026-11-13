@@ -8,6 +8,7 @@
 import React, { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { turnReview } from "./api.js";
 import { lastChanges, newLayerIds, partAt, readSeenRev, reviewLayerIds, saveSeenRev, turnAuthor, turnsToReview } from "./timeline.js";
+import { labelCall } from "./agentLabels.js";
 
 // The `l` key (Dashboard.jsx) marks the timeline's changes seen through this.
 const seenListeners = new Set();
@@ -64,7 +65,8 @@ export function useTimelineChanges({ data, scene, still }) {
     if (!review?.changes?.created) return [];
     return [{
       turn: turn.id, at: turn.edits.at(-1).at, after: turn.edits.at(-1).after,
-      who: turnAuthor(turn.id, [...(review.calls ?? []), ...(data.calls ?? [])]),
+      // A review's calls name the agent: drawn by its label, as the data's calls are.
+      who: turnAuthor(turn.id, [...(review.calls ?? []).map((call) => labelCall(call, data.agentLabels ?? new Map())), ...(data.calls ?? [])]),
       layerIds: reviewLayerIds(review.changes, scene, data.agent?.codes),
     }];
   });

@@ -25,6 +25,7 @@ import { thumbnails } from "./thumbnails.js";
 import { NO_PICK, previewPick, readyRuns } from "./previewPick.js";
 import { PreviewVideos } from "./previewCache.jsx";
 import { minutes, shownAgent } from "./agentView.js";
+import { theAgent } from "./agentLabels.js";
 import { noteCursorRows, noteDot, noteGroups, noteNumber, noteStatus, notesForYou, snapNote } from "./noteSpot.js";
 import { hoverLines, newMarks, onScreenRanges, storyParts } from "./timeline.js";
 import { BriefLines } from "./brief.jsx";
@@ -1540,7 +1541,7 @@ export function NeedRows({ needs, act }) {
  * action and says `words`.
  */
 function NoteThread({ data, notes, cursor, now, onNote }) {
-  const agentName = shownAgent(data, now)?.name ?? "the agent";
+  const agentName = theAgent(shownAgent(data, now)?.name);
   const scenes = data.record?.document?.scenes ?? [];
   const [shown, setShown] = useState({ always: false, done: false });
   const groups = noteGroups(notes, data.agent?.stopped ?? []);
@@ -1560,7 +1561,7 @@ function NoteThread({ data, notes, cursor, now, onNote }) {
           {groups.stopped.map((item) => {
             const note = notes.find((entry) => entry.id === item.noteId);
             const names = (item.layers ?? []).map(layerName).join(", ") || "it";
-            const who = item.agent ?? agentName;
+            const who = item.agent ? theAgent(item.agent) : agentName;
             return (
               <li key={item.id} className={`note-card stopped${picked === item.id ? " selected" : ""}`}>
                 <NoteThumb data={data} note={note} scenes={scenes} />

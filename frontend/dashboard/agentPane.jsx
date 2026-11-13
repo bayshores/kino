@@ -16,6 +16,7 @@ import { Bot } from "./bot.jsx";
 import { moodOfRow } from "./bot.js";
 import { agentLog, agentSaid, agentTask, crewAgents, isWorking, paneIdle, planStep, railAgents, rowSentence, stepWords, turnWords } from "./agentView.js";
 import { needsYouRows } from "./state.js";
+import { theAgent } from "./agentLabels.js";
 import { AgentName, Pane, Spinner } from "./panes.jsx";
 import { notesForYou } from "./noteSpot.js";
 import { ago } from "./format.js";
@@ -111,13 +112,13 @@ function NoteBox({ data, agents, to, onTo, onPoint, inputRef }) {
   const [text, setText] = useState("");
   const [state, setState] = useState("");
   const target = agents.find((agent) => agent.id === to) ?? null;
-  const name = target?.name ?? (agents.length === 1 ? agents[0].name : agents.length ? "the crew" : "the agent");
+  const name = theAgent(target?.name ?? (agents.length === 1 ? agents[0].name : agents.length ? "the crew" : null));
   const send = async (urgent = false) => {
     const words = text.trim();
     if (!words || !data.projectId) return;
     setState("sending");
     try {
-      const reply = await server.act("notes", { action: "add", project: data.projectId, text: target && agents.length > 1 ? `for ${target.name}: ${words}` : words, ...(urgent ? { urgent: true } : {}) });
+      const reply = await server.act("notes", { action: "add", project: data.projectId, text: target && agents.length > 1 ? `for ${target.agentName ?? target.name}: ${words}` : words, ...(urgent ? { urgent: true } : {}) });
       if (reply.isError) throw new Error(reply.text);
       setText("");
       setState(reply.text?.split(";")[0] ?? "sent");
