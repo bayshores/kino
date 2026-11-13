@@ -116,7 +116,7 @@ export function Voice({ data, agent, now, scene, time, still, listOpen = false, 
         {line.state === "render" ? <span className="voice-answers"><button type="button" className="voice-button" onClick={onCancelRender}>Cancel</button></span> : null}
         {line.state === "away" && data.projectId ? (
           <span className="voice-answers">
-            <button type="button" className="voice-button" onClick={copyReconnect} title={reconnect}><ToolIcon name={copied ? "done" : "copy"} />{copied ? "Copied: paste it in the agent's chat" : "Copy a message to resume"}</button>
+            <button type="button" className="voice-button" onClick={copyReconnect} title={reconnect}><ToolIcon name={copied ? "done" : "copy"} />{copied ? "Copied. Paste it in your agent's chat" : "Copy prompt for your agent"}</button>
           </span>
         ) : null}
         {line.state === "ready" ? (
