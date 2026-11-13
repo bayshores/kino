@@ -8,11 +8,14 @@
 // moves to "hint". The service picks the call (service.mjs nextCallFor); this file only writes
 // it and finds the fixed call for a refused input.
 
-/** A call: {tool, input}. */
+/** A call: {tool, input}. A call may carry why: the measured fact that picked it (material-steps.mjs). */
 export const call = (tool, input = {}) => ({ tool, input });
 
 /** `look {"mode":"review"}`: a call as the agent types it. */
 export const callText = (next) => `${next.tool} ${JSON.stringify(next.input ?? {})}`;
+
+/** The `why: …` line printed right before `next:`, when the call carries its fact (else ""). */
+const whyLine = (next) => (typeof next?.why === "string" && next.why ? `\nwhy: ${next.why}` : "");
 
 // A next call longer than this is not printed twice: the early line names the tool and points to
 // the last line (a guess at the size: check {fix:"auto"} and render {...final} are well under it,
@@ -39,6 +42,7 @@ export function withNextField(data, next, inbox = []) {
     ...rest,
     ...(typeof prose === "string" && prose ? { hint: prose } : {}),
     ...(inbox.length ? { inbox } : {}),
+    ...(typeof next?.why === "string" && next.why ? { why: next.why } : {}),
     next: callText(next),
   };
 }
@@ -60,7 +64,7 @@ export function answerText({ text, data, json, early }, next, inbox = []) {
     const lines = String(text).split("\n");
     const block = [...(inbox.length ? [`inbox ◆${inbox.length}`, ...inbox.map((line) => `  ${line}`)] : []), ...(early.next ? [earlyNextLine(next)] : [])];
     lines.splice(Math.min(early.at, lines.length), 0, ...block);
-    return `${lines.join("\n")}\nnext: ${callText(next)}`;
+    return `${lines.join("\n")}${whyLine(next)}\nnext: ${callText(next)}`;
   }
   if (json) {
     let fields = data;
@@ -72,7 +76,7 @@ export function answerText({ text, data, json, early }, next, inbox = []) {
     return compact(withNextField(fields, next, inbox));
   }
   const lines = inbox.length ? `\ninbox ◆${inbox.length}\n${inbox.map((line) => `  ${line}`).join("\n")}` : "";
-  return `${text}${lines}\nnext: ${callText(next)}`;
+  return `${text}${lines}${whyLine(next)}\nnext: ${callText(next)}`;
 }
 
 const wordsOf = (text) => String(text ?? "").toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];

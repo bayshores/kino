@@ -106,6 +106,7 @@ import { BRIEF_RULES, checkDocument, checkReport, checkSummary, explainMissingGl
 import { addVerdict, anchorLines, barOf, barPairs, barTimeAt, parseVerdict } from "./bar.mjs";
 import { BAR_PROTOCOL, CRITIQUE_ROUNDS, critiqueProtocol, CRITIQUE_WAIVER, barGap, blocksRender, critiqueDirectionKey, critiqueOf, critiqueSpine, critiqueQuestions, critiqueTimes, critiqueWanted, lineText, openCritique, parseCritique, personCall, staleCritique, upLines } from "./critique.mjs";
 import { createQualityChecker, qualityRulesText, videoScene } from "./quality.mjs";
+import { briefSaysNoCaptions, materialSteps, musicFact, offeredOpen, voiceFact } from "./material-steps.mjs";
 import { houseMoments, houseStructure, houseType } from "../house-memory.mjs";
 import { plateChanges, techniquesLine, techniquesUsed } from "../../engine/quality/techniques.js";
 import { sceneReturnsLine } from "../../engine/quality/returns.js";
@@ -2397,6 +2398,50 @@ export function createAgentService(deps) {
     const placed = scene.layers.filter((layer) => layer.type === "audio" && /^sfx-/.test(layer.id)).length;
     if (!placed && !found.all.length) return "";
     return `Sound effects: ${placed} on ${found.all.length} visible ${found.all.length === 1 ? "action" : "actions"}.`;
+  }
+
+  // The facts materialSteps reads (material-steps.mjs), from what kino keeps: saved transcripts only
+  // (nothing is heard here), the video scene's layers and its visible actions from saved measurements.
+  async function materialFactsOf(document, state) {
+    const scene = videoScene(document) ?? document.scenes?.[0];
+    if (!scene) return null;
+    const several = document.scenes.filter((entry) => !entry.isComponent).length > 1;
+    const voices = [];
+    const music = [];
+    for (const layer of scene.layers) {
+      if (!layer.src || layer.enabled === false || (layer.type !== "audio" && layer.type !== "video") || /^sfx-/.test(layer.id)) continue;
+      let file;
+      try { file = mediaFileOf(layer); } catch { continue; }
+      if (await isMusicFile(file)) {
+        const fact = layer.type === "audio" ? musicFact(scene, layer) : null;
+        if (fact) music.push(fact);
+        continue;
+      }
+      const transcript = transcripts.saved ? await transcripts.saved(file, document, layer).catch(() => null) : null;
+      const fact = voiceFact(scene, layer, transcript);
+      if (fact?.words.length) voices.push(fact);
+    }
+    const found = await sceneSoundActions(document, scene).catch(() => null);
+    return {
+      scene: several ? (scene.name ?? scene.id) : null, voices, music,
+      captions: scene.layers.some((layer) => layer.type === "text" && layer.role === "caption"),
+      noCaptions: briefSaysNoCaptions(state?.brief),
+      actions: found?.all ?? [],
+      effects: scene.layers.filter((layer) => layer.type === "audio" && /^sfx-/.test(layer.id)).length,
+    };
+  }
+
+  // The first material step still open (offered once per revision of its layers), as a next call
+  // carrying its why; the offer is recorded in the agent state. null when none applies.
+  async function materialNext(record, state) {
+    const facts = await materialFactsOf(record.document, state).catch(() => null);
+    const open = facts ? offeredOpen(materialSteps(facts), state.materialOffered, record.revision) : null;
+    if (!open) return null;
+    const before = state.materialOffered?.[open.key];
+    if (!before || before.sig !== open.sig) {
+      await agentState.update(record.document.id, (draft) => { draft.materialOffered = { ...(draft.materialOffered ?? {}), [open.key]: { sig: open.sig, rev: record.revision } }; });
+    }
+    return { ...nextOf(open.call.tool, open.call.input), why: open.why, step: open.step };
   }
 
   // The library sounds offered for one action kind, in this project's order, skipping files the scene plays.
@@ -9952,7 +9997,7 @@ export function createAgentService(deps) {
     const lines = saved.split("\n");
     const shown = [...lines.slice(0, 3).map((line) => line.slice(0, 300)), ...Object.entries(link).map(([key, value]) => `${key}: ${value}`)];
     const narrower = NARROWER_CALL[verb];
-    const text = `${shown.join("\n")}\n… ${lines.length} lines, about ${estimateTextTokens(reply.text)} tokens: too long to send. The whole answer${link.url ? " (without the link's secret)" : ""} is in ${file}${narrower ? `\nA smaller answer: ${narrower}` : ""}${next ? `\nnext: ${callText(next)}` : ""}`;
+    const text = `${shown.join("\n")}\n… ${lines.length} lines, about ${estimateTextTokens(reply.text)} tokens: too long to send. The whole answer${link.url ? " (without the link's secret)" : ""} is in ${file}${narrower ? `\nA smaller answer: ${narrower}` : ""}${next?.why ? `\nwhy: ${next.why}` : ""}${next ? `\nnext: ${callText(next)}` : ""}`;
     return { ...reply, text, data: { file, lines: lines.length, ...link, ...(reply.isError ? { error: reply.data?.error } : {}) } };
   }
 
@@ -10216,6 +10261,9 @@ export function createAgentService(deps) {
       const held = findings.find((finding) => finding.severity === "warn" && blocksFinal(finding) && (finding.final === true || FINAL_GATES.includes(finding.rule)));
       if (held) return nextOf("edit", { ops: [`<the edit for: ${String(held.fix?.text ?? held.message).slice(0, 160)}>`] });
     }
+    // What the material's own facts offer (material-steps.mjs), once each: never a gate.
+    const material = await materialNext(record, state);
+    if (material) return material;
     // The rest are the final render's gates, in finalGates' order (the first one still open).
     const [gate] = await finalGates(record, { first: true });
     return gate?.call ?? FINAL_CALL;
@@ -10660,6 +10708,8 @@ export function createAgentService(deps) {
     // early: where the inbox (and a short next) go in a text answer, so the first 8 lines hold them.
     const early = reply.early;
     reply = { text: reply.receipt ? compact(reply.data) : reply.text, ...(reply.data ? { data: reply.data } : {}), ...(reply.images?.length ? { images: reply.images } : {}), ...(reply.isError ? { isError: true } : {}) };
+    // A material step (material-steps.mjs) is the step: line's words too, so the answer names one call.
+    if (next.why && next.step && !json && typeof reply.text === "string") reply.text = reply.text.replace(/^step: .*$/m, `step: ${next.step} (${next.why})`);
     reply = { ...reply, text: answerText({ text: reply.text, data: reply.data, json, early: reply.isError ? null : early }, next, inbox) };
     reply = await capAnswer(reply, verb, projectId, next);
     // meta.quiet: the dashboard's own background reads (checks) stay out of the agent's log.
