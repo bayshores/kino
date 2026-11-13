@@ -9,7 +9,7 @@ import { fromAppPick, fromJudged, ladder } from "../evals/taste/ladder.mjs";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { agentStateFile, APPROVAL, appCommand, askedAfter, callsTool, checkReplies, htmlText, nextMessage, pendingPick, personStep, pickMp4, PICK_REPLY, pollUntil, roundStatus, projectIdFor, projectIdFromStatus, promptFor, REPLY, replyFor, seedHouse, stopEntry, summarize, waitEntry, watchOver, WATCH_REPLY } from "../evals/taste/firstpass.mjs";
+import { agentArgs, agentStateFile, APPROVAL, appCommand,askedAfter, callsTool, checkReplies, htmlText, nextMessage, pendingPick, personStep, pickMp4, PICK_REPLY, pollUntil, roundStatus, projectIdFor, mcpConfig, projectIdFromStatus, promptFor, REPLY, replyFor, seedHouse, stopEntry, summarize, waitEntry, watchOver, WATCH_REPLY } from "../evals/taste/firstpass.mjs";
 import { commandsFrom, nextOf, report, summarize as summarizeCalls } from "../scripts/harness-report.mjs";
 import { stopsSummary } from "../backend/agent/stops.mjs";
 import { triesView } from "../backend/agent/tries.mjs";
@@ -251,6 +251,21 @@ test("person mode: the watch is over once a reaction newer than the turn end is 
   clock = 0;
   assert.deepEqual(await pollUntil(async () => "stop", clockOptions(60_000)), { seconds: 0, timedOut: true }, "a server that cannot be read gives up");
   assert.deepEqual(waitEntry("pick", { seconds: 6, timedOut: false }), { kind: "pick", seconds: 6, timedOut: false });
+});
+
+test("a first pass gives its agent kino's MCP server like `kino setup` (private server or the app's runtime file), or none for the CLI path", () => {
+  const base = { repoRoot: "/repo", nodePath: "/bin/node", session: "firstpass-a" };
+  assert.deepEqual(mcpConfig({ ...base, url: "http://127.0.0.1:5000" }), { mcpServers: { kino: { command: "/bin/node", args: ["/repo/bin/kino.mjs", "mcp"], env: { MOTION_API_URL: "http://127.0.0.1:5000", KINO_AGENT_SESSION: "firstpass-a" } } } });
+  assert.deepEqual(mcpConfig({ ...base, runtimeFile: "/p/runtime.json" }).mcpServers.kino.env, { KINO_RUNTIME_FILE: "/p/runtime.json", KINO_AGENT_SESSION: "firstpass-a" });
+  const call = { message: "make it", system: "S", addDirs: ["/m"], model: "m1", sessionId: "sid" };
+  const mcp = agentArgs({ ...call, mcpFile: "/run/mcp.json" });
+  assert.equal(mcp[mcp.indexOf("--mcp-config") + 1], "/run/mcp.json");
+  assert.ok(mcp.includes("--strict-mcp-config"), "only kino's server, none of the person's");
+  assert.equal(mcp[mcp.indexOf("--allowedTools") + 1], "Bash,Read,Agent,mcp__kino");
+  assert.deepEqual(mcp.slice(-4), ["--model", "m1", "--resume", "sid"]);
+  const cli = agentArgs(call);
+  assert.ok(!cli.includes("--mcp-config") && cli.includes("--strict-mcp-config"), "the CLI path loads no MCP server");
+  assert.equal(cli[cli.indexOf("--allowedTools") + 1], "Bash,Read,Agent");
 });
 
 test("person mode starts the kino app from this checkout on the run's data folder, with a profile of its own", () => {

@@ -29,8 +29,33 @@ import { CRITIQUE_STOP, STOP_KINDS } from "../../backend/agent/stops.mjs";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 export const REPLY = "your call";
 const TOOLS = "Bash,Read,Agent";
+// All of kino's MCP tools (`kino setup` registers the server as "kino", so they are mcp__kino__<verb>).
+const MCP_TOOLS = "mcp__kino";
 
 // ---- pure parts (tests/taste-harness.test.mjs) ----------------------------------------------------
+
+/**
+ * The MCP config a person gets from `kino setup` (`claude mcp add kino -- node bin/kino.mjs mcp`),
+ * pointed at the run's kino: `url` is the private server (MOTION_API_URL), `runtimeFile` the app's
+ * runtime.json (person mode, KINO_RUNTIME_FILE, which also holds the owner token). Claude Code
+ * starts an MCP server with only a few env vars, so the server gets its own here.
+ */
+export function mcpConfig({ repoRoot, nodePath, url = null, runtimeFile = null, session }) {
+  const env = { ...(runtimeFile ? { KINO_RUNTIME_FILE: runtimeFile } : { MOTION_API_URL: url }), KINO_AGENT_SESSION: session };
+  return { mcpServers: { kino: { command: nodePath, args: [path.join(repoRoot, "bin/kino.mjs"), "mcp"], env } } };
+}
+
+/**
+ * The `claude -p` arguments for one call. `mcpFile` set (the default surface): kino's MCP server
+ * from that file only, and its tools allowed beside Bash, Read and Agent. null (KINO_FIRSTPASS_CLI=1):
+ * no MCP server at all, the agent drives kino through the `kino` command in Bash.
+ */
+export function agentArgs({ message, system, addDirs, model = null, effort = null, sessionId = null, mcpFile = null }) {
+  return ["-p", message, "--restricted", "--tools", TOOLS, "--allowedTools", mcpFile ? `${TOOLS},${MCP_TOOLS}` : TOOLS,
+    ...(mcpFile ? ["--mcp-config", mcpFile] : []), "--strict-mcp-config",
+    "--output-format", "stream-json", "--verbose", "--append-system-prompt", system,
+    ...addDirs.flatMap((dir) => ["--add-dir", dir]), ...(model ? ["--model", model] : []), ...(effort ? ["--effort", effort] : []), ...(sessionId ? ["--resume", sessionId] : [])];
+}
 
 /**
  * The person's message: the ask, then the files (none: kino finds the footage and the song), then any notes, then the project's name when
@@ -433,13 +458,12 @@ function stopGroup(child) {
 }
 
 // One `claude -p` call: the first message, or a reply on the same session (--resume).
-function runClaude({ message, sessionId, workDir, env, transcript, deadline, model, effort, system, addDirs }) {
+function runClaude({ message, sessionId, workDir, env, transcript, deadline, model, effort, system, addDirs, mcpFile }) {
   // --restricted: none of your settings, hooks or plugins, file tools kept to the work folder and
-  // --add-dir; --strict-mcp-config: none of your MCP servers. Restricted mode also skips project
-  // skills, so the kino skill comes in the system prompt (see main).
-  const args = ["-p", message, "--restricted", "--tools", TOOLS, "--allowedTools", TOOLS, "--strict-mcp-config",
-    "--output-format", "stream-json", "--verbose", "--append-system-prompt", system,
-    ...addDirs.flatMap((dir) => ["--add-dir", dir]), ...(model ? ["--model", model] : []), ...(effort ? ["--effort", effort] : []), ...(sessionId ? ["--resume", sessionId] : [])];
+  // --add-dir; --strict-mcp-config: none of your MCP servers, only kino's from mcpFile (see
+  // agentArgs). Restricted mode also skips project skills, so the kino skill comes in the system
+  // prompt (see main).
+  const args = agentArgs({ message, system, addDirs, model, effort, sessionId, mcpFile });
   const child = spawn("claude", args, { cwd: workDir, env, stdio: ["ignore", "pipe", "pipe"], detached: true });
   running.add(child);
   child.once("exit", () => running.delete(child));
@@ -540,8 +564,19 @@ async function main() {
   const person = process.env.KINO_FIRSTPASS_PERSON === "1";
   const personMs = Number(process.env.KINO_FIRSTPASS_PERSON_MINUTES ?? 30) * 60_000;
   const hidden = process.env.KINO_FIRSTPASS_PERSON_HIDDEN === "1";
+  // The surface the agent drives kino through: the MCP tools a person gets from `kino setup`
+  // (default), or the `kino` command alone (KINO_FIRSTPASS_CLI=1, for comparison).
+  const surface = process.env.KINO_FIRSTPASS_CLI === "1" ? "cli" : "mcp";
+  // One agent for the whole run, as in a person's Claude Code session (see KINO_AGENT_SESSION below).
+  const session = `firstpass-${runId}`.replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 32);
+  const mcpFile = path.join(runDir, "mcp.json");
   if (args.includes("--dry-run")) {
     console.log(prompt);
+    if (surface === "mcp") {
+      const config = mcpConfig({ repoRoot: root, nodePath: process.execPath, session, ...(person ? { runtimeFile: "<profile>/runtime.json" } : { url: "<the private server's address, picked at start>" }) });
+      console.log(`\nsurface: mcp. Would write ${mcpFile}:\n${JSON.stringify(config, null, 2)}\n`
+        + `  and start the agent with: --mcp-config ${mcpFile} --strict-mcp-config --allowedTools ${TOOLS},${MCP_TOOLS} (the kino command stays on its PATH too)`);
+    } else console.log("\nsurface: cli (KINO_FIRSTPASS_CLI=1). No MCP server: the agent uses the `kino` command in Bash.");
     if (person) {
       const spec = appCommand({ repoRoot: root, dataDir, profileDir: "<a new temporary folder, removed when the app exits>", electronPath: createRequire(import.meta.url)("electron") });
       console.log(`\nperson mode: no private server. Would start the kino app${hidden ? " (hidden, test only)" : ""}:\n  ${spec.command} ${spec.args.join(" ")}\n  env MOTION_DATA_DIR=${spec.env.MOTION_DATA_DIR}\n`
@@ -579,12 +614,18 @@ async function main() {
   // One agent for the whole run, as in a person's Claude Code session. Each reply here is a new
   // `claude -p` process, so kino saw a new crew member every turn, and the last turn's holds
   // (2 quiet minutes) refused this agent's own edits and renders.
-  env.KINO_AGENT_SESSION = `firstpass-${runId}`.replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 32);
+  env.KINO_AGENT_SESSION = session;
+  // The MCP surface: the config `kino setup` would register, pointed at this run's kino. The server
+  // is read when each `claude -p` starts, so a restarted app is found again through its runtime file.
+  if (surface === "mcp") {
+    await writeFile(mcpFile, JSON.stringify(mcpConfig({ repoRoot: root, nodePath: process.execPath, session, ...(person ? { runtimeFile: app.runtimeFile } : { url: where.url }) }), null, 2) + "\n");
+  }
   const skillDir = path.join(workDir, ".claude/skills/kino");
   const skill = readFileSync(path.join(skillDir, "SKILL.md"), "utf8").replace(/^---[\s\S]*?---\s*/, "");
-  const system = "kino is running for this session. Its MCP tools are not connected here: use the `kino` command in Bash instead "
-    + "(the same verbs and fields as the tools, `kino help`). `kino look` saves its images as PNG files and prints their paths: open them with Read.\n\n"
-    + `The kino skill follows (its references/ links are files in ${skillDir}).\n\n${skill}`;
+  const how = surface === "mcp"
+    ? "kino is running for this session and its MCP tools are connected (mcp__kino__status, mcp__kino__edit and the rest); the `kino` command is also in Bash (the same verbs and fields)."
+    : "kino is running for this session. Its MCP tools are not connected here: use the `kino` command in Bash instead (the same verbs and fields as the tools, `kino help`). `kino look` saves its images as PNG files and prints their paths: open them with Read.";
+  const system = `${how}\n\nThe kino skill follows (its references/ links are files in ${skillDir}).\n\n${skill}`;
   const transcript = createWriteStream(path.join(runDir, "transcript.jsonl"));
   console.log(`firstpass ${runId}: kino ${person ? `app (pid ${app.pid}) ` : ""}at ${where.url}, agent in ${workDir}, budget ${minutes} min${person ? `, person mode (up to ${personMs / 60_000} min per pick or watch)` : ""}`);
 
@@ -607,7 +648,7 @@ async function main() {
   };
   try {
     for (;;) {
-      const call = await runClaude({ message, sessionId, workDir, env, transcript, deadline, model, effort, system, addDirs: [mediaDir, outDir, looksDir] });
+      const call = await runClaude({ message, sessionId, workDir, env, transcript, deadline, model, effort, system, addDirs: [mediaDir, outDir, looksDir], mcpFile: surface === "mcp" ? mcpFile : null });
       calls.push({ message, code: call.code, timedOut: call.timedOut, cost: call.cost, turns: call.turns, toolCalls: call.toolCalls, models: call.models, finalMessage: call.finalMessage, errors: call.code ? call.errors : undefined });
       // The reply to a stop is done once the agent acts again: how long that took.
       if (openStop) openStop.nextToolAfter = call.firstToolMs === null ? null : seconds1(call.firstToolMs);
@@ -672,7 +713,7 @@ async function main() {
   await rm(workDir, { recursive: true, force: true });
   const last = calls.at(-1) ?? {};
   const result = {
-    version: 1, runId, askedProjectId, projectId, brief: brief.name, ask: brief.ask, files, model: model ?? "(Claude Code default)", effort: effort ?? "(Claude Code default)", house, models: [...new Set(calls.flatMap((call) => call.models))],
+    version: 1, runId, surface, askedProjectId, projectId, brief: brief.name, ask: brief.ask, files, model: model ?? "(Claude Code default)", effort: effort ?? "(Claude Code default)", house, models: [...new Set(calls.flatMap((call) => call.models))],
     startedAt: new Date(started).toISOString(), seconds, budgetMinutes: minutes, timedOut: calls.some((call) => call.timedOut) || Date.now() >= deadline,
     mp4: made?.path ?? null, mp4Final: made?.final ?? false, mp4Info: made ? await probe(made.path) : null,
     // replies is every message the runner sent after the first; yourCallReplies are the ones that
