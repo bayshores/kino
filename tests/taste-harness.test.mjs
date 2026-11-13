@@ -9,7 +9,7 @@ import { fromAppPick, fromJudged, ladder } from "../evals/taste/ladder.mjs";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { agentStateFile, APPROVAL, appCommand, askedAfter, callsTool, checkReplies, htmlText, nextMessage, pendingPick, personStep, pickMp4, PICK_REPLY, pollUntil, projectIdFor, projectIdFromStatus, promptFor, REPLY, replyFor, seedHouse, stopEntry, summarize, waitEntry, watchOver, WATCH_REPLY } from "../evals/taste/firstpass.mjs";
+import { agentStateFile, APPROVAL, appCommand, askedAfter, callsTool, checkReplies, htmlText, nextMessage, pendingPick, personStep, pickMp4, PICK_REPLY, pollUntil, roundStatus, projectIdFor, projectIdFromStatus, promptFor, REPLY, replyFor, seedHouse, stopEntry, summarize, waitEntry, watchOver, WATCH_REPLY } from "../evals/taste/firstpass.mjs";
 import { stopsSummary } from "../backend/agent/stops.mjs";
 import { triesView } from "../backend/agent/tries.mjs";
 import { projectSeed } from "../engine/deck.js";
@@ -208,6 +208,8 @@ test("person mode: a stop is answered as before, a waiting try round makes the r
   assert.equal(pendingPick(snap([round("T3", "rendering")])).id, "T3", "clips still rendering: the person picks soon, so the runner waits too");
   assert.equal(pendingPick(snap([round("T2", "waiting")]), "T9"), null, "a poll for one round ignores the others");
   assert.equal(pendingPick(null), null);
+  assert.equal(roundStatus(snap([round("T1", "picked"), round("T2", "skipped")]), "T2"), "skipped", "a skipped round is not answered as a pick");
+  assert.equal(roundStatus(snap([]), "T2"), null);
 
   assert.deepEqual(ask(snap([round("T2", "waiting")])), { action: "pick", round: { id: "T2", question: "Which opening?", status: "waiting" }, message: PICK_REPLY, line: "waiting for your pick in the app: Which opening?" });
   assert.equal(PICK_REPLY, "I picked in the app.");

@@ -14,7 +14,7 @@
 //
 // Person mode (KINO_FIRSTPASS_PERSON=1): someone sits at the kino desktop app during the run. The
 // runner starts the app instead of its own server, and waits for the person at a try round (their
-// pick) and at the first MP4 (their watch). KINO_FIRSTPASS_PERSON_MINUTES (default 30) is the most it
+// pick) and at the first final MP4 (their watch). KINO_FIRSTPASS_PERSON_MINUTES (default 30) is the most it
 // waits for one of those; KINO_FIRSTPASS_PERSON_HIDDEN=1 (test only) keeps the app invisible and silent.
 import { fork, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -189,12 +189,15 @@ export function pendingPick(snapshot, id = null) {
   return round ? { id: String(round.id), question: String(round.question ?? ""), status: round.status } : null;
 }
 
+/** How a try round stands now ("picked", "skipped", "failed" ...), or null when it is gone. */
+export const roundStatus = (snapshot, id) => (snapshot?.agent?.tries?.rounds ?? []).find((entry) => String(entry.id) === String(id))?.status ?? null;
+
 /**
  * What the runner does when the agent's turn ends in person mode, from the snapshot and the run so
  * far (`hasMp4`: a render exists in the run, `watchStarted`: the watch already happened):
  *   stop   a kino stop waits: the runner's plain approval or the brief's reply (as without person mode)
  *   pick   a try round waits for the person's pick
- *   watch  the first MP4 exists: the person watches it in the app and marks moments
+ *   watch  the first final MP4 exists: the person watches it in the app and marks moments
  *   reply  nothing waits: "your call"
  * Stops come first: answering one takes no time. { action, message, ... }.
  */
@@ -619,7 +622,7 @@ async function main() {
       const snapshot = await readSnapshot(await connection());
       if (!snapshot) snapshotFailures += 1;
       // Without person mode: a stop or "your call". With it, also the person's pick and watch.
-      const step = person ? personStep(snapshot, { brief, stops, hasMp4: Boolean(made), watchStarted }) : (({ message: said, stop }) => ({ action: stop ? "stop" : "reply", message: said, stop }))(nextMessage(snapshot, brief, stops));
+      const step = person ? personStep(snapshot, { brief, stops, hasMp4: Boolean(made?.final), watchStarted }) : (({ message: said, stop }) => ({ action: stop ? "stop" : "reply", message: said, stop }))(nextMessage(snapshot, brief, stops));
       // The run ends at the first turn end with an MP4 once the person has watched (or the watch timed out).
       if (person && step.action === "reply" && made && watchEnded) break;
       message = step.message;
@@ -629,14 +632,16 @@ async function main() {
         console.log(`  stop ${step.stop.kind} (${step.stop.id}) waiting: replied "${message}"`);
       } else if (step.action === "pick") {
         console.log(`  ${step.line}`);
-        let failures = 0;
+        let failures = 0, ended = null;
         const wait = await waitFor("pick", async () => {
           const now = await readSnapshot(await connection());
           if (!now) { snapshotFailures += 1; failures += 1; return failures >= POLL_FAILURES ? "stop" : false; }
           failures = 0;
+          ended = roundStatus(now, step.round.id);
           return !pendingPick(now, step.round.id);
         });
-        if (wait.timedOut) { message = REPLY; console.log(`  no pick after ${wait.seconds} s: replied "${REPLY}"`); }
+        // Only a real pick is answered as one: a skipped or failed round, or no pick in time, is "your call".
+        if (wait.timedOut || ended !== "picked") { message = REPLY; console.log(`  no pick after ${wait.seconds} s (round ${ended ?? "gone"}): replied "${REPLY}"`); }
         else { personReplies += 1; console.log(`  picked after ${wait.seconds} s`); }
       } else if (step.action === "watch") {
         console.log(`  ${step.line}`);
