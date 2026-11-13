@@ -5,7 +5,8 @@
 // The frame has an opaque origin (an iframe with sandbox="allow-scripts" only) and a strict
 // content security policy (no network, no workers). Its host talks to it with postMessage:
 //
-//   host -> frame  {kino:"script", id, type:"mount", script, width, height, pixelRatio, name, images}
+//   host -> frame  {kino:"script", id, type:"mount", script, width, height, pixelRatio, name, images,
+//                   models, libraries}
 //                  {kino:"script", id, type:"draw", frame, output:"png"|"bitmap"}
 //   frame -> host  {kino:"script", type:"ready"}                       once the runtime has loaded
 //                  {kino:"script", id, type:"loaded"}                  the module loaded; setup runs
@@ -14,7 +15,10 @@
 //                  {kino:"script", id, type:"done", ok:false, message, phase, time, line?, column?}
 //
 // `images` maps an image input's key to the bytes of a picture (an ArrayBuffer); each one becomes
-// an ImageBitmap in frame.values. The runtime cannot stop a script that never returns: the
+// an ImageBitmap in frame.values. `models` maps a model input's key to the bytes of a .glb file
+// (an ArrayBuffer), given as is in frame.values and layer.models. `libraries` maps an allowed
+// import specifier ("three", the model loader) to its module text: each becomes a blob: module and
+// the script's import statements are pointed at it, so nothing is fetched. The runtime cannot stop a script that never returns: the
 // backend's host times each mount and draw (SCRIPT_LIMITS) and throws the frame away when one
 // takes too long. The live preview's page (scriptFrameHtml({worker:true})) runs the runtime in a
 // Worker instead and stops that Worker itself, so the frame and its process stay usable.
@@ -31,7 +35,7 @@ export function tooLongMessage(time) {
 
 /**
  * The frame page's content security policy. No request can leave (connect, image, font and
- * frame requests have no allowed source but data: and blob: URLs), and only the runtime itself
+ * frame requests have no allowed source but in-memory data: and blob: URLs), and only the runtime itself
  * (inline) and the module (a blob: URL) may run.
  */
 export const SCRIPT_FRAME_CSP = [
@@ -40,7 +44,8 @@ export const SCRIPT_FRAME_CSP = [
   "img-src data: blob:",
   "font-src data:",
   "style-src 'unsafe-inline'",
-  "connect-src 'none'",
+  // blob: only: the model loader reads a model's embedded textures from blob: URLs it makes itself.
+  "connect-src blob:",
   "worker-src 'none'",
   "frame-src 'none'",
   "child-src 'none'",
@@ -71,7 +76,6 @@ function scriptRuntime(inWorker) {
   const RealDate = Date;
   const realSetTimeout = setTimeout, realClearTimeout = clearTimeout;
   const realSetInterval = setInterval, realClearInterval = clearInterval;
-  const realRequestFrame = typeof requestAnimationFrame === "function" ? requestAnimationFrame : null;
   const realCancelFrame = typeof cancelAnimationFrame === "function" ? cancelAnimationFrame : null;
   const post = inWorker
     ? (message, transfer) => scope.postMessage({ kino: "script", ...message }, transfer || [])
@@ -126,7 +130,10 @@ function scriptRuntime(inWorker) {
   const timeouts = new Set(), intervals = new Set(), animationFrames = new Set();
   scope.setTimeout = (callback, delay, ...rest) => { const id = realSetTimeout(callback, delay, ...rest); timeouts.add(id); return id; };
   scope.setInterval = (callback, delay, ...rest) => { const id = realSetInterval(callback, delay, ...rest); intervals.add(id); return id; };
-  if (realRequestFrame) scope.requestAnimationFrame =(callback) => { const id = realRequestFrame(callback); animationFrames.add(id); return id; };
+  // A frame is drawn once, from frame.time: an animation loop of its own would not follow the video.
+  scope.requestAnimationFrame = () => {
+    throw new Error("requestAnimationFrame does not run in a script layer; draw the whole picture in draw(frame) from frame.time");
+  };
   function stopTimers() {
     for (const id of timeouts) realClearTimeout(id);
     for (const id of intervals) realClearInterval(id);
@@ -136,6 +143,32 @@ function scriptRuntime(inWorker) {
 
   let mounted = null;
   let moduleUrl = "";
+  let libraryUrls = [];
+
+  // The allowed import statements (engine/scriptLayer.js checks the script with the same pattern).
+  const STATIC_IMPORT = /(^|[^\w$.])import(?=[\s{*])\s*([\w$\s,{}*]+?)\s*from\s*(["'])([^"'\n]*)\3/g;
+  const blobModule = (text) => URL.createObjectURL(new Blob([text], { type: "text/javascript" }));
+  // Each library becomes a blob: module; the loader's own `from "three"` and the script's import
+  // statements point at them. Returns the script to load.
+  function linkLibraries(script, libraries) {
+    for (const url of libraryUrls) URL.revokeObjectURL(url);
+    libraryUrls = [];
+    const urls = {};
+    if (typeof libraries?.three === "string") urls.three = blobModule(libraries.three);
+    const loader = "three/addons/loaders/GLTFLoader.js";
+    if (typeof libraries?.[loader] === "string" && urls.three)
+      urls[loader] = blobModule(libraries[loader].replace(/from\s*(["'])three\1/g, `from"${urls.three}"`));
+    libraryUrls = Object.values(urls);
+    if (!libraryUrls.length) return script;
+    return script.replace(STATIC_IMPORT, (match, before, names, quote, specifier) =>
+      urls[specifier] ? `${before}import ${names} from ${quote}${urls[specifier]}${quote}` : match);
+  }
+
+  function modelBuffers(models) {
+    const buffers = {};
+    for (const key of Object.keys(models || {})) buffers[key] = models[key] instanceof ArrayBuffer ? models[key] : null;
+    return Object.freeze(buffers);
+  }
 
   // Where in the module an error happened, read from its stack (the module's own blob: URL).
   function placeOf(error) {
@@ -207,7 +240,8 @@ function scriptRuntime(inWorker) {
       return post(failure(id, `An image input could not be read: ${error && error.message || error}`, "load", 0, {}));
     }
     const canvas = new OffscreenCanvas(Math.max(1, Math.round(width * pixelRatio)), Math.max(1, Math.round(height * pixelRatio)));
-    const state = { canvas, kind: null, context: null, draw: null, width, height, pixelRatio, images };
+    const models = modelBuffers(message.models);
+    const state = { canvas, kind: null, context: null, draw: null, width, height, pixelRatio, images, models };
     const getContext = canvas.getContext.bind(canvas);
     canvas.getContext = (kind, options) => {
       const context = getContext(kind, options);
@@ -215,9 +249,9 @@ function scriptRuntime(inWorker) {
       return context;
     };
     if (moduleUrl) URL.revokeObjectURL(moduleUrl);
-    moduleUrl = URL.createObjectURL(new Blob([script], { type: "text/javascript" }));
     let module;
     try {
+      moduleUrl = blobModule(linkLibraries(script, message.libraries));
       module = await import(moduleUrl);
     } catch (error) {
       const place = error instanceof SyntaxError ? await syntaxPlace(script) : placeOf(error);
@@ -228,7 +262,7 @@ function scriptRuntime(inWorker) {
     }
     post({ id, type: "loaded" });
     try {
-      const layer = Object.freeze({ canvas, width, height, pixelRatio, name: String(name || "") });
+      const layer = Object.freeze({ canvas, width, height, pixelRatio, name: String(name || ""), models });
       const draw = await module.default(layer);
       if (typeof draw !== "function") throw new Error("setup(layer) must return the draw(frame) function.");
       state.draw = draw;
@@ -267,6 +301,7 @@ function scriptRuntime(inWorker) {
     restartRandom();
     const values = { ...(frame.values || {}) };
     for (const key of Object.keys(state.images)) values[key] = state.images[key];
+    for (const key of Object.keys(state.models)) values[key] = state.models[key];
     const given = Object.freeze({ ...frame, values: Object.freeze(values), pixelRatio: state.pixelRatio });
     if (state.kind === "2d") {
       // The whole drawing state starts fresh each frame (clips, styles, paths, the saved-state
@@ -356,7 +391,7 @@ function scriptRelay(workerSource, limits, tooLong) {
       stop(message.id);
       toHost({ kino: "script", id: message.id, type: "done", ok: false, message: tooLong(time), phase, time, tooLong: true });
     }, message.type === "mount" ? limits.setupMs : limits.drawMs));
-    const transfer = Object.values(message.images || {}).filter((item) => item instanceof ArrayBuffer);
+    const transfer = [...Object.values(message.images || {}), ...Object.values(message.models || {})].filter((item) => item instanceof ArrayBuffer);
     worker.postMessage(message, transfer);
   });
   toHost({ kino: "script", type: "ready" });

@@ -11,6 +11,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { SCRIPT_LIMITS, tooLongMessage } from "../engine/scriptRuntime.js";
 import { resolveExecutable } from "./chromium-raster.mjs";
+import { scriptLibrariesFor } from "./script-libraries.mjs";
 import { lowerIfBackground } from "./render-activity.mjs";
 
 const workerEntry = fileURLToPath(new URL("../desktop/script-worker.cjs", import.meta.url));
@@ -23,6 +24,9 @@ const MAX_SIDE = 16384;
 const MAX_PIXELS = 64_000_000;
 const MAX_FRAMES = 100_000;
 const MAX_IMAGE_BYTES = 48 * 1024 * 1024;
+// Images and models together: base64 makes them 4/3 larger, and with the library text (about
+// 0.9 MB) the request stays under the worker's 96 MB line limit.
+const MAX_INPUT_BYTES = 68 * 1024 * 1024;
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
 function abortError(signal) {
@@ -33,7 +37,7 @@ function abortError(signal) {
 }
 
 // The checks on what render() is given; a mistake here is the caller's, so it throws.
-function validate({ script, width, height, pixelRatio, frames, images }) {
+function validate({ script, width, height, pixelRatio, frames, images, models }) {
   if (typeof script !== "string" || !script.trim() || script.length > MAX_SCRIPT_LENGTH) throw new TypeError(`The script must be text of at most ${MAX_SCRIPT_LENGTH} characters.`);
   if (!Number.isFinite(pixelRatio) || pixelRatio <= 0 || pixelRatio > 8) throw new RangeError("The pixel ratio must be a number above 0 and at most 8.");
   if (![width, height].every((side) => Number.isFinite(side) && side > 0)) throw new RangeError("The width and height must be numbers above 0.");
@@ -49,6 +53,12 @@ function validate({ script, width, height, pixelRatio, frames, images }) {
     bytes += value?.length ?? 0;
   }
   if (bytes > MAX_IMAGE_BYTES) throw new RangeError("The image inputs may have at most 48 MB together.");
+  for (const [key, value] of Object.entries(models ?? {})) {
+    if (value != null && !(value instanceof Uint8Array)) throw new TypeError(`The model input "${key}" must be the bytes of a .glb file (a Buffer) or null.`);
+    bytes += value?.length ?? 0;
+  }
+  // The mount request travels as one base64 line, which the worker takes up to 96 MB.
+  if (bytes > MAX_INPUT_BYTES) throw new RangeError("The image and model inputs may have at most 68 MB together.");
   return { pixelWidth, pixelHeight };
 }
 
@@ -174,11 +184,14 @@ export function createScriptRenderer(options = {}) {
     return worker;
   }
 
-  async function renderNow({ script, width, height, pixelRatio, frames, images, signal, name }, { pixelWidth, pixelHeight }) {
-    const imageEntries = Object.entries(images ?? {}).sort(([a], [b]) => (a < b ? -1 : 1));
+  async function renderNow({ script, width, height, pixelRatio, frames, images, models, signal, name }, { pixelWidth, pixelHeight }) {
+    const sorted = (map) => Object.entries(map ?? {}).sort(([a], [b]) => (a < b ? -1 : 1));
+    const imageEntries = sorted(images), modelEntries = sorted(models);
     const hash = createHash("sha256").update(JSON.stringify([script, width, height, pixelRatio, name ?? ""]));
     for (const [key, bytes] of imageEntries) hash.update(`\n${key}:${bytes?.length ?? -1}:`).update(bytes ?? Buffer.alloc(0));
+    for (const [key, bytes] of modelEntries) hash.update(`\nmodel ${key}:${bytes?.length ?? -1}:`).update(bytes ?? Buffer.alloc(0));
     const key = hash.digest("hex");
+    const encode = (entries) => Object.fromEntries(entries.map(([entry, bytes]) => [entry, bytes ? Buffer.from(bytes).toString("base64") : null]));
     const results = [];
     for (let index = 0; index < frames.length; index += 1) {
       if (signal?.aborted) throw abortError(signal);
@@ -189,8 +202,10 @@ export function createScriptRenderer(options = {}) {
         const state = await ensureWorker();
         if (mountedKey !== key) {
           mountedKey = null;
-          const encoded = Object.fromEntries(imageEntries.map(([name, bytes]) => [name, bytes ? Buffer.from(bytes).toString("base64") : null]));
-          const mounted = await call(state, { type: "mount", script, width, height, pixelRatio, name: name ?? "", images: encoded, time }, BACKSTOP_MS.setup, time);
+          // The library text goes only to a module that imports it.
+          const libraries = await scriptLibrariesFor(script);
+          const mounted = await call(state, { type: "mount", script, width, height, pixelRatio, name: name ?? "",
+            images: encode(imageEntries), models: encode(modelEntries), libraries, time }, BACKSTOP_MS.setup, time);
           if (!mounted.ok) {
             // Loading or setup failed: no frame of this call can be drawn.
             const error = errorOf({ ...mounted, phase: mounted.phase === "load" ? "load" : "setup" }, time);
@@ -231,7 +246,7 @@ export function createScriptRenderer(options = {}) {
      * {png, empty} or {error: {message, phase, time, line?, column?}}.
      */
     render(request = {}) {
-      const given = { pixelRatio: 1, images: {}, ...request };
+      const given = { pixelRatio: 1, images: {}, models: {}, ...request };
       if (closed) return Promise.reject(new Error("The script renderer is closed."));
       let sizes;
       try { sizes = validate(given); } catch (error) { return Promise.reject(error); }

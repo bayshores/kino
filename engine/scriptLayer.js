@@ -16,13 +16,14 @@ export const SCRIPT_LIMITS = Object.freeze({
   optionLength: 200,
 });
 
-export const SCRIPT_INPUT_TYPES = Object.freeze(["number", "color", "text", "boolean", "select", "image"]);
+export const SCRIPT_INPUT_TYPES = Object.freeze(["number", "color", "text", "boolean", "select", "image", "model"]);
 /** Input types an animation may move (numbers lerp, colors blend). */
 export const ANIMATED_INPUT_TYPES = Object.freeze(["number", "color"]);
 
 const KEY_PATTERN = /^[a-z][a-zA-Z0-9]*$/;
 const COLOR_PATTERN = /^#(?:[\da-fA-F]{6}|[\da-fA-F]{8})$/;
 const IMAGE_SOURCE = /^\/api\/media\/[a-zA-Z0-9._-]+$/;
+const MODEL_SOURCE = /^\/api\/media\/[a-zA-Z0-9._-]+\.glb$/;
 const INPUT_FIELDS = ["key", "type", "label", "min", "max", "step", "options"];
 
 function fail(path, message) {
@@ -39,6 +40,40 @@ const finite = (value) => typeof value === "number" && Number.isFinite(value);
 
 // `import` as a statement or a call (import.meta and words such as "important" do not count).
 const IMPORT_PATTERN = /(^|[^\w$.])import\s*(?:\(|[\w${*"'])/m;
+
+/**
+ * The only modules a script may import, by the exact text it writes. The renderer supplies them
+ * inside the sandboxed frame (no network): the 3D library and its model loader.
+ */
+export const SCRIPT_LIBRARY_NAMES = Object.freeze(["three", "three/addons/loaders/GLTFLoader.js"]);
+// A static import statement with a name list: `import * as THREE from "three";`,
+// `import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";`. The runtime rewrites the
+// same statements (engine/scriptRuntime.js keeps its own copy of this pattern).
+const STATIC_IMPORT = /(^|[^\w$.])import(?=[\s{*])\s*([\w$\s,{}*]+?)\s*from\s*(["'])([^"'\n]*)\3/g;
+const ALLOWED_IMPORTS = 'a script may import only "three" (import * as THREE from "three") and the model loader (import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js"); put everything else in this one module';
+
+/** The library specifiers `script` imports (from SCRIPT_LIBRARY_NAMES), in that list's order. */
+export function scriptLibraryNames(script) {
+  if (typeof script !== "string" || !script.includes("import")) return [];
+  const found = new Set();
+  for (const match of script.matchAll(STATIC_IMPORT)) if (SCRIPT_LIBRARY_NAMES.includes(match[4])) found.add(match[4]);
+  return SCRIPT_LIBRARY_NAMES.filter((name) => found.has(name));
+}
+
+// The source with its allowed import statements blanked (same lines and columns), or a sentence
+// for the first import that is not allowed.
+function withoutAllowedImports(source) {
+  let refused = "";
+  const blanked = source.replace(STATIC_IMPORT, (match, before, _names, _quote, specifier, offset) => {
+    if (SCRIPT_LIBRARY_NAMES.includes(specifier)) return before + match.slice(before.length).replace(/[^\n]/g, " ");
+    if (!refused) {
+      const line = source.slice(0, offset + before.length).split("\n").length;
+      refused = `imports "${specifier.slice(0, 120)}" on line ${line}; ${ALLOWED_IMPORTS}`;
+    }
+    return match;
+  });
+  return { blanked, refused };
+}
 const DEFAULT_EXPORT = /\bexport\s+default\b/g;
 
 // The source as a function body with the same lines: `export default` becomes `return`, any other
@@ -91,16 +126,18 @@ export function scriptProblem(source) {
   if (!source.trim()) return "is empty; write a module with export default function setup(layer) { return function draw(frame) {...} }";
   if (syntaxCache.has(source)) return syntaxCache.get(source);
   let problem = "";
-  const lines = source.split("\n");
+  const { blanked, refused } = withoutAllowedImports(source);
+  const lines = blanked.split("\n");
   const importLine = lines.findIndex((line) => IMPORT_PATTERN.test(line));
   const defaults = source.match(DEFAULT_EXPORT)?.length ?? 0;
-  if (importLine >= 0)
-    problem = `uses import on line ${importLine + 1}; a script can't load other files or modules yet, so put everything it needs in this one module`;
+  if (refused) problem = refused;
+  else if (importLine >= 0)
+    problem = `uses ${/import\s*\(/.test(lines[importLine]) ? "import()" : "an import"} on line ${importLine + 1}; ${ALLOWED_IMPORTS}, imported at the top with a static import`;
   else if (defaults === 0)
     problem = "has no export default; start the module with export default function setup(layer) { ... return function draw(frame) { ... }; }";
   else if (defaults > 1) problem = "has more than one export default; keep one, the setup function";
   else {
-    const body = asFunctionBody(source);
+    const body = asFunctionBody(blanked);
     const message = parseError(body);
     if (message) {
       const { line, column } = errorPosition(body, message);
@@ -189,6 +226,10 @@ export function normalizeInputValue(input, value, path) {
       if (value !== "" && (typeof value !== "string" || !IMAGE_SOURCE.test(value)))
         fail(path, `"${key}" is an image input; give it an imported picture's src (/api/media/<file>) or "" for none`);
       return value;
+    case "model":
+      if (value !== "" && (typeof value !== "string" || !MODEL_SOURCE.test(value)))
+        fail(path, `"${key}" is a model input; give it an imported .glb model's src (/api/media/<file>.glb) or "" for none`);
+      return value;
     default:
       return fail(path, `unknown input type ${type}`);
   }
@@ -245,9 +286,23 @@ export function animatedInputs(layer) {
 
 /** The picture sources a script layer's image inputs hold (like an image layer's `src`). */
 export function scriptImageSources(layer) {
+  return scriptSourcesOf(layer, "image");
+}
+
+/** The .glb model sources a script layer's model inputs hold. */
+export function scriptModelSources(layer) {
+  return scriptSourcesOf(layer, "model");
+}
+
+/** Every uploaded file a script layer's inputs use (pictures and models), for sharing and copying. */
+export function scriptMediaSources(layer) {
+  return [...scriptImageSources(layer), ...scriptModelSources(layer)];
+}
+
+function scriptSourcesOf(layer, type) {
   if (layer?.type !== "script") return [];
   return (layer.inputs ?? [])
-    .filter((input) => input?.type === "image")
+    .filter((input) => input?.type === type)
     .map((input) => layer.values?.[input.key])
     .filter((src) => typeof src === "string" && src);
 }
