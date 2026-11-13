@@ -240,3 +240,6 @@ button.board-option:hover .option-picture img { opacity: 0.82; }
   .board-box, .stop-card .voice-line { animation: none; }
   .board-clip, .board-clip img, .cut-play, .shot-step, .stepper button, .option-picture img, .board-more summary, .stop-note, .board-calls-box summary, .call-no { transition: none; }
 }
+/* The answers wrap when the row is narrow (a phone), and a phone's buttons are 44 px tall. */
+.stop-ask-row .voice-answers { flex: 0 1 auto; flex-wrap: wrap; justify-content: center; max-width: 100%; }
+.phone .voice-button { height: 44px; }

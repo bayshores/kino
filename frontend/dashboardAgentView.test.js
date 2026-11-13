@@ -193,6 +193,7 @@ test("live panels: the seen drawer while a look runs or just ended, the render d
 test("the line under the frame: the call as a sentence, the line before it, and what waits for you first", () => {
   assert.equal(asSentence("look at the source of smirk", { running: true }), "Looking at the source of smirk.");
   assert.equal(asSentence("sheet 0:00 to 1:00", { verb: "look" }), "Looked at sheet 0:00 to 1:00.");
+  assert.equal(asSentence("at 0.0 s", { verb: "look" }), "Looked at the frame at 0.0 s.");
   assert.equal(asSentence("Which cut?"), "Which cut?");
   assert.equal(asAsk("look at the stop, then approve it …"), "Look at the stop, then approve it.", "a request stays in the present tense");
   const recording = voiceLine(data({ recording: { id: "R1", startedAt: NOW - 65_000 } }), nova, NOW);

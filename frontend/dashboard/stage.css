@@ -436,3 +436,15 @@
 /* Faint text on a filled row would be under 4.5:1: it takes the quiet text color there. */
 .screening .agent-call:hover .call-time, .screening .agent-call.current .call-time, .screening .agent-call.open .call-time,
 .dash .check-list > li:hover .check-at, .dash .check-list > li.open .check-at { color: var(--fg1); }
+
+/* ---- a zoomed pane (+): it keeps a place in this grid (the named area of the old layout is not
+   here, and an implicit track would size it by its content, so it could never grow back) ---- */
+.panes.screening.zoomed > .p-stage.is-zoomed { grid-area: frame-start / full-start / strip-end / full-end; }
+.panes.screening.zoomed > .p-agent.is-zoomed { grid-area: frame-start / center-start / list-end / center-end; width: 100%; }
+.panes.screening.zoomed > .p-timeline.is-zoomed { grid-area: frame-start / center-start / list-end / center-end; height: auto; margin-top: 0; }
+
+/* The session list's one button (open or close every section) sits at its top right. */
+.dash .screening .p-session .session-facts { display: block; position: relative; z-index: 1; height: 0; padding: 0; margin: 0; }
+.dash .screening .p-session .session-facts .icon-button { position: absolute; right: 0; top: 8px; }
+.dash .screening .p-session .session-facts .icon-button { width: 28px; height: 28px; border: 0; color: var(--fg1); }
+.dash .screening .p-session .session-facts .icon-button:hover { color: var(--fg0); background: var(--bg1); }

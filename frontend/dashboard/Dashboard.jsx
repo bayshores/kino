@@ -253,6 +253,15 @@ export function Dashboard() {
     switchTheme(next, { origin: box ? { x: box.left + box.width / 2, y: box.top + box.height / 2 } : null, still });
     setTheme(next);
   };
+  // The "theme" command (the command list, or typed): the same switch, opening from the middle.
+  const themeNow = useRef(theme);
+  themeNow.current = theme;
+  const commandTheme = (wanted) => {
+    const next = wanted ?? otherTheme(themeNow.current);
+    if (next === themeNow.current) return;
+    switchTheme(next, { origin: { x: window.innerWidth / 2, y: window.innerHeight / 2 }, still });
+    setTheme(next);
+  };
   const [commandOpen, setCommandOpen] = useState(false);
   const [confirm, setConfirm] = useState(null);
   // The judge round you put off (esc: later) and the done one you are looking at (judge.jsx).
@@ -1224,6 +1233,7 @@ export function Dashboard() {
       case "mark-seen": markTimelineSeen(); return;
       // A view of the agent pane: the pane gets the focus with it.
       case "view": setAgentView(command.value); focusPane(2); return;
+      case "theme": commandTheme(command.value); return;
       default: say("That command does nothing here.", true);
     }
   }, [data, time, fps, player, scene, sendNote, toggleHold, openProject, exportScene, cancelRender, focusPane, say, fail]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1240,6 +1250,7 @@ export function Dashboard() {
     { id: "inspire", words: "inspire", hint: "references", keys: "F3", command: { action: "inspire" } },
     { id: "library", words: "library", hint: "everything the agent can use", keys: "F4", command: { action: "library" } },
     { id: "projects", words: "projects", hint: "open, duplicate, Trash", command: { action: "projects" } },
+    { id: "theme", words: "theme", hint: "dark or light", command: { action: "theme", value: null } },
     { id: "variants", words: "variants", hint: "compare and pick a variant", command: { action: "variants" } },
     { id: "picks", words: "picks", hint: "blind A or B", command: { action: "picks" } },
     { id: "storyboard", words: "storyboard", hint: "the board, read only", command: { action: "board" } },

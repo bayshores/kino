@@ -412,6 +412,8 @@ export function asSentence(text, { verb = "", running = false } = {}) {
   const at = running ? 0 : 1;
   let line;
   if (tense) line = [tense[at], ...rest].join(" ");
+  // A look at one frame is labelled by its time alone ("at 0.0 s"): it is the frame at that time.
+  else if (verb === "look" && first === "at") line = `${TOOL_TENSES.look[at]} the frame ${words}`;
   else if (TOOL_TENSES[verb] && first === first.toLowerCase()) line = `${TOOL_TENSES[verb][at]} ${words}`;
   else line = first.charAt(0).toUpperCase() + first.slice(1) + (rest.length ? ` ${rest.join(" ")}` : "");
   return /[?!]$/.test(line) ? line : `${line}.`;

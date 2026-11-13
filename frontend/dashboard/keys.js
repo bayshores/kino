@@ -113,6 +113,9 @@ export function parseCommand(text) {
     case "projects": case "p": return { action: "projects" };
     case "crew": return { action: "crew" };
     case "inspire": return { action: "inspire" };
+    // "theme" switches dark and light; "theme light", "dark" or "light" picks one.
+    case "theme": return { action: "theme", value: ["dark", "light"].includes(value) ? value : null };
+    case "dark": case "light": return { action: "theme", value: word.toLowerCase() };
     case "shares": case "share": return { action: "shares" };
     case "settings": case "s": return { action: "settings" };
     case "help": case "keys": return { action: "help" };

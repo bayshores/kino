@@ -176,6 +176,7 @@ test("F2 opens the crew screen and F1 the stage, from any screen; the command li
   assert.equal(keyAction({ key: "Escape" }, { screen: "crew" }), "back");
   // The crew screen's own letters (h x s t r H) are not the dashboard's there.
   for (const key of ["h", "x", "s", "t", "r", "H"]) assert.equal(keyAction({ key }, { screen: "crew" }), null);
+  assert.deepEqual([parseCommand("theme"), parseCommand("theme light"), parseCommand("dark")], [{ action: "theme", value: null }, { action: "theme", value: "light" }, { action: "theme", value: "dark" }]);
   assert.deepEqual(parseCommand("crew"), { action: "crew" });
 });
 
