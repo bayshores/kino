@@ -8,6 +8,7 @@ import "./dashboard.css";
 import * as server from "./api.js";
 import { accessHeaders } from "../client.js";
 import { createPictureClock, createPlaybackClock, createTimeStore, decodeSound, frameStart } from "./playbackClock.js";
+import { useReactions } from "./useReactions.js";
 import { createMediaKeys } from "./mediaKeys.js";
 import { loadBrowserFonts } from "../browserFonts.js";
 import { defaultFonts } from "../../engine/fonts.js";
@@ -409,12 +410,23 @@ export function Dashboard() {
   const [mediaKeys] = useState(() => createMediaKeys({ onPlay: () => mediaRun.current.play?.(), onPause: () => mediaRun.current.pause?.() }));
   useEffect(() => () => mediaKeys.close(), [mediaKeys]);
 
+  // The reaction track (useReactions.js): what you do while watching, and your good and bad marks.
+  // Each entry carries the revision on the stage (a turn's checkpoint while one is shown).
+  const reactions = useReactions({ projectId, revision: checkpoint?.rev ?? revision, savedMarks: data?.agent?.marks, onError: (text) => say(text, true) });
+  const { track: reactionTrack, flush: flushReactions } = reactions;
+  const sceneRef = useRef(null);
+  sceneRef.current = scene ? { id: scene.id, duration } : null;
+  useEffect(() => timeStore.subscribe(() => {
+    if (playingRef.current && sceneRef.current) reactionTrack.tick(sceneRef.current.id, timeStore.get(), sceneRef.current.duration);
+  }), [timeStore, reactionTrack]);
+
   // Plays from the time on screen. Runs inside your key press or click, so the browser lets the
   // sound start.
   const startPlaying = () => {
     player.setDuration(duration || 1e-3);
     const from = time >= duration ? 0 : time;
     timeStore.set(frameStart(from, fps));
+    if (scene) reactionTrack.play(scene.id, from, duration);
     player.play(from);
     mediaKeys.set(true, scene?.name ? `${scene.name}` : "kino");
     setPlaying(true);
@@ -429,15 +441,24 @@ export function Dashboard() {
     const heard = frameStart(player.pause(), fps);
     const onScreen = timeStore.get();
     const stopped = Math.min(duration, onScreen >= heard && onScreen - heard < 0.25 ? onScreen : heard);
+    reactionTrack.stop(stopped);
+    flushReactions();
     timeStore.set(stopped);
     setView((value) => ({ ...value, time: stopped }));
     setPlaying(false);
     return stopped;
-  }, [player, mediaKeys, timeStore, duration, fps]);
+  }, [player, mediaKeys, timeStore, duration, fps, reactionTrack, flushReactions]);
   mediaRun.current = { play: () => { if (scene && !player.playing) startPlaying(); }, pause: () => stopPlaying() };
   // Another scene: playing goes on from its start, without the last scene's sound.
   const showScene = (sceneId) => {
-    if (player.playing) { player.seek(0); timeStore.set(0); }
+    if (player.playing) {
+      // The reaction track starts a run in the new scene (no jump, no play-through).
+      const next = Number(doc?.scenes.find((entry) => entry.id === sceneId)?.duration) || 1e-3;
+      reactionTrack.stop(timeStore.get());
+      sceneRef.current = { id: sceneId, duration: next };
+      player.seek(0); timeStore.set(0);
+      reactionTrack.play(sceneId, 0, next);
+    }
     setView({ sceneId, time: 0 });
   };
 
@@ -1225,6 +1246,15 @@ export function Dashboard() {
         setView((value) => ({ ...value, time: Math.max(0, Math.min(duration, Math.round(((stopped ?? Math.min(value.time, duration)) + (action === "frame-back" ? -1 : 1) / fps) * fps) / fps)) }));
         return;
       }
+      // A good or bad mark: while playing, a range from up to 3 s before (you click after the moment).
+      case "mark-good": case "mark-bad": {
+        if (!scene) return;
+        const kind = action === "mark-good" ? "good" : "bad";
+        const at = player.playing ? frameStart(player.time(), fps) : time;
+        const entry = reactions.mark(kind, scene.id, at, player.playing);
+        say(`${kind} mark at ${entry.playing ? `${entry.a} to ${entry.b}` : entry.b} s`);
+        return;
+      }
       case "turn-back": stepTurn(-1); return;
       case "turn-forward": stepTurn(1); return;
       case "scene-back": stepScene(-1); return;
@@ -1602,6 +1632,7 @@ export function Dashboard() {
 
   const stage = (
     <StagePane {...paneProps(1)} data={data} scene={scene} time={time} rev={stageRev} checkpoint={checkpoint?.turn ?? null} full={full} playing={playing} fps={fps} still={still} previewList={previewList}
+      marks={reactions.marks} onUnmark={reactions.remove} onClearMarks={reactions.clear}
       overlays={overlays} findings={findings} selectedLayer={selectedLayer} onPin={(area, extra) => startNote(area, true, extra)} draft={draft} noteBubble={noteBubble}
       timeStore={timeStore} fontVersion={fontVersion} sound={{ state: soundState, mix: mix.state, error: mix.error, blocked: SOUND_BLOCKED }} onSoundOn={() => player.resume()} soundTime={player.time}
       onToggleOutlines={toggleBoxes} onSeek={(value) => { stopPlaying(); setView((current) => ({ ...current, time: value })); }}

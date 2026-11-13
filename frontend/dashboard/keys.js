@@ -12,14 +12,14 @@ export const KEY_HELP = [
   ["a Tab d c", "on a stop: approve, approve with a note, redo with a note, a note on one shot (A, D off)"],
   ["u", "undo a turn"], ["h H", "hold agent writes"], ["s g b", "safe area, grid, boxes on the frame"], ["o", "full-quality frame"],
   ["r e", "render (export)"], ["t", "raw transcript"], ["x", "cancel a render"], ["f", "follow the agent"],
-  ["l", "mark the timeline's ▾ changes seen"],
+  ["l", "mark the timeline's ▾ changes seen"], ["m M", "good, bad moment mark"],
 ];
 
 const MAIN = {
   "?": "help", ":": "command", "/": "filter",
   " ": "play", ",": "frame-back", ".": "frame-forward", "[": "turn-back", "]": "turn-forward", "{": "scene-back", "}": "scene-forward",
   c: "note", n: "note", a: "allow", A: "allow-always", d: "deny", D: "deny-always", u: "undo", H: "hold", h: "hold", o: "full-frame", e: "export", r: "export",
-  s: "safe", g: "grid", b: "boxes",
+  s: "safe", g: "grid", b: "boxes", m: "mark-good", M: "mark-bad",
   t: "transcript", x: "cancel-render", f: "follow", l: "seen", "+": "zoom", "=": "zoom", _: "unzoom",
   j: "down", k: "up", ArrowDown: "down", ArrowUp: "up", ArrowLeft: "left", ArrowRight: "right", Enter: "open", Escape: "back",
 };

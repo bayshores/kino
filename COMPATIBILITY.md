@@ -2176,6 +2176,12 @@ edit by hand. Dark only, no purple. Main tests: `backend/dashboard.test.mjs`, `f
 - **Settings**: Verified for render settings, approvals, stops, sound search and quiet notifications.
   Not built: brand kits, check strictness, platform presets, history retention. Evidence:
   `backend/dashboard-settings.test.mjs`, `backend/dashboard-render-settings.test.mjs`.
+- **Reaction track**: the stage keeps looks-again, skips, pauses, play-throughs and good/bad mark
+  chips (ticks on the scrub bar, click removes); status and look review print them as facts with the
+  layer under each and whether it changed since. Verified in the desktop app on a real project and
+  by unit tests. Evidence: `frontend/reactionTrack.test.js`, `backend/agent-reactions.test.mjs`.
+  Gap: no browser test of the chips; one viewer only; in a stage pane about 420 px wide the scrub
+  bar shrinks to about 120 px.
 - **Other gaps**: Claude Code channel delivery tested server side only; macOS banner and Dock badge
   not seen; phone approvals only on the owner's dashboard; any same-user program can get a review key.
 

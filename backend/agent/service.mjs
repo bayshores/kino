@@ -17,6 +17,7 @@ import { uptime } from "node:os";
 import { EASINGS, lowpassSampler, PRESETS, speedAnimations } from "../../engine/animation.js";
 import { addNeeds, answerNeed, emptyNeeds, finishNeed, needsCall, needsLine, needState, NEEDS_WAIVER, openNeeds, parseNeedItems, splitImported } from "./needs.mjs";
 import { LIBRARY_TOPICS, NOTES_ACTIONS } from "./actions.mjs";
+import { markReactionsRead, reactionLines, reactionMarks, reactionRowsAt, recordReactions } from "./reactions.mjs";
 import { addCandidates, createFootageActions, FootageError, FOOTAGE_RESULT_KEEP_MS, FOOTAGE_TOPIC_LINE, isFoundClip, markPlaces, parseRef as parseFootageRef, personClipCount, personClipsLine, scanIdOf } from "../footage-finder/actions.mjs";
 import { elsewhereLine, knownEdits, withStudies } from "../footage-finder/search.mjs";
 import { findCutClips, importedSeconds, planTake, takeText } from "../footage-finder/take.mjs";
@@ -3735,6 +3736,8 @@ export function createAgentService(deps) {
     const extra = [
       waiting.length ? `awaiting the person's approval: ${waiting.slice(0, 5).map((entry) => `${entry.id} ${entry.summary}`).join("; ")}` : "",
       deps.hold?.().on ? "HOLD: the person paused agent writes; reads still work." : "",
+      // What the person did while watching in the app (reactions.mjs): facts, at most 3 lines.
+      ...reactionLines(state, document, record.revision, { name: (id) => refName(id, codes) }),
     ].filter(Boolean);
     // The checks, what waits and the inbox (added by the entry point at `early.at`) come right
     // after the direction block, before the plan and the layer rows.
@@ -5836,6 +5839,8 @@ export function createAgentService(deps) {
     for (const [index, entry] of ordered.entries()) entry.n = index + 1;
     const images = [];
     const lines = [];
+    // The person's unread marks, looks-again and skips, each on its nearest moment (at most 3 rows a call).
+    const reacted = reactionRowsAt(state, scene.id, ordered.map((entry) => entry.event.time), { document, rev: record.revision });
     let pageNumber = 0;
     for (const size of ["full", "compact"]) {
       const entries = picked[size];
@@ -5848,6 +5853,7 @@ export function createAgentService(deps) {
         const members = entries.filter((entry) => page.frames.some((item) => item.time === entry.event.time));
         lines.push(`page ${pageNumber} (${size === "full" ? "full size" : "compact"}) ${file}: ${members.map((entry) => `${entry.n}=${eventWords(entry.event)}`).join(" · ")}`);
         for (const entry of members) for (const note of entry.notes.slice(0, 3)) lines.push(`  ${entry.n} @${entry.event.time}s ${note}`);
+        for (const entry of members) if (reacted.has(entry.event.time)) lines.push(`  ${entry.n} @${entry.event.time}s ${reacted.get(entry.event.time)}`);
       }
     }
     // One seam a cut: events within SEAM_MERGE of the same cut share it.
@@ -6846,6 +6852,26 @@ export function createAgentService(deps) {
     } catch (error) { throw new AgentError("bad_input", error.message); }
   }
 
+  // notes {action:"reactions"} (reactions.mjs): from the dashboard, the person's batch of viewing
+  // facts and marks ({entries, remove?, clear?}); from the agent, the fact lines. notes
+  // {action:"resolve", id:"reactions"} marks them read so they stop repeating. Entries an agent
+  // sends are not kept.
+  async function notesReactions(record, input, meta, codes) {
+    const projectId = record.document.id;
+    // Only the app's own call (dashboard act, marked reviewed) is the person's viewing: an agent's by:"you" is not.
+    const you = meta.by === "you" && meta.reviewed === true;
+    if (you) {
+      const outcome = await agentState.update(projectId, (state) => recordReactions(state, input, { document: record.document, rev: record.revision, now: now() }));
+      return { project: projectId, text: outcome.cleared ? `cleared ${plural(outcome.cleared, "reaction")}` : `kept ${plural(outcome.kept, "reaction")}${outcome.removed ? `, removed ${outcome.removed}` : ""}`,
+        data: { ...outcome, marks: reactionMarks(await agentState.read(projectId)) } };
+    }
+    const state = await agentState.read(projectId);
+    const lines = reactionLines(state, record.document, record.revision, { name: (id) => refName(id, codes) });
+    const read = input.read === true;
+    return done(projectId, { text: [lines.length ? lines.join("\n") : "no unread reactions: the person has not watched in the app since you last read them.", ...(read && lines.length ? ["marked read."] : [])].join("\n"),
+      data: { unread: lines.length > 0, read } }, read ? { change(draft) { markReactionsRead(draft); } } : undefined);
+  }
+
   // ---- notes and the plan -----------------------------------------------------------------
   async function notes(input, meta) {
     if (input.action === "judge" && (input.videos !== undefined || input.pair_id !== undefined)) return notesPicks(input, meta);
@@ -6925,6 +6951,7 @@ export function createAgentService(deps) {
       return { project: projectId, text: `${result.id} saved; ${started ? `${started.name} (${started.id}) started to work on it.` : "the agent gets it with its next call."}`,
         data: { note: result, ...(started ? { started: started.id } : {}) } };
     }
+    if (action === "reactions") return notesReactions(record, input, meta, codes);
     if (action === "helper" || action === "release") return notesCrew(projectId, input, meta, action);
     if (action === "judge") return notesJudge(record, input, meta);
     if (action === "try") return notesTry(record, input, meta);
@@ -6935,6 +6962,8 @@ export function createAgentService(deps) {
       return done(projectId, { text: lines.join("\n"), data: { notes: open } });
     }
     if (["reopen", "always", "keep", "stopped"].includes(action)) return notesAlways(projectId, input, meta, action, resolver, codes, record.document);
+    // resolve {id:"reactions"}: the agent read the person's reactions (reactions.mjs).
+    if (action === "resolve" && input.id === "reactions") return notesReactions(record, { read: true }, { ...meta, by: "agent" }, codes);
     if (action === "reply" || action === "resolve") {
       if (!input.id) throw new AgentError("bad_input", `${action} needs id (such as N2).`);
       const outcome = await agentState.update(projectId, (state) => {

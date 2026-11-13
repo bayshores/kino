@@ -68,6 +68,7 @@ import { assignCodes } from "./agent/refs.mjs";
 import { briefSummary } from "./agent/brief.mjs";
 import { judgeView } from "./agent/judge.mjs";
 import { triesView } from "./agent/tries.mjs";
+import { reactionMarks } from "./agent/reactions.mjs";
 import { keepAsking, StopError, stopRules, stopsSummary } from "./agent/stops.mjs";
 import { sceneSoundClips, soundMixArgs, soundMixDuration } from "./export.mjs";
 import { runExportProcess } from "./export-process.mjs";
@@ -209,6 +210,8 @@ export function createDashboardRoutes(deps) {
   async function agentSlice(projectId) {
     const state = await agentState.read(projectId);
     return { plan: state.plan, notes: state.notes.slice(-100), turns: state.turns.slice(-60), codes: state.codes?.byId ?? {}, brief: briefSummary(state), stops: stopsSummary(state), stopped: state.stopped ?? [], judge: judgeView(state), tries: triesView(state), needs: openNeeds(state.needs),
+      // The person's own good and bad marks for the scrub bar (never the viewing log).
+      marks: reactionMarks(state),
       // Soundtrack candidates (backend/soundtrack.mjs) for the inspire screen: no file addresses.
       soundtrack: state.soundtrack ? { story: state.soundtrack.story, candidates: state.soundtrack.candidates.map(({ url, filetype, ...entry }) => entry) } : null };
   }

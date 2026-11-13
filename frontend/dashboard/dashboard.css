@@ -390,7 +390,7 @@
 
 /* Under the frame: ◂◂ ▶ ▸▸, the scrub bar, the time, then [s] safe [g] grid [b] boxes. */
 .stage-transport {
-  display: grid; grid-template-columns: auto minmax(8ch, 1fr) auto auto; align-items: center; column-gap: 2ch;
+  display: grid; grid-template-columns: auto minmax(8ch, 1fr) auto auto auto; align-items: center; column-gap: 2ch;
   height: 44px; padding: 0 0 0 2px;
 }
 .transport-time { color: var(--fg0); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -415,6 +415,22 @@
 /* The round play button. */
 .transport-buttons .play-button { width: 32px; height: 32px; border-radius: 50%; background: var(--fg0); color: var(--bg0); }
 .transport-buttons .play-button:hover { background: #fff; color: var(--bg0); }
+/* Your good and bad marks: two chips, and their ticks on the scrub bar (a mark made while playing
+   spans the 3 s before the click). A tick is a button: a click removes it. */
+.transport-marks { display: flex; align-items: center; gap: 4px; }
+.transport-marks .icon-button { width: 26px; height: 26px; color: var(--fg1); }
+.transport-marks .icon { width: 13px; height: 13px; }
+.transport-marks .mark-chip.good:hover { color: var(--ok); background: var(--bg2); }
+.transport-marks .mark-chip.bad:hover { color: var(--urgent); background: var(--bg2); }
+.scrub-mark-range { position: absolute; top: 50%; height: 6px; margin-top: -3px; pointer-events: none; }
+.scrub-mark-range.good { background: color-mix(in srgb, var(--ok) 35%, transparent); }
+.scrub-mark-range.bad { background: color-mix(in srgb, var(--urgent) 35%, transparent); }
+/* The tick at the click time: 8px wide to hit, drawn as a 2px line. */
+.scrub-mark { position: absolute; z-index: 2; top: 50%; width: 8px; height: 14px; margin: -7px 0 0 -4px; padding: 0; border: 0; background: transparent; cursor: pointer; }
+.scrub-mark::after { content: ""; position: absolute; left: 3px; top: 0; bottom: 0; width: 2px; background: currentColor; }
+.scrub-mark.good { color: var(--ok); }
+.scrub-mark.bad { color: var(--urgent); }
+.scrub-mark:focus-visible { outline: 1px solid var(--fg0); }
 
 /* While something waits for you: its answers under the frame, the render's facts at the right. */
 .stage-actions { display: flex; align-items: center; gap: 4ch; height: 44px; white-space: nowrap; overflow: hidden; }
@@ -1320,9 +1336,9 @@ button.board-option:hover { border-color: var(--fg1); }
 .phone .icon-button, .phone .zoom-menu.tb-box { height: 44px; width: auto; min-width: 44px; }
 .phone .stage-transport { height: auto; padding: 4px 0; column-gap: 1ch; }
 .phone .transport-buttons { gap: 4px; }
-/* The narrow transport: the buttons and the time on one row, the scrub bar and the view
-   switches each on a row of their own. */
-.phone .stage-transport { grid-template-columns: auto minmax(0, 1fr); row-gap: 4px; }
+/* The narrow transport: the buttons, the mark chips and the time on one row, the scrub bar and
+   the view switches each on a row of their own. */
+.phone .stage-transport { grid-template-columns: auto auto minmax(0, 1fr); row-gap: 4px; }
 .phone .stage-transport .scrub { grid-column: 1 / -1; grid-row: 1; }
 .phone .transport-view { grid-column: 1 / -1; justify-content: flex-start; flex-wrap: wrap; gap: 0 1ch; }
 /* No auto margins on a phone: each card fills the column, so a short request is as wide as a long one. */
