@@ -1490,7 +1490,7 @@ test("in [3] ← and k pick the older picture, → and j the newer; the focus mo
   // The key buttons (the bottom key line is gone): undo is the only one with a key left under the
   // frame, in words, in the quieter text (--fg1); its key is in its tooltip and aria-keyshortcuts,
   // and the button does what its key does.
-  const keyButtons = await browser.evaluate(`[...document.querySelectorAll(".voice-before [aria-keyshortcuts]")].map((item) => ({ word: item.getAttribute("aria-label"), key: item.getAttribute("aria-keyshortcuts"), title: item.title, colour: getComputedStyle(item).color }))`);
+  const keyButtons = await browser.evaluate(`[...document.querySelectorAll(".voice-tools [aria-keyshortcuts]")].map((item) => ({ word: item.getAttribute("aria-label"), key: item.getAttribute("aria-keyshortcuts"), title: item.title, colour: getComputedStyle(item).color }))`);
   assert.deepEqual(keyButtons.map((entry) => [entry.word, entry.key, entry.title]), [["Undo the last turn", "u", "Undo the last turn (u)"]], "the key buttons");
   const quiet = await browser.evaluate(token("--fg1"));
   for (const entry of keyButtons) assert.equal(entry.colour, quiet, `${entry.word} is quiet text: ${JSON.stringify(keyButtons)}`);

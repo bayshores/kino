@@ -78,16 +78,8 @@ export function Voice({ data, agent, now, scene, time, still, listOpen = false, 
   const who = need?.words.who ?? agent?.name ?? "the agent";
   return (
     <section className={`voice is-${line.state}${still ? " still" : ""}`} aria-label={need ? `${who} needs you` : `What ${who} is doing`} style={agent?.color ? { "--who": agent.color } : undefined}>
-      <p className="voice-before">
-        {line.before ? <><ToolIcon name={line.before.verb} /><span className="voice-before-text" title={line.before.text}>{line.before.text}</span></> : null}
-        {line.before?.rev != null && line.state !== "need" && line.state !== "ask" ? (
-          <button type="button" className="voice-icon" onClick={() => onRun("undo")} aria-label="Undo the last turn" title="Undo the last turn (u)" aria-keyshortcuts="u"><ToolIcon name="undo" /></button>
-        ) : null}
-        {line.state !== "empty" ? (
-          <button type="button" className="voice-icon" onClick={onHistory} aria-expanded={listOpen} aria-controls="pane-2-title" aria-label={listOpen ? "Close the earlier lines" : "Earlier lines"} title={listOpen ? "Close the earlier lines" : "Earlier lines, checks and notes"}>
-            <ToolIcon name={listOpen ? "x" : "history"} /></button>
-        ) : null}
-      </p>
+      {/* One row from the frame's left edge: the sentence, its answers beside it, and at the right
+          edge undo and the earlier lines, as words. Under it one quiet row: the facts, then the line before. */}
       <div className="voice-row">
         {edit ? <BeforeAfter data={data} scene={scene} time={time} before={edit.before} after={edit.after} /> : ask?.to != null ? <BeforeAfter data={data} scene={scene} time={time} before={ask.from} after={ask.to} /> : null}
         {/* The sentence is announced when it changes (politely; a question at once). */}
@@ -117,7 +109,7 @@ export function Voice({ data, agent, now, scene, time, still, listOpen = false, 
         {line.state === "render" ? <span className="voice-answers"><button type="button" className="voice-button" onClick={onCancelRender}>Cancel</button></span> : null}
         {line.state === "away" && data.projectId ? (
           <span className="voice-answers">
-            <button type="button" className="voice-button" onClick={copyReconnect} title={reconnect}><ToolIcon name={copied ? "done" : "copy"} />{copied ? "Copied" : "Copy the reconnect line"}</button>
+            <button type="button" className="voice-button" onClick={copyReconnect} title={reconnect}><ToolIcon name={copied ? "done" : "copy"} />{copied ? "Copied: paste it in the agent's chat" : "Copy a message to resume"}</button>
           </span>
         ) : null}
         {line.state === "ready" ? (
@@ -126,11 +118,21 @@ export function Voice({ data, agent, now, scene, time, still, listOpen = false, 
             {onShare ? <button type="button" className="voice-button" onClick={onShare}>Make a link</button> : null}
           </span>
         ) : null}
+        <span className="voice-tools">
+          {line.before?.rev != null && line.state !== "need" && line.state !== "ask" ? (
+            <button type="button" className="voice-icon" onClick={() => onRun("undo")} aria-label="Undo the last turn" title="Undo the last turn (u)" aria-keyshortcuts="u"><ToolIcon name="undo" />Undo</button>
+          ) : null}
+          {line.state !== "empty" ? (
+            <button type="button" className="voice-icon" onClick={onHistory} aria-expanded={listOpen} aria-controls="pane-2-title" aria-label={listOpen ? "Close the earlier lines" : "Earlier lines"} title={listOpen ? "Close the earlier lines" : "Earlier lines, checks and notes"}>
+              <ToolIcon name={listOpen ? "x" : "history"} />{listOpen ? "Close" : "History"}</button>
+          ) : null}
+        </span>
       </div>
       <p className="voice-facts">
         {line.state === "render" ? <span className="voice-meter" aria-hidden="true"><span style={{ width: `${Math.round(line.render.fraction * 100)}%` }} /></span> : null}
         {line.facts.map((fact, index) => <span key={index} title={fact}>{fact}</span>)}
         {need?.more ? <span>{need.more} more waiting</span> : null}
+        {line.before ? <span className="voice-before" title={line.before.text}><ToolIcon name={line.before.verb} /><span className="voice-before-text">Before: {line.before.text}</span></span> : null}
       </p>
     </section>
   );

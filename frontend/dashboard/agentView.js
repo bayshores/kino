@@ -472,7 +472,7 @@ export function voiceLine(data, agent, now = Date.now(), nameOf = () => null) {
   // so in plain words ("Nova is not connected" told a person nothing: who Nova is, or what to do),
   // that nothing is lost, and how to go on. The line before stays its last call.
   if (!(data?.agents ?? []).some((entry) => entry.id === agent.id) && !last.current) {
-    return { state: "away", verb: "plug", text: `Your agent${agent.name ? ` ${agent.name}` : ""} is not working on this right now.`, facts: [agent.lastAt ? `Last active ${agoWords(agent.lastAt, now)}` : "", "Everything is saved", "Message it in its chat to continue"].filter(Boolean), before: before(false) };
+    return { state: "away", verb: "plug", text: `Your agent${agent.name ? ` ${agent.name}` : ""} is not working on this right now.`, facts: [agent.lastAt ? `Last active ${agoWords(agent.lastAt, now)}` : "", "Everything is saved"].filter(Boolean), before: before(false) };
   }
   const working = isWorking(data, agent, now);
   return { state: working ? "working" : "idle", verb: last.verb, kind: last.kind, text: line(last, Boolean(last.current)), facts: [], before: before(true) };
