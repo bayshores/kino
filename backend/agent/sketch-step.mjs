@@ -2,6 +2,7 @@
 // step after the treatments is a sketch round (tries.mjs, sketches.mjs) whose `next:` call is
 // filled from what kino knows (the shown treatments, their source files, their words), so the
 // agent only chooses a song and a font per treatment. Pure functions; brief.mjs uses them.
+import { readMove, SKETCH_MOVES } from "./sketches.mjs";
 import { LABELS, PICK_QUESTION, OWN_PICK_CALL } from "./treatments.mjs";
 
 // Seconds each sketch lasts.
@@ -10,9 +11,10 @@ export const SKETCH_SECONDS = 6;
 const LINE_PLACEHOLDER = "<the words on screen>";
 
 export const SKETCH_STEP = "show sketches: their pick in the app";
-// The ops of a sketch show its treatment's move: what they are written on.
-export const MOVE_HINT = 'each sketch\'s ops show its move on kino\'s layers (sketch-clip-1.., sketch-line; cues cut-2.., beat-1.., line-in, line-out; together:true puts every clip on at once); moves: library {topic:"moves"}';
-const movePlaceholder = (move) => `<edit ops that show this move: ${move}>`;
+// A sketch shows its treatment's move: kino places a named one on the sketch's layers itself.
+export const MOVE_HINT = `move: ${Object.keys(SKETCH_MOVES).join(", ")}, or one of library {topic:"moves"} by name (a transition lands on every cut; {name, ...its fields} sets it); ops add your own on kino's layers`;
+// The move slot of a treatment whose move words name none of kino's: the agent names the nearest.
+const movePlaceholder = (move) => `<kino move for: ${move}>`;
 // Before the round, when the song finder is on and the project has no song candidate yet: the
 // song search is the step itself (a run took the bundled tracks while the finder was only named
 // beside the sketch call).
@@ -35,8 +37,8 @@ const shownEntries = (treatments) => (treatments?.shown ?? []).map((index, posit
  * The filled sketch-round call: one option per shown treatment, its clip the project file its
  * source names (at the seconds the source names, else 0), else the project's clips in turn; its
  * line the treatment's quote, else a placeholder; its type the treatment's own type words (kino
- * sets the line from them); its ops a placeholder for the treatment's move, so no sketch is only
- * clips, a song and a line. Song and font stay placeholders.
+ * sets the line from them); its move the kino move its treatment's move words name (kino places
+ * it), else a slot for the nearest one. Song and font stay placeholders.
  * `files` are the project's clip and picture names.
  */
 export function sketchCall(treatments, files = []) {
@@ -45,7 +47,7 @@ export function sketchCall(treatments, files = []) {
     const named = files.find((name) => source.toLowerCase().includes(String(name).toLowerCase()));
     const at = named ? Number(/(\d+(?:\.\d+)?)\s*s\b/.exec(source.slice(source.toLowerCase().indexOf(named.toLowerCase()) + named.length))?.[1] ?? 0) : 0;
     const file = named ?? (files.length ? files[index % files.length] : "<project file>");
-    return { treatment: letter, song: "<title> by <artist>", font: "<family>", line: entry.quote || LINE_PLACEHOLDER, ...(entry.type ? { type: entry.type } : {}), clips: [{ file, in: at }], ops: [movePlaceholder(entry.move)] };
+    return { treatment: letter, song: "<title> by <artist>", font: "<family>", line: entry.quote || LINE_PLACEHOLDER, ...(entry.type ? { type: entry.type } : {}), clips: [{ file, in: at }], ...(entry.move ? { move: readMove(entry.move) ?? movePlaceholder(entry.move) } : {}) };
   });
   return { tool: "notes", input: { action: "try", options, seconds: SKETCH_SECONDS } };
 }

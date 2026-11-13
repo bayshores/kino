@@ -13,6 +13,7 @@ import { createHash } from "node:crypto";
 import { copyFile, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { evaluateScene } from "../../engine/animation.js";
+import { MOVES, MOVE_NAMES } from "../../engine/blocks/moves/index.js";
 import { BUSY_SHARE } from "../../engine/quality/rules/polish.js";
 import { palette, pixelStats } from "../measure/fingerprint.mjs";
 import { ffmpegCommand } from "../media-probe.mjs";
@@ -47,7 +48,7 @@ const median = (values) => {
 };
 
 // The fields kino builds a sketch from itself (song, font, line, clips, type, together), and the default length.
-export const BUILT_FIELDS = ["song", "font", "line", "clips", "type", "together"];
+export const BUILT_FIELDS = ["song", "font", "line", "clips", "type", "together", "move"];
 export const SKETCH_SECONDS = 6;
 const CLIPS_MOST = 6;
 // Song beats that get a cue (beat-1..) for an option's own ops.
@@ -73,7 +74,12 @@ function readBuilt(option, index) {
   if (clips !== undefined && (!Array.isArray(clips) || !clips.length || clips.length > CLIPS_MOST || clips.some((clip) => typeof clip?.file !== "string" || (clip.in !== undefined && !(Number(clip.in) >= 0)))))
     throw new Error(`options[${index}].clips lists 1 to ${CLIPS_MOST} project files, [{file:"intro.mp4", in:2.5}] (in: seconds into the file).`);
   if (option?.together !== undefined && typeof option.together !== "boolean") throw new Error(`options[${index}].together is true (every clip on for the whole sketch, for a move that shows several at once) or left out.`);
-  return { song: text("song", 200), font: text("font", 80), line: text("line", 200), type: text("type", 80), ...(option?.together ? { together: true } : {}), clips: clips?.map((clip) => ({ file: clip.file.trim(), ...(clip.in !== undefined ? { in: Number(clip.in) } : {}) })) };
+  const move = option?.move;
+  const moveName = typeof move === "string" ? move.trim() : move && typeof move === "object" && !Array.isArray(move) ? String(move.name ?? "").trim() : move === undefined ? undefined : "";
+  if (moveName !== undefined && moveName !== "none" && !movePlan(moveName))
+    throw new Error(`options[${index}].move is one of kino's moves by name (library {topic:"moves"}), one of the sketch's own (${Object.keys(SKETCH_MOVES).join(", ")}), {name, ...its fields}, or "none"${moveName ? `: "${moveName}" is not one` : ""}.`);
+  return { song: text("song", 200), font: text("font", 80), line: text("line", 200), type: text("type", 80), ...(option?.together ? { together: true } : {}),
+    ...(moveName !== undefined ? { move: typeof move === "string" ? { name: moveName } : { ...move, name: moveName } } : {}), clips: clips?.map((clip) => ({ file: clip.file.trim(), ...(clip.in !== undefined ? { in: Number(clip.in) } : {}) })) };
 }
 
 /**
@@ -245,27 +251,144 @@ function twoRows(words) {
   return best;
 }
 
+// ---- the sketch's move --------------------------------------------------------------------------
+// A treatment names its signature move in words. A built sketch shows it: `move` is one of kino's
+// moves (engine/blocks/moves: a transition lands on every cut, split-screen shows the clips at
+// once, count-up counts the line's number, ...) or one of the sketch's own below, and kino places
+// it on the sketch's layers itself. Without `move`, kino reads one from the treatment's words. An
+// earlier form asked the agent for the move's ops: one run wrote real ones, the next filled the
+// slot with a second copy of the line.
+
+/** The sketch's own moves, beside kino's move library. */
+export const SKETCH_MOVES = Object.freeze({
+  push: "the camera pushes in on each clip (scale, point)",
+  pull: "the camera pulls out of each clip (scale, point)",
+  "fast-cuts": "a cut on every beat through the clips",
+  card: "the line alone on a dark card, then a hard cut to the picture",
+});
+// Plain words for a move, tried after the moves' own names (the first in the words wins).
+const MOVE_WORDS = [
+  ["push", /\b(?:push(?:es|ing)?(?: in)?|zooms? (?:in(?:to)?|from)|falls? away|dolly in)\b/i],
+  ["pull", /\b(?:pulls?[- ]out|pull back|zooms? out|reverse reveal|pulls? away)\b/i],
+  ["split-screen", /\b(?:split|side by side|two panes|beside|next to)\b/i],
+  ["picture-in-picture", /\b(?:inset|picture in picture|in (?:a|the) corner)\b/i],
+  ["count-up", /\b(?:counter|counts?(?: up)?|counting|clock|ticking|tally|timer)\b/i],
+  ["fast-cuts", /\b(?:montage|(?:every|each|per) (?:cut|beat)|faster and faster|beat[- ]cuts?|rapid cuts?|quick cuts?)\b/i],
+  ["card", /\b(?:(?:type|title|text) cards?|on a card|hard[- ]cuts? to)\b/i],
+  ["whip-pan", /\bwhips?\b/i],
+  ["freeze-shutter", /\b(?:freeze\w*|freezes?[- ]frame|stops? dead)\b/i],
+  ["speed-ramp", /\b(?:speed[- ]ramps?|slow[- ]mo\w*|slows? (?:down|into)|ramps?)\b/i],
+  ["beat-repeat", /\b(?:stutters?|repeats? on|replay\w*)\b/i],
+  ["masked-type", /\b(?:made of (?:the )?footage|through the letters|footage inside)\b/i],
+  ["zoom-through", /\bzooms? through\b/i],
+  ["punch-in", /\bpunch(?:es)?[- ]ins?\b/i],
+];
+const MOVE_PATTERNS = [...MOVE_NAMES, ...Object.keys(SKETCH_MOVES)].map((name) => [name, new RegExp(`\\b${name.replace(/-/g, "[- ]")}\\b`, "i")]);
+
+/** The move a treatment's words name: one of kino's moves by its own name, else by plain words, or null. */
+export function readMove(text) {
+  const words = String(text ?? "");
+  return firstNamed(words, MOVE_PATTERNS) ?? firstNamed(words, MOVE_WORDS);
+}
+
+/**
+ * How a move sits in a sketch, or null for an unknown name: {name, kind, clips (the fewest it
+ * needs), together (every clip on at once), noLine (the move sets the line's words itself)}.
+ * kind: own (the sketch's own), cut (a transition, on every cut), all (several clips at once),
+ * inset (clip 2 over clip 1), clip (on the first clip), line (on the line), free (no layer of its own).
+ */
+export function movePlan(name) {
+  if (SKETCH_MOVES[name]) return { name, kind: "own", clips: name === "fast-cuts" ? 2 : 1, ...(name === "fast-cuts" ? { fill: 4 } : {}), together: false, noLine: false };
+  const fields = MOVES[name]?.fields;
+  if (!fields) return null;
+  const needs = (key) => fields[key]?.required === true;
+  if (name === "count-up") return { name, kind: "line", clips: 1, together: false, noLine: false };
+  if (name === "masked-type") return { name, kind: "clip", clips: 1, together: false, noLine: true };
+  if (name === "picture-in-picture") return { name, kind: "inset", clips: 2, together: true, noLine: false };
+  if (fields.from?.kind === "layer" && fields.to?.kind === "layer" && (needs("from") || needs("to"))) return { name, kind: "cut", clips: 2, together: false, noLine: false };
+  if (needs("layers")) return { name, kind: "all", clips: 2, together: true, noLine: false };
+  if (needs("layer")) return { name, kind: /text layer/.test(fields.layer.about ?? "") ? "line" : "clip", clips: 1, together: false, noLine: false };
+  return { name, kind: "free", clips: 1, together: false, noLine: false };
+}
+
+/**
+ * The ops that place a library move on a built sketch (after sketchOps): `given` are the option's
+ * own fields for it (they win), `cuts` the cut times, `count` the clips, `start` when the line
+ * enters, `line` the words.
+ */
+export function moveOps(plan, given = {}, { cuts = [], count = 0, start = 0.5, line = "", seconds = SKETCH_SECONDS, beats = [], leave = null } = {}) {
+  if (!plan || plan.kind === "own") return [];
+  const op = (fields) => ({ op: "move", name: plan.name, ...fields, ...given });
+  const clip = (index) => `sketch-clip-${index}`;
+  // A move on the first clip lands once the line has left and the picture is sharp again (a ramp
+  // or a freeze needs a lead too); without a line, once the clip has played a little.
+  const hit = sec(leave === null ? 1.2 : Math.min(Math.max(1.2, seconds - 2), leave + 0.6));
+  if (plan.kind === "cut") return cuts.map((at, index) => op({ from: clip(index + 1), to: clip(index + 2), at }));
+  // Several clips at once stay for the whole sketch (a move's own length is shorter).
+  if (plan.kind === "all") return [op({ layers: Array.from({ length: count }, (_, index) => clip(index + 1)), at: 0, dur: seconds })];
+  // The inset's clip goes under the main shot (clip 1), so only its inset shows.
+  if (plan.kind === "inset") return [{ op: "move_layers", layers: [clip(2)], position: "bottom" }, op({ layer: clip(2), at: 0.3, dur: sec(seconds - 0.3) })];
+  // masked-type holds 14 letters: the whole line when it fits, else its longest word.
+  if (plan.name === "masked-type") {
+    const text = line.length <= 14 ? line : line.split(/\s+/).filter((word) => word.length <= 14).sort((a, b) => b.length - a.length)[0];
+    return [op({ layer: clip(1), ...(text ? { text } : {}), at: start })];
+  }
+  if (plan.name === "beat-repeat") return [op({ layer: clip(1), count: 3, every: sec(Math.min(1, Math.max(0.2, beatGap(beats) ?? 0.5))), at: hit })];
+  if (plan.kind === "clip") return [op({ layer: clip(1), at: hit })];
+  // count-up counts the line's own number as the line arrives; other line moves land once it is on.
+  if (plan.kind === "line") return [op({ layer: "sketch-line", at: plan.name === "count-up" ? start : sec(start + 0.6) })];
+  return [op({ at: start })];
+}
+
+/** The receipt's words for a sketch's move: "whip-pan on every cut", "push (the camera pushes in on each clip)". */
+export function moveText(plan, said = null, why = null) {
+  const from = said ? ` (read from "${said}")` : "";
+  if (!plan && why) return `none in the sketch (${why})`;
+  if (!plan) return `none in the sketch${said ? ` (no kino move read from "${said}"; name one: move:"<name>", library {topic:"moves"}, or ${Object.keys(SKETCH_MOVES).join(", ")})` : ""}`;
+  const where = { own: SKETCH_MOVES[plan.name], cut: "on every cut", all: "every clip at once", inset: "clip 2 over clip 1", clip: "on the first clip", line: "on the line", free: "at the line's entrance" }[plan.kind];
+  return `${plan.name} (${where})${from}`;
+}
+
+// The shots of a cut on every beat: the clips in turn, each from where the sketch's clock is.
+const SHOTS_MOST = 14;
+function beatShots(clips, seconds, beats) {
+  const times = [0];
+  const marks = beats.length ? beats : Array.from({ length: Math.floor(seconds / 0.5) }, (_, index) => (index + 1) * 0.5);
+  for (const beat of marks) if (beat - times.at(-1) >= 0.25 && beat < seconds - 0.25 && times.length < SHOTS_MOST) times.push(sec(beat));
+  return times.map((at, index) => ({ ...clips[index % clips.length], in: sec((clips[index % clips.length].in ?? 0) + at), at }));
+}
+
 /**
  * The edit ops of one kino-built sketch on a fresh scene of `frame` {width, height}: each clip full
  * frame (cropped to fill by coverBox), cut on the beats (`together`: every clip on for the whole
- * sketch, the last on top, for a move that shows several at once); the song from its entry with a
+ * sketch, the last on top, for a move that shows several at once; `everyBeat`: a cut on every
+ * beat through the clips; `camera` {dir: "push"|"pull", scale, point: [x%, y%]}: each clip grows
+ * into or out of that point while it is on); the song from its entry with a
  * short fade out; cues for an option's own ops (cut-2.. at the cuts, beat-1.. at the song's beats,
  * line-in and line-out); the line set and brought on as `type` reads (readType: size, case, place,
  * on black, how it appears; nothing read is big, in the middle, cut on), on a beat and off on a
- * beat (lineWindow), in `font`. `calm` {blur, dim} (engine/quality/legible.js, a busy picture):
+ * beat (lineWindow), in `font` (`card`: alone on a dark card from the start, then a hard cut to
+ * the picture). `calm` {blur, dim} (engine/quality/legible.js, a busy picture):
  * while the line is on, the clips are blurred by `blur` px and a black layer dims them by `dim`.
  * clips [{src, type: "video"|"image", width, height, duration, in}], song {src, from, beats} or null.
  */
-export function sketchOps({ frame, seconds, clips = [], song = null, line = "", font = null, coverBox, calm = null, type = null, together = false }) {
+export function sketchOps({ frame, seconds, clips: given = [], song = null, line = "", font = null, coverBox, calm = null, type = null, together = false, everyBeat = false, camera = null, card = false }) {
   const beats = song?.beats ?? [];
-  const starts = together ? clips.map(() => 0) : cutTimes(clips.length, seconds, beats);
+  const clips = everyBeat && given.length ? beatShots(given, seconds, beats) : given;
+  const starts = together ? clips.map(() => 0) : everyBeat ? clips.map((clip) => clip.at) : cutTimes(clips.length, seconds, beats);
   const ops = clips.map((clip, index) => {
     const start = starts[index];
     const length = together ? seconds : sec((starts[index + 1] ?? seconds) - start);
     const box = coverBox({ width: clip.width || frame.width, height: clip.height || frame.height }, frame);
     const offset = clip.type === "video" ? sec(Math.max(0, Math.min(clip.in ?? 0, (clip.duration || Infinity) - length))) : 0;
+    // The camera: the clip's box grown about a point of the frame, reached (push) or left (pull) while the clip is on.
+    const scale = camera ? Math.max(1.05, Math.min(4, Number(camera.scale) || 1.5)) : 1;
+    const [px, py] = [frame.width * ((camera?.point?.[0] ?? 50) / 100), frame.height * ((camera?.point?.[1] ?? 50) / 100)];
+    const near = { x: Math.round(px - (px - box.x) * scale), y: Math.round(py - (py - box.y) * scale), width: Math.round(box.width * scale), height: Math.round(box.height * scale) };
+    const [from, to] = camera?.dir === "pull" ? [near, box] : [box, near];
     return { op: "add_layer", layerType: clip.type, name: `sketch-clip-${index + 1}`,
-      properties: { src: clip.src, ...box, mediaStart: start, mediaDuration: length, ...(clip.type === "video" ? { mediaOffset: offset, mediaFreeze: "last", volume: song ? 0 : 1 } : {}) } };
+      properties: { src: clip.src, ...(camera ? from : box), mediaStart: start, mediaDuration: length, ...(clip.type === "video" ? { mediaOffset: offset, mediaFreeze: "last", volume: song ? 0 : 1 } : {}) },
+      ...(camera ? { animations: [{ kind: "custom", name: camera.dir === "pull" ? "Pull out" : "Push in", start, duration: length, easing: "smooth", from, to }] } : {}) };
   });
   if (song) ops.push({ op: "add_layer", layerType: "audio", name: "sketch-song", properties: { src: song.src, mediaStart: 0, mediaDuration: seconds, mediaOffset: song.from, volume: 0.8 },
     animations: [{ kind: "custom", name: "Song out", start: sec(seconds - 0.4), duration: 0.4, easing: "quart-out", from: { volume: 0.8 }, to: { volume: 0 } }] });
@@ -283,14 +406,17 @@ export function sketchOps({ frame, seconds, clips = [], song = null, line = "", 
   const height = Math.round(size * (rows ? 2.7 : 1.5));
   const middle = frame.height * PLACES[placeOf(read)];
   const y = Math.round(Math.max(frame.height * 0.03, Math.min(frame.height * 0.97 - height, middle - height / 2)));
-  const quiet = read.black ? { blur: 0, dim: 1 } : calm;
+  const quiet = card ? null : read.black ? { blur: 0, dim: 1 } : calm;
   if (quiet) {
     const ease = (key, on, off) => [{ kind: "in", name: "Calm in", start, duration: CALM_IN, easing: "smooth", from: { [key]: off }, to: { [key]: on } },
       { kind: "custom", name: "Calm out", start: leave, duration: CALM_OUT, easing: "smooth", from: { [key]: on }, to: { [key]: off } }];
-    if (quiet.blur) ops.forEach((op) => { if (op.layerType === "video" || op.layerType === "image") op.animations = ease("blur", quiet.blur, 0); });
+    if (quiet.blur) ops.forEach((op) => { if (op.layerType === "video" || op.layerType === "image") op.animations = [...(op.animations ?? []), ...ease("blur", quiet.blur, 0)]; });
     ops.push({ op: "add_layer", layerType: "rectangle", name: "sketch-dim", properties: { x: 0, y: 0, width: frame.width, height: frame.height, fill: "#000000", opacity: quiet.dim },
       animations: ease("opacity", quiet.dim, 0) });
   }
+  // A card: dark from the first frame, cut off as the line leaves.
+  if (card) ops.push({ op: "add_layer", layerType: "rectangle", name: "sketch-card", properties: { x: 0, y: 0, width: frame.width, height: frame.height, fill: "#0b0c0e" },
+    animations: [{ kind: "custom", name: "Card off", start: leave, duration: 0.03, from: { opacity: 1 }, to: { opacity: 0 } }] });
   // Off at `at`, so the lettering share counts only the time it was on.
   const gone = (at) => ({ kind: "custom", name: "Line gone", start: sec(at), duration: 0.03, from: { opacity: 1 }, to: { opacity: 0 } });
   const cutOn = { kind: "in", name: "Line on", start, duration: 0.03, from: { opacity: 0 }, to: { opacity: 1 } };
@@ -371,7 +497,7 @@ export function treatmentDefaults(entry, files = []) {
     const seconds = /^[^;,]*?(\d+(?:\.\d+)?)\s*s\b/.exec(source.slice(at + stem.length))?.[1];
     clips.push({ at, clip: { file: file.name, ...(seconds !== undefined ? { in: Number(seconds) } : {}) } });
   }
-  return { line: quoted, type: entry?.type ?? null, clips: clips.sort((a, b) => a.at - b.at).map((entry) => entry.clip).slice(0, CLIPS_MOST) };
+  return { line: quoted, type: entry?.type ?? null, move: readMove(entry?.move), moveSaid: entry?.move ?? null, clips: clips.sort((a, b) => a.at - b.at).map((entry) => entry.clip).slice(0, CLIPS_MOST) };
 }
 
 /** What a picked sketch carries to later steps: its song (file and stretch), font and line, or null. */
@@ -553,8 +679,8 @@ const builtText = (option) => {
     : option.song?.error ? `silent: the song "${option.song.asked}" could not be fetched (${option.song.error})` : "no song (silent)";
   const line = option.line ? `line "${option.line}" (${option.lineFrom}${option.lineAt ? `, on ${option.lineAt[0]} to ${option.lineAt[1]} s` : ""})` : "no line";
   const type = option.line && option.type ? `; type ${option.type}` : "";
-  // The treatment's move is in the sketch only when the option brought ops for it.
-  const move = option.treatment ? (option.moveOps ? `; move: ${option.moveOps} op${option.moveOps === 1 ? "" : "s"} of yours` : "; move: none in the sketch (no ops: only kino's clips, song and line)") : "";
+  const own = option.moveOps ? `${option.moveOps} op${option.moveOps === 1 ? "" : "s"} of yours` : null;
+  const move = option.move || own ? `; move: ${[option.move, own].filter(Boolean).join(", and ")}` : "";
   return `; ${song}; font ${option.font ?? "the default"}; ${line}${type}; ${option.cuts ?? 0} cut${option.cuts === 1 ? "" : "s"}${option.cuts && option.song?.src ? " on the song's beats" : ""}${move}${option.lineFix ? `; ${option.lineFix}` : ""}`;
 };
 
@@ -572,9 +698,9 @@ export function sketchLines(round) {
     const made = option.cached ? "cached, not rendered again" : `rendered in ${sec(option.renderSeconds)} s, ${sec(option.renderSeconds / length)} s per sketch second (measured on this machine)`;
     return `${head}: ${made}; ${factText(option.facts)}${builtText(option)}`;
   });
-  // Two sketches on one song, one font or one type setting (size, place, how the line appears): said once, as a fact.
-  for (const [key, label] of [["song", "song"], ["font", "font"], ["set", "type setting"]]) {
-    const named = round.options.filter((option) => option.built).map((option) => [option.letter, key === "song" ? option.song?.src ?? null : key === "font" ? option.font : option.line ? option.typeSet ?? null : null]).filter(([, value]) => value);
+  // Two sketches on one song, one font, one type setting (size, place, how the line appears) or one move: said once, as a fact.
+  for (const [key, label] of [["song", "song"], ["font", "font"], ["set", "type setting"], ["move", "move"]]) {
+    const named = round.options.filter((option) => option.built).map((option) => [option.letter, key === "song" ? option.song?.src ?? null : key === "font" ? option.font : key === "move" ? option.moveName ?? null : option.line ? option.typeSet ?? null : null]).filter(([, value]) => value);
     const same = named.filter(([, value], index) => named.some(([, other], at) => at !== index && other === value));
     if (same.length) lines.push(`${same.map(([letter]) => letter).join(" and ")} use the same ${label}${key === "song" ? "" : ` (${same[0][1]})`}.`);
   }

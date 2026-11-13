@@ -135,7 +135,7 @@ import { heardLines as soundLines, sectionsInVideo, soundMapImage, soundMapText,
 // look sound measures each line on its own layer alone for at most this many layers (one FFmpeg run each).
 const SOUND_LINE_LAYERS = 6;
 import { createTries, pickQuote, triesView } from "./tries.mjs";
-import { beatsIn, lineFixOps, lineFixText, lineWindow, measureSketch, pickedSketch, readType, sketchOps, songEntry, treatmentDefaults, treatmentOf, typeText } from "./sketches.mjs";
+import { beatsIn, lineFixOps, lineFixText, lineWindow, measureSketch, moveOps, movePlan, moveText, pickedSketch, readType, sketchOps, songEntry, treatmentDefaults, treatmentOf, typeText } from "./sketches.mjs";
 import { legibleFix } from "../../engine/quality/legible.js";
 import { boxAt } from "../../engine/quality/model.js";
 import { drawnSize } from "../../engine/quality/analysis.js";
@@ -3231,10 +3231,11 @@ export function createAgentService(deps) {
     const defaults = treatmentDefaults(option.treatment && treatments?.list ? treatmentOf(treatments, option.treatment) : null, pictures);
     const asked = option.asked ?? {};
     const stem = (name) => String(name ?? "").replace(/\.[a-z0-9]+$/i, "").toLowerCase();
+    const clipOf = (found, at = 0) => ({ src: found.src ?? `/api/media/${found.id}`, type: found.mime.startsWith("image/") ? "image" : "video", width: found.width, height: found.height, duration: found.duration, in: at });
     const clips = (asked.clips ?? defaults.clips).map((clip) => {
       const found = pictures.find((item) => [item.id, item.name, item.src].includes(clip.file)) ?? pictures.find((item) => stem(item.name) === stem(clip.file));
       if (!found) throw new Error(`clip "${clip.file}" is not a picture or video of this project (project {action:"import", file} brings one in).`);
-      return { src: found.src ?? `/api/media/${found.id}`, type: found.mime.startsWith("image/") ? "image" : "video", width: found.width, height: found.height, duration: found.duration, in: clip.in ?? 0 };
+      return clipOf(found, clip.in ?? 0);
     });
     let song = null;
     let songInfo = null;
@@ -3247,9 +3248,33 @@ export function createAgentService(deps) {
     // How the line is set: the option's type words, else its treatment's own (sketches.mjs readType).
     const typeSaid = asked.type ?? defaults.type ?? null;
     const type = typeSaid ? readType(typeSaid) : null;
+    // The sketch's move (sketches.mjs movePlan): the option's own (a name, or {name, ...its fields};
+    // "none" for none), else the one read from its treatment's move words. kino places it.
+    const { name: askedMove, ...moveGiven } = asked.move ?? {};
+    const moveSaid = asked.move ? null : defaults.moveSaid ?? null;
+    let plan = asked.move ? (askedMove === "none" ? null : movePlan(askedMove)) : defaults.move ? movePlan(defaults.move) : null;
+    let moveWhy = null;
+    if (plan?.name === "count-up" && moveGiven.value === undefined && moveGiven.layer === undefined && !/\d/.test(line)) {
+      moveWhy = `count-up counts the line's number and "${line}" has none: put the number in the line, or give move:{name:"count-up", value}`;
+      plan = null;
+    }
+    // A move that needs more clips than the sketch has takes the project's other ones, then the same clip from later on.
+    if (plan && clips.length) {
+      for (const item of pictures) {
+        if (clips.length >= (plan.fill ?? plan.clips)) break;
+        if (!clips.some((clip) => clip.src === (item.src ?? `/api/media/${item.id}`))) clips.push(clipOf(item));
+      }
+      while (clips.length < plan.clips) clips.push({ ...clips[0], in: (clips[0].in ?? 0) + seconds / 2 });
+    }
+    const together = asked.together === true || plan?.together === true;
     const fresh = createDocument({ id: document.id, name: document.name, scenes: [createScene({ id: scene.id, name: scene.name, width: scene.width, height: scene.height, duration: seconds, background: "#000000" })] });
     // The sketch's ops, with the picture calmed while the line is on (calm {blur, dim}) or not; then the option's own (its move).
-    const base = (calm = null) => sketchOps({ frame: { width: scene.width, height: scene.height }, seconds, clips, song, line, font: asked.font ?? null, coverBox, calm, type, together: asked.together === true });
+    const base = (calm = null) => sketchOps({ frame: { width: scene.width, height: scene.height }, seconds, clips, song, line: plan?.noLine ? "" : line, font: asked.font ?? null, coverBox, calm, type, together,
+      everyBeat: plan?.name === "fast-cuts", card: plan?.name === "card",
+      camera: plan?.name === "push" || plan?.name === "pull" ? { dir: plan.name, scale: moveGiven.scale, point: moveGiven.point } : null });
+    const { start: lineIn, leave: lineOut } = lineWindow({ beats: song?.beats ?? [], seconds, line, type });
+    // The ops that place the move, on the cuts kino made.
+    const moved = (kino) => moveOps(plan, moveGiven, { cuts: kino.filter((op) => op.op === "set_cue" && /^cut-\d+$/.test(op.name)).map((op) => op.at), count: clips.length, start: lineIn, line, seconds, beats: song?.beats ?? [], leave: line && !plan?.noLine ? lineOut : null });
     // The option's own ops (its move). A src that names a project file becomes that file's src.
     const fileSrc = (value) => {
       if (typeof value !== "string" || /^(\/|https?:|music:|data:)/.test(value)) return value;
@@ -3263,17 +3288,17 @@ export function createAgentService(deps) {
     const ordersLine = own.some((op) => op?.op === "move_layers" && [op.layers, op.referenceId].flat().includes("sketch-line"));
     const withOwn = async (kino) => {
       const plain = await documentWith({ ...record, document: fresh }, kino);
-      if (!own.length) return plain;
+      const extra = [...moved(kino), ...own];
+      if (!extra.length) return plain;
       const over = ordersLine ? [] : plain.scenes[0].layers.map((layer) => layer.name).filter((name) => /^sketch-/.test(name ?? "") && !/^sketch-(clip-\d+|song)$/.test(name));
-      try { return await documentWith({ ...record, document: fresh }, [...kino, ...own, ...(over.length ? [{ op: "move_layers", layers: over, position: "top" }] : [])]); }
+      try { return await documentWith({ ...record, document: fresh }, [...kino, ...extra, ...(over.length ? [{ op: "move_layers", layers: over, position: "top" }] : [])]); }
       catch (error) {
-        throw new Error(`its ops (the move) were refused: ${String(error?.message ?? error).split("\n")[0].slice(0, 300)} kino's layers in a sketch: ${clips.map((_, index) => `sketch-clip-${index + 1}`).join(", ") || "no clips"}${line ? ", sketch-line" : ""}; cues: ${[clips.length > 1 && !asked.together ? "cut-2.." : null, song ? "beat-1.." : null, line ? "line-in, line-out" : null].filter(Boolean).join(", ") || "none"}.`);
+        throw new Error(`its ${own.length ? "ops" : `move ${plan.name}`} (the move) were refused: ${String(error?.message ?? error).split("\n")[0].slice(0, 300)} kino's layers in a sketch: ${clips.map((_, index) => `sketch-clip-${index + 1}`).join(", ") || "no clips"}${line ? ", sketch-line" : ""}; cues: ${[clips.length > 1 && !together ? "cut-2.." : null, song ? "beat-1.." : null, line ? "line-in, line-out" : null].filter(Boolean).join(", ") || "none"}.`);
       }
     };
     let ops = base();
     let built = await withOwn(ops);
     const text = built.scenes[0].layers.find((layer) => layer.name === "sketch-line");
-    const { start: lineIn, leave: lineOut } = lineWindow({ beats: song?.beats ?? [], seconds, line, type });
     // The line measured over the clip frames behind it; when it is hard to read, the lightest fix
     // that passes (engine/quality/legible.js). A line on black, or an option with text layers of
     // its own (not kino's: the line and what its typing or decoding adds), is left as it is.
@@ -3292,7 +3317,8 @@ export function createAgentService(deps) {
       if (fix) lineFix = lineFixText(fixed.legible);
     }
     // basis: what the clip is cached by (the ops kino wrote carry no new ids, the built layers do).
-    return { document: built, basis: { ops: [...ops, ...own], width: scene.width, height: scene.height }, song: songInfo, font: text?.fontFamily ?? asked.font ?? null, line: line || null, lineFrom, cuts: asked.together ? 0 : Math.max(0, clips.length - 1),
+    return { document: built, basis: { ops: [...ops, ...moved(ops), ...own], width: scene.width, height: scene.height }, song: songInfo, font: text?.fontFamily ?? asked.font ?? null, line: line || null, lineFrom, cuts: ops.filter((op) => op.op === "set_cue" && /^cut-\d+$/.test(op.name)).length,
+      ...(plan || moveSaid || moveWhy ? { move: moveText(plan, moveSaid, moveWhy) } : {}), ...(plan ? { moveName: plan.name } : {}),
       ...(text ? { lineAt: [lineIn, lineOut], type: typeText(type ?? {}, typeSaid), typeSet: typeText(type ?? {}).replace(/ \(the words name.*$/, "") } : {}), ...(own.length ? { moveOps: own.length } : {}), ...(lineFix ? { lineFix } : {}) };
   }
 

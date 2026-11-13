@@ -99,7 +99,7 @@ test("the direction's calls: a new video's brief with every line at once, the pl
 
 test("the pick: someone at the app gets a filled sketch round (also under just start), asked once; the song and the picked font follow", () => {
   const line = (text) => ({ text, by: "guessed" });
-  const list = ["a door opens", "a city wakes", "a phone lights the room up at night", "one long breath", "the last bus"].map((idea, index) => ({ idea, move: `move ${index}`, p: 0.1 * index, source: index === 3 ? "street.mp4 at 2.5 s" : "the screen" }));
+  const list = ["a door opens", "a city wakes", "a phone lights the room up at night", "one long breath", "the last bus"].map((idea, index) => ({ idea, move: index === 3 ? "push from the street into the door" : `move ${index}`, p: 0.1 * index, source: index === 3 ? "street.mp4 at 2.5 s" : "the screen" }));
   const treatments = { list, dropped: 2, shown: [3, 0, 1], picked: null };
   const brief = { rev: 1, fields: withAsk({ about: line("a"), message: line("m"), plays_on: line("p"), made_from: line("f"), look_sound: line(""), never: line("n") }), log: [], noPlayback: { reason: "just start", rev: 1 }, treatments };
   const video = { seconds: 40, layers: 0, width: 1920, height: 1080, files: ["street.mp4", "desk.mp4"] };
@@ -109,6 +109,9 @@ test("the pick: someone at the app gets a filled sketch round (also under just s
   assert.deepEqual(shown.call.input.options.map((option) => [option.treatment, option.clips[0].file, option.clips[0].in, option.line, option.song, option.font]), [
     ["A", "street.mp4", 2.5, "<the words on screen>", "<title> by <artist>", "<family>"], ["B", "desk.mp4", 0, "<the words on screen>", "<title> by <artist>", "<family>"], ["C", "street.mp4", 0, "<the words on screen>", "<title> by <artist>", "<family>"]]);
   assert.deepEqual([shown.call.input.action, shown.call.input.seconds], ["try", 6]);
+  // Each sketch's move: the kino move its treatment's words name (kino places it), else a slot for the nearest one.
+  assert.deepEqual(shown.call.input.options.map((option) => [option.move, option.ops]), [["push", undefined], ["<kino move for: move 0>", undefined], ["<kino move for: move 1>", undefined]]);
+  assert.match(shown.step, /; move: push, pull, fast-cuts, card, or one of library \{topic:"moves"\} by name/);
   // The reply's words say the same as its step (an agent that reads "pick one yourself" skips the round).
   const said = briefText({ brief }, { ...video, appSeen: true });
   assert.match(said, /they pick from sketches[\s\S]*\nstep: show sketches/);

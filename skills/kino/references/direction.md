@@ -78,16 +78,18 @@ studied reference prints a `skeleton:` line (its shots, holds, fast runs and cha
 ## Sketch rounds
 
 - One small call per treatment, kino builds each 6 s sketch on a fresh copy:
-  `notes {action:"try", options:[{treatment:"A", song:"music:<id>", font:"<family>", ops:[...]},
-  {treatment:"B", song:"<title> by <artist>", ops:[...]}, ...], seconds?}`. song is a project
+  `notes {action:"try", options:[{treatment:"A", song:"music:<id>", font:"<family>", move:"push"},
+  {treatment:"B", song:"<title> by <artist>", move:"whip-pan"}, ...], seconds?}`. song is a project
   file, `music:<id>` or a named song kino fetches (played from its measured drop); `line` the
   words (default: the treatment's quoted words); `clips:[{file, in?}]` project files (default:
   the files its source names). `type` words set the line (default: the treatment's type): its
   size, case, low or top, on black, and how it appears (typed, one word a beat, word by word,
   cut, slide, mask, blur, wipe, grow, fade, stream, decode, assemble). Cuts land on the song's
-  beats. `ops` show the treatment's move on kino's layers (`sketch-clip-1`.., `sketch-line`;
-  cues `cut-2`.., `beat-1`.., `line-in`, `line-out`; `together:true` keeps every clip on). A
-  pick saves its song stretch and font with the treatment pick.
+  beats. `move` is the treatment's move, placed by kino (default: from its move words):
+  `push`, `pull`, `fast-cuts`, `card` or a library move by name (a transition lands on every
+  cut; `count-up` counts the line's number); `{name, ...fields}` sets it. `ops` add your own
+  on kino's layers (`sketch-clip-1`.., `sketch-line`; cues `cut-2`.., `line-in`). A pick
+  saves its song stretch and font too.
 - With treatments saved, `notes {action:"try", from, to, options:[{treatment:"A", ops}]}` shows
   2 to 4 sketches of the shown treatments (A to C, D if listed). Each is its ops on a copy over
   2 to 10 s with sound; nothing is saved. `name` is optional (it defaults to the treatment's
