@@ -14,6 +14,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import "./inspire.css";
 import { act } from "./api.js";
 import { Bot } from "./bot.jsx";
+import { theAgent } from "./agentLabels.js";
 import { ResolveImage } from "./resolve.jsx";
 import { asciiCells } from "./resolveCells.js";
 import {
@@ -80,7 +81,7 @@ export function InspireScreen({ data, projectId, now, onBack, say, keysRef, stil
 function agentOf(data, by) {
   if (!by || by === "you") return { name: "you", color: null, row: null };
   const row = data?.agents?.find((agent) => agent.id === by.id) ?? null;
-  return { name: by.name ?? row?.name ?? "the agent", color: row?.color ?? by.color ?? null, row };
+  return { name: theAgent(by.name ?? row?.name), color: row?.color ?? by.color ?? null, row };
 }
 
 /** One frame of a strip (6 frames side by side in one JPEG), as a picture cropped to it. */
@@ -536,7 +537,7 @@ function Breakdown({ data, projectId, onBack, say, onSimple }) {
   const soundtrack = data?.agent?.soundtrack ?? null;
   const who = searcher(inspire);
   const agentRow = who && !who.you ? data?.agents?.find((agent) => agent.id === who.id) ?? null : data?.agents?.[0] ?? null;
-  const agentName = (who && !who.you ? who.name : agentRow?.name) ?? "agent";
+  const agentName = theAgent(who && !who.you ? who.name : agentRow?.name);
   const [kind, setKind] = useState("videos");
   const [shorts, setShorts] = useState(false); // videos tab: search YouTube Shorts only
   const [board, setBoard] = useState("all");

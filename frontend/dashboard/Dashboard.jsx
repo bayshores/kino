@@ -42,6 +42,7 @@ import { agentChips, idleLine, renderAgent, runningRender } from "./topbar.js";
 import { usePreviewList } from "./previewCache.jsx";
 import { AgentPane } from "./agentPane.jsx";
 import { agentOfCalls, needWords, shownAgent } from "./agentView.js";
+import { theAgent, withAgentLabels } from "./agentLabels.js";
 import { noteCursorRows, noteGroups, noteReader, readerLine } from "./noteSpot.js";
 import { Bot } from "./bot.jsx";
 import { markTimelineSeen } from "./timeline.jsx";
@@ -234,7 +235,16 @@ function useDashboardData() {
     return () => { active = false; };
   }, [data?.behind, data?.projectId, data?.wantRev]);
 
-  return { data, setData, error, connection, load };
+  // Every screen draws an agent by its label ("Agent", "Agent 2"), not the name kino gave it (agentLabels.js).
+  // The numbers stay while the project is open: the order so far goes into the next labels.
+  const agentOrder = useRef({ projectId: null, ids: [] });
+  const shown = useMemo(() => {
+    const known = agentOrder.current.projectId === data?.projectId ? agentOrder.current.ids : [];
+    const next = withAgentLabels(data, known);
+    agentOrder.current = { projectId: data?.projectId ?? null, ids: [...(next?.agentLabels?.keys() ?? [])] };
+    return next;
+  }, [data]);
+  return { data: shown, setData, error, connection, load };
 }
 
 export function Dashboard() {
@@ -1579,7 +1589,7 @@ export function Dashboard() {
   ) : null;
 
   // The message box at the bottom of the agent pane: a note about the whole video.
-  const messageTo = shownAgent(data, now)?.name ?? "the agent";
+  const messageTo = theAgent(shownAgent(data, now)?.name);
   const noteLine = phone ? null : (
     <form className="message-box" aria-label={`Message to ${messageTo}`} onSubmit={(event) => { event.preventDefault(); sendMessage(); }}>
       <div className="message-field">
@@ -1695,7 +1705,7 @@ export function Dashboard() {
           <Icon name={theme === "light" ? "sun" : "moon"} /></button>
         <span className={`render-split${rendering ? " is-rendering" : ""}`} style={renderBy?.color ? { "--who": renderBy.color } : undefined}>
           <button type="button" className="tb top-render" onClick={() => (rendering ? setAgentView("session") : exportScene())} aria-keyshortcuts="r" disabled={!scene}
-            title={rendering ? `Rendering ${renderPercent}%${renderBy ? ` for ${renderBy.name}` : ""}: show the renders` : "Render this scene, final mp4 (r)"}
+            title={rendering ? `Rendering ${renderPercent}%${renderBy ? ` for ${theAgent(renderBy.name)}` : ""}: show the renders` : "Render this scene, final mp4 (r)"}
             aria-label={rendering ? `Rendering, ${renderPercent} percent. Show the renders.` : "Render"}>
             {rendering ? `${renderPercent}%` : "Render"}
             {rendering ? <span className="render-line" style={{ width: `${renderPercent}%` }} aria-hidden="true" /> : null}
@@ -1821,7 +1831,7 @@ export function Dashboard() {
         const shown = target?.sceneId ? doc?.scenes.find((entry) => entry.id === target.sceneId) : null;
         if (shown) { stopPlaying(); setView({ sceneId: shown.id, time: Math.max(0, Math.min(Number(shown.duration) || 0, target.time ?? target.range?.[0] ?? 0)) }); }
         setFollow(true);
-        say(shown ? `Follow agent on, showing where ${agent.name} works.` : "Follow agent on.");
+        say(shown ? `Follow agent on, showing where ${theAgent(agent.name)} works.` : "Follow agent on.");
         focusPane(1);
       }} />,
       board: () => <BoardScreen projectId={projectId} document={doc} revision={revision} />,
