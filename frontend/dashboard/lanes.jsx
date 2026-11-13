@@ -85,7 +85,7 @@ function ShotTile({ tile, src, ready, percent, onSeek, duration }) {
   const [failed, setFailed] = useState(false);
   return (
     <span className="shot-tile" role="listitem" style={{ left: percent(tile.start), width: `calc(${percent(tile.end)} - ${percent(tile.start)})` }}
-      title={`shot ${tile.shot} · ${spanText([tile.start, tile.end], duration)}`} onClick={(event) => { event.stopPropagation(); onSeek(tile.time); }}>
+      title={`Shot ${tile.shot}, ${spanText([tile.start, tile.end], duration)}`} onClick={(event) => { event.stopPropagation(); onSeek(tile.time); }}>
       {failed || !ready ? null : <img src={src} alt="" draggable={false} onError={() => setFailed(true)} />}
     </span>
   );

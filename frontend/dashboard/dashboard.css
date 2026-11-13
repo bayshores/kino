@@ -241,7 +241,7 @@
 .topbar .follow .dot { color: var(--fg2); margin-right: 8px; }
 .topbar .follow.on { background: none; }
 .topbar .follow.on .dot { color: var(--ok); }
-.topbar .message { flex: 0 1 auto; max-width: 40%; min-width: 0; overflow: hidden; text-overflow: ellipsis; padding: 0; z-index: 1; animation: rise-in var(--panel) var(--ease-in) both; }
+.topbar .message { flex: 1 1 auto; white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; padding: 0; z-index: 1; animation: rise-in var(--panel) var(--ease-in) both; }
 @keyframes rise-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 /* ---- the three panes (F1): the stage left, the agent pane right, the timeline under both ---- */
 .panes {

@@ -420,7 +420,7 @@ export function voiceLine(data, agent, now = Date.now(), nameOf = () => null) {
   const rows = agent ? agentLog(data, agent, 12) : [];
   const last = rows.at(-1) ?? null;
   // A failed call says so: "Checked the video. It failed."
-  const line = (row, running) => `${asSentence(row.said || row.text, { verb: row.verb, running })}${row.result?.mark === "failed" ? " It failed." : ""}`;
+  const line = (row, running) => `${row.said ? asSentence(row.said, { running }) : asSentence(row.text, { verb: row.verb, running })}${row.result?.mark === "failed" ? " It failed." : ""}`;
   const before = (skip) => {
     const row = rows.slice(0, skip ? -1 : undefined).at(-1);
     return row ? { verb: row.verb, kind: row.kind, text: line(row, false), rev: row.rev ?? null } : null;
