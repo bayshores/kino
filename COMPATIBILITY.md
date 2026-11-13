@@ -2096,6 +2096,14 @@ edit by hand. Dark only, no purple. Main tests: `backend/dashboard.test.mjs`, `f
   music edits on the pooled contest device stack (a flash inside one shot is no seam flash). Evidence:
   `engine/qualityStyle.test.js`, `backend/inspire.test.mjs`, `backend/agent-inspire.test.mjs`. Gaps: title moment
   and section colors are not compared (references do not measure them); `look versus` is unchanged.
+- **Reference skeleton**: Test-verified and run on a real 14 s project with 2 saved references. A measured
+  reference prints a `skeleton:` line (shots, holds, fast runs, the change point, lettering, motion, beat hits,
+  read from its saved record); `borrow_rhythm` lends its sections scaled to the scene, snapped to the project's
+  beats, each section reshuffled by a seed from the project id (printed; `seed` overrides, `order:"exact"` copies), no
+  lent shot under 6 project frames;
+  `board {snap:"rhythm"}` moves the board's cuts onto the lent marks; `look versus` prints a skeleton gap line per
+  reference. Evidence: `backend/inspire.test.mjs`, `backend/agent-inspire.test.mjs`. Gaps: lettering per shot
+  is a lower bound (3 reveal times per style are kept); text position only from persistent text boxes.
 - **Inspire sound effects**: Stub-verified. `library {topic:"inspire", kind:"sounds"}` finds and
   measures YouTube sound effects of 60 s or less; `project import yt:<id>` brings one in with its credit.
   Evidence: `backend/inspire.test.mjs`, `backend/agent-inspire.test.mjs`. Gaps: not run live; no UI.

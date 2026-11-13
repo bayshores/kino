@@ -199,6 +199,7 @@ import { REACH_HELP, REACH_OPERATIONS, applyReachOperation } from "./reach-opera
 import { WORKSPACE_HELP, createReachWorkspace } from "./reach-workspace.mjs";
 import { createReachExports, selectedScenes } from "./reach-exports.mjs";
 import { CLOSED_PLATFORM, cleanTake, takeCutNote, closedPlatform, fitNote, takeSaysWhat, takeStretch, takeWithoutStretch, quietDoubt, ideasAnswerText, heardLinesText, ideasProposedText, isYouTubeUrl, MAX_SOUND_SECONDS, numbersLine, originPhrase, originQuery, projectText, rankedSoundsText, referenceText, refId, rhythmCues, SEARCH_KINDS, searchText } from "../inspire.mjs";
+import { editShots, lendNote, lendSkeleton, referenceSkeleton, seedOf, skeletonGap } from "../skeleton.mjs";
 import { suggestStyleLines } from "../measure/suggest.mjs";
 import { changedParts, RENDER } from "./crew-locks.mjs";
 import { CrewError } from "./crew.mjs";
@@ -261,7 +262,7 @@ const REFERENCE_WAIVER = "reference";
 // it ask for no new versus (a test run looked again after each one).
 const versusSeen = (state, rev) => Number.isFinite(state.versus?.rev) && rev >= state.versus.rev && rev - state.versus.rev <= VIEWER_RECENT;
 const IDEAS_HELP = 'library {topic:"inspire", ideas:{ref, take:[{title, from, to?, what, why, use, place?:{at, to?}, tags?}], skip?:[{title, why}]}}: up to 6 ideas from one measured reference (from/to: seconds in it; place: seconds in this video), in plain words: what happens, why it is good, what it becomes here. The person turns each on or off on the inspire screen and allows them; the answer comes in your inbox.';
-const BORROW_HELP = 'borrow_rhythm {ref, fit?, at?, scene?}: a reference\'s pace per section (library {topic:"inspire"}, its lend: line), never its cut times: each section\'s shot lengths in a new order become cue marks rhythm-1, rhythm-2, … (kind marker) that at:"cue:rhythm-3" points at, cut on the song\'s song- seams when fit_music marked them. fit:true scales the measured stretch to the scene (from at); fit:<seconds> to that length; marks past the scene are left out. at: seconds into the scene (default 0). scene: id or name (default the first). Borrowing again replaces the rhythm-* marks. Only times come in: the footage never enters the project. The reference is saved in the project.';
+const BORROW_HELP = 'borrow_rhythm {ref, fit?, at?, scene?, seed?, order?}: a reference\'s skeleton (library {topic:"inspire"}, its skeleton: line): its sections (holds, fast runs, steady stretches) scaled to the scene and each section\'s shot lengths in a new order seeded by the project id (seed:<n> overrides; the receipt prints it), never its cut times, become cue marks rhythm-1, rhythm-2, … (kind marker) that at:"cue:rhythm-3" points at and board {snap:"rhythm"} moves the board\'s cuts onto; cuts move to the project\'s beat cues (else its rhythm) and the song\'s song- seams when fit_music marked them. order:"exact" keeps the reference\'s own order (reference_closeness may warn). fit (default true) scales the measured stretch to the scene (from at); fit:<seconds> to that length; fit:false keeps its seconds; marks past the scene are left out. at: seconds into the scene (default 0). scene: id or name (default the first). Borrowing again replaces the rhythm-* marks. Only times come in: the footage never enters the project. The reference is saved in the project.';
 const RENDER_WAIT_MS = 55_000;
 const PROJECT_ID = /^[a-z0-9][a-z0-9-]{0,62}$/;
 // The keys notes {action:"brief"} takes; the last three save (notesBrief).
@@ -3460,7 +3461,7 @@ export function createAgentService(deps) {
         catch (error) { throw new AgentError("bad_input", error.message, { safeToRetry: true }); }
         const problems = translation.problems.map(translationProblem);
         // `work` is shared by set_font, the block ops, detect_beats, isolate_voice and cut_out: fonts, media, notes, reports, the names and the cut_outs' deadline.
-        work = { resolver, notes: [...typeLines], reports: editBag.reports, labelSkips: [...(typeLines.said ?? [])], madeMedia: made.ids, pictureMoves: [] };
+        work = { resolver, notes: [...typeLines, ...(ops.lent ?? [])], reports: editBag.reports, labelSkips: [...(typeLines.said ?? [])], madeMedia: made.ids, pictureMoves: [] };
         after = await applyAll(before, translation.operations, ops, work, problems, translation.blocked);
         if (problems.length) throw refusal(projectId, ops, problems, translation.blocked, await waiverFixCall(before, problems, codes));
         // compose {footage}: check fixes the new edit before it is saved, in this same revision.
@@ -5495,6 +5496,13 @@ export function createAgentService(deps) {
       for (const finding of findings) range.push(`${where}outside your ${measuredRefs} references: ${finding.measured} (theirs: ${String(finding.required).replace(/^inside your \d+ saved references: /, "")}). check lists each fix.`);
     }
     if (measuredRefs >= 2 && !range.length) range.push(`inside your ${measuredRefs} references in brightness, contrast, dark share, text per 10 s, voice.`);
+    // The skeleton gap (backend/skeleton.mjs): shot lengths, lettering and holds beside each saved reference's skeleton, as facts.
+    const ourShots = editShots(document);
+    for (const ref of known.slice(0, 4)) {
+      const full = (await deps.inspire.reference(ref.id, { full: true }).catch(() => null)) ?? ref;
+      const gapLine = skeletonGap(referenceSkeleton(full), ourShots);
+      if (gapLine) range.push(gapLine);
+    }
     // Softness and accent: the frames of these rows against every saved reference's stills (read when
     // versus runs, so references saved before these measures need no new save). A measure, not a check.
     // Each row's frame is drawn once more at SOFT_EDGE (640 px, like the stills): the 320 px tiles are
@@ -9497,7 +9505,7 @@ export function createAgentService(deps) {
       if ((op?.op ?? op?.type) !== "borrow_rhythm") { out.push(op); continue; }
       const id = refId(op.ref);
       if (!id) throw new AgentError("bad_input", `borrow_rhythm needs ref: a reference from library {topic:"inspire"}, such as yt:dQw4w9WgXcQ. ${BORROW_HELP}`);
-      const ref = await deps.inspire.reference(id);
+      const ref = await deps.inspire.reference(id, { full: true });
       if (!ref) throw new AgentError("not_found", `${id} is not in kino's references: search for it first (library {topic:"inspire", search}).`);
       if (!ref.numbers) throw new AgentError("not_ready", `${id} is not measured yet (${numbersLine(ref)}). library {topic:"inspire", name:"${id}"} waits for its numbers.`);
       const wanted = op.scene ?? op.sceneId;
@@ -9505,15 +9513,39 @@ export function createAgentService(deps) {
       if (!scene) throw new AgentError("bad_input", `No scene "${wanted}".`, { didYouMean: closest(String(wanted), document.scenes.flatMap((entry) => [entry.id, entry.name].filter(Boolean))) });
       const length = Number(scene.duration) || 0;
       const at = Math.max(0, Number(op.at) || 0);
-      const fit = op.fit === true ? Math.max(0, length - at) : Number(op.fit) > 0 ? Number(op.fit) : null;
+      // The skeleton (backend/skeleton.mjs) scales to the scene by default; fit:false keeps the measured seconds.
+      const fit = op.fit === false ? null : op.fit === true || op.fit === undefined ? Math.max(0, length - at) : Number(op.fit) > 0 ? Number(op.fit) : null;
       // The song's seams (fit_music marks them song-...) are the sections the reference's pace maps onto.
       const seams = (document.cues ?? []).filter((cue) => cue.kind === "marker" && String(cue.name ?? "").startsWith("song-") && Number.isFinite(cue.time)).map((cue) => cue.time);
-      const { cues } = rhythmCues(ref.numbers, { length, fit, at, seams });
+      const lent = lendFromReference(ref, { document, projectId: document.id, length, at, fit, seams, seed: op.seed, order: op.order });
+      const { cues } = lent;
+      (out.lent ??= []).push(lent.note);
       const remove = (document.cues ?? []).filter((cue) => cue.kind === "marker" && /^rhythm-\d+$/.test(cue.name) && !cues.some((entry) => entry.name === cue.name)).map((cue) => cue.name);
       out.push({ op: "set_cues", cues, ...(remove.length ? { remove } : {}) });
       if (!dryRun) await deps.inspire.setSaved(document.id, id, true).catch(() => {});
     }
     return Object.assign(out, ops.wrapped ? { wrapped: true } : {}, ops.alias ? { alias: ops.alias } : {});
+  }
+
+  // borrow_rhythm's lend (backend/skeleton.mjs): the reference's skeleton onto this scene, snapped to
+  // the project's beat cues (else its rhythm), seeded by the project id unless seed is given.
+  function lendFromReference(ref, { document, projectId, length, at, fit, seams, seed, order }) {
+    const skeleton = referenceSkeleton(ref);
+    const beatCues = (document.cues ?? []).filter((cue) => cue.kind === "beat" && Number.isFinite(cue.time)).map((cue) => cue.time);
+    const bpm = Number(document.rhythm?.bpm);
+    const beats = beatCues.length ? beatCues : bpm > 0 ? Array.from({ length: Math.ceil((length * bpm) / 60) + 1 }, (_, index) => (Number(document.rhythm.offset) || 0) + (index * 60) / bpm) : [];
+    const beatsFrom = beatCues.length ? `${beatCues.length} beat cues` : bpm > 0 ? `the project rhythm (${Math.round(bpm)} bpm)` : null;
+    const given = Number.isFinite(Number(seed)) && seed !== null && seed !== undefined && seed !== "";
+    // A record with no cut list has no skeleton: its section pace is lent as before (rhythmCues).
+    if (!skeleton) {
+      const old = rhythmCues(ref.numbers, { length, fit, at, seams });
+      return { ...old, note: `borrow_rhythm from ${ref.id}: no measured cut list, so its pace per section (scaled ${old.scale}x, no seed): ${old.cues.length} marks rhythm-1 to rhythm-${old.cues.length}` };
+    }
+    // The shortest lent shot is 6 frames of this project.
+    const lent = lendSkeleton(skeleton, { length, at, fit, seams, beats, fps: projectFps(document),
+      seed: given ? Math.abs(Math.round(Number(seed))) : seedOf(projectId), order: order === "exact" ? "exact" : "shuffle" });
+    lent.seedFrom = given ? "given" : "from the project id; seed:<n> overrides";
+    return { ...lent, note: lendNote(skeleton, lent, { ref: ref.id, beatsFrom }) };
   }
 
   // ---- project ----------------------------------------------------------------------------

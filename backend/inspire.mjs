@@ -37,6 +37,7 @@ import { COPY_RUN, copiedRun } from "../engine/quality/rules/reference.js";
 import { beatSecondsOf, numbersWithMedian, shotStats } from "../engine/footage/refPace.js";
 import { cutFacts } from "../engine/cutFacts.js";
 import { call, callText } from "./agent/next-call.mjs";
+import { referenceSkeleton, skeletonLine } from "./skeleton.mjs";
 
 /** Spoken lines a measured reference keeps (the first ones in time). */
 export const HEARD_LINES_KEPT = 12;
@@ -2500,11 +2501,14 @@ export function referenceText(ref, { full = false } = {}) {
   const fit = [beatFitLine(numbers.beatFit), numbers.flashes ? `flashes ${numbers.flashes}` : ""].filter(Boolean).join(" · ");
   const filled = numbersWithMedian(numbers, ref.bpm);
   const median = filled.median != null ? `median shot ${round(filled.median, 1)} s${medianBeatWords(filled, ref.bpm)}` : "";
-  return [head, `measured ${span}: ${[`${numbers.shots} shots`, `${numbers.cutsPerSecond} cuts/s`, median, longest, beat].filter(Boolean).join(" · ")}`, ...(fit ? [fit] : []), cuts, lendLine(numbers),
+  const skeleton = skeletonLine(referenceSkeleton(ref));
+  // borrow_rhythm lends the skeleton when there is one; the older per-part lend line only without it.
+  return [head, `measured ${span}: ${[`${numbers.shots} shots`, `${numbers.cutsPerSecond} cuts/s`, median, longest, beat].filter(Boolean).join(" · ")}`, ...(fit ? [fit] : []), cuts,
+    skeleton ?? lendLine(numbers),
     ...replayLines(ref),
     ...fingerprintLines(ref),
     ...heardLinesText(ref).split("\n").filter(Boolean),
-    `borrow: edit {ops:[{op:"borrow_rhythm", ref:"${ref.id}", fit:true}]} (each section's shot lengths in a new order, cut on the song's seams when fit_music marked them; fit:true scales to the scene)`].join("\n");
+    `borrow: edit {ops:[{op:"borrow_rhythm", ref:"${ref.id}"}]} (its skeleton's sections, each section's shot lengths in a new order seeded by the project, scaled to the scene, on the song's beats and seams; then board {snap:"rhythm"})`].join("\n");
 }
 
 const pct = (value) => (Number.isFinite(value) ? `${Math.round(value * 100)}%` : "?");
