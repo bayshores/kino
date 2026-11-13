@@ -6,7 +6,8 @@
 // window away when one takes too long.
 //
 // Requests arrive on stdin as JSON lines and each gets one JSON line on stdout:
-//   {id, type:"mount", script, width, height, pixelRatio, name, images:{key: base64}, time}
+//   {id, type:"mount", script, width, height, pixelRatio, name, images:{key: base64}, models:{key: base64},
+//    libraries:{specifier: module text}, time}
 //      -> {id, ok:true, context} | {id, ok:false, message, phase, time, line?, column?}
 //   {id, type:"draw", frame} -> {id, ok:true, context, empty, png: base64} | {id, ok:false, ...}
 //   {id, type:"requests"} -> {id, ok:true, allowed:[url], cancelled:[url]} (what the session saw)
@@ -213,10 +214,11 @@ async function runScriptWorker() {
         closePage();
         return { id, ok: false, message: String(error?.message || error).slice(0, 300), phase: "load", time: 0, reset: true };
       }
-      const images = {};
-      for (const [key, value] of Object.entries(request.images ?? {})) images[key] = value ? new Uint8Array(Buffer.from(value, "base64")) : null;
+      const decode = (encoded) => Object.fromEntries(Object.entries(encoded ?? {}).map(([key, value]) => [key, value ? new Uint8Array(Buffer.from(value, "base64")) : null]));
+      const libraries = Object.fromEntries(Object.entries(request.libraries ?? {}).filter(([, text]) => typeof text === "string"));
       const reply = await ask({ id, type: "mount", script: request.script, width: request.width, height: request.height,
-        pixelRatio: request.pixelRatio, name: request.name ?? "", images }, "load", Number(request.time) || 0, SCRIPT_LIMITS.setupMs);
+        pixelRatio: request.pixelRatio, name: request.name ?? "", images: decode(request.images), models: decode(request.models), libraries },
+      "load", Number(request.time) || 0, SCRIPT_LIMITS.setupMs);
       return { ...reply, id };
     }
     if (type === "draw") {

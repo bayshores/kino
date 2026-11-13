@@ -1,9 +1,10 @@
 // Reads a local media file the caller named by its absolute path, for uploading to kino.
 // Used by the MCP tools and the kino command line.
-import { realpath, stat } from "node:fs/promises";
+import { readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { MAX_UPLOAD_BYTES } from "../engine/schema.js";
 import { LUT_MIME } from "../engine/effects/colorMath.js";
+import { MODEL_MIME, gltfRefusal } from "./glb-model.mjs";
 
 export const MEDIA_TYPES = new Map([
   [".png", "image/png"],
@@ -27,6 +28,8 @@ export const MEDIA_TYPES = new Map([
   [".woff2", "font/woff2"],
   // A colour lookup table for the lut effect.
   [".cube", LUT_MIME],
+  // A 3D model for a script layer's model input (glb-model.mjs checks it).
+  [".glb", MODEL_MIME],
 ]);
 
 // A video or sound over `maxBytes` comes back with tooLarge: the caller makes a working copy
@@ -37,6 +40,10 @@ export async function readExplicitMediaFile(filePath, { maxBytes = MAX_UPLOAD_BY
   const actualPath = await realpath(filePath);
   const extension = path.extname(actualPath).toLowerCase();
   const mime = MEDIA_TYPES.get(extension);
+  if (extension === ".gltf") {
+    const details = await stat(actualPath);
+    throw new Error(gltfRefusal(details.size < 8 * 1024 * 1024 ? await readFile(actualPath, "utf8") : ""));
+  }
   if (!mime)
     throw new Error(
       `Unsupported media type. Supported extensions: ${[...MEDIA_TYPES.keys()].join(", ")}.`,

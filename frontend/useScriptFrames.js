@@ -5,20 +5,36 @@
 // renderer places where an image layer would be (render.js, the `liveScripts` option).
 // A module that fails or takes too long draws nothing until its script, size or images change.
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import { SCRIPT_FRAME_PATH } from "../engine/scriptLayer.js";
+import { SCRIPT_FRAME_PATH, SCRIPT_LIBRARY_PATH, scriptLibraryNames } from "../engine/scriptLayer.js";
 import { authorizedMediaUrl } from "./client.js";
 import { createScriptHost } from "./scriptHost.js";
 import { isLate, previewRatio, scriptLayersToDraw, scriptRequest, shouldSend } from "./scriptFrames.js";
 
 const MAX_IMAGE_BYTES = 48 * 1024 * 1024;
+const MAX_MODEL_BYTES = 64 * 1024 * 1024;
 
-// An image input's picture, loaded by the page with the same address an image layer uses.
-async function imageBytes(src) {
+// An image (or model) input's file, loaded by the page with the same address an image layer uses.
+async function imageBytes(src, maxBytes = MAX_IMAGE_BYTES) {
   if (!src) return null;
   const response = await fetch(authorizedMediaUrl(src));
   if (!response.ok) return null;
   const bytes = await response.arrayBuffer();
-  return bytes.byteLength <= MAX_IMAGE_BYTES ? bytes : null;
+  return bytes.byteLength <= maxBytes ? bytes : null;
+}
+
+// The library modules the script imports, as text, loaded once per page (the frame fetches nothing).
+const libraryCache = new Map();
+async function libraryTexts(script) {
+  const texts = {};
+  for (const name of scriptLibraryNames(script)) {
+    if (!libraryCache.has(name)) libraryCache.set(name, fetch(`${SCRIPT_LIBRARY_PATH}?name=${encodeURIComponent(name)}`)
+      .then((response) => (response.ok ? response.text() : Promise.reject(new Error(String(response.status)))))
+      .catch((error) => { libraryCache.delete(name); throw error; }));
+    texts[name] = await libraryCache.get(name);
+  }
+  // The model loader imports the library itself.
+  if (texts["three/addons/loaders/GLTFLoader.js"] && !texts.three) return { ...texts, ...(await libraryTexts('import * as THREE from "three";')) };
+  return texts;
 }
 
 /** Paints each layer's newest picture into its canvas (again only when the picture changed). */
@@ -94,16 +110,19 @@ export function useScriptFrames(scene, time, { active = true, container } = {}) 
     const host = slot.host;
     slot.mountId = (slot.mountId ?? 0) + 1;
     const mountId = slot.mountId;
-    const images = {};
+    const images = {}, models = {};
+    let libraries = {};
     try {
       for (const [key, src] of Object.entries(wanted.mount.images)) images[key] = await imageBytes(src);
+      for (const [key, src] of Object.entries(wanted.mount.models ?? {})) models[key] = await imageBytes(src, MAX_MODEL_BYTES);
+      libraries = await libraryTexts(wanted.mount.script);
     } catch {
-      // A picture that cannot be loaded is no picture, as for an image layer.
+      // A picture or model that cannot be loaded is none, as for an image layer.
     }
     // A newer mount started meanwhile: this one's answer no longer counts.
     const stale = () => slot.mountId !== mountId || slot.gone;
     if (stale()) return;
-    const reply = await host.mount({ ...wanted.mount, images });
+    const reply = await host.mount({ ...wanted.mount, images, models, libraries });
     if (stale()) return;
     slot.mounting = null;
     // Stopped along with an older module that got stuck: this one has done nothing wrong.

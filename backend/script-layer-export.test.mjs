@@ -12,6 +12,8 @@ import { createLayer, createScene } from "../engine/model.js";
 import { exportScene } from "./export.mjs";
 import { hasMediaTools, readImage, readVideoFrames, startTestServer } from "./media.test.support.mjs";
 import { clearScriptFrameCache, closeScriptRenderer, sceneScriptFrames, scriptFrameCacheSize } from "./script-layer-frames.mjs";
+import { makeGlb } from "./glb.test.support.mjs";
+import { jsonBlocks, skillSection } from "./skill.test.support.mjs";
 
 const require = createRequire(import.meta.url);
 function electronSkip() {
@@ -60,8 +62,35 @@ test("a Lottie export refuses a script layer, names it and says what to use inst
     /Lottie export cannot hold script layer “bars”: its picture is drawn by code each frame\. Use PNG, video, or GIF export, or hide the layer for Lottie\./);
 });
 
+test("the 3D example in the skill runs as written: an imported .glb shows in a look frame and turns in a draft render", { skip, timeout: 60_000 }, async () => {
+  server ??= await startTestServer();
+  const agent = async (verb, body) => (await server.api(`/api/agent/${verb}`, { method: "POST", body })).json();
+  const made = await agent("project", { action: "create", id: "cube", name: "cube", width: 320, height: 180, duration: 1, background: "#000000" });
+  assert.equal(made.isError, undefined, made.text);
+  const upload = await server.api("/api/media?project=cube", { method: "POST", headers: { "content-type": "model/gltf-binary", "x-file-name": "cube.glb" }, body: makeGlb() });
+  assert.equal(upload.status, 201, await upload.clone().text());
+  const media = await upload.json();
+  assert.deepEqual([media.mime, media.model.meshes], ["model/gltf-binary", 1]);
+  const [[example]] = jsonBlocks(skillSection("Example: a model that turns once"));
+  example.properties = { ...example.properties, x: 70, y: 0, width: 180, height: 180, values: { model: media.src } };
+  const edit = await agent("edit", { project: "cube", ops: [example] });
+  assert.equal(edit.isError, undefined, edit.text);
+  assert.doesNotMatch(edit.text, /script "cube"/, "the receipt's test draw found no problem");
+  const look = await agent("look", { project: "cube", mode: "frame", t: 0, width: 320 });
+  const image = await readImage(Buffer.from(look.images[0].data, "base64"));
+  assert.ok(isRed(image.pixel(160, 90)), `the red cube in the middle: ${image.pixel(160, 90)}`);
+  assert.ok(isDark(image.pixel(10, 90)), "the background beside it");
+  const render = await agent("render", { project: "cube", action: "start", format: "mp4", options: { duration: 0.5 }, wait: true });
+  assert.equal(render.isError, undefined, render.text);
+  const { path: file, width, height } = render.data.files[0];
+  const video = await readVideoFrames(file, { width, height });
+  const middle = (frame) => frame.pixel(Math.round(width / 2), Math.round(height / 2));
+  assert.ok(isRed(middle(video[0])), `the first frame shows the cube: ${middle(video[0])}`);
+  assert.notDeepEqual(middle(video[0]), middle(video.at(-1)), "it turned between the first and last frame");
+});
+
 test("a script layer added by edit shows in look frames and a render, and look's cache follows its values", { skip, timeout: 60_000 }, async () => {
-  server = await startTestServer();
+  server ??= await startTestServer();
   const agent = async (verb, body) => (await server.api(`/api/agent/${verb}`, { method: "POST", body })).json();
   const made = await agent("project", { action: "create", id: "bars", name: "bars", width: 320, height: 180, duration: 0.5, background: "#000000" });
   assert.equal(made.isError, undefined, made.text);

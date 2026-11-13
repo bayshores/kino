@@ -63,6 +63,7 @@ import { createVoiceMedia } from "./voice/media.mjs";
 import { createCutoutMedia } from "./cutout/media.mjs";
 import { shareUrl } from "../engine/shareUrls.js";
 import { LUT_MIME, parseCubeLut } from "../engine/effects/colorMath.js";
+import { MODEL_MIME, checkGlbModel } from "./glb-model.mjs";
 import { createSoundSearch } from "./sound-search.mjs";
 import { createSoundLibrary } from "./sound-library.mjs";
 import { createRecorder } from "./recorder/recorder.mjs";
@@ -81,8 +82,8 @@ import { createHouseMemory } from "./house-memory.mjs";
 import { createSongShapeCache, songVocals, whisperModelReady } from "./song-shape.mjs";
 import { makeTempFolder, removeTempFolder, sweepSummary, sweepTempFolders } from "./temp-folders.mjs";
 import { stopChildren } from "./child-exit.mjs";
-import { sendScriptFrame } from "./script-frame-page.mjs";
-import { SCRIPT_FRAME_PATH } from "../engine/scriptLayer.js";
+import { sendScriptFrame, sendScriptLibrary } from "./script-frame-page.mjs";
+import { SCRIPT_FRAME_PATH, SCRIPT_LIBRARY_PATH } from "../engine/scriptLayer.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const activeExports = new Set();
@@ -497,6 +498,8 @@ const mediaTypes = {
   "font/woff2": "woff2",
   // Colour lookup tables (Adobe Cube LUT 1.0) for the lut effect.
   [LUT_MIME]: "cube",
+  // A 3D model for a script layer's model input, checked by glb-model.mjs.
+  [MODEL_MIME]: "glb",
 };
 const mimeTypes = {
   ".html": "text/html",
@@ -520,6 +523,7 @@ const mimeTypes = {
   ".ttf": "font/ttf",
   ".otf": "font/otf",
   ".cube": LUT_MIME,
+  ".glb": MODEL_MIME,
 };
 
 function json(res, status, value) {
@@ -1193,6 +1197,10 @@ const server = http.createServer(async (req, res) => {
     if (parts[0] === "api") {
       // The live preview's sandboxed script frame: the same page for everyone, no data in it.
       if (url.pathname === SCRIPT_FRAME_PATH && ["GET", "HEAD"].includes(req.method)) return sendScriptFrame(req, res);
+      // The library module text a script layer imports: public package text, the same for everyone,
+      // so like the frame page it needs no origin check. Only the two known names answer; the
+      // query never becomes a file path (script-libraries.mjs maps each name to a fixed file).
+      if (url.pathname === SCRIPT_LIBRARY_PATH && ["GET", "HEAD"].includes(req.method)) return sendScriptLibrary(req, res, url.searchParams.get("name"));
       if (!acceptableOrigin(req.headers.origin))
         return json(res, 403, {
           error: "This server accepts requests only from its own editor.",
@@ -1621,6 +1629,8 @@ const server = http.createServer(async (req, res) => {
         // A LUT is checked now, so a broken file is refused here with the line that is wrong
         // instead of failing later in the preview or an export.
         const lut = mime === LUT_MIME ? parseCubeLut(bytes.toString("utf8")) : null;
+        // A model is checked the same way: one that needs another file or a decoder is refused.
+        const model = mime === MODEL_MIME ? checkGlbModel(bytes) : null;
         let id = `${randomUUID()}.${extension}`;
         let converted = null;
         if (remux) {
@@ -1653,6 +1663,7 @@ const server = http.createServer(async (req, res) => {
           ...measurements,
           ...shots,
           ...(lut ? { lut: { type: lut.type, size: lut.size, ...(lut.title ? { title: lut.title.slice(0, 200) } : {}) } } : {}),
+          ...(model ? { model } : {}),
           ...(projectId ? { projectId } : {}),
         };
         // Only the record is written under the file lock: reading, measuring and finding the shots

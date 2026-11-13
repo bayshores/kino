@@ -153,19 +153,21 @@ export function sceneScriptFrames(scene, { dimensions, readImage, warnings = [],
   async function planFor(layer) {
     if (plans.has(layer.id)) return plans.get(layer.id);
     const plan = (async () => {
-      const images = {};
-      const imageHashes = {};
+      // Image and model inputs: their files' bytes (a model's .glb is read like a picture).
+      const images = {}, models = {};
+      const hashes = {};
       for (const input of layer.inputs ?? []) {
-        if (input.type !== "image") continue;
+        if (input.type !== "image" && input.type !== "model") continue;
+        const into = input.type === "image" ? images : models;
         const src = layer.values?.[input.key];
-        if (!src) { images[input.key] = null; continue; }
-        const media = await readImage(src, `Script layer "${layer.name ?? layer.id}" image input "${input.key}"`);
-        images[input.key] = media.buffer;
-        imageHashes[input.key] = hashOf(media.buffer);
+        if (!src) { into[input.key] = null; continue; }
+        const media = await readImage(src, `Script layer "${layer.name ?? layer.id}" ${input.type} input "${input.key}"`);
+        into[input.key] = media.buffer;
+        hashes[input.key] = hashOf(media.buffer);
       }
       const pixelRatio = scriptPixelRatio(scene, dimensions, layer);
-      const base = `${scriptKey(layer)}\u0000${layer.name ?? ""}\u0000${pixelRatio}\u0000${JSON.stringify(imageHashes)}`;
-      return { images, pixelRatio, base, clocks: layerClocks(scene.layers, layer) };
+      const base = `${scriptKey(layer)}\u0000${layer.name ?? ""}\u0000${pixelRatio}\u0000${JSON.stringify(hashes)}`;
+      return { images, models, pixelRatio, base, clocks: layerClocks(scene.layers, layer) };
     })();
     plans.set(layer.id, plan);
     return plan;
@@ -236,7 +238,7 @@ export function sceneScriptFrames(scene, { dimensions, readImage, warnings = [],
           const { width, height } = entries[0].frame;
           if (!(width > 0 && height > 0)) continue;
           const results = await (renderer ?? scriptRenderer()).render({ script: layer.script, width, height, pixelRatio: plan.pixelRatio,
-            frames: entries.map((entry) => entry.frame), images: plan.images, signal, name: layer.name ?? "" });
+            frames: entries.map((entry) => entry.frame), images: plan.images, models: plan.models, signal, name: layer.name ?? "" });
           results.forEach((result, index) => {
             const { at } = entries[index];
             if (result.error) {

@@ -522,7 +522,9 @@ How to read it:
   or changes one test-draws 3 frames (a receipt line for a failure or an empty picture); `check` has
   `script_layer_error` (error) and `script_layer_empty` (warning: it draws nothing at any checked frame).
   Evidence: `engine/scriptLayer.test.js`, `backend/agent-script-layer.test.mjs`,
-  `backend/script-frames.test.mjs`, `backend/script-layer-export.test.mjs`. Gap: 3D. Live preview: the stage
+  `backend/script-frames.test.mjs`, `backend/script-layer-export.test.mjs`. 3D: a `model` input (.glb) drawn with
+  the bundled 3D library, offline, embedded textures included: import, edit, look and draft render
+  (`script-layer-export.test.mjs`) and the preview's Worker (`script-preview-sandbox.test.mjs`). Live preview: the stage
   and the viewer run each module in a stoppable Worker in a sandboxed frame with no network and paint
   its pictures in place (`tests/script-preview-sandbox.test.mjs`, `frontend/scriptFrames.test.js`,
   `tests/dashboard-browser.test.mjs`). Preview gap: a script layer used as a mask, or drawn again as

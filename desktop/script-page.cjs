@@ -12,14 +12,15 @@ ipcRenderer.on("kino-script:request", (_event, message) => {
   const frame = scriptFrame();
   if (!frame?.contentWindow) return;
   const transfer = [];
-  // Image bytes arrive as Uint8Arrays; the frame gets each one as its own ArrayBuffer.
-  if (message?.images) {
-    const images = {};
-    for (const [key, bytes] of Object.entries(message.images)) {
-      images[key] = bytes ? bytes.slice().buffer : null;
-      if (images[key]) transfer.push(images[key]);
+  // Image and model bytes arrive as Uint8Arrays; the frame gets each one as its own ArrayBuffer.
+  for (const field of ["images", "models"]) {
+    if (!message?.[field]) continue;
+    const buffers = {};
+    for (const [key, bytes] of Object.entries(message[field])) {
+      buffers[key] = bytes ? bytes.slice().buffer : null;
+      if (buffers[key]) transfer.push(buffers[key]);
     }
-    message = { ...message, images };
+    message = { ...message, [field]: buffers };
   }
   frame.contentWindow.postMessage(message, "*", transfer);
 });

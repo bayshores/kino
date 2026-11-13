@@ -11,7 +11,7 @@
 // has used a media file keeps that permission, the same way as a file the media was uploaded to.
 
 import { overrideReferenceLayers } from "../engine/componentOverrides.js";
-import { scriptImageSources } from "../engine/scriptLayer.js";
+import { scriptMediaSources } from "../engine/scriptLayer.js";
 import { parseMediaSource } from "./media-source.mjs";
 import { layerFontReferences } from "../engine/textFontReferences.js";
 import { layerFallbackFontReferences } from "../engine/fontGlyphReferences.js";
@@ -34,7 +34,7 @@ export function documentMediaIds(document, { fonts } = {}) {
     if (parsed) ids.add(parsed.id);
   }
   for (const layer of layers) {
-    for (const source of [layer?.src, ...scriptImageSources(layer), layer?.fontSource, ...(layer?.textStyleRanges ?? []).map((range) => range.style?.fontSource)]) {
+    for (const source of [layer?.src, ...scriptMediaSources(layer), layer?.fontSource, ...(layer?.textStyleRanges ?? []).map((range) => range.style?.fontSource)]) {
       const parsed = parseMediaSource(source);
       if (parsed) ids.add(parsed.id);
     }
