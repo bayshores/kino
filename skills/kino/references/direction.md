@@ -77,6 +77,13 @@ studied reference prints a `skeleton:` line (its shots, holds, fast runs and cha
 
 ## Sketch rounds
 
+- One small call per treatment, kino builds each 6 s sketch on a fresh copy:
+  `notes {action:"try", options:[{treatment:"A", song:"music:<id>", font:"<family>"},
+  {treatment:"B", song:"<title> by <artist>"}, ...], seconds?}`. song is a project
+  file, `music:<id>` or a named song kino fetches (played from its measured drop); `line` the
+  words (default: the treatment's quoted words); `clips:[{file, in?}]` project files (default:
+  the files its source names). Cuts land on the song's beats; `ops` still apply after. A pick
+  saves its song stretch and font with the treatment pick.
 - With treatments saved, `notes {action:"try", from, to, options:[{treatment:"A", ops}]}` shows
   2 to 4 sketches of the shown treatments (A to C, D if listed). Each is its ops on a copy over
   2 to 10 s with sound; nothing is saved. `name` is optional (it defaults to the treatment's
