@@ -33,6 +33,7 @@ import { closest } from "./refs.mjs";
 import { IDEA_SPINE, STYLE_LIMITS, addRejected, cleanStyle, mergeStyle, styleProblem } from "./style.mjs";
 import { leavesItToYou } from "./board.mjs";
 import { pickStep, sketchPhase } from "./sketch-step.mjs";
+import { SONG_LIST_CALL, SONG_PICK_STEP, songCall } from "./song-step.mjs";
 import { pickedSketch } from "./sketches.mjs";
 import { PICK_QUESTION, cleanTreatments, originLine, pickedIdea, pickedSignature, pickedType, treatmentsProblem, treatmentsText, wordsOnly } from "./treatments.mjs";
 import { directionLock, styleContext, styleLine } from "../../engine/styleSpec.js";
@@ -723,7 +724,11 @@ export function nextMove(state, video = {}, stop = null) {
   if (video.needs && !video.needs.checked) return { step: "check material: notes needs", call: needsCall(brief.treatments, { search: video.needs.search === true, subject: isSubjectEdit(state, video) }) };
   // No song chosen (none in the project, named or in a picked sketch: the service's songNeeded):
   // the real-song finder, from the brief's sound line, before the plan. library {topic:"music"} stays.
-  if (video.songNeeded && !planned && !isBuilt(state, video)) return { step: "choose the song (real songs first)", call: songCall(brief) };
+  // Candidates found and still no song in the project ("pick"): list them ranked; that answer's own
+  // next call measures, waits or imports (song-step.mjs songListMove).
+  if (video.songNeeded && !planned && !isBuilt(state, video)) {
+    return video.songNeeded === "pick" ? { step: SONG_PICK_STEP, call: SONG_LIST_CALL } : { step: "choose the song (real songs first)", call: songCall(brief) };
+  }
   if (stop === "board") {
     const askBoard = { tool: "notes", input: { action: "checkpoint", id: "board" } };
     if (planned) return { step: "ask board, then follow the plan", call: askBoard };
@@ -738,11 +743,6 @@ export function nextMove(state, video = {}, stop = null) {
   return { step: stop ? `notes set_plan, build, then ask ${stop}` : "notes set_plan, then build", call: PLAN_CALL(stop) };
 }
 
-// The real-song finder's call: the brief's sound line as its search, else explore (read from the brief).
-const songCall = (brief) => {
-  const words = String(brief?.fields?.look_sound?.text ?? "").replace(/\s+/g, " ").trim().slice(0, 80);
-  return { tool: "library", input: { topic: "soundtrack", ...(words ? { search: words } : { explore: true }) } };
-};
 
 // The waiver that skips the treatments step (waive_check {code:"treatments", target:"*", reason}),
 // as waive_check {code:"reference"} skips the references step. The person sees both.

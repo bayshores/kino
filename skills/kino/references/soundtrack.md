@@ -127,19 +127,19 @@ Measure the likely ones; they rank by fit.
 
 Write the brief before searching, from the person's words: `want` is the sound (lane, mood,
 instruments), each `not` one thing to avoid. Each is scored on its own (CLAP has no "no", so never
-write "no vocals" in want). It is saved with the project's soundtrack and shown in its answer.
+write "no vocals" in want). It is saved with the soundtrack and shown in its answer.
 
 ```json
 {"tool":"library","topic":"soundtrack","brief":{"want":"upbeat, playful, confident, modern electronic","not":["cinematic","vocals"]}}
 ```
 
-`brief:null` clears it. Then explore.
+`brief:null` clears it. `explore:{want, not}` saves the brief and explores in one call.
 
 ## Explore by lanes
 
-Real songs by genre, without naming artists: kino picks 5 lanes from the brief (skipping lanes its
+Real songs by genre, no artist named: kino picks 5 lanes from the brief (skipping lanes its
 `not` names and lanes the person closed with two rejects; with no brief, clearly different lanes),
-takes songs for each lane's genre tags from ListenBrainz (an open music catalog, no key), finds each
+takes songs for each lane's genre tags from ListenBrainz (an open catalog, no key), finds each
 on YouTube by artist and title ("Artist - Topic" uploads first) and measures them in the background.
 
 ```json
@@ -147,6 +147,6 @@ on YouTube by artist and title ("Artist - Topic" uploads first) and measures the
 ```
 
 `explore:{lanes:4..6, per:2..3}` sets how many. The answer lists each queued song with its lane and
-tag; it takes about a minute. Measuring runs one song at a time (about 20 s each): wait, then
+tag; about a minute. Measuring runs one song at a time (about 20 s each): wait, then
 `library {topic:"soundtrack"}` ranks them (a song still "not measured" is not done). Exploring again
 skips songs already kept. The person picks the lane on the music tab.

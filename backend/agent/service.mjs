@@ -163,6 +163,7 @@ import { visionBoxes } from "../cutout/cutout.mjs";
 import { shotsLine } from "../shot-detection.mjs";
 import { isFreesoundId, isOpenverseId, SOUND_LIMITS, SoundSearchError, soundsText } from "../sound-search.mjs";
 import { actionSoundsText, isLibraryId, librarySoundsText, musicText, SoundLibraryError } from "../sound-library.mjs";
+import { songListMove } from "./song-step.mjs";
 import { compareText, compareToStory, exploreLanes, importableId, junkTitle, keepCandidates, licenseTag, SoundtrackError } from "../soundtrack.mjs";
 import { rankSongs } from "../songTaste.mjs";
 import { dot, LANES } from "../music-embed.mjs";
@@ -625,6 +626,8 @@ function propertyPresetHelp() {
 // (dashboard-routes.mjs HEARTBEAT_MS) and the app reopens within 8 s after a drop (stream.js).
 // Two pings' time covers a drop and a reload.
 export const APP_SEEN_MS = 30_000;
+// How long a plain soundtrack list waits for songs an explore is still measuring.
+const SONG_WAIT_MS = 12_000;
 
 export function createAgentService(deps) {
   const { store, agentState, look, fontCatalog, loadFonts, operationContext, exportBatches, agentDirectory } = deps;
@@ -1367,14 +1370,16 @@ export function createAgentService(deps) {
     const checked = Boolean((await agentState.read(document.id)).needs?.checked);
     return { ...facts, needs: { checked, ...(footageSearchOn() ? { search: true } : {}) } };
   }
-  // No song chosen yet: no audio layer, no soundtrack candidate (a named song is one), no song-long
-  // audio in the project and no song in the sketch they picked.
+  // No song chosen yet: no audio layer, no song-long audio in the project and no song in the sketch
+  // they picked. true: nothing found yet (find songs). "pick": candidates are found (a named song
+  // is one) and none is in the project (list them ranked, import the best fit: song-step.mjs).
   async function songNeeded(document) {
     if (document.scenes.some((scene) => !scene.isComponent && scene.layers.some((layer) => layer.type === "audio"))) return false;
     const state = await agentState.read(document.id);
-    if (state.soundtrack?.candidates?.length || pickedSketch(state)?.song) return false;
+    if (pickedSketch(state)?.song) return false;
     const media = (await deps.listMedia?.().catch(() => [])) ?? [];
-    return !media.some((item) => mediaAllowedIn(item, document.id) && String(item.mime ?? "").startsWith("audio/") && item.duration >= 20);
+    if (media.some((item) => mediaAllowedIn(item, document.id) && String(item.mime ?? "").startsWith("audio/") && item.duration >= 20)) return false;
+    return state.soundtrack?.candidates?.length ? "pick" : true;
   }
   // The project's own picture for a signature: its largest screenshot or image (not a logo or
   // icon), else its longest clip, by the library's name; null with neither.
@@ -9515,6 +9520,10 @@ export function createAgentService(deps) {
     if (!deps.soundtrack) throw new AgentError("failed", "Soundtrack search is not available here.");
     const record = await projectFor(input);
     const projectId = record.document.id;
+    // A plain list while an explore's songs still measure waits for them a little (the whole job,
+    // or SONG_WAIT_MS), so "list again" is a few calls, not a poll loop.
+    const plainList = !search && !name && ["brief", "note", "measure", "song", "like"].every((key) => input[key] === undefined) && (input.explore === undefined || input.explore === false);
+    if (plainList && exploring.has(projectId)) await Promise.race([exploring.get(projectId), new Promise((resolve) => { setTimeout(resolve, deps.songWaitMs ?? SONG_WAIT_MS).unref?.(); })]);
     const state = await agentState.read(projectId);
     const scene = sceneFor(record.document, state.codes, input.scene, state.focus) ?? record.document.scenes[0];
     const intents = state.story?.intents?.[scene.id]?.beats ?? [];
@@ -9559,12 +9568,14 @@ export function createAgentService(deps) {
     const spoken = await spokenSpans(scene, record.document);
     // The brief (library soundtrack brief:{want, not}): CLAP text prompts, saved with the soundtrack.
     let brief = state.soundtrack?.brief ?? null;
-    if (input.brief !== undefined) {
+    // explore:{want, not} writes the brief in the same call (the song step's one call: song-step.mjs).
+    const briefInput = input.brief !== undefined ? input.brief : input.explore && typeof input.explore === "object" && input.explore.want !== undefined ? { want: input.explore.want, not: input.explore.not } : undefined;
+    if (briefInput !== undefined) {
       if (byYou()) throw new AgentError("chat_only", "The agent writes the soundtrack brief from your words.");
-      const want = String(input.brief?.want ?? "").replace(/\s+/g, " ").trim().slice(0, 160);
-      const not = [input.brief?.not ?? []].flat().map((word) => String(word).replace(/\s+/g, " ").trim().slice(0, 80)).filter(Boolean).slice(0, 6);
-      if (input.brief !== null && !want) throw new AgentError("bad_input", 'brief is {want:"upbeat, playful, modern electronic", not:["cinematic", "vocals"]}: want is the sound in words (a lane, mood, instruments), each not one thing to avoid. brief:null clears it.');
-      brief = input.brief === null ? null : { want, not };
+      const want = String(briefInput?.want ?? "").replace(/\s+/g, " ").trim().slice(0, 160);
+      const not = [briefInput?.not ?? []].flat().map((word) => String(word).replace(/\s+/g, " ").trim().slice(0, 80)).filter(Boolean).slice(0, 6);
+      if (briefInput !== null && !want) throw new AgentError("bad_input", 'brief is {want:"upbeat, playful, modern electronic", not:["cinematic", "vocals"]}: want is the sound in words (a lane, mood, instruments), each not one thing to avoid. brief:null clears it.');
+      brief = briefInput === null ? null : { want, not };
     }
     // Lane and brief vectors from CLAP's text model (backend/music-embed.mjs); null when it is off.
     // The text model loads only once a song has an embedding to compare with.
@@ -9727,12 +9738,19 @@ export function createAgentService(deps) {
         ...found.notes,
         found.results.length ? 'Measure the likely ones: library {topic:"soundtrack", measure:"<id>"}.' : 'Try other mood, genre or tempo words, or a song by name (song:"<title> by <artist>").'];
       if (found.results.some((entry) => entry.source === "openverse")) lines.push("Made using Openverse. Not endorsed or certified by Openverse.");
-      return save([...kept, ...fresh], { text: lines.join("\n"), data: { results: found.results.map(({ url, filetype, ...entry }) => entry), notes: found.notes } });
+      // No song in the project yet: next measures one, as the line above says.
+      const measureNext = found.results.length && state.brief?.treatments?.picked && (await songNeeded(record.document))
+        ? { nextCall: { tool: "library", input: { topic: "soundtrack", measure: "<id of the likeliest song above>" } } } : {};
+      return save([...kept, ...fresh], { ...measureNext, text: lines.join("\n"), data: { results: found.results.map(({ url, filetype, ...entry }) => entry), notes: found.notes } });
     }
     const measuredRows = (await rankAll(kept)).filter((entry) => entry.fit).sort((a, b) => a.fit.order - b.fit.order);
     const rows = measuredRows.map((entry) => [compareText(entry, compareToStory(entry.measure, story)), fitWords(entry)].join("\n"));
     const tasteLine = `taste: ${plural(taste.liked.length, "liked song")}, ${plural(taste.rejected.length, "rejected song")}${taste.liked.length ? ` (more like them: library {topic:"soundtrack", like:""})` : ""}`;
-    return done(projectId, withNotice({ text: kept.length ? [storyLine, briefLine(), tasteLine, ...rows, ...kept.filter((entry) => !entry.measure).map((entry) => `${entry.id} '${entry.title}'${licenseTag(entry)} · not measured`)].join("\n")
+    // No song in the project yet: the list's own next call measures, waits or imports, and one
+    // line says the same (song-step.mjs). Before the pick the sketch round is the step instead.
+    const move = state.brief?.treatments?.picked && (await songNeeded(record.document)) === "pick" ? songListMove(kept, measuredRows) : null;
+    const unmeasured = (entry) => `${entry.id} '${entry.title}'${licenseTag(entry)} · ${entry.failed ? `could not be fetched (${String(entry.failed).slice(0, 80)})` : entry.queued ? "measuring" : "not measured"}`;
+    return done(projectId, withNotice({ ...(move ? { nextCall: move.call } : {}), text: kept.length ? [storyLine, briefLine(), tasteLine, ...rows, ...kept.filter((entry) => !entry.measure).map(unmeasured), move?.line].filter(Boolean).join("\n")
       : 'No soundtrack candidates yet: library {topic:"soundtrack", song:"<title> by <artist>"} (a song the person named), search:"<mood, genre, tempo words>", explore:true or like:"yt:<a song the person likes>".', data: { candidates: kept.length, measured: rows.length, ...(brief ? { brief } : {}), ranked: measuredRows.map((entry) => ({ id: entry.id, fit: entry.fit.fit, ...(entry.fit.lane ? { lane: entry.fit.lane } : {}) })) } }));
   }
 

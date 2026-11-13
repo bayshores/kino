@@ -15,6 +15,7 @@ import { answerText, callText, missingFieldCall, opWithName, originFootage, orig
 import { originReferenceLine } from "./agent/seen-names.mjs";
 import { briefSaysNoCaptions, materialSteps, musicFact, offeredOpen, voiceFact } from "./agent/material-steps.mjs";
 import { briefText, lockCall } from "./agent/brief.mjs";
+import { songListMove } from "./agent/song-step.mjs";
 import { fromAppWindow } from "./dashboard-routes.mjs";
 import { statusMove } from "./stops.test.support.mjs";
 import { withAsk } from "./agent-ask.test.support.mjs";
@@ -114,7 +115,7 @@ test("the pick: someone at the app gets a filled sketch round (also under just s
   assert.match(briefText({ brief }, video), /pick one yourself[\s\S]*\nstep: pick a treatment, with why/, "no one at the app: as before");
   // With the song finder on and no song candidate yet, the song search is the step itself and the words agree; a candidate moves on to the round.
   const finder = { ...video, appSeen: true, songFinder: true };
-  assert.deepEqual([statusMove({ brief }, finder).step, statusMove({ brief }, finder).call.input], ["find each sketch's song (real songs first), then show sketches: their pick in the app", { topic: "soundtrack", explore: true }]);
+  assert.deepEqual([statusMove({ brief }, finder).step, statusMove({ brief }, finder).call.input], ["find each sketch's song (real songs first), then show sketches: their pick in the app", { topic: "soundtrack", explore: { want: "<this video's sound in music words: lane, mood, instruments>" } }]);
   assert.match(briefText({ brief }, finder), /they pick from sketches[\s\S]*First each sketch needs its song[\s\S]*\nstep: find each sketch's song/);
   assert.match(statusMove({ brief, soundtrack: { candidates: [{ id: "yt:a" }] } }, finder).step, /^show sketches: their pick in the app/);
   const round = (status) => ({ id: "T1", sketch: true, status, options: [{ letter: "A", treatment: "A", idea: "one long breath" }, { letter: "B", treatment: "B", idea: "a door opens" }] });
@@ -125,9 +126,20 @@ test("the pick: someone at the app gets a filled sketch round (also under just s
   assert.equal(statusMove({ brief: yourCall }, { ...video, appSeen: true }).step, "pick a treatment, with why");
   // Picked, no song anywhere: the real-song finder before the plan, from the brief's sound line.
   const picked = { ...brief, treatments: { ...treatments, picked: { index: 3, label: "A", by: "you" } }, style: { idea: "x", signatures: [{ beat: 0 }], spine: ["problem", "turn", "payoff"].map((role) => ({ role, purpose: role })) } };
-  assert.deepEqual(statusMove({ brief: picked }, { ...video, songNeeded: true }).call.input, { topic: "soundtrack", explore: true });
+  assert.match(statusMove({ brief: picked }, { ...video, songNeeded: true }).call.input.explore.want, /^<this video's sound in music words: lane, mood, instruments>$/);
   const sound = { ...picked, fields: { ...picked.fields, look_sound: line("slow piano") } };
-  assert.deepEqual(statusMove({ brief: sound }, { ...video, songNeeded: true }).call.input, { topic: "soundtrack", search: "slow piano" });
+  assert.match(statusMove({ brief: sound }, { ...video, songNeeded: true }).call.input.explore.want, /^<.*\(the brief says: slow piano\)>$/, "the brief's line is a hint, the agent writes the music words");
+  // Candidates found, no song in the project: list them; the list's own next measures, waits, imports or falls back.
+  assert.deepEqual([statusMove({ brief: picked }, { ...video, songNeeded: "pick" }).step, statusMove({ brief: picked }, { ...video, songNeeded: "pick" }).call.input], ["pick the song: list the candidates ranked, import the best fit", { topic: "soundtrack" }]);
+  const song = (id, more = {}) => ({ id, title: id.toUpperCase(), ...more });
+  const moves = [
+    songListMove([song("a"), song("b")], []),
+    songListMove([song("a", { queued: true }), song("b", { measure: {} })], [song("b", { measure: {} })]),
+    songListMove([song("a", { measure: {} }), song("b", { measure: {} }), song("c", { failed: "no" })], [song("b"), song("a")]),
+    songListMove([song("a", { failed: "Sign in to confirm" }), song("b", { failed: "x" })], []),
+    songListMove([], []),
+  ].map((move) => move?.call.input ?? null);
+  assert.deepEqual(moves, [{ topic: "soundtrack", measure: "<id of the likeliest song above>" }, { topic: "soundtrack" }, { action: "import", file: "b" }, { topic: "music" }, null]);
   assert.notEqual(statusMove({ brief: picked }, video).call?.input?.topic, "soundtrack", "a song chosen: no song step");
   // The picked sketch's font fills the fonts step (lockCall).
   const withSketch = { ...picked, treatments: { ...picked.treatments, picked: { ...picked.treatments.picked, sketch: { round: "T1", letter: "A", song: "/api/media/song.m4a", font: "Space Mono", line: null } } } };

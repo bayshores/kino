@@ -329,6 +329,8 @@ export async function readSnapshot(where) {
  * window invisible, muted, unfocusable and passing mouse clicks through (an invisible window still took a click on its Hold button); close() quits it and removes the profile.
  */
 export async function launchApp({ dataDir, logFile, hidden = false }) {
+  // Without the built dashboard the window is empty, kino sees no one at the app and the run quietly takes the no-person path.
+  if (!existsSync(path.join(root, "dist/client/index.html"))) throw new Error(`person mode needs the built dashboard: run "npm run build" in ${root} first.`);
   const electronPath = createRequire(import.meta.url)("electron");
   const profileDir = await mkdtemp(path.join(os.tmpdir(), "kino-firstpass-profile-"));
   const spec = appCommand({ repoRoot: root, dataDir, profileDir, electronPath });
