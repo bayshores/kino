@@ -3,6 +3,7 @@
 // screenshot of its window. For checking the UI in the real app instead of a web browser.
 //
 //   node scripts/desktop-shot.mjs --data <data folder> --out shot.png [--size 1440x900]
+//        [--goto "/?project=x#share=<token>"]
 //        [--wait "<css selector>"] [--keys "F2"] [--click "<css selector>;<css selector>"] [--then "t"] [--until "<css selector>"] [--pause <ms>] [--hold]
 //
 // It runs on its own temporary profile (--user-data-dir), so it never takes over a kino app that
@@ -51,6 +52,11 @@ try {
   await app.evaluate(({ BrowserWindow }, size) => {
     for (const each of BrowserWindow.getAllWindows()) each.setContentSize(size.width, size.height);
   }, { width, height });
+  // --goto <path>: another page of the same local server, such as a share link (/?project=x#share=<token>).
+  if (settings.goto) {
+    await window.waitForSelector(".dash", { timeout: 30_000 });
+    await window.goto(new URL(settings.goto, window.url()).href);
+  }
   await window.waitForSelector(settings.wait, { timeout: 30_000 });
   for (const key of settings.keys.split(",").filter(Boolean)) await window.keyboard.press(key.trim());
   for (const selector of settings.click.split(";").filter(Boolean)) { await window.waitForTimeout(300); await window.click(selector.trim()); }
