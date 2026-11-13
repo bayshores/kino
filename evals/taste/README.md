@@ -53,7 +53,7 @@ Bradley-Terry ratings (Elo-like scale, 0 = average) over every `results/*.jsonl`
 node evals/taste/firstpass.mjs <brief> [--run-id <id>] [--dry-run]
 ```
 
-One first-pass edit, made the way a person asks kino for it: a fresh agent, the person's one-line ask, the material and no owner turns. A brief is a JSON file, passed by path or kept as `briefs/<name>.json` (ignored by Git): `{ask, media: [paths], words?: [html pages], names?: {path: file name}, notes?, replies?}`. `--dry-run` copies the material and prints the agent's message.
+One first-pass edit, made the way a person asks kino for it: a fresh agent, the person's one-line ask, the material and no owner turns. A brief is a JSON file, passed by path or kept as `briefs/<name>.json` (ignored by Git): `{ask, media: [paths], words?: [html pages], names?: {path: file name}, notes?, replies?}` (`notes` are more words from the person: the agent reads them with the ask, so never put run labels there). `--dry-run` copies the material and prints the agent's message.
 
 Everything goes in `.local/taste/runs/<run-id>/`:
 
