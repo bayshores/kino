@@ -113,6 +113,10 @@ yourself and say "my call". `ask_limit` refuses more.
 The stops (board, rough, color, sound), asking one, reading the answer and how a turn ends:
 the stops reference. The checkpoint and answer calls are in the examples below.
 
+After the build, a `why:` line before `next:` gives the measured fact behind a material step
+(cut_speech on slips or pauses, add_captions, duck_audio, place_sounds on visible actions).
+Each is offered once; skipping it is fine.
+
 ## Examples
 
 ```json

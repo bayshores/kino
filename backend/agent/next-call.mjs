@@ -8,11 +8,14 @@
 // moves to "hint". The service picks the call (service.mjs nextCallFor); this file only writes
 // it and finds the fixed call for a refused input.
 
-/** A call: {tool, input}. */
+/** A call: {tool, input}. A call may carry why: the measured fact that picked it (material-steps.mjs). */
 export const call = (tool, input = {}) => ({ tool, input });
 
 /** `look {"mode":"review"}`: a call as the agent types it. */
 export const callText = (next) => `${next.tool} ${JSON.stringify(next.input ?? {})}`;
+
+/** The `why: …` line printed right before `next:`, when the call carries its fact (else ""). */
+const whyLine = (next) => (typeof next?.why === "string" && next.why ? `\nwhy: ${next.why}` : "");
 
 // A next call longer than this is not printed twice: the early line names the tool and points to
 // the last line (a guess at the size: check {fix:"auto"} and render {...final} are well under it,
@@ -43,6 +46,7 @@ export function withNextField(data, next, inbox = []) {
     ...rest,
     ...(typeof prose === "string" && prose ? { hint: prose } : {}),
     ...(inbox.length ? { inbox } : {}),
+    ...(typeof next?.why === "string" && next.why ? { why: next.why } : {}),
     next: callText(next),
   };
 }
@@ -69,13 +73,13 @@ export function answerText({ text, data, json, early }, next, inbox = []) {
       // An early place: the inbox (and a short next) sit at line `at`, so an agent that reads only
       // the first 8 lines still gets them. The full next call still ends the answer.
       lines.splice(Math.min(early.at, lines.length), 0, ...inboxBlock, ...(early.next || long ? [earlyNextLine(next)] : []));
-      return `${lines.join("\n")}\nnext: ${callText(next)}`;
+      return `${lines.join("\n")}${whyLine(next)}\nnext: ${callText(next)}`;
     }
     if (long) {
       lines.splice(Math.min(1, lines.length), 0, earlyNextLine(next));
-      return `${lines.join("\n")}${inboxBlock.length ? `\n${inboxBlock.join("\n")}` : ""}\nnext: ${callText(next)}`;
+      return `${lines.join("\n")}${inboxBlock.length ? `\n${inboxBlock.join("\n")}` : ""}${whyLine(next)}\nnext: ${callText(next)}`;
     }
-    return `${text}${inboxBlock.length ? `\n${inboxBlock.join("\n")}` : ""}\nnext: ${callText(next)}`;
+    return `${text}${inboxBlock.length ? `\n${inboxBlock.join("\n")}` : ""}${whyLine(next)}\nnext: ${callText(next)}`;
   }
   let fields = data;
   if (fields?.retry && next.tool === "edit" && next.input?.retry === fields.retry) {

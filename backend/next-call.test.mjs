@@ -13,6 +13,7 @@ import { openStore } from "./store.mjs";
 import { createDocument, createScene } from "../engine/model.js";
 import { answerText, callText, missingFieldCall, opWithName, originFootage, originFootageNext, unfilledSlot, withSuggestion } from "./agent/next-call.mjs";
 import { originReferenceLine } from "./agent/seen-names.mjs";
+import { briefSaysNoCaptions, materialSteps, musicFact, offeredOpen, voiceFact } from "./agent/material-steps.mjs";
 import { briefText, lockCall } from "./agent/brief.mjs";
 import { fromAppWindow } from "./dashboard-routes.mjs";
 import { statusMove } from "./stops.test.support.mjs";
@@ -156,6 +157,60 @@ test("origin word, no person footage: next is the footage search for the quote a
   // A studied reference with the word in its title gets the lookup line.
   assert.equal(originReferenceLine(found, "Keeper tower edit"), 'to find the footage it shows: library {topic:"footage", search:"the keeper tower"}');
   assert.equal(originReferenceLine(found, "Keeper edit"), "");
+});
+
+// Steps from the material (material-steps.mjs): invented facts, no server.
+const word = (index, text, start, end = start + 0.3) => ({ index, text, start, end });
+const VOICE = { name: "vo", sig: "v1", cut: false, words: [word(0, "we", 0), word(1, "we", 0.4), word(2, "um", 0.8), word(3, "build", 1.2), word(4, "tools", 2.8), word(5, "fast", 3.2)] };
+
+test("materialSteps: cut the slips, then captions, then the dip, then sounds on the actions, each a filled edit with its fact", () => {
+  const facts = { scene: null, voices: [VOICE], captions: false, noCaptions: false, music: [{ name: "song", sig: "m1", start: 0, end: 10, ducked: false }], actions: [{ id: "a1", kind: "whoosh", at: 1 }, { id: "a2", kind: "impact", at: 4 }], effects: 0 };
+  const steps = materialSteps(facts);
+  assert.deepEqual(steps.map((step) => step.key), ["cut_speech:vo", "add_captions:vo", "duck_audio:song", "place_sounds"]);
+  assert.deepEqual(steps.map((step) => step.call.input.ops[0]), [
+    { op: "cut_speech", layer: "vo", words: [0, 2], pauses: "natural" },
+    { op: "add_captions", speech: "vo" },
+    { op: "duck_audio", layer: "song", under: ["vo"] },
+    { op: "place_sounds", at: ["a1", "a2"] },
+  ]);
+  assert.deepEqual(steps.map((step) => step.why), [
+    "vo plays 1 repeat, 1 filler, 1 pause over 0.6 s (1.3 s)",
+    "1.8 s of speech in vo, no caption layer",
+    "song plays under 1.8 s of speech (vo), no dip",
+    "2 visible actions (a1 whoosh 1 s, a2 impact 4 s), 0 sound effects",
+  ]);
+  // Done, or the person said no words on screen: no step.
+  assert.deepEqual(materialSteps({ ...facts, voices: [{ ...VOICE, cut: true }], captions: true, music: [{ ...facts.music[0], ducked: true }], effects: 1 }), []);
+  assert.equal(materialSteps({ ...facts, noCaptions: true }).some((step) => step.key.startsWith("add_captions")), false);
+  assert.equal(briefSaysNoCaptions({ fields: { never: { text: "no captions, the picture talks", by: "you" } } }), true);
+  assert.equal(briefSaysNoCaptions({ fields: { ask: [{ text: "cut my interview with captions" }] } }), false);
+});
+
+test("offeredOpen: a step is offered on one revision; an edit since that left its layers alone skips it; changed layers offer it again", () => {
+  const steps = materialSteps({ voices: [VOICE], captions: false });
+  const offered = { "cut_speech:vo": { sig: "v1", rev: 7 } };
+  assert.equal(offeredOpen(steps, offered, 7).key, "cut_speech:vo", "the same revision says the same call");
+  assert.equal(offeredOpen(steps, offered, 8).key, "add_captions:vo", "skipped: the next one");
+  assert.equal(offeredOpen(steps, { "cut_speech:vo": { sig: "v0", rev: 3 } }, 8).key, "cut_speech:vo", "the voice changed since");
+});
+
+test("a call's why is printed right before next: in a text answer, and as the key before next in a JSON one", () => {
+  const next = { tool: "edit", input: { ops: [{ op: "add_captions", speech: "vo" }] }, why: "14.2 s of speech in vo, no caption layer" };
+  assert.equal(answerText({ text: "rev 3" }, next), `rev 3\nwhy: 14.2 s of speech in vo, no caption layer\nnext: ${callText(next)}`);
+  assert.deepEqual(Object.entries(JSON.parse(answerText({ data: { rev: 3 }, json: true }, next))).slice(-2), [["why", next.why], ["next", callText(next)]]);
+});
+
+test("voiceFact and musicFact: a muted clip says no heard speech; a Duck dip counts as ducked", () => {
+  const scene = createScene({ id: "s1", name: "main", width: 1920, height: 1080, duration: 10, layers: [] });
+  const transcript = { words: [{ text: "hello", start: 0.5, end: 0.9 }, { text: "there", start: 1, end: 1.4 }, { text: "friend", start: 5, end: 5.4 }] };
+  const vo = { id: "vo", name: "vo", type: "audio", src: "/api/media/vo.wav", volume: 1, mediaStart: 0, mediaSourceDuration: 10, animations: [] };
+  scene.layers.push(vo);
+  assert.deepEqual(voiceFact(scene, vo, transcript).words.map((entry) => entry.text), ["hello", "there", "friend"]);
+  scene.layers[0] = { ...vo, volume: 0 };
+  assert.deepEqual(voiceFact(scene, scene.layers[0], transcript).words, []);
+  const song = { id: "m", name: "song", type: "audio", src: "/api/media/song.m4a", volume: 1, mediaStart: 0, mediaSourceDuration: 10, animations: [{ id: "d1", name: "Duck down", type: "volume", start: 0.3, duration: 0.15, to: { volume: 0.3 } }] };
+  assert.equal(musicFact(scene, song).ducked, true);
+  assert.equal(musicFact(scene, { ...song, animations: [] }).ducked, false);
 });
 
 // The first compose: the shape the person named, else the shape most listed clips share, else the
