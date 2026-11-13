@@ -2571,7 +2571,9 @@ test("at 1100×760 and 1280×800 the log ends on a whole row, shows its scroll b
     await wheel(3000);
     const following = await newTurnInLog();
     assert.ok(following.atEnd, `at its end, the log follows a new turn: ${JSON.stringify(following)}`);
-    assert.ok((await browser.evaluate(newest)).inView, "the newest turn is in view");
+    // Waited for, as above: the wheel's own scrolling may still be settling when the turn comes.
+    const lastNow = await browser.waitFor(`(() => { const now = ${newest}; return now.inView ? now : null; })()`, { what: "the newest turn in view after the wheel" });
+    assert.ok(lastNow.inView, JSON.stringify(lastNow));
   } finally {
     await browser.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
     await agent("project", { action: "open", id: "orbit" });
