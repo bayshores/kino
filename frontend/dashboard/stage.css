@@ -393,7 +393,8 @@
 /* ---- the looks: the pictures the agent saw as a grid the width of the frame ---- */
 .screening > .p-agent:has(.p-seen) { width: 100%; }
 .screening > .p-agent .view-tabs, .screening > .p-agent .note-box { width: min(100%, 620px); margin-inline: auto; box-sizing: border-box; }
-.screening .p-seen.view-panel { padding: 0; }
+/* A picture brought into view (Tab, the arrow keys) stops under the facts line, which stays at the top. */
+.screening .p-seen.view-panel { padding: 0; scroll-padding: 40px 0 6px; }
 .screening .seen-facts { position: sticky; top: 0; z-index: 1; background: var(--bg0); padding: 0 2px 8px; align-items: center; gap: 12px; margin: 0; font-family: var(--mono-ui); font-size: 11px; color: var(--fg2); }
 .screening .seen-facts .facts-text::first-letter { text-transform: uppercase; }
 .screening .seen-facts .tb-box { height: 24px; padding: 0 10px; border: 0; border-radius: 0; box-shadow: inset 0 0 0 1px var(--line); font-family: var(--sans); font-size: 12px; line-height: 24px; color: var(--fg1); }
@@ -448,3 +449,13 @@
 .dash .screening .p-session .session-facts .icon-button { position: absolute; right: 0; top: 8px; }
 .dash .screening .p-session .session-facts .icon-button { width: 28px; height: 28px; border: 0; color: var(--fg1); }
 .dash .screening .p-session .session-facts .icon-button:hover { color: var(--fg0); background: var(--bg1); }
+
+/* ---- a look at full size: the looks take the frame's room too. The picture fills it, and the
+   pictures are one row under it. ---- */
+.panes.screening.seen-open > .p-agent { grid-row: frame-start / list-end; z-index: 5; margin-top: 0; background: var(--bg0); }
+.screening.seen-open .seen-full { margin: 0 0 10px; animation: fade-in var(--panel) var(--ease-out) both; }
+.screening.seen-open .seen-full img { object-position: center; }
+.screening.seen-open .seen-full figcaption { padding-top: 6px; text-align: center; font-family: var(--mono-ui); font-size: 11px; color: var(--fg1); }
+.screening.seen-open .filmstrip { min-width: 0; }
+.dash .screening.seen-open .seen-strip { display: flex; flex: 1 1 auto; min-width: 0; gap: 8px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.screening.seen-open .seen-strip > li { flex: none; width: 112px; animation: none; }

@@ -1241,7 +1241,8 @@ export function SeenPane({ data, cursor, enlarged, onEnlarge, onSelect, still, b
       else if (card.bottom > view.bottom) box.scrollTop += card.bottom - view.bottom + 6;
     }
     measureEnds();
-  }, [cursor, images.length, measureEnds]);
+    // Full size turns the grid into one row (and back), so the selected picture is found again.
+  }, [cursor, images.length, measureEnds, enlarged]);
   // Moved with the arrow keys while a picture has the focus: the focus moves with the selection.
   useEffect(() => {
     const strip = stripRef.current;

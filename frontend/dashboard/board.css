@@ -243,3 +243,6 @@ button.board-option:hover .option-picture img { opacity: 0.82; }
 /* The answers wrap when the row is narrow (a phone), and a phone's buttons are 44 px tall. */
 .stop-ask-row .voice-answers { flex: 0 1 auto; flex-wrap: wrap; justify-content: center; max-width: 100%; }
 .phone .voice-button { height: 44px; }
+/* The note box anchors its screen-reader label: on a phone, where the answers are not stuck to the
+   bottom, the label was placed from the page and made the whole page scroll. */
+.stop-note { position: relative; }
