@@ -424,3 +424,7 @@
 /* A finished render is said on the line under the frame, so its chip on the frame is not shown too. */
 .screening .live-dock.done { display: none; }
 .voice a.voice-button { text-decoration: none; display: inline-flex; align-items: center; }
+/* Not connected: the sentence is plain, not the agent's yellow; the button has an icon. */
+.voice.is-away .voice-line { color: var(--fg0); background: none; }
+.voice .voice-button { display: inline-flex; align-items: center; gap: 8px; }
+.voice .voice-button .tool-icon { width: 14px; height: 14px; }

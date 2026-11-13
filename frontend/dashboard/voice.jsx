@@ -2,7 +2,7 @@
 // line before it in quiet text above. When something waits for you the sentence is the question
 // and its answers sit beside it; on hold it is "On hold" and Release; while a render runs it is
 // the frame count and Cancel. The words are plain functions in agentView.js (voiceLine).
-import React from "react";
+import React, { useState } from "react";
 import { voiceLine } from "./agentView.js";
 import { frameUrl, renderFileUrl } from "./api.js";
 import { clock } from "./format.js";
@@ -25,6 +25,8 @@ const SHAPES = {
   hold: "M5.5 3v10M10.5 3v10",
   undo: "M5.5 4 2.5 7l3 3M3 7h6.5a3.5 3.5 0 0 1 0 7H7",
   arrow: "M3 8h10M9 4l4 4-4 4",
+  copy: "M5.5 5.5h8v8h-8zM2.5 10.5v-8h8",
+  done: "M3 8.5l3 3 7-7",
   down: "M4 6l4 4 4-4",
   x: "M4 4l8 8M12 4l-8 8",
   up: "M8 13V3M4 7l4-4 4 4",
@@ -59,6 +61,11 @@ function BeforeAfter({ data, scene, time, before, after }) {
 export function Voice({ data, agent, now, scene, time, still, listOpen = false, ask = null, onRun, onAnswer, onMaterial, onCancelRender, onStopRecording, onHistory, onShare }) {
   const nameOf = (id) => data.agents?.find((entry) => entry.id === id)?.name;
   const live = voiceLine(data, agent, now, nameOf);
+  // The line a person pastes into their agent's chat to bring it back to this project.
+  const [copied, setCopied] = useState(false);
+  const projectName = data.record?.document?.name ?? data.projects?.find((entry) => entry.id === data.projectId)?.name ?? "";
+  const reconnect = `Continue the kino project ${projectName ? `"${projectName}" (${data.projectId})` : data.projectId}: call kino status first.`;
+  const copyReconnect = async () => { try { await navigator.clipboard.writeText(reconnect); setCopied(true); } catch { setCopied(false); } };
   // A question of the dashboard's own ("Undo this turn?") takes the line until it is answered
   // (`ask`: {text, yes, no, facts, from, to, onYes, onNo}; y and n answer it too).
   const line = ask ? { state: "ask", verb: "undo", text: ask.text, facts: ask.facts ?? [], before: live.before } : live;
@@ -108,6 +115,11 @@ export function Voice({ data, agent, now, scene, time, still, listOpen = false, 
         ) : null}
         {line.state === "recording" ? <span className="voice-answers"><button type="button" className="voice-button rec" onClick={onStopRecording} title="Stop recording (the recording so far is kept)">Stop</button></span> : null}
         {line.state === "render" ? <span className="voice-answers"><button type="button" className="voice-button" onClick={onCancelRender}>Cancel</button></span> : null}
+        {line.state === "away" && data.projectId ? (
+          <span className="voice-answers">
+            <button type="button" className="voice-button" onClick={copyReconnect} title={reconnect}><ToolIcon name={copied ? "done" : "copy"} />{copied ? "Copied" : "Copy the reconnect line"}</button>
+          </span>
+        ) : null}
         {line.state === "ready" ? (
           <span className="voice-answers">
             <a className="voice-button primary" href={renderFileUrl(line.ready.job.id)} target="_blank" rel="noopener noreferrer">Open</a>

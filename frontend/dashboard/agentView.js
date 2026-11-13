@@ -4,6 +4,7 @@
 import { callAgent, agentRows, needsYouRows, recommendedOption, WORKING_MS, timeText } from "./state.js";
 import { callLine, cut, timeOfDay } from "./format.js";
 import { APPROVAL_WORDS, STOP_WORDS } from "./words.js";
+import { agoWords } from "./timeline.js";
 
 // The verbs that change the project are drawn in the agent's color; reads in the text color.
 const WRITE_VERBS = new Set(["edit", "history", "render", "project", "notes"]);
@@ -432,7 +433,8 @@ export function asAsk(text) {
  *   {state, verb, text, facts: [words], before: {verb, text, rev} | null}
  * `state` is "need" (something waits for you; `need` holds its words and row), "hold" (your hold
  * is on), "recording" (an agent records the screen), "render" (a render runs; `render` holds renderDock's facts), "working" (a call runs or
- * ended a moment ago), "idle" (its last call, in the past) or "empty" (no agent has called yet).
+ * ended a moment ago), "idle" (its last call, in the past), "ready" (a render just ended), "away"
+ * (the agent of the saved calls is not connected now) or "empty" (no agent has called yet).
  */
 export function voiceLine(data, agent, now = Date.now(), nameOf = () => null) {
   const rows = agent ? agentLog(data, agent, 12) : [];
@@ -464,6 +466,11 @@ export function voiceLine(data, agent, now = Date.now(), nameOf = () => null) {
   const ready = last?.current ? null : renderReady(data, now);
   if (ready) return { state: "ready", verb: "check", text: `The ${ready.job.quality === "final" ? "final" : "draft"} is ready.`, facts: ready.facts, before: before(false), ready };
   if (!agent || !last) return { state: "empty", verb: "plug", text: "Waiting for an agent.", facts: [], before: null };
+  // The agent of the saved calls is not connected now (kino restarted, or its session ended): say
+  // so, and that nothing is lost. The line before stays its last call.
+  if (!(data?.agents ?? []).some((entry) => entry.id === agent.id) && !last.current) {
+    return { state: "away", verb: "plug", text: `${agent.name ?? "The agent"} is not connected.`, facts: [agent.lastAt ? `Last call ${agoWords(agent.lastAt, now)}` : "", "All of it is saved"].filter(Boolean), before: before(false) };
+  }
   const working = isWorking(data, agent, now);
   return { state: working ? "working" : "idle", verb: last.verb, kind: last.kind, text: line(last, Boolean(last.current)), facts: [], before: before(true) };
 }
