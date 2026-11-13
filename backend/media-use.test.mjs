@@ -52,6 +52,13 @@ test("document references include decoded frames and family-only fonts from text
   assert.equal(JSON.stringify(document), before, "dependency collection never rewrites the document");
 });
 
+test("a script layer's image input counts as the project's use of that picture", () => {
+  const photo = "55555555-5555-4555-8555-555555555555.png";
+  const script = "export default function setup() { return function draw() {}; }";
+  const layer = createLayer("script", { id: "plot", script, inputs: [{ key: "photo", type: "image" }, { key: "none", type: "image" }], values: { photo: `/api/media/${photo}`, none: "" } });
+  assert.deepEqual([...documentMediaIds(createDocument({ scenes: [createScene({ layers: [layer] })] }))], [photo]);
+});
+
 test("unavailable fonts do not hide explicit uploaded-font dependencies", () => {
   const explicit = "11111111-1111-4111-8111-111111111111.ttf";
   const document = createDocument({ scenes: [createScene({ layers: [

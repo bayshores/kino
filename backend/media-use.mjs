@@ -11,13 +11,14 @@
 // has used a media file keeps that permission, the same way as a file the media was uploaded to.
 
 import { overrideReferenceLayers } from "../engine/componentOverrides.js";
+import { scriptImageSources } from "../engine/scriptLayer.js";
 import { parseMediaSource } from "./media-source.mjs";
 import { layerFontReferences } from "../engine/textFontReferences.js";
 import { layerFallbackFontReferences } from "../engine/fontGlyphReferences.js";
 import { layersLutSources } from "../engine/effects/lutFiles.js";
 
 /**
- * The IDs of the uploaded files a document uses: each layer's picture, video or sound (`src`)
+ * The IDs of the uploaded files a document uses: each layer's picture, video or sound (`src`, and a script layer's image inputs)
  * and font file (`fontSource`), the .cube files of its lut effects (also turned-off ones), and
  * those that component instances use through their overrides (a swapped picture, a text in
  * another font; see engine/componentOverrides.js).
@@ -33,7 +34,7 @@ export function documentMediaIds(document, { fonts } = {}) {
     if (parsed) ids.add(parsed.id);
   }
   for (const layer of layers) {
-    for (const source of [layer?.src, layer?.fontSource, ...(layer?.textStyleRanges ?? []).map((range) => range.style?.fontSource)]) {
+    for (const source of [layer?.src, ...scriptImageSources(layer), layer?.fontSource, ...(layer?.textStyleRanges ?? []).map((range) => range.style?.fontSource)]) {
       const parsed = parseMediaSource(source);
       if (parsed) ids.add(parsed.id);
     }

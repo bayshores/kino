@@ -243,6 +243,15 @@ export function animatedInputs(layer) {
   return new Map([...found].map(([key, names]) => [key, [...names]]));
 }
 
+/** The picture sources a script layer's image inputs hold (like an image layer's `src`). */
+export function scriptImageSources(layer) {
+  if (layer?.type !== "script") return [];
+  return (layer.inputs ?? [])
+    .filter((input) => input?.type === "image")
+    .map((input) => layer.values?.[input.key])
+    .filter((src) => typeof src === "string" && src);
+}
+
 /**
  * update_layer's properties for a script layer: `values` merge into the current ones; new
  * `inputs` drop the values of removed keys, and are refused while an animation uses a removed key.
