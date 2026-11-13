@@ -513,7 +513,12 @@ How to read it:
   module in a sandboxed hidden window at the output's pixel ratio (frames cached; a failing frame draws
   nothing, look and drafts name the layer, message and time, a final render is refused). Evidence:
   `engine/scriptLayer.test.js`, `backend/agent-script-layer.test.mjs`, `backend/script-frames.test.mjs`,
-  `backend/script-layer-export.test.mjs`. Gap: live preview, edit receipts and checks, 3D.
+  `backend/script-layer-export.test.mjs`. Gap: edit receipts and checks, 3D. Live preview: the stage
+  and the viewer run each module in a stoppable Worker in a sandboxed frame with no network and paint
+  its pictures in place (`tests/script-preview-sandbox.test.mjs`, `frontend/scriptFrames.test.js`,
+  `tests/dashboard-browser.test.mjs`). Preview gap: a script layer used as a mask, or drawn again as
+  a copy (pattern tiles, mirrored blur edges), shows nothing in the live preview (masked by another
+  layer it shows).
 - **Artboard positions**: Verified. Scenes store `canvasX`/`canvasY`, never exported. Evidence:
   `engine/sceneLayout.test.js`.
 - **Bulk create from CSV**: Verified. `project manage csv` then `bulk_create` makes linked variants;

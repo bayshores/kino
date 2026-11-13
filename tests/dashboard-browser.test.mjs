@@ -2059,6 +2059,30 @@ test("a view link opens the viewer read only: no comment box, no pins, and the s
   await browser.shot("viewer-view-link");
 });
 
+test("a view link draws a script layer live: the module runs in a sandboxed frame and its picture changes with the time", async () => {
+  const made = await agent("project", { action: "create", id: "scripted", name: "Scripted", width: 640, height: 360, duration: 2 });
+  assert.equal(made.isError, undefined, made.text);
+  const script = "export default function setup(layer) { const context = layer.canvas.getContext(\"2d\"); return function draw(frame) { context.fillStyle = frame.progress < 0.5 ? \"#ff0000\" : \"#0000ff\"; context.fillRect(0, 0, layer.width, layer.height); }; }";
+  const edited = await agent("edit", { project: "scripted", ops: [{ op: "add_layer", layerType: "script", name: "swatch", properties: { x: 100, y: 80, width: 200, height: 120, script, inputs: [], values: {} } }] });
+  assert.equal(edited.isError, undefined, edited.text);
+  const response = await server.api("/api/projects/scripted/shares", { method: "POST", body: { role: "view", label: "script" } });
+  assert.equal(response.status, 201);
+  const { token } = await response.json();
+  visits += 1;
+  await browser.send("Page.navigate", { url: `${appUrl}?project=scripted&visit=${visits}#share=${token}` });
+  // The layer's canvas on the viewer's stage: its middle pixel, once a picture is in it.
+  const pixel = `(() => { const canvas = document.querySelector(".viewer-frame canvas[data-kino-script]"); if (!canvas || canvas.width < 2) return ""; return [...canvas.getContext("2d").getImageData(canvas.width >> 1, canvas.height >> 1, 1, 1).data].join(","); })()`;
+  assert.equal(await browser.waitFor(`${pixel} === "255,0,0,255" && ${pixel}`, { timeout: 30_000, what: "the script's red picture at the start" }), "255,0,0,255");
+  assert.equal(await browser.evaluate(`document.querySelectorAll("iframe[data-kino-script-frame][sandbox='allow-scripts']").length`), 1, "one sandboxed frame for the one script layer");
+  // To the end of the scene and back a tenth, by keyboard on the scrubber.
+  await browser.evaluate(`${q(".viewer-scrubber")}.focus()`);
+  await browser.keys("End", "PageDown");
+  assert.equal(await browser.waitFor(`${pixel} === "0,0,255,255" && ${pixel}`, { what: "the script's blue picture past the middle" }), "0,0,255,255");
+  // The tests after this one work on orbit: it is the open project again.
+  const back = await agent("project", { action: "open", id: "orbit" });
+  assert.equal(back.isError, undefined, back.text);
+});
+
 test("the shares screen makes a link and revokes it, and the revoked link stops working", async () => {
   await open();
   await commandByMouse("shares");

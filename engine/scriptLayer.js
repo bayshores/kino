@@ -320,6 +320,9 @@ export function frameFor(layer, sceneTime, { sceneDuration } = {}) {
   return { time, duration, progress, values, width: evaluated.width, height: evaluated.height };
 }
 
+/** Where the server serves the live preview's sandboxed frame page, with that page's own policy. */
+export const SCRIPT_FRAME_PATH = "/api/script-frame";
+
 // ---------------------------------------------------------------- cache key
 
 // A 53-bit string hash (two 32-bit multiply-xor lanes), stable across platforms.

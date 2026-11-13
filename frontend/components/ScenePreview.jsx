@@ -18,6 +18,7 @@ import { patchSvgMarkup, releaseMedia } from "../svgPatch.js";
 import { useFilterPrewarm } from "../filterPrewarm.js";
 import { drawSoftVideos } from "../softVideo.js";
 import { drawLiveTilts } from "../liveTilt.js";
+import { useScriptFrames } from "../useScriptFrames.js";
 
 // Where useFilterPrewarm draws each new filter once: over the stage, nearly see-through.
 const PREWARM_STYLE = { position: "absolute", inset: 0, opacity: 0.004, pointerEvents: "none" };
@@ -109,6 +110,8 @@ export function ScenePreview({ document, scene: originalScene, time, design, pla
   const scene = resolved.scene;
   const imageFrames = useGifFrames(scene.layers, mediaActive);
   const luts = useSceneLuts(scene.layers);
+  // Script layers run in sandboxed frames and are painted into their canvases (useScriptFrames.js).
+  const scripts = useScriptFrames(scene, time, { active: !resolved.error, container });
   // Videos captured while an effect changes them (videoPreview.js videoCaptureWindows); at other
   // times the scene draws them from the same decoder <video> (render.js decoderVideoMarkup).
   const captureWindows = useMemo(() => videoCaptureWindows(scene), [scene]);
@@ -149,12 +152,12 @@ export function ScenePreview({ document, scene: originalScene, time, design, pla
         else if (isGifLayer(layer)) staticImages.set(layer.id, frame);
       }
       return { html: renderSceneSvg(scene, time, { design, interactiveMedia: mediaActive, canvas: true, embedMedia,
-        imageFrames: mediaActive ? imageFrames : staticImages, videoFrames, idPrefix, luts, calmLight,
+        imageFrames: mediaActive ? imageFrames : staticImages, videoFrames, idPrefix, luts, calmLight, liveScripts: scripts.liveScripts,
         decodedVideos: mediaActive ? videoLayerIds : undefined, videoLead, previewBlur: true }) };
     } catch (error) {
       return { error: error.message };
     }
-  }, [scene, time, design, resolved.error, fontVersion, imageFrames, videoCapture.videoFrames, idPrefix, mediaActive, luts, calmLight, captureWindows, videoLayerIds]);
+  }, [scene, time, design, resolved.error, fontVersion, imageFrames, videoCapture.videoFrames, idPrefix, mediaActive, luts, calmLight, captureWindows, videoLayerIds, scripts.liveScripts]);
   const html = rendered.html;
   const warm = useRef(null);
   useFilterPrewarm(warm, scene, { active: mediaActive && !design && !resolved.error,
@@ -180,6 +183,8 @@ export function ScenePreview({ document, scene: originalScene, time, design, pla
   useLayoutEffect(() => { drawSoftVideos(container.current, videoCapture.elementFor); }, [html, videoCapture.elementFor]);
   // Tilted layers are drawn on the GPU (liveTilt.js, render.js liveTiltTag).
   useLayoutEffect(() => { drawLiveTilts(container.current); }, [html]);
+  // A patch may have made a script layer's canvas anew: its newest picture goes back in.
+  useLayoutEffect(() => { scripts.paint(); }, [html, scripts.paint]);
   useEffect(() => {
     for (const media of previewMediaElements(container.current, idPrefix)) {
       const layer = scene.layers.find((item) => item.id === media.dataset.mediaLayerId);

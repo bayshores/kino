@@ -14,8 +14,10 @@
 //                  {kino:"script", id, type:"done", ok:false, message, phase, time, line?, column?}
 //
 // `images` maps an image input's key to the bytes of a picture (an ArrayBuffer); each one becomes
-// an ImageBitmap in frame.values. The runtime cannot stop a script that never returns: the host
-// times each mount and draw (SCRIPT_LIMITS) and throws the frame away when one takes too long.
+// an ImageBitmap in frame.values. The runtime cannot stop a script that never returns: the
+// backend's host times each mount and draw (SCRIPT_LIMITS) and throws the frame away when one
+// takes too long. The live preview's page (scriptFrameHtml({worker:true})) runs the runtime in a
+// Worker instead and stops that Worker itself, so the frame and its process stay usable.
 //
 // This file only builds text: it runs no DOM code when imported.
 
@@ -49,17 +51,31 @@ export const SCRIPT_FRAME_CSP = [
   "form-action 'none'",
 ].join("; ");
 
-// Runs inside the frame. Written as a real function so it is checked like the rest of the code;
+/**
+ * The live preview's frame policy: the same, except that the page may start its own Worker from a
+ * blob: URL (the module runs in it, so a stuck module can be stopped; see scriptRelay).
+ */
+export const SCRIPT_PREVIEW_FRAME_CSP = SCRIPT_FRAME_CSP.replace("worker-src 'none'", "worker-src blob:");
+
+// Runs inside the frame (`inWorker` false) or inside the Worker the preview's frame starts
+// (`inWorker` true). Written as a real function so it is checked like the rest of the code;
 // scriptRuntimeSource() turns it into text.
-function scriptRuntime() {
+function scriptRuntime(inWorker) {
   "use strict";
-  const host = window.parent;
+  const scope = globalThis;
+  const host = inWorker ? null : window.parent;
+  // A module in the Worker cannot start Workers of its own.
+  if (inWorker) for (const name of ["Worker", "SharedWorker"]) {
+    try { Object.defineProperty(scope, name, { value: undefined, configurable: false, writable: false }); } catch { /* not there */ }
+  }
   const RealDate = Date;
   const realSetTimeout = setTimeout, realClearTimeout = clearTimeout;
   const realSetInterval = setInterval, realClearInterval = clearInterval;
   const realRequestFrame = typeof requestAnimationFrame === "function" ? requestAnimationFrame : null;
   const realCancelFrame = typeof cancelAnimationFrame === "function" ? cancelAnimationFrame : null;
-  const post = (message, transfer) => host.postMessage({ kino: "script", ...message }, "*", transfer || []);
+  const post = inWorker
+    ? (message, transfer) => scope.postMessage({ kino: "script", ...message }, transfer || [])
+    : (message, transfer) => host.postMessage({ kino: "script", ...message }, "*", transfer || []);
 
   // The clock the script sees: the frame's time in milliseconds (0 while loading and in setup).
   let clock = 0;
@@ -103,14 +119,14 @@ function scriptRuntime() {
   FrameDate.now = () => clock;
   FrameDate.parse = RealDate.parse;
   FrameDate.UTC = RealDate.UTC;
-  window.Date = FrameDate;
+  scope.Date = FrameDate;
   Object.defineProperty(performance, "now", { value: () => clock, configurable: false, writable: false });
 
   // Timers the script starts end with the draw that started them.
   const timeouts = new Set(), intervals = new Set(), animationFrames = new Set();
-  window.setTimeout = (callback, delay, ...rest) => { const id = realSetTimeout(callback, delay, ...rest); timeouts.add(id); return id; };
-  window.setInterval = (callback, delay, ...rest) => { const id = realSetInterval(callback, delay, ...rest); intervals.add(id); return id; };
-  if (realRequestFrame) window.requestAnimationFrame = (callback) => { const id = realRequestFrame(callback); animationFrames.add(id); return id; };
+  scope.setTimeout = (callback, delay, ...rest) => { const id = realSetTimeout(callback, delay, ...rest); timeouts.add(id); return id; };
+  scope.setInterval = (callback, delay, ...rest) => { const id = realSetInterval(callback, delay, ...rest); intervals.add(id); return id; };
+  if (realRequestFrame) scope.requestAnimationFrame =(callback) => { const id = realRequestFrame(callback); animationFrames.add(id); return id; };
   function stopTimers() {
     for (const id of timeouts) realClearTimeout(id);
     for (const id of intervals) realClearInterval(id);
@@ -137,8 +153,10 @@ function scriptRuntime() {
   }
 
   // A syntax error from import() carries no line. Loading the same text once more as a module
-  // script element reports it to the window's error event, with its line and column.
+  // script element reports it to the window's error event, with its line and column. (A Worker
+  // has no script elements: there the error has no place; the save already checked the syntax.)
   function syntaxPlace(script) {
+    if (inWorker) return Promise.resolve({});
     return new Promise((resolve) => {
       const url = URL.createObjectURL(new Blob([script], { type: "text/javascript" }));
       const element = document.createElement("script");
@@ -286,8 +304,8 @@ function scriptRuntime() {
     }
   }
 
-  window.addEventListener("message", (event) => {
-    if (event.source !== host) return;
+  scope.addEventListener("message", (event) => {
+    if (!inWorker && event.source !== host) return;
     const message = event.data;
     if (!message || message.kino !== "script") return;
     if (message.type === "mount") void mount(message);
@@ -296,14 +314,68 @@ function scriptRuntime() {
   post({ type: "ready" });
 }
 
-/** The runtime's JavaScript text, ready to put in a script element. */
-export function scriptRuntimeSource() {
-  return `(${scriptRuntime.toString()})();`;
+// The live preview's frame page: it runs the runtime in a Worker and passes the host's messages
+// through. It times each mount and draw itself (SCRIPT_LIMITS); a module past its limit is stopped
+// with terminate(), the host is told it took too long, and the next message starts a new Worker.
+// So a stuck module never leaves a busy process behind, and the same frame keeps working.
+function scriptRelay(workerSource, limits, tooLong) {
+  "use strict";
+  const host = window.parent;
+  const workerUrl = URL.createObjectURL(new Blob([workerSource], { type: "text/javascript" }));
+  const timers = new Map();
+  let worker = null;
+  const toHost = (message, transfer) => host.postMessage(message, "*", transfer || []);
+  function start() {
+    worker = new Worker(workerUrl);
+    worker.onmessage = (event) => {
+      const message = event.data;
+      if (!message || message.kino !== "script" || message.type === "ready") return;
+      if (message.type === "done") { clearTimeout(timers.get(message.id)); timers.delete(message.id); }
+      const transfer = [message.bitmap, message.png].filter((item) => item instanceof ImageBitmap || item instanceof ArrayBuffer);
+      toHost(message, transfer);
+    };
+  }
+  // Stops the Worker; the other requests it held are answered `stopped` (the host may send them again).
+  function stop(stuckId) {
+    if (worker) worker.terminate();
+    worker = null;
+    for (const [id, timer] of timers) {
+      clearTimeout(timer);
+      if (id !== stuckId) toHost({ kino: "script", id, type: "done", ok: false, message: "stopped with another module that took too long", phase: "draw", stopped: true });
+    }
+    timers.clear();
+  }
+  window.addEventListener("message", (event) => {
+    if (event.source !== host) return;
+    const message = event.data;
+    if (!message || message.kino !== "script" || !["mount", "draw"].includes(message.type)) return;
+    if (!worker) start();
+    const time = message.type === "draw" ? Number(message.frame && message.frame.time) || 0 : 0;
+    const phase = message.type === "mount" ? "setup" : "draw";
+    timers.set(message.id, setTimeout(() => {
+      stop(message.id);
+      toHost({ kino: "script", id: message.id, type: "done", ok: false, message: tooLong(time), phase, time, tooLong: true });
+    }, message.type === "mount" ? limits.setupMs : limits.drawMs));
+    const transfer = Object.values(message.images || {}).filter((item) => item instanceof ArrayBuffer);
+    worker.postMessage(message, transfer);
+  });
+  toHost({ kino: "script", type: "ready" });
 }
 
-/** The whole frame page: the policy, the runtime, nothing else. */
-export function scriptFrameHtml() {
+/** The runtime's JavaScript text, ready to put in a script element (or, `inWorker`, a Worker). */
+export function scriptRuntimeSource({ inWorker = false } = {}) {
+  return `(${scriptRuntime.toString()})(${inWorker});`;
+}
+
+/**
+ * The whole frame page: the policy, the runtime, nothing else. `worker` (the live preview) runs
+ * the module in a Worker the page can stop (scriptRelay); the backend renderer runs it directly.
+ */
+export function scriptFrameHtml({ worker = false } = {}) {
+  const script = worker
+    ? `(${scriptRelay.toString()})(${JSON.stringify(scriptRuntimeSource({ inWorker: true }))}, ${JSON.stringify(SCRIPT_LIMITS)}, ${tooLongMessage.toString()});`
+    : scriptRuntimeSource();
   return `<!doctype html><html><head><meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="${SCRIPT_FRAME_CSP}">
-<script>${scriptRuntimeSource()}</script></head><body></body></html>`;
+<meta http-equiv="Content-Security-Policy" content="${worker ? SCRIPT_PREVIEW_FRAME_CSP : SCRIPT_FRAME_CSP}">
+<script>${script}</script></head><body></body></html>`;
 }
