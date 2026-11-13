@@ -1778,6 +1778,13 @@ How to read it:
   by hashed browser key; agent path `project manage {resource:"comments"}`; mentions send nothing.
   Evidence: `backend/comments.test.mjs`, `backend/comments.integration.test.mjs`,
   `backend/comment-rejoin.integration.test.mjs`, `frontend/comments.test.js`.
+- **Comment places and the agent inbox**: Verified. A thread pins to a layer (the viewer snaps a
+  click by the notes' rule), a range (`time` to `timeEnd`) or the whole video; a person's comment
+  or reply adds one status inbox line and a channel push. Agent path `manage comments`
+  `add {layer, time, timeEnd}`, `update {patch:{scene:null}}`, short `list` lines. Evidence:
+  `backend/comments.test.mjs`, `backend/comments.integration.test.mjs`,
+  `backend/mcp-surface.test.mjs`, `frontend/comments.test.js`, `frontend/dashboardNotes.test.js`,
+  `tests/dashboard-browser.test.mjs` (whole video chip).
 - **Presence**: Verified. Who else is looking shows in the viewer and dashboard; never saved.
   Evidence: `backend/presence.test.mjs`, `frontend/collaborationPresence.test.js`,
   `tests/dashboard-presence-browser.test.mjs`.

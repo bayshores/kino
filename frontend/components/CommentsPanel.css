@@ -161,6 +161,18 @@
 .comment-thread-note {
   color: var(--fg1);
 }
+.comment-thread-place {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 1ch;
+}
+/* A thread's layer or range (comments.js commentChips): a small boxed word in the line. */
+.comment-thread-place .comment-chip {
+  padding: 0 0.5ch;
+  border: 1px solid var(--line);
+  font-size: 12px;
+}
 /* The open thread someone else resolved or reopened (CommentsPanel.jsx KEPT_TEXT). */
 .comment-thread-kept {
   margin: 0 0 0.5lh 3.5ch;

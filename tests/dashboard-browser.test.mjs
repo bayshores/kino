@@ -1910,6 +1910,18 @@ test("a comment link opens the viewer with comments; a new comment saves and rea
   await browser.click(q('[aria-label="Resolve the comment by Ana"]'));
   await until(async () => (await comments()).find((entry) => entry.id === saved.id)?.resolved === true, "the resolve");
 
+  // The "whole video" chip posts a comment with no scene, point or time; its thread says so.
+  await browser.clickAt(frame.left + frame.width * 0.25, frame.top + frame.height * 0.4);
+  await browser.waitFor(`document.activeElement?.getAttribute("aria-label") === "Comment text"`, { what: "the second comment box" });
+  await browser.click(`[...document.querySelectorAll(".viewer-new-comment .comment-chip")].find((chip) => chip.textContent === "whole video")`);
+  assert.equal(await browser.evaluate(textOf(".viewer-new-comment-place")), "new comment · whole video");
+  await browser.click(q('textarea[aria-label="Comment text"]'));
+  await browser.type("The music is too loud");
+  await browser.key("Enter");
+  const whole = await until(async () => (await comments()).find((entry) => entry.text === "The music is too loud"), "the whole-video comment");
+  assert.deepEqual([whole.sceneId, whole.x, whole.time, whole.layerId], [undefined, undefined, undefined, undefined]);
+  await browser.waitFor(pageHas("whole video", ".comment-thread-place"), { what: "the whole video chip on the thread" });
+
   // The owner sees it, read only, in the dashboard's notes tab, and can send it to the agent.
   await open();
   await showView("notes", { focus: false });

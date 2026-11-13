@@ -7,7 +7,7 @@ import { overrideReferenceLayers } from "../engine/componentOverrides.js";
 import { selectionFromLink } from "./sceneLinks.js";
 import { useViewerDocument } from "./useViewerDocument.js";
 import { viewerKeyAction, viewerLayout, viewerSceneIndex } from "./viewerNavigation.js";
-import { threadCounts } from "./comments.js";
+import { scrubberRange, threadCounts } from "./comments.js";
 import { CommentMarks, ViewerCommentsColumn, useViewerComments } from "./ViewerComments.jsx";
 import { listenForEditCommands } from "./desktopEdit.js";
 import "./Viewer.css";
@@ -185,6 +185,7 @@ export function Viewer({ access }) {
   </main>;
   const showComments = canComment && commentsOpen;
   const counts = threadCounts(comments.threads);
+  const range = canComment && scene ? scrubberRange(comments, scene.id) : null;
   return <main className={`viewer ${cards ? "viewer-cards" : "viewer-desktop"}${showComments ? " with-comments" : ""}`} aria-label="File viewer">
     <header className="viewer-header"><div className="viewer-file"><div className="viewer-file-title"><strong title={document.name}>{document.name}</strong>
         <ConnectionStatus status={connectionStatus} failure={connectionStatus.state === "error" ? error : ""} />
@@ -202,9 +203,14 @@ export function Viewer({ access }) {
       <button onClick={() => toggle()} disabled={!scene} aria-label={playing ? "Pause" : "Play"}>{playing ? "Pause" : "Play"}</button>
       <button onClick={() => { setPlaying(false); setTime(0); }} disabled={!scene}>Restart</button>
       <label className="viewer-loop"><input type="checkbox" checked={loop} onChange={(event) => setLoop(event.target.checked)} />Loop</label>
-      <input className="viewer-scrubber" type="range" min="0" max={scene?.duration ?? 1} step="0.01" value={Math.min(time, scene?.duration ?? 1)}
-        aria-label="Playback time" aria-valuetext={`${time.toFixed(2)} of ${(scene?.duration ?? 0).toFixed(2)} seconds`}
-        onChange={(event) => { setPlaying(false); setTime(Number(event.target.value)); }} disabled={!scene} />
+      <span className="viewer-scrub">
+        {/* The new comment's range, or the open thread's, marked under the scrubber. */}
+        {range && <span className="viewer-scrub-range" aria-hidden="true"
+          style={{ left: `${(range.from / (scene.duration || 1)) * 100}%`, width: `${((range.to - range.from) / (scene.duration || 1)) * 100}%` }} />}
+        <input className="viewer-scrubber" type="range" min="0" max={scene?.duration ?? 1} step="0.01" value={Math.min(time, scene?.duration ?? 1)}
+          aria-label="Playback time" aria-valuetext={`${time.toFixed(2)} of ${(scene?.duration ?? 0).toFixed(2)} seconds${range ? `, comment range ${range.from.toFixed(2)} to ${range.to.toFixed(2)}` : ""}`}
+          onChange={(event) => { setPlaying(false); setTime(Number(event.target.value)); }} disabled={!scene} />
+      </span>
       <output aria-hidden="true">{time.toFixed(2)} / {(scene?.duration ?? 0).toFixed(2)}s</output>
     </div>
     {error && !["offline", "reconnecting"].includes(connectionStatus.state) && <p className="viewer-status">{error}</p>}
@@ -215,7 +221,7 @@ export function Viewer({ access }) {
         role="group" aria-label={`Frame: ${scene.name}`} tabIndex={-1}>
         <ScenePreview document={document} scene={scene} time={time} design={false} playing={playing} fontVersion={fontVersion} />
         <ScenePresence presence={presence} document={document} scene={scene} mode="animate" time={time} />
-        {canComment && <CommentMarks state={comments} scene={scene} placing={showComments} />}
+        {canComment && <CommentMarks state={comments} doc={document} scene={scene} time={time} placing={showComments} />}
       </div></div>}
     {showComments && <ViewerCommentsColumn state={comments} doc={document} access={access} cards={cards} />}
     </div>
