@@ -78,14 +78,21 @@ export function Voice({ data, agent, now, scene, time, still, listOpen = false, 
   const who = need?.words.who ?? agent?.name ?? "the agent";
   return (
     <section className={`voice is-${line.state}${still ? " still" : ""}`} aria-label={need ? `${who} needs you` : `What ${who} is doing`} style={agent?.color ? { "--who": agent.color } : undefined}>
-      {/* One row from the frame's left edge: the sentence, its answers beside it, and at the right
-          edge undo and the earlier lines, as words. Under it one quiet row: the facts, then the line before. */}
+      {/* One row from the frame's left edge: the sentence, its facts in quieter text, its answers, and
+          at the right edge undo and the earlier lines, as words. */}
       <div className="voice-row">
         {edit ? <BeforeAfter data={data} scene={scene} time={time} before={edit.before} after={edit.after} /> : ask?.to != null ? <BeforeAfter data={data} scene={scene} time={time} before={ask.from} after={ask.to} /> : null}
         {/* The sentence is announced when it changes (politely; a question at once). */}
         <p className="voice-line" role="status" aria-live={need || ask ? "assertive" : "polite"} key={line.text}>
           <ToolIcon name={line.verb} /><span>{line.text}</span>
         </p>
+        {line.state === "render" || line.facts.length || need?.more ? (
+          <span className="voice-facts">
+            {line.state === "render" ? <span className="voice-meter" aria-hidden="true"><span style={{ width: `${Math.round(line.render.fraction * 100)}%` }} /></span> : null}
+            {line.facts.map((fact, index) => <span key={index} title={fact}>{fact}</span>)}
+            {need?.more ? <span>{need.more} more waiting</span> : null}
+          </span>
+        ) : null}
         {line.state === "need" && need.words.allow ? (
           <span className={`voice-answers${material ? " choices" : ""}`}>
             {material ? <MaterialChoices need={material} onPick={onMaterial} className="voice-button" recommendedClass="primary" /> : approval ? <>
@@ -128,12 +135,6 @@ export function Voice({ data, agent, now, scene, time, still, listOpen = false, 
           ) : null}
         </span>
       </div>
-      <p className="voice-facts">
-        {line.state === "render" ? <span className="voice-meter" aria-hidden="true"><span style={{ width: `${Math.round(line.render.fraction * 100)}%` }} /></span> : null}
-        {line.facts.map((fact, index) => <span key={index} title={fact}>{fact}</span>)}
-        {need?.more ? <span>{need.more} more waiting</span> : null}
-        {line.before ? <span className="voice-before" title={line.before.text}><ToolIcon name={line.before.verb} /><span className="voice-before-text">Before: {line.before.text}</span></span> : null}
-      </p>
     </section>
   );
 }

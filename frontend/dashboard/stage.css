@@ -5,16 +5,17 @@
    dashboard.css (.dash). */
 
 .panes.screening {
-  /* The room left and right of the frame: play and the time at the left, your marks at the right. */
+  /* The room left and right of the frame stays empty: everything under the frame keeps the frame's
+     two edges (the agent's line, then play, the time and your marks, then the strip). */
   --gutter: clamp(64px, 12.7vw, 183px);
   display: grid; gap: 0; padding: 4px 0 12px; min-height: 0;
   grid-template-columns: [full-start] var(--gutter) [center-start] minmax(0, 1fr) [center-end] var(--gutter) [full-end];
-  grid-template-rows: [frame-start] minmax(0, 1fr) [frame-end list-start list-end voice-start] auto [voice-end strip-start] auto [strip-end];
+  grid-template-rows: [frame-start] minmax(0, 1fr) [frame-end list-start list-end voice-start] auto [voice-end controls-start] 40px [controls-end strip-start] auto [strip-end];
   grid-template-areas: none;
 }
 /* The earlier lines are open: the frame steps back to the top half and the list takes the rest. */
 .panes.screening.list-open {
-  grid-template-rows: [frame-start] minmax(120px, 0.9fr) [frame-end list-start] minmax(0, 1fr) [list-end voice-start] auto [voice-end strip-start] auto [strip-end];
+  grid-template-rows: [frame-start] minmax(120px, 0.9fr) [frame-end list-start] minmax(0, 1fr) [list-end voice-start] auto [voice-end controls-start] 40px [controls-end strip-start] auto [strip-end];
 }
 .panes.screening > .pane { border: 0; }
 /* A pane's title and facts are for screen readers here: the page shows no pane boxes. */
@@ -60,12 +61,15 @@
 .screening .stage-toolbar .icon-button { width: 28px; padding: 0; }
 .screening .stage-toolbar .menu-button:hover, .screening .stage-toolbar .icon-button:hover { background: var(--bg2); }
 
-/* Playback and your marks: the transport's parts take cells of the stage's grid. */
+/* Playback and your marks: one row between the agent's line and the strip. Play and the time start
+   at the frame's left edge, your marks end at its right edge. The two frame-step buttons show on
+   hover in the room left of the frame, before play. */
 .screening .stage-transport { display: contents; }
 .screening .transport-buttons {
-  grid-row: strip-start / strip-end; grid-column: full-start / center-start; align-self: start; justify-self: end;
-  display: flex; align-items: center; gap: 0; margin: 28px 96px 0 0; position: relative;
+  grid-row: controls-start / controls-end; grid-column: center; align-self: center; justify-self: start;
+  display: flex; align-items: center; gap: 0; margin: 0 0 0 -50px; position: relative;
 }
+.screening .transport-buttons .play-button { order: 1; }
 .screening .transport-buttons .icon-button { width: 22px; height: 30px; color: var(--fg2); opacity: 0; transition: opacity var(--quick) var(--ease-in); }
 .screening .transport-buttons:hover .icon-button, .screening .transport-buttons:focus-within .icon-button { opacity: 1; }
 .screening .transport-buttons .play-button { width: 34px; height: 34px; opacity: 1; color: var(--fg0); background: none; border-radius: 0; transition: transform var(--quick) var(--ease-in); }
@@ -73,11 +77,11 @@
 .screening .transport-buttons .play-button:hover { background: var(--bg1); }
 .screening .transport-buttons .play-button:active { transform: scale(0.92); }
 .screening .transport-time {
-  grid-row: strip-start / strip-end; grid-column: full-start / center-start; align-self: start; justify-self: end;
-  margin: 27px 12px 0 0; width: 80px; pointer-events: none;
+  grid-row: controls-start / controls-end; grid-column: center; align-self: center; justify-self: start;
+  margin: 0 0 0 38px; width: auto; pointer-events: none;
 }
 .screening .play-time { display: block; font-family: var(--mono-ui); font-size: 14px; line-height: 18px; color: var(--fg0); font-variant-numeric: tabular-nums; }
-.screening .play-time .play-total { display: block; font-size: 11px; color: var(--fg2); }
+.screening .play-time .play-total { display: inline; margin-left: 4px; font-size: 12px; color: var(--fg2); }
 /* The scrub bar lies over the strip's top row: it draws your notes and marks there. A press goes
    through it to the strip (which seeks and points); its marks are buttons. */
 .screening .scrub {
@@ -87,15 +91,15 @@
 .screening .scrub::before, .screening .scrub .scrub-done { display: none; }
 .screening .scrub .scrub-mark { pointer-events: auto; }
 .screening .transport-marks {
-  grid-row: strip-start / strip-end; grid-column: center-end / full-end; align-self: start; justify-self: start;
-  display: flex; align-items: center; gap: 6px; margin: 28px 0 0 20px;
+  grid-row: controls-start / controls-end; grid-column: center; align-self: center; justify-self: end;
+  display: flex; align-items: center; gap: 6px; margin: 0 -7px 0 0;
 }
 .screening .transport-marks .icon-button { width: 34px; height: 34px; color: var(--fg0); transition: transform var(--quick) var(--ease-in), color var(--quick) var(--ease-in), background-color var(--quick) var(--ease-in); }
 .screening .transport-marks .icon-button .icon { width: 20px; height: 20px; }
 .screening .transport-marks .icon-button:hover { background: var(--bg1); }
 .screening .transport-marks .icon-button:active { transform: scale(0.88); }
-.screening .transport-marks .mark-clear { width: 22px; color: var(--fg2); }
-.screening .transport-marks .mark-clear .icon { width: 14px; height: 14px; }
+.screening .transport-marks .mark-clear { width: 34px; color: var(--fg2); }
+.screening .transport-marks .mark-clear .icon { width: 16px; height: 16px; }
 /* Safe area, grid and boxes: over the frame's lower right corner, shown like the toolbar. */
 .screening .transport-view {
   grid-row: frame-start / frame-end; grid-column: center; align-self: end; justify-self: end; z-index: 4; margin: 10px;
@@ -108,15 +112,11 @@
 /* ---- the agent's line ---- */
 .voice {
   grid-row: voice-start / voice-end; grid-column: center; z-index: 2;
-  display: grid; justify-items: stretch; align-content: center; row-gap: 2px; min-height: 92px; padding: 12px 0 6px; min-width: 0;
+  display: grid; justify-items: stretch; align-content: center; min-height: 52px; padding: 8px 0 4px; box-sizing: border-box; min-width: 0;
 }
-/* The line before, last in the quiet row. */
-.voice-before { display: inline-flex; align-items: center; gap: 6px; min-width: 0; color: var(--fg2); }
-.voice-before .tool-icon { width: 14px; height: 14px; }
-.voice-before-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .tool-icon { flex: none; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
 /* Undo and History at the row's right edge: a word beside each icon, 36 px tall. */
-.voice-tools { display: flex; align-items: center; gap: 4px; flex: none; margin-left: auto; }
+.voice-tools { display: flex; align-items: center; gap: 4px; flex: none; margin-left: auto; margin-right: -10px; }
 .voice-icon {
   all: unset; box-sizing: border-box; flex: none; display: inline-flex; align-items: center; gap: 8px; min-width: 36px; height: 36px; padding: 0 10px; justify-content: center;
   cursor: pointer; color: var(--fg1); font-size: 14px; font-weight: 500; white-space: nowrap;
@@ -141,6 +141,11 @@
 .voice.still .voice-line { animation: none; }
 /* Not at work: the last line, in the page's text color and without the box. */
 .voice.is-idle .voice-line, .voice.is-empty .voice-line { color: var(--fg-mid); background: none; padding-inline: 0; }
+/* Nothing is happening (the agent rests, or left): the sentence is said quietly, at the size of the
+   words around it, and its button is as quiet. */
+.voice.is-idle .voice-line, .voice.is-empty .voice-line, .voice.is-away .voice-line { font-size: 16px; font-weight: 400; line-height: 24px; letter-spacing: 0; }
+.voice.is-idle .voice-line .tool-icon, .voice.is-empty .voice-line .tool-icon, .voice.is-away .voice-line .tool-icon { width: 18px; height: 18px; }
+.voice.is-away .voice-button { height: 32px; padding: 0 12px; font-size: 14px; font-weight: 500; }
 .voice-pair { display: flex; align-items: center; gap: 10px; flex: none; color: var(--fg2); }
 .voice-pair img { display: block; width: 80px; height: 45px; object-fit: cover; background: var(--bg1); }
 .voice-answers { display: flex; align-items: center; gap: 8px; flex: none; }
@@ -155,7 +160,8 @@
 .voice-button:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
 .voice-button.primary { background: var(--solid); color: var(--on-solid); box-shadow: none; }
 .voice-button.primary:hover { background: color-mix(in srgb, var(--solid) 86%, var(--bg0)); }
-.voice-facts { display: flex; align-items: center; justify-content: flex-start; gap: 18px; min-height: 20px; max-width: 100%; min-width: 0; color: var(--fg1); font-size: 14px; line-height: 20px; }
+/* The sentence's facts, beside it in quieter text: they give way first when the row is full. */
+.voice-facts { display: flex; align-items: center; gap: 16px; flex: 0 1000 auto; min-width: 0; overflow: hidden; color: var(--fg1); font-size: 14px; line-height: 20px; white-space: nowrap; }
 .voice-facts > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .voice-facts > span::first-letter { text-transform: uppercase; }
 .voice-meter { flex: none; width: 220px; height: 3px; background: var(--line); }
@@ -263,19 +269,11 @@
 .screening .note-box { margin-top: 10px; background: var(--well); border: 0; box-shadow: inset 0 0 0 1px var(--line); }
 
 @media (max-width: 1339px) {
-  .panes.screening { --gutter: 56px; grid-template-rows: [frame-start] minmax(0, 1fr) [frame-end list-start list-end voice-start] auto [voice-end controls-start] 40px [controls-end strip-start] auto [strip-end]; }
-  .panes.screening.list-open { grid-template-rows: [frame-start] minmax(120px, 0.9fr) [frame-end list-start] minmax(0, 1fr) [list-end voice-start] auto [voice-end controls-start] 40px [controls-end strip-start] auto [strip-end]; }
-  /* A narrow window: play and the time, then your marks, on a row of their own over the strip. */
-  .screening .transport-buttons { grid-row: controls-start / controls-end; grid-column: center; justify-self: start; align-self: center; margin: 0; }
-  .screening .transport-time { grid-row: controls-start / controls-end; grid-column: center; justify-self: start; align-self: center; margin: 0 0 0 86px; width: auto; }
-  .screening .play-time .play-total { display: inline; }
-  .screening .transport-marks { grid-row: controls-start / controls-end; grid-column: center; justify-self: end; align-self: center; margin: 0; }
+  .panes.screening { --gutter: 56px; }
   .voice-line { font-size: 18px; line-height: 26px; }
-  /* The sentence takes the row; its answers and the tools go under it, so nothing is cut short. */
-  .voice-row { flex-wrap: wrap; row-gap: 6px; }
-  .voice { row-gap: 6px; }
+  /* A narrow window: the sentence takes the row; its facts, answers and the tools go under it, so nothing is cut short. */
+  .voice-row { flex-wrap: wrap; row-gap: 4px; }
   .voice-line { flex: 1 1 100%; }
-  .voice { min-height: 84px; }
 }
 
 /* The frames kept ready for playback are not drawn on the strip (the whole timeline shows them). */
@@ -288,9 +286,9 @@
 .dash .bottomline .keyline .tb:hover { color: var(--fg0); }
 
 /* ---- a note in progress: its field takes the place of the agent's line ---- */
-.note-field { grid-row: voice-start / voice-end; grid-column: center; z-index: 2; display: grid; align-content: center; justify-items: center; min-height: 108px; padding: 8px 0 4px; min-width: 0; }
+.note-field { grid-row: voice-start / voice-end; grid-column: center; z-index: 2; display: grid; align-content: center; justify-items: stretch; min-height: 52px; padding: 2px 0; box-sizing: border-box; min-width: 0; }
 .note-field-box {
-  display: flex; align-items: center; gap: 14px; box-sizing: border-box; width: min(776px, 100%); min-height: 56px; padding: 6px 8px 6px 18px;
+  display: flex; align-items: center; gap: 14px; box-sizing: border-box; width: min(776px, 100%); min-height: 48px; padding: 4px 4px 4px 14px;
   box-shadow: inset 0 0 0 2px var(--fg0); background: var(--bg0); animation: voice-in var(--panel) var(--ease-big) both;
 }
 .note-field-box > .tool-icon { width: 20px; height: 20px; color: var(--fg0); }
@@ -436,7 +434,7 @@
 .screening .live-dock.done { display: none; }
 .voice a.voice-button { text-decoration: none; display: inline-flex; align-items: center; }
 /* Not connected: the sentence is plain, not the agent's yellow; the button has an icon. */
-.voice.is-away .voice-line { color: var(--fg0); background: none; padding-inline: 0; }
+.voice.is-away .voice-line { color: var(--fg-mid); background: none; padding-inline: 0; }
 .voice .voice-button { display: inline-flex; align-items: center; gap: 8px; }
 .voice .voice-button .tool-icon { width: 14px; height: 14px; }
 /* Reveals: an opened row's facts, the looks, and the lines of an opened check (none under reduced
