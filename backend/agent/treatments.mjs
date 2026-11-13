@@ -334,6 +334,9 @@ export function pickLines(brief, origin = null) {
   return ["Pick a direction (or say your own):", ...[originLine(origin)].filter(Boolean), ...shownLines(treatments), ...[knownLine(treatments, origin, askTexts(brief))].filter(Boolean)];
 }
 
+// Where the agent learns of sketch rounds (sketches.mjs): one line under the shown treatments.
+export const SKETCH_LINE = 'To let them watch and hear these first: notes {action:"try", from, to, options:[{treatment:"A", ops}, ...]} renders 2 to 10 s sketches with sound; their pick saves itself (library {topic:"rules", name:"sketches"}).';
+
 // What the agent's own pick is for, and the call that saves it ("just start").
 export const OWN_PICK = "pick the one a viewer would retell tomorrow that this material can carry; say why";
 export const OWN_PICK_CALL = Object.freeze({ pick: "<A, B or C>", why: "<why a viewer would retell it>" });
@@ -362,6 +365,7 @@ export function treatmentsText(brief, origin = null, { subject = false } = {}) {
   return [
     `treatments: dropped the most typical (p ${dropped.p}: ${dropped.idea}); ${own ? "they said just start, so pick one yourself" : `the next stop's ask shows these ${known ? SHOWN_COUNT + 1 : SHOWN_COUNT} to pick`}:`,
     ...shownLines(treatments), ...(known ? [known] : []),
-    own ? `${OWN_PICK}: fields:{treatments:{pick:"A", why:"<why>"}}.` : 'Their pick: fields:{treatments:{pick:"B", quote:"<their words>"}}. With no stop ahead, ask in one message.',
+    SKETCH_LINE,
+    own ?`${OWN_PICK}: fields:{treatments:{pick:"A", why:"<why>"}}.` : 'Their pick: fields:{treatments:{pick:"B", quote:"<their words>"}}. With no stop ahead, ask in one message.',
   ].join("\n");
 }

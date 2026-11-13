@@ -3,11 +3,13 @@
 // with the ops to apply.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { answerText, readTry } from "./agent/tries.mjs";
+import { clipFacts, sketchKey, sketchLines } from "./agent/sketches.mjs";
+import { answerText, createTries, readTry } from "./agent/tries.mjs";
 import { skipWithoutMediaTools as skip, startTestServer } from "./media.test.support.mjs";
 
 const SCENES = [{ id: "s1", name: "Scene 1", duration: 8.8 }];
@@ -37,8 +39,68 @@ test("answerText: a pick names the option and the ops to apply; none and skip sa
   assert.match(answerText({ ...round, pick: "skip" }), /skipped it\. Keep the video as it is/);
 });
 
+// Saved treatments as treatments.mjs keeps them: 5 written, 3 shown (A = list[3], B = list[0], C = list[1]).
+const TREATMENTS = { list: ["stairs of words", "threats climb", "steps count", "grin spreads", "grade switch"].map((idea, index) => ({ idea, move: `move ${index}`, p: 0.1 * index })),
+  dropped: 2, shown: [3, 0, 1], picked: null };
+const SKETCHES = [{ treatment: "A", ops: [] }, { treatment: "b", ops: [{ op: "update_layer", layer: "footage", properties: { opacity: 0.5 } }] }, { treatment: "move 1", ops: [] }];
+
+test("readTry: a sketch round is a 2 to 10 s stretch whose options name shown treatments; each refusal in words", () => {
+  const read = readTry({ from: 2, to: 8, options: SKETCHES }, SCENES, { treatments: TREATMENTS });
+  assert.deepEqual([read.sketch, read.question, read.from, read.to, read.at, read.options.map((option) => [option.letter, option.treatment, option.name])],
+    [true, "Which direction?", 2, 8, 2, [["A", "A", "move 3"], ["B", "B", "move 0"], ["C", "C", "move 1"]]], "a letter in any case or a move's words names it; the name is the move");
+  for (const [input, options, words] of [
+    [{ from: 2, to: 8, options: SKETCHES }, {}, /save the 5 first/],
+    [{ from: 0, to: 11, options: SKETCHES }, { treatments: TREATMENTS }, /2 to 10 s long/],
+    [{ from: 2, to: 8, options: [SKETCHES[0], { treatment: "D", ops: [] }] }, { treatments: TREATMENTS }, /options\[1\]\.treatment is the letter of a shown treatment \(A, B, C\)/],
+    [{ from: 2, to: 8, options: [SKETCHES[0], { treatment: "a", ops: [] }] }, { treatments: TREATMENTS }, /its own treatment/],
+  ]) assert.throws(() => readTry(input, SCENES, options), words);
+  assert.equal(readTry({ from: 2, to: 8, options: [SKETCHES[0], { treatment: "D", ops: [] }] }, SCENES, { treatments: TREATMENTS, known: true }).options[1].treatment, "D", "D when the dropped one is listed");
+});
+
+test("sketch numbers: block changes in a row count once, the closest pair is set side by side, and the key follows the ops", () => {
+  const frame = (level, pixel = [10, 10, 10]) => ({ cells: new Array(144).fill(level), pixels: [pixel] });
+  // 1 s at 10 a second: a cut at 0.3 s, a two-sample dissolve at 0.6 to 0.7 s, small movement elsewhere.
+  const frames = [0, 0.01, 0.02, 0.5, 0.5, 0.51, 0.2, 0.9, 0.9, 0.9].map((level) => frame(level));
+  const facts = clipFacts(frames, { seconds: 1, lufs: -14.04, lettering: 0.333 });
+  assert.deepEqual([facts.changes, facts.shot, facts.lettering, facts.lufs, facts.colors.map((color) => color.hex)], [2, 0.3, 0.33, -14, ["#0a0a0a"]]);
+  const option = (letter, changes, lufs, hex) => ({ letter, treatment: letter, name: `n${letter}`, renderSeconds: 3, cached: letter === "C", facts: { changes, shot: 1, lettering: 0.5, lufs, colors: [{ hex, share: 1 }] } });
+  const lines = sketchLines({ from: 0, to: 2, options: [option("A", 2, -14, "#101010"), option("B", 8, -20, "#ff0000"), option("C", 2, -14, "#121212")] });
+  assert.match(lines[0], /^A \(treatment A, nA\): rendered in 3 s, 1\.5 s per sketch second \(measured on this machine\); 2 picture changes, median shot 1 s, lettering 50% of frames, -14 LUFS, colors #101010 100%$/);
+  assert.match(lines[2], /C \(treatment C, nC\): cached, not rendered again/);
+  assert.match(lines[3], /^closest pair: A and C: picture changes 2 vs 2, .* 1 of 1 colors shared$/);
+  const document = { id: "p", scenes: [] };
+  assert.equal(sketchKey(document, [], "s1", 0, 6), sketchKey(structuredClone(document), [], "s1", 0, 6));
+  assert.notEqual(sketchKey(document, [], "s1", 0, 6), sketchKey(document, [{ op: "x" }], "s1", 0, 6));
+});
+
+test("a sketch round renders each sketch once (cached by its ops), and a pick saves the treatment and tells the agent", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "kino-sketch-"));
+  let state = { inbox: [], brief: { treatments: TREATMENTS } };
+  const agentState = { read: async () => structuredClone(state), update: async (_id, edit) => edit(state) };
+  const rendered = [];
+  const picks = [];
+  const tries = createTries({ agentState, directory: path.join(directory, "try"), now: () => 1000 + rendered.length * 1500,
+    briefOf: (saved) => ({ treatments: saved.brief.treatments }), documentWith: async (record, ops) => ({ ...record.document, ops }),
+    renderClip: async (_document, _scene, _from, _to, outputPath, { sound }) => { rendered.push(sound); await writeFile(outputPath, "clip"); },
+    measureSketch: async () => ({ changes: 1, shot: 3, lettering: 0, lufs: -12, colors: [] }),
+    pickTreatment: (draft, round, option) => { picks.push(option.treatment); draft.brief.treatments = { ...draft.brief.treatments, picked: { label: option.treatment, by: "you" } }; } });
+  const record = { revision: 3, document: { id: "p", scenes: SCENES } };
+  const first = await tries.start(record, { from: 1, to: 7, options: SKETCHES.slice(0, 2) });
+  await first.rendered;
+  assert.deepEqual(rendered, [true, true], "with sound");
+  assert.match((await tries.sketchReceipt("p", first.id)).join("\n"), /A \(treatment A, move 3\): rendered in 1\.5 s, 0\.25 s per sketch second/);
+  const again = await tries.start(record, { from: 1, to: 7, options: SKETCHES.slice(0, 2) });
+  await again.rendered;
+  assert.equal(rendered.length, 2, "the same sketches are not rendered again");
+  assert.match((await tries.sketchReceipt("p", again.id)).join("\n"), /cached, not rendered again/);
+  await tries.answer("p", { id: again.id, pick: "B" });
+  assert.deepEqual([picks, state.brief.treatments.picked.by, state.tries.at(-1).treatmentSaved], [["B"], "you", true]);
+  assert.match(state.inbox.at(-1).text, /picked sketch B \(move 0\); kino saved treatment B as their pick \(brief treatments, by them\); status next names what follows\. The sketch's ops, if you keep them: edit/);
+  await rm(directory, { recursive: true, force: true });
+});
+
 let server;
-const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const root =path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 before(async () => { if (!skip) server = await startTestServer(); });
 after(async () => { await server?.stop(); });
 const agent = async (verb, body) => (await server.api(`/api/agent/${verb}`, { method: "POST", body: { client: "test-agent", ...body } })).json();

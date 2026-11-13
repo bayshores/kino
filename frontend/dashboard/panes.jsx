@@ -285,7 +285,7 @@ export function SessionPane({ data, still, cursor, sections: open, onSections: s
   const anyOpen = Object.keys(SECTIONS).some((name) => open[name]);
   // The waiting stop first, then the stops in other projects, then the requests.
   const needs = needsYouRows(data);
-  const needId = (row) => (row.type === "stop" ? row.round.id : row.type === "elsewhere" ? `${row.projectId}/${row.round.id}` : row.type === "ideas" ? row.ideas.id : row.type === "judge" ? row.judge.id : row.type === "material" ? row.need.id : row.approval.id);
+  const needId = (row) => (row.type === "stop" ? row.round.id : row.type === "elsewhere" ? `${row.projectId}/${row.round.id}` : row.type === "ideas" ? row.ideas.id : row.type === "judge" ? row.judge.id : row.type === "material" ? row.need.id : row.type === "try" ? `try-${row.round.id}` : row.approval.id);
   // An answered request or stop leaves the list and takes its focused button with it: the focus
   // goes to the next one's allow (approve) button, or to the section's caret when none is left.
   const answered = useRef(null);

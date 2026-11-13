@@ -40,6 +40,17 @@
 .try-strip { position: relative; height: 1.5lh; }
 .try-shot { position: absolute; top: 0; bottom: 0; padding: 0 0.5ch; border: 1px solid var(--line); border-radius: 2px; background: var(--bg1); color: var(--fg-mid); overflow: hidden; }
 .try-at { position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; background: var(--accent); }
+/* Sketch rounds: each clip keeps its own shape, and the whole clip is its play button (with sound,
+   one at a time). The icon shows while paused, on hover and on focus; nothing moves by itself. */
+.try-sketches .try-video { aspect-ratio: auto; }
+.try-sketches .try-video video { height: auto; }
+.try-play { position: absolute; inset: 0; display: grid; place-items: center; padding: 0; border: 0; background: transparent; color: var(--fg0); font: inherit; font-size: 1.6em; cursor: pointer; }
+.try-play span { padding: 0.2em 0.6em; border-radius: var(--radius); background: rgb(11 14 18 / 0.7); }
+.try-play[aria-pressed="true"] span { opacity: 0; }
+.try-play[aria-pressed="true"]:hover span, .try-play:focus-visible span { opacity: 1; }
+.try-play:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.try-option.playing .try-video { border-color: var(--agent); }
+.try-sketches .try-pick { z-index: 1; }
 /* A phone: the rounds over the options, two options a row. */
 .phone .try-body { grid-template-columns: minmax(0, 1fr); }
 .phone .try-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }

@@ -1161,14 +1161,15 @@ export function createLook({ cache, outDirectory, mediaRoot, renderSettings }) {
     },
 
     // A stretch of a scene (`from` to `to` seconds) as a silent mp4 at the preview size and
-    // frame rate, drawn as playback draws it (try rounds, tries.mjs).
-    async clip(prepared, { from, to, outputPath, signal }) {
+    // frame rate, drawn as playback draws it (try rounds, tries.mjs); `sound` keeps the stretch's
+    // sound (sketch rounds, sketches.mjs).
+    async clip(prepared, { from, to, outputPath, signal, sound = false }) {
       const render = renderSettings?.() ?? {};
       const size = previewSize(prepared.scene);
       const first = Math.max(0, Math.round(from * PREVIEW_FPS));
       const count = Math.max(1, Math.round((to - from) * PREVIEW_FPS));
       await exportScene(prepared.scene, { format: "mp4", fps: PREVIEW_FPS, width: size.width, height: size.height, videoQuality: PREVIEW_QUALITY }, {
-        mediaRoot, fonts: prepared.fonts, render, outputPath, silent: true, previewBlur: true, signal, frameRange: { first, count },
+        mediaRoot, fonts: prepared.fonts, render, outputPath, silent: !sound, previewBlur: true, signal, frameRange: { first, count },
       });
       return { outputPath, ...size };
     },
