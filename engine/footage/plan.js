@@ -20,6 +20,20 @@ import { LINE_EVERY, pickLines } from "./lines.js";
 
 const sum = (list) => list.reduce((total, value) => total + value, 0);
 export const END_CARD = 2.8;
+// The end card's recipe starts this long after the body ends (the card's `at` is 0.2 s later, ops.js adds 0.1 s).
+const END_LEAD = 0.3;
+const END_MARGIN = 0.02;
+
+/**
+ * Seconds kept for the end card at the end of the edit: END_CARD, or longer when its recipe needs
+ * more than the 2.5 s that leaves it. `room` is the recipe's own `staying` (seconds from its start
+ * to enter and be read, from runRecipe in engine/blocks/recipe.js); compose {footage} measures it
+ * by building the card once. At most half the edit.
+ */
+export function endCardSpace(room, duration) {
+  if (!(room > 0)) return END_CARD;
+  return Math.min(Math.max(END_CARD, round3(room + END_LEAD + END_MARGIN)), duration / 2);
+}
 // How long each title takes, in seconds (push-through-type needs at least 1.8).
 const TITLE_LENGTH = { "push-through-type": 2.4, headline: 2.4 };
 // The headline-reveal entrances a treatment or a type card may name for the title (never a blur).
@@ -139,7 +153,7 @@ export function planEdit(input) {
   const baseTitleLength = TITLE_LENGTH[titleKind];
   let duration = input.duration;
   if (!duration) {
-    if (voice) duration = 0.4 + voice.duration + 0.8 + END_CARD;
+    if (voice) duration = 0.4 + voice.duration + 0.8 + endCardSpace(input.endRoom, Infinity);
     else {
       const speech = sum(speechAll.map((moment) => moment.out - moment.in)) + (opening.kind === "speech" ? openLength : 0);
       const footage = sum(clips.map((clip) => Math.min(clip.out ?? clip.duration, clip.duration) - (clip.in ?? 0)));
@@ -150,6 +164,7 @@ export function planEdit(input) {
     }
   }
   duration = round3(Math.max(6, Math.min(600, duration)));
+  const endSpace = endCardSpace(input.endRoom, duration);
 
   // ---- the music: where it starts, so its drop lands as the title ends -------------------------
   let musicPlan = null;
@@ -251,7 +266,7 @@ export function planEdit(input) {
     const landing = dropCut(musicPlan.drop);
     if (landing - titleAt >= 1.8 && landing - titleAt <= 3.4) titleLength = round3(landing - titleAt);
   }
-  let bodyEnd = round3(duration - END_CARD);
+  let bodyEnd = round3(duration - endSpace);
   // With a pace the end card starts on a beat (at or before its usual time).
   let lastIndex = null;
   if (pace) {
@@ -668,7 +683,7 @@ export function planEdit(input) {
   if (voice) {
     voicePlan = { src: voice.src, start: 0.4, duration: voice.duration };
     const words = (voice.words ?? []).filter((word) => !word.unclear).map((word) => ({ text: word.text, at: round3(0.4 + word.start), end: round3(0.4 + word.end) }))
-      .filter((word) => word.end <= duration - END_CARD + 0.5);
+      .filter((word) => word.end <= duration - endSpace + 0.5);
     if (words.length) captions.push({ voice: true, energy: style.captions, words });
   }
   const titleText = input.title;

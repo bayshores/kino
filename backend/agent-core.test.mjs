@@ -467,6 +467,16 @@ test("mark_subject keeps part on the box (1-30 characters) and refuses a bad one
     await assert.rejects(mark({ part }), /part is 1-30 characters naming the part you mean \(eyes\), or leave it out for the whole subject\./);
 });
 
+test("a move takes the general seed even when another move has a seed field of its own", async () => {
+  const shot = (id) => ({ type: "add_layer", layerType: "video", properties: { id, name: id, src: `/api/media/${id}.mp4`, x: 0, y: 0, width: 640, height: 360 } });
+  const document = sceneDocument([shot("a"), shot("b")]);
+  const runner = createBlockRunner({ fontsFor: async () => [], listMedia: async () => [], fontCatalog: [], operationContext: {} });
+  const run = (raw) => runner.apply(document, translateBlock(raw, createResolver(document), document), {});
+  const made = await run({ op: "move", name: "whip-pan", from: "a", to: "b", at: 1, seed: 3 });
+  assert.equal(made.scenes[0].moves[0].settings.seed, 3, "whip-pan has no seed field of its own; the general one is kept");
+  assert.throws(() => run({ op: "move", name: "whip-pan", from: "a", to: "b", at: 1, count: 3 }), /has no field "count"/);
+});
+
 test("translate errors name the operation's number and offer close names", () => {
   const { document, codes } = titleAndCard();
   assert.throws(() => translateOperations([{ op: "update_layer", layer: "title", properties: {} }, { op: "add_layr" }], createResolver(document, codes), document), (error) => {
