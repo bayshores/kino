@@ -39,6 +39,14 @@ async function capturePage(webContents, wait = delay) {
 // Look again until the grey shows. A heavy frame can also leave no frame ready to copy at all
 // ("UnknownVizError" even after capturePage's retries); keep waiting for it the same way.
 const frameMarker = id => 32 + (id % 12) * 16;
+// The marker row is the last of MARKER_ROWS rows under the picture; the row between stays empty.
+// A picture drawn past the SVG's bottom edge can leak a few percent into the row just under it
+// (measured 2026-11-12 on a Mac's graphics card): a 1920x1080 frame whose video picture (1918x1151,
+// zoomed by 1.105) ran past the bottom read the grey 208 as 201 (every grey about 3.4% darker) in a
+// marker row right under the picture, so every 12th frame (grey 208, 6 levels allowed) was never
+// seen and ran out of time. The frame's own pixels were exact, and a plain rectangle in the same
+// place, or the picture at half size, did not leak. One empty row takes that leak.
+const MARKER_ROWS = 2;
 
 // How long the capture may keep looking: 5 s less than the frame's time limit, so that the worker
 // answers before backend/chromium-raster.mjs stops it (half the limit for a limit under 10 s).
@@ -55,8 +63,8 @@ async function captureFrame(webContents, { width, height, marker, wait = delay, 
     }
     if (image) {
       const size = image.getSize();
-      if (size.width !== width || size.height !== height + 1) throw new Error("Chromium returned an unexpected export size.");
-      const pixel = image.crop({ x: 0, y: height, width: 1, height: 1 }).toBitmap();
+      if (size.width !== width || size.height !== height + MARKER_ROWS) throw new Error("Chromium returned an unexpected export size.");
+      const pixel = image.crop({ x: 0, y: height + MARKER_ROWS - 1, width: 1, height: 1 }).toBitmap();
       if ([0, 1, 2].every(channel => Math.abs(pixel[channel] - marker) <= 6) && pixel[3] === 255)
         return image.crop({ x: 0, y: 0, width, height });
     }
@@ -69,7 +77,7 @@ async function captureFrame(webContents, { width, height, marker, wait = delay, 
 function fixedHtml() {
   return `<!doctype html><html><head><meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src data: blob: ${MEDIA_SCHEME}:; font-src data:; base-uri 'none'; form-action 'none'">
-<style>html,body,#root{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:transparent}#root{height:calc(100% - 1px)}#root>svg{display:block;width:100%;height:100%}#kino-frame{width:100%;height:1px}</style>
+<style>html,body,#root{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:transparent}#root{height:calc(100% - ${MARKER_ROWS}px)}#root>svg{display:block;width:100%;height:100%}#kino-frame{width:100%;height:1px;margin-top:${MARKER_ROWS - 1}px}</style>
 </head><body><main id="root"></main><div id="kino-frame"></div></body></html>`;
 }
 
@@ -431,7 +439,7 @@ async function runRasterWorker() {
       // A backstop for a parent that stopped listening: backend/chromium-raster.mjs stops a frame at
       // its time limit itself and names it, so this waits 5 s longer.
       watchdog = setTimeout(() => app.exit(124), timeoutMs + 5_000);
-      window.setContentSize(width, height + 1);
+      window.setContentSize(width, height + MARKER_ROWS);
       const marker = frameMarker(id);
       // The SVG goes to the page as a message, not inside JavaScript source: executeJavaScript kept
       // every script it ran, so the renderer grew by 2-4 MB for each MB of SVG (about 70 MB a frame
