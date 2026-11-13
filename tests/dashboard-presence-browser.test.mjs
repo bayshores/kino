@@ -118,7 +118,7 @@ test("a look puts the agent's named, colored tag over what it looks at, and the 
     const text = ${tagOf(NOVA.id)}.innerText;
     return Math.abs(tag.bottom - box.top) <= 1.5 && Math.abs(tag.left - box.left) <= 1.5 ? { tag, box, stage, text } : null;
   })()`, { what: "Nova's tag just above the title's outline" });
-  assert.match(placed.text, /^Nova: /);
+  assert.match(placed.text, /^Agent 1: /);
   assert.equal(await browser.evaluate(`getComputedStyle(${tagOf(NOVA.id)}).backgroundColor`), NOVA.color);
   // The outline is the layer's box on the stage, both measured in the same frame (the stage
   // changes size when the live line under it changes).
@@ -136,7 +136,7 @@ test("a look puts the agent's named, colored tag over what it looks at, and the 
   assert.ok(tip.width > 0);
   assert.equal(await browser.evaluate(`getComputedStyle(${cursor}).fill`), NOVA.color);
   // The timeline names the agent too, at the look's time.
-  await browser.waitFor(`${q(`.presence-chip[data-agent="${NOVA.id}"]`)}?.innerText === "Nova"`, { what: "Nova's chip on the timeline" });
+  await browser.waitFor(`${q(`.presence-chip[data-agent="${NOVA.id}"]`)}?.innerText === "Agent 1"`, { what: "Nova's chip on the timeline" });
   assert.ok(await browser.evaluate(`!!document.querySelector(".presence-span:not(.is-range)")`), "a line at the look's time");
   // Review round 2: the chip is never over a turn's button. The turns are marks on each agent's
   // own lane now, and the chip stays off those lanes altogether.
@@ -151,7 +151,7 @@ test("a look puts the agent's named, colored tag over what it looks at, and the 
   assert.equal(turns.hits, 0, `the name chip covers no turn: ${JSON.stringify(turns)}`);
   assert.equal(turns.lanes, 0, `the chip is off the agents' lanes: ${JSON.stringify(turns)}`);
   // The screen reader hears it.
-  const line = await browser.waitFor(`(${q(".presence-sr")}?.textContent ?? "").startsWith("Nova is looking at") && ${q(".presence-sr")}.textContent`, { what: "the live line" });
+  const line = await browser.waitFor(`(${q(".presence-sr")}?.textContent ?? "").startsWith("Agent 1 is looking at") && ${q(".presence-sr")}.textContent`, { what: "the live line" });
   assert.match(line, /title/);
   assert.equal(await browser.evaluate(`${q(".presence-sr")}.getAttribute("aria-live")`), "polite");
   await browser.shot("presence-look");
@@ -184,7 +184,7 @@ test("each agent keeps one bot on the stage: beside its cursor during a call, th
   })()`, { timeout: 9000, what: "Juno's bot at rest" });
   assert.equal(rest.inPane, true, JSON.stringify(rest));
   assert.ok(!rest.overFrame || rest.dimmed, `a resting bot over the picture is dimmed: ${JSON.stringify(rest)}`);
-  assert.equal(rest.name, "Juno");
+  assert.equal(rest.name, "Agent 2");
   assert.equal(rest.clicks, "none", "a click goes through to the stage, its notes and findings");
   assert.equal(rest.hidden, true, "decoration: the live line and the panes name the agents");
   // One bot per agent seen in the last 10 min, whatever it did last.
@@ -272,7 +272,7 @@ test("two agents get two names and colors that read, and one in another scene sh
     // It glides there in 180 ms: wait until it has arrived.
     return Math.abs(place.right - stage.right) <= 1.5 ? { text: tag.innerText, place, stage } : null;
   })()`, { what: "Juno's tag at the stage's right edge and Nova's tag" });
-  assert.equal(edge.text, "Juno in outro");
+  assert.equal(edge.text, "Agent 2 in outro");
   assert.ok(edge.place.top >= edge.stage.top && edge.place.bottom <= edge.stage.bottom, "inside the stage");
   // Two colors, each with text that reads at 4.5:1 or more (WCAG AA).
   const nova = await browser.evaluate(contrastOf(tagOf(NOVA.id)));
@@ -281,7 +281,7 @@ test("two agents get two names and colors that read, and one in another scene sh
   assert.equal(juno.background, JUNO.color);
   assert.ok(nova.ratio >= 4.5, `Nova's tag reads at ${nova.ratio.toFixed(2)}:1`);
   assert.ok(juno.ratio >= 4.5, `Juno's tag reads at ${juno.ratio.toFixed(2)}:1`);
-  assert.match(await browser.evaluate(`${tagOf(NOVA.id)}.innerText`), /^Nova: /);
+  assert.match(await browser.evaluate(`${tagOf(NOVA.id)}.innerText`), /^Agent 1: /);
   await browser.shot("presence-two-agents");
 });
 
@@ -369,6 +369,8 @@ test("six agents' quick calls draw one tag each, animate only transform and opac
   for (let index = 1; index < changes.length; index += 1) {
     assert.ok(changes[index].at - changes[index - 1].at >= 3900, `${Math.round(changes[index].at - changes[index - 1].at)} ms between lines`);
   }
-  assert.ok(changes.at(-1).text.startsWith(newest.agent.name), `the last line (${changes.at(-1).text}) is about ${newest.agent.name}, the newest call`);
+  // The page calls the agents by number, in the order they joined (a4 is "Agent 4").
+  const shown = `Agent ${newest.agent.id.slice(1)}`;
+  assert.ok(changes.at(-1).text.startsWith(shown), `the last line (${changes.at(-1).text}) is about ${shown}, the newest call`);
   console.log(`six agents: tags ${probe.tags.join(" | ")}; marker properties ${probe.properties.join(", ")}; other animations ${probe.others.join(", ") || "none"}; ${burst} ms of calls; lines ${changes.map((entry) => entry.text).join(" | ")}`);
 });

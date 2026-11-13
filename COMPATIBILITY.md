@@ -2025,6 +2025,9 @@ edit by hand. Dark and light, no purple. Main tests: `backend/dashboard.test.mjs
   agent lanes. Evidence: `frontend/dashboardAgentView.test.js`, `frontend/dashboardLanes.test.js`,
   `frontend/dashboardTimeline.test.js`, `frontend/dashboardLook.test.js`, browser tests. Gaps: voice and music
   lanes recognized by layer name; cramped around 760 px; 390 px checked in browser tests only.
+- **Agent labels**: Verified. The dashboard shows "Agent" (or "Agent 1", "Agent 2" in the order they joined) in
+  place of the agents' own names; agents keep their names in the tools. Evidence: `frontend/dashboardAgentView.test.js`,
+  `tests/dashboard-presence-browser.test.mjs`. Gaps: text an agent wrote and server error text keep the name.
 - **Notes on the frame**: Verified. A click opens a note bubble on the outermost group; open notes
   show as numbered dots and a `you` lane. Evidence: `frontend/dashboardNotes.test.js`, browser tests.
   Gaps: the dot sits mid-area (click point not saved); on a phone notes are written in the notes view.

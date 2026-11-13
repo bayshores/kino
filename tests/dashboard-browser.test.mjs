@@ -2652,9 +2652,10 @@ test("light rays play at a lower resolution on a large 2× stage; no older or un
     const stage = await browser.evaluate(stageBox);
     const room = await browser.evaluate(`(() => { const box = ${q(".stage-wrap")}.getBoundingClientRect(); return { top: box.top, height: box.height }; })()`);
     assert.ok(stage.width * 2 * stage.height * 2 > 2 * 1280 * 720, `the stage is ${stage.width}×${stage.height} CSS pixels at 2×`);
-    // The stage in a window 100 pixels shorter, for the resize while playing.
-    await size(800);
-    const shorter = await browser.waitFor(`(() => { const box = ${stageBox}; return box.viewportHeight === 800 && box.height < ${stage.height - 20} ? box : null; })()`, { what: "the smaller stage in the shorter window" });
+    // The stage in a window 180 pixels shorter, for the resize while playing (at 800 high the
+    // whole 1074-wide stage still fits over the agent's line and the playback row).
+    await size(720);
+    const shorter = await browser.waitFor(`(() => { const box = ${stageBox}; return box.viewportHeight === 720 && box.height < ${stage.height - 20} ? box : null; })()`, { what: "the smaller stage in the shorter window" });
     assert.ok(shorter.height < stage.height - 20, `the stage is smaller in the shorter window: ${shorter.width}×${shorter.height}`);
     // The stage sits in the middle of its room. When the window grows, it can paint one frame
     // before the stage has its new size: the shorter stage, in the middle of the taller room.
@@ -2754,7 +2755,7 @@ test("light rays play at a lower resolution on a large 2× stage; no older or un
     }
     const softAgain = await edgeUntil((edge) => edge.mean >= 2);
     for (let step = 0; step < 6; step++) {
-      await size(step % 2 ? 900 : 800);
+      await size(step % 2 ? 900 : 720);
       await sleep(120);
     }
     await size(900);

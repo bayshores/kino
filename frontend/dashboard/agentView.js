@@ -474,7 +474,7 @@ export function voiceLine(data, agent, now = Date.now(), nameOf = () => null) {
   // that nothing is lost, and how to go on. The line before stays its last call.
   if (!(data?.agents ?? []).some((entry) => entry.id === agent.id) && !last.current) {
     const who = !agent.name || agent.name === ONE_AGENT ? "Your agent" : agent.name;
-    return { state: "away", verb: "plug", text: `${who} is not working on this right now.`, facts: [agent.lastAt ? `Last active ${agoWords(agent.lastAt, now)}` : "", "Everything is saved"].filter(Boolean), before: before(false) };
+    return { state: "away", verb: "plug", text: `${agent.lastAt ? `${who} last worked on this ${agoWords(agent.lastAt, now)}.` : `${who} is not working on this right now.`} Everything is saved.`, facts: [], before: before(false) };
   }
   const working = isWorking(data, agent, now);
   return { state: working ? "working" : "idle", verb: last.verb, kind: last.kind, text: line(last, Boolean(last.current)), facts: [], before: before(true) };

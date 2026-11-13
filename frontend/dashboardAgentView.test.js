@@ -224,10 +224,10 @@ test("the line under the frame: the call as a sentence, the line before it, and 
   assert.equal(voiceLine({ ...alone, hold: { on: true } }, alone.agents[0], NOW).text, "On hold. The agent waits for you.");
   // Its session ended: that nothing is lost, and how to go on.
   const away = voiceLine({ ...alone, agents: [] }, alone.agents[0], NOW);
-  assert.deepEqual([away.state, away.text, away.facts.slice(-1)], ["away", "Your agent is not working on this right now.", ["Everything is saved"]]);
+  assert.deepEqual([away.state, away.text, away.facts], ["away", "Your agent last worked on this just now. Everything is saved.", []]);
   const two = withAgentLabels(data());
   // Juno was seen first (its last call at 09:00), so Nova is Agent 2.
-  assert.equal(voiceLine({ ...two, agents: [] }, two.agents[0], NOW).text, "Agent 2 is not working on this right now.");
+  assert.equal(voiceLine({ ...two, agents: [] }, two.agents[0], NOW).text, "Agent 2 last worked on this just now. Everything is saved.");
   // A render that ended under a minute ago is said to be ready, with its facts.
   const ready = voiceLine(data({ renders: [{ id: "R2", projectId: "walk", status: "done", quality: "final", format: "mp4", width: 1920, height: 1080, duration: 14, size: 12_400_000, finishedAt: new Date(NOW - 5_000).toISOString() }] }), nova, NOW);
   assert.deepEqual([ready.state, ready.text, ready.facts], ["ready", "The final is ready.", ["14 s, 1920 by 1080", "12 MB, MP4"]]);

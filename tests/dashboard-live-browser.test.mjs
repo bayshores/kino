@@ -109,7 +109,7 @@ test("a log row reads its time, the agent's name in its color and the call's lab
   const rows = await openNewestTurn(`(rows) => rows.some((row) => row.label.startsWith("look at 1.0–2.0 s")) && rows.some((row) => row.label.startsWith("look at 0.5 s"))`, "both looks in the log");
   // The server's label (design F2), with the scene it looked at.
   const sheet = rows.find((row) => row.label.startsWith("look at 1.0–2.0 s"));
-  assert.deepEqual([sheet.agent, sheet.color], ["Nova", rgb("#42c0b6")], JSON.stringify(rows));
+  assert.deepEqual([sheet.agent, sheet.color], ["Agent 1", rgb("#42c0b6")], JSON.stringify(rows));
   assert.equal(sheet.inline, rgb("#42c0b6"), "the color is the agent's own (from the server), not the page's teal");
   assert.match(sheet.time, /^\d\d:\d\d$/, "the time of day");
   // The session pane: "(bot) Nova · claude-code  working", and Juno in its own color. The bot is
@@ -120,8 +120,8 @@ test("a log row reads its time, the agent's name in its color and the call's lab
     const rows = [...document.querySelectorAll("#section-agents .row")].map((row) => ({ text: row.innerText.replace(/\\s+/g, " ").trim(), color: getComputedStyle(row.querySelector(".agent-name")).color, bot: row.querySelector("svg.bot circle")?.getAttribute("fill"), mood: row.querySelector("svg.bot")?.dataset.mood, hidden: row.querySelector("svg.bot")?.getAttribute("aria-hidden") }));
     return rows.length >= 2 ? rows : null;
   })()`, { what: "the agents in the session pane" });
-  assert.ok(agents.some((row) => /^Nova claude-code .*Working$/.test(row.text) && row.color === rgb("#42c0b6") && row.bot === "#42c0b6" && row.mood === "look"), JSON.stringify(agents));
-  assert.ok(agents.some((row) => /^Juno claude-code .*(Working|Idle)$/.test(row.text) && row.color === rgb("#6cb6ff") && row.bot === "#6cb6ff"), JSON.stringify(agents));
+  assert.ok(agents.some((row) => /^Agent 1 claude-code .*Working$/.test(row.text) && row.color === rgb("#42c0b6") && row.bot === "#42c0b6" && row.mood === "look"), JSON.stringify(agents));
+  assert.ok(agents.some((row) => /^Agent 2 claude-code .*(Working|Idle)$/.test(row.text) && row.color === rgb("#6cb6ff") && row.bot === "#6cb6ff"), JSON.stringify(agents));
   assert.ok(agents.every((row) => row.hidden === "true"), "the bots are decoration: the name is the text");
   await browser.shot("live-log");
 });
@@ -137,9 +137,9 @@ test("two agents at work: the top line names both, each in its color; one keeps 
     const chips = [...document.querySelectorAll(".topline .agent-chip .chip-name")];
     return chips.length === 2 ? chips.map((name) => ({ name: name.innerText, color: getComputedStyle(name.closest(".agent-chip").querySelector(".chip-dot")).backgroundColor })) : null;
   })()`, { what: "2 agents on the top line" });
-  assert.deepEqual(names.map((entry) => entry.name).sort(), ["Juno", "Nova"]);
-  assert.equal(names.find((entry) => entry.name === "Juno").color, rgb("#6cb6ff"));
-  assert.equal(names.find((entry) => entry.name === "Nova").color, rgb("#42c0b6"));
+  assert.deepEqual(names.map((entry) => entry.name).sort(), ["Agent 1", "Agent 2"]);
+  assert.equal(names.find((entry) => entry.name === "Agent 2").color, rgb("#6cb6ff"));
+  assert.equal(names.find((entry) => entry.name === "Agent 1").color, rgb("#42c0b6"));
   await browser.shot("live-two-agents");
 
   // Review round 2: an agent whose last call failed says so in words, and the breathing dot
@@ -150,10 +150,10 @@ test("two agents at work: the top line names both, each in its color; one keeps 
   const broken = { ops: [{ op: "no_such_op" }] };
   assert.equal((await juno("edit", { project: "side", ...broken })).isError, true);
   await nova("status", { project: "live" });
-  await browser.waitFor(failed("Juno"), { what: "Juno failed on the top line" });
+  await browser.waitFor(failed("Agent 2"), { what: "Juno failed on the top line" });
   assert.ok(await browser.evaluate(working), "Nova still works: its dot breathes");
   assert.equal((await nova("edit", { project: "live", ...broken })).isError, true);
-  await browser.waitFor(`${failed("Nova")} && ${failed("Juno")}`, { what: "both failed on the top line" });
+  await browser.waitFor(`${failed("Agent 1")} && ${failed("Agent 2")}`, { what: "both failed on the top line" });
   assert.equal(await browser.evaluate(working), false, "no agent works: no working chip");
   await browser.shot("live-two-agents-failed");
   await nova("status", { project: "live" });
@@ -330,7 +330,7 @@ test("quiet on: 31 s after the agent's last call, with the window in the backgro
     const notes = await browser.waitFor(`window.__notes.length ? window.__notes : null`, { timeout: 8000, what: "the quiet notification" });
     assert.equal(notes.length, 1, JSON.stringify(notes));
     assert.deepEqual({ title: notes[0].title, silent: notes[0].silent }, { title: "kino", silent: true });
-    assert.match(notes[0].body, /^Nova went quiet: look at 1\.5 s/, "the agent and the label of its last call");
+    assert.match(notes[0].body, /^Agent 1 went quiet: look at 1\.5 s/, "the agent and the label of its last call");
     // Once per quiet spell: the next checks tell nothing new.
     await sleep(5600);
     assert.equal(await browser.evaluate(`window.__notes.length`), 1, "told once");
