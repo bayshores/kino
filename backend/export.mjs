@@ -2095,7 +2095,8 @@ function evaluated(layer, time, unitIndex = 0, unitCount = 1, unit = "layer", fo
   if (result.visible === false) result.opacity = 0;
   return {
     ...layer,
-    ...(result?.values ?? result?.properties ?? result ?? {}),
+    // evaluateLayer returns the whole layer; a script layer's `values` are its inputs.
+    ...result,
   };
 }
 

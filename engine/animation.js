@@ -1042,6 +1042,8 @@ function applyOperations(target, layer, ordered, time, options, {
               ? interpolateShadowChannels(target.shadow, from[key], to[key], 0, animation.shadowChannels)
               : key === "axes"
                 ? { ...target.axes, ...interpolateAxes(from.axes, to.axes, 0, target) }
+              : key === "values"
+                ? { ...target.values, ...cloneData(from.values, "animation.from.values") }
               : cloneData(from[key], `animation.from.${key}`);
         }
         if (Object.hasOwn(from, "effectPreset") && (!onlyKeys || onlyKeys.includes("effectPreset")))
@@ -1056,7 +1058,9 @@ function applyOperations(target, layer, ordered, time, options, {
         // fill "both": the layer waits at From instead of jumping there
         // at the start (a panel sliding in from off screen sat over the frame until its move).
         for (const key of keys)
-          if (Object.hasOwn(from, key) && !claimed.has(key)) target[key] = cloneData(from[key], `animation.from.${key}`);
+          if (Object.hasOwn(from, key) && !claimed.has(key)) target[key] = key === "values"
+            ? { ...target.values, ...cloneData(from.values, "animation.from.values") }
+            : cloneData(from[key], `animation.from.${key}`);
         reportTransform();
       }
       for (const key of keys) claimed.add(key);
@@ -1110,6 +1114,9 @@ function applyOperations(target, layer, ordered, time, options, {
             : key === "axes"
               // Axes the animation does not name keep the layer's own value (wdth stays while wght moves).
               ? { ...target.axes, ...interpolateAxes(fromValue, toValue, eased, target) }
+            // A script layer's inputs the animation does not name keep their own value.
+            : key === "values"
+              ? { ...target.values, ...interpolateValue(fromValue, toValue, eased) }
             : key === "volume" && !step && isPowerFade(animation, fromValue, toValue)
               ? interpolateValue(fromValue, toValue, equalPowerProgress(fromValue, toValue, progress))
             : interpolateValue(fromValue, toValue, eased);
