@@ -816,10 +816,11 @@
 /* While a render waits for you: the range the preview shows, outlined in orange. */
 .tl-need { position: absolute; border: 1px solid var(--accent); pointer-events: none; }
 .tl-need-words { color: var(--accent); }
-/* The time over the playhead on the ruler, in a small orange box. */
+/* The time over the playhead on the ruler, in a small orange box. The ruler's color reaches a
+   little past both of its sides, so a time label under the box does not stick out from behind it. */
 .playhead-time {
   position: absolute; top: 7px; left: 50%; translate: calc(var(--at, 0.5) * -100%) 0; padding: 0 0.6ch; background: var(--accent); color: var(--bg0);
-  font-size: var(--small); line-height: 14px; font-weight: 700; white-space: nowrap;
+  font-size: var(--small); line-height: 14px; font-weight: 700; white-space: nowrap; box-shadow: -1.6ch 0 0 var(--bg0), 1.6ch 0 0 var(--bg0);
 }
 
 /* ---- [2] the agent pane: a box in the agent's color, its views behind one row of tabs ------ */
