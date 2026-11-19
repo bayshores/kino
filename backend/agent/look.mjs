@@ -23,6 +23,7 @@ import { shownTextAt } from "../../engine/textChangeDraw.js";
 import { resizeTextLayer } from "../../engine/textLayout.js";
 import { missingDocumentFonts } from "../../engine/fontRecovery.js";
 import { frameRateFraction } from "../../engine/frameRate.js";
+import { checkPictures } from "../check-pictures.mjs";
 import { exportScene, renderStills } from "../export.mjs";
 import { sceneShutterOptions, shutterFps } from "../../engine/previewBlur.js";
 import { PREVIEW_FPS, PREVIEW_QUALITY, previewSize } from "../preview-segments.mjs";
@@ -578,7 +579,7 @@ export function createLook({ cache, outDirectory, mediaRoot, renderSettings }) {
     const cached = await cache.get(key);
     if (cached) return { key, png: cached, cached: true };
     // Look shows the motion blur a final render has (previewBlur.js), drawn cheaply.
-    const output = await exportScene(prepared.scene, options, { mediaRoot, fonts: prepared.fonts, render, previewBlur: true, signal });
+    const output = await exportScene(prepared.scene, options, { mediaRoot, fonts: prepared.fonts, render, previewBlur: true, signal, checkCache: checkPictures });
     const failed = (output.warnings ?? []).filter((warning) => warning.code === "script-layer-error").map((warning) => warning.message);
     // A frame whose script layer failed is drawn without it and never kept: the next look tries again.
     if (failed.length) noteScriptProblems(failed);

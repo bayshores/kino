@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { createDocument, createLayer, createScene, parseDocument } from "../engine/model.js";
 import { createComponentInstance, expandComponents } from "../engine/linkedComponents.js";
 import { exportFrameTimes } from "../engine/exportOptions.js";
-import { exportScene, gridSamplesKept, renderSceneFrames, selectSamples } from "./export.mjs";
+import { exportScene, gridSamplesKept, renderSceneFrames, renderStills, selectSamples } from "./export.mjs";
 import { createCheckPictures } from "./check-pictures.mjs";
 import { ffmpeg, makeVideo, readImage, readVideoFrames, skipWithoutMediaTools } from "./media.test.support.mjs";
 
@@ -286,6 +286,16 @@ test("a check render keeps the video pictures it drew, so checking the same timi
   const again = await renderSceneFrames(scene, times, { mediaRoot, width: SIZE, checkCache });
   assert.equal(await extractionRuns(), 1, "the second check reads the kept pictures");
   assert.deepEqual(again.map((frame) => [...frame.pixels]), first.map((frame) => [...frame.pixels]));
+  // A look's stills keep theirs the same way, unless they are more than one layer may keep.
+  const look = await renderStills(scene, [1.7, 2.9], { mediaRoot, width: SIZE, checkCache });
+  assert.equal(await extractionRuns(), 2);
+  const lookAgain = await renderStills(scene, [1.7, 2.9], { mediaRoot, width: SIZE, checkCache });
+  assert.equal(await extractionRuns(), 2, "the second look reads the kept pictures");
+  assert.deepEqual(lookAgain.map((still) => still.buffer), look.map((still) => still.buffer));
+  const small = createCheckPictures({ maxEntryBytes: 1 });
+  await renderStills(scene, [1.7], { mediaRoot, width: SIZE, checkCache: small });
+  await renderStills(scene, [1.7], { mediaRoot, width: SIZE, checkCache: small });
+  assert.equal(await extractionRuns(), 4, "pictures over the limit are extracted again");
 });
 
 test("a sparse grid keeps only the samples its times show, and the stream ends after the last", () => {

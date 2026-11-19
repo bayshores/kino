@@ -2296,6 +2296,10 @@ sessions and optional display names; sharing uses revocable view, comment and ed
   uncompressed PNG and Resvg loads each from its file, not from base64 inside the frame's SVG
   (`backend/chromium-media-links.test.mjs`, `backend/render-pool.test.mjs`); the decoded frames
   are the same. 2 s of a 1080p clip pushing in: 15.6 to 30 frames a second.
+- **Footage call cost**: a look (sheet, strip or single frame) keeps the video pictures it drew, as
+  check does, so the next one with the same clip timing runs no FFmpeg
+  (`backend/video-frame-grid.test.mjs`). After an edit that leaves a 1080p clip alone: look sheet
+  444 to 112 ms, look frame 290 to 32 ms, check 300 to 65 ms.
 - **Disk limits**: answered look pictures keep to 512 MB, oldest deleted first
   (`backend/render-look-cache.test.mjs`); an event log over 4,000 lines is cut to its newest 2,000
   (`backend/agent-events.test.mjs`). `npm run desktop` builds only when a build input changed.

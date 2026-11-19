@@ -545,6 +545,8 @@ function videoStretches(sortedTimes) {
  * export would.
  * Returns { frameFor(sourceTime) -> PNG path }, or null when the layer is never visible.
  */
+const UNCOMPRESSED_FROM_PIXELS = 640 * 360;
+
 async function extractVideoFrames(layer, videoPath, { folder, fps, sceneTimes, design = false, width, height, decoderArgs, signal, warnings, limits = VIDEO_LIMITS, flowCacheDir, shared = {}, allNeeded, checkCache = null, clocks = [] }) {
   const needed = videoSourceTimes(layer, sceneTimes, design, clocks);
   if (!needed.length) return null;
@@ -568,6 +570,11 @@ async function extractVideoFrames(layer, videoPath, { folder, fps, sceneTimes, d
   const clampToEnd = (time) => Math.min(time, end);
   const filters = [pictureScale(width, height, probe)];
   const ffmpeg = ffmpegCommand();
+  // Large pictures are written as PNG without compression or row filter (the same pixels): FFmpeg
+  // writes them faster and Resvg reads them faster (55 to 34 ms for a 1080p picture), for about
+  // twice the temporary disk. Small ones (check and look sheets, kept in memory between calls,
+  // check-pictures.mjs) stay compressed.
+  const uncompressed = width * height >= UNCOMPRESSED_FROM_PIXELS ? ["-compression_level", "0", "-pred", "none"] : [];
 
   // One FFmpeg run samples `count` pictures from `first` on, one per 1/fps seconds, and writes the
   // ones a needed time can show (all of them for a playing export) as `${prefix}000000.png` and up.
@@ -584,7 +591,7 @@ async function extractVideoFrames(layer, videoPath, { folder, fps, sceneTimes, d
       count: keep ? keep.length : count,
       decoderArgs,
       filters: keep ? [selectSamples(keep), ...filters] : filters,
-      outputArgs: ["-an", "-sn", "-dn", "-compression_level", "0", "-pred", "none", "-start_number", "0"],
+      outputArgs: ["-an", "-sn", "-dn", ...uncompressed, "-start_number", "0"],
     }), signal);
     const pattern = new RegExp(`^${prefix}\\d{6}\\.png$`);
     const written = (await readdir(folder)).filter((name) => pattern.test(name)).length;
@@ -672,14 +679,19 @@ async function extractVideoFrames(layer, videoPath, { folder, fps, sceneTimes, d
     const main = mains.findLast((grid) => grid.first <= sample + MEDIA_SAMPLE_TOLERANCE) ?? mains[0];
     return pictures.get(sampleKey(sample)) ?? gridPathFor(sample) ?? main.path(videoFrameIndex(sample, main.first, fps, main.count));
   };
-  // A check render keeps the picture each of its times draws, for the next check render.
+  // A check or look render keeps the picture each of its times draws, for the next one, unless
+  // they are more than the cache keeps for one layer (reading stops there).
   if (cacheKey) {
     const kept = new Map();
+    let bytes = 0;
     for (const item of needed) {
       const key = sampleKey(clampToEnd(item.time));
-      if (!kept.has(key)) kept.set(key, await readFile(frameFor(item.time)));
+      if (kept.has(key)) continue;
+      kept.set(key, await readFile(frameFor(item.time)));
+      bytes += kept.get(key).byteLength;
+      if (bytes > (checkCache.maxEntryBytes ?? Infinity)) break;
     }
-    checkCache.set(cacheKey, end, kept);
+    if (bytes <= (checkCache.maxEntryBytes ?? Infinity)) checkCache.set(cacheKey, end, kept);
   }
   return { frameFor };
 }
@@ -3422,7 +3434,7 @@ export async function renderStills(scene, times, context = {}) {
 
 // `shutter` ({shutterAngle, maxMotionSamples}, previewBlur.js sceneShutterOptions) draws the real
 // shutter in place of the preview smear.
-async function renderStillsNow(given, times, { width, height, mediaRoot, fonts: providedFonts, render, signal, previewBlur = false, shutter = {} } = {}) {
+async function renderStillsNow(given, times, { width, height, mediaRoot, fonts: providedFonts, render, signal, previewBlur = false, shutter = {}, checkCache = checkPictures } = {}) {
   // Look draws a morph cut as the live preview does: a dissolve, without the flow (morphCut.js).
   const scene = morphDissolveScene(given, speechPieces);
   checkScene(scene);
@@ -3439,7 +3451,7 @@ async function renderStillsNow(given, times, { width, height, mediaRoot, fonts: 
   try {
     starting = startCheckRasterizer(scene, directory, signal, render);
     const media = await prepareMedia(scene, options, mediaRoot, {
-      directory, format: "png", fps, frameTimes: times, samples: times, dimensions, signal, warnings: [], videoLimits: VIDEO_LIMITS, morph: false,
+      directory, format: "png", fps, frameTimes: times, samples: times, dimensions, signal, warnings: [], videoLimits: VIDEO_LIMITS, morph: false, checkCache,
     });
     rasterizer = await starting;
     const stills = [];
@@ -3533,7 +3545,7 @@ export async function exportScene(scene, options = {}, context = {}) {
 async function exportSceneNow(
   scene,
   options = {},
-  { onProgress, signal, mediaRoot, fonts: providedFonts, outputPath, sequenceDirectory, gifSlots, videoLimits, flowCacheDir, rasterWorkers, render, frameRange, silent = false, previewBlur = false } = {},
+  { onProgress, signal, mediaRoot, fonts: providedFonts, outputPath, sequenceDirectory, gifSlots, videoLimits, flowCacheDir, rasterWorkers, render, frameRange, silent = false, previewBlur = false, checkCache } = {},
 ) {
   checkScene(scene);
   // The machine settings from the dashboard ({ graphics, framesAtOnce, keepFreePercent }): which
@@ -3756,6 +3768,8 @@ async function exportSceneNow(
       flowCacheDir,
       windowFrames: windowed ? limits.windowFrames : 0,
       silent,
+      // A look's single frame keeps its video pictures for the next one (check-pictures.mjs).
+      ...(still && checkCache ? { checkCache } : {}),
     });
     if (media.videoPlans.length)
       pictureWindows = videoPictureWindows(media, { directory, frameTimes, windowFrames: limits.windowFrames, samplesFor, signal, limits, flowCacheDir });
