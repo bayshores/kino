@@ -138,6 +138,7 @@ Scripts run by hand, not by `npm test`:
 ```sh
 node scripts/desktop-shot.mjs --data <data folder> --out shot.png    # screenshot the desktop app (temporary profile)
 node scripts/playback-perf.mjs --data <data folder>                  # dashboard playback frame times
+node scripts/dashboard-perf.mjs --data <data folder>                 # the page's cost idle and per agent call
 node --import ./scripts/test-fonts.mjs tests/polish-sweep.mjs         # every recipe, look and format
 ```
 

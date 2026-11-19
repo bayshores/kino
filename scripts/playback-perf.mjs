@@ -34,7 +34,11 @@ let rec;
 try {
   const page = await app.firstWindow();
   const mute = (size) => app.evaluate(({ BrowserWindow }, size) => {
-    for (const w of BrowserWindow.getAllWindows()) { w.webContents.setAudioMuted(true); if (size) w.setContentSize(size.width, size.height); }
+    // The window is invisible, silent and takes no typing or clicks: it never shows on the person's screen.
+    for (const w of BrowserWindow.getAllWindows()) {
+      w.setFocusable(false); w.blur(); w.setOpacity(0); w.setIgnoreMouseEvents(true); w.webContents.setAudioMuted(true);
+      if (size) w.setContentSize(size.width, size.height);
+    }
   }, size);
   await mute({ width, height });
   await page.waitForSelector(".stage", { timeout: 60_000 });
@@ -55,7 +59,7 @@ try {
     let changed = false;
     new MutationObserver(() => { changed = true; }).observe(document.querySelector(".stage"), { subtree: true, childList: true, attributes: true, characterData: true });
     const loop = (now) => {
-      rec.frames.push([now, document.querySelector(".stage-timecode")?.textContent ?? "", changed]);
+      rec.frames.push([now, document.querySelector(".transport-time .play-time")?.firstChild?.textContent ?? "", changed]);
       changed = false;
       if (!rec.stop) requestAnimationFrame(loop);
     };
@@ -96,8 +100,8 @@ try {
 }
 if (args.json) await writeFile(args.json, JSON.stringify(rec));
 
-// The stage's timecode is minutes:seconds:frames at 30 fps.
-const seconds = (code) => { const [m, s, f] = code.split(" ")[0].split(":").map(Number); return m * 60 + s + f / 30; };
+// The time under the frame is minutes:seconds with hundredths ("00:01.20").
+const seconds = (code) => { const [m, s] = code.split(":").map(Number); return m * 60 + s; };
 const frames = rec.frames.filter(([at, code]) => at >= rec.started && code); // no timecode: playback over
 const sceneAt = (at) => { let found = frames[0]; for (const frame of frames) { if (frame[0] > at) break; found = frame; } return seconds(found[1]); };
 const rows = {};
