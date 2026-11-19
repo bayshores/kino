@@ -1,12 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Resvg } from "@resvg/resvg-js";
 import { createLayer, createScene } from "../engine/model.js";
 import { FontRegistry } from "../engine/fonts.js";
-import { createLook, RENDERER_VERSION, sceneKey } from "./agent/look.mjs";
+import { createLook, RENDERER_VERSION, sceneKey, trimOutPictures } from "./agent/look.mjs";
 
 const MEDIA_ID = "00000000-0000-4000-8000-000000000042.png";
 const FONT_SOURCE = "/api/fonts/look-cache-face.ttf";
@@ -149,4 +149,20 @@ test("a sheet draws its uncached tiles in one render, the same pixels frame draw
 
 test("agent look cache renderer version is bumped for asset-aware keys", () => {
   assert.equal(RENDERER_VERSION, "a6.2");
+});
+
+test("answered look pictures stay within their size limit: the oldest go, never one just written", async (t) => {
+  const out = await mkdtemp(path.join(tmpdir(), "kino-look-out-"));
+  t.after(() => rm(out, { recursive: true, force: true }));
+  const now = Date.now();
+  for (const [folder, name, minutesAgo] of [["a", "old.png", 60], ["b", "older.png", 90], ["a", "recent.png", 30], ["a", "new.png", 1]]) {
+    await mkdir(path.join(out, folder), { recursive: true });
+    await writeFile(path.join(out, folder, name), Buffer.alloc(1000));
+    const time = new Date(now - minutesAgo * 60_000);
+    await utimes(path.join(out, folder, name), time, time);
+  }
+  assert.equal(await trimOutPictures(out, { maxBytes: 2500, now }), 2);
+  assert.deepEqual([await readdir(path.join(out, "a")), await readdir(path.join(out, "b"))], [["new.png", "recent.png"], []]);
+  // Over the limit still, but what is left was written in the last ten minutes or fits.
+  assert.equal(await trimOutPictures(out, { maxBytes: 500, keepMs: 45 * 60_000, now }), 0);
 });

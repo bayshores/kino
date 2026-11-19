@@ -39,7 +39,7 @@ parentPort.on("message", async (request) => {
         !Array.isArray(samples) || samples.length > MAX_MOTION_SAMPLES - 1 || samples.some((sample) => typeof sample !== "string") ||
         Buffer.byteLength(request.svg, "utf8") + samples.reduce((bytes, sample) => bytes + Buffer.byteLength(sample, "utf8"), 0) > MAX_SVG_BYTES ||
         (request.raw !== true && request.raw !== false) || typeof dither !== "boolean" ||
-        (request.raw && (samples.length > 0 || dither))) {
+        (request.raw && (samples.length > 0 || dither)) || (request.blended !== undefined && request.blended !== true)) {
       throw new Error("The Resvg render request is invalid.");
     }
 
@@ -65,8 +65,11 @@ parentPort.on("message", async (request) => {
         }
         rendered = blend.finish({ dither });
       }
-      bytes = await encodeRenderPng(rendered.pixels, rendered.width, rendered.height);
       const rgba = new Uint8Array(rendered.pixels.buffer, rendered.pixels.byteOffset, rendered.pixels.byteLength);
+      // `blended` asks for the blended picture's straight RGBA pixels instead of a PNG file: a
+      // movie's frames go to FFmpeg as they are, and compressing a 1080p PNG costs several times
+      // what drawing it does.
+      bytes = request.blended ? rgba : await encodeRenderPng(rendered.pixels, rendered.width, rendered.height);
       reference = transferableBytes(frameReference(rgba, rendered.width, rendered.height));
     } else {
       rendered = new Resvg(await flat(request.svg), request.options ?? {}).render();
@@ -79,7 +82,7 @@ parentPort.on("message", async (request) => {
       id,
       width: rendered.width,
       height: rendered.height,
-      ...(request.raw ? { pixels: data } : { buffer: data }),
+      ...(request.raw || request.blended ? { pixels: data } : { buffer: data }),
       ...(reference ? { reference } : {}),
     }, transfer);
   } catch (error) {

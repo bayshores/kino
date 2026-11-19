@@ -15,7 +15,7 @@ import {
   videoFrameIndex,
 } from "../engine/playback.js";
 import { runExportProcess as runProcess, runExportStream } from "./export-process.mjs";
-import { defaultRenderPool, MAX_SVG_BYTES } from "./render-pool.mjs";
+import { defaultRenderPool, MAX_SVG_BYTES, RENDER_POOL_SIZE } from "./render-pool.mjs";
 import { renderFrameCache } from "./render-frame-cache.mjs";
 import { renderRange } from "./render-range.mjs";
 import { normalizeRenderQuality, motionSampleTimes, createSampleBlend, MAX_MOTION_SAMPLES } from "./render-quality.mjs";
@@ -1914,7 +1914,16 @@ function roundHalfEven(value) {
 // pixels Chromium's PNG files had: the same at every colour and alpha on a Mac. Opaque and
 // fully transparent pixels stay as they are. Changes the pixels in place and returns them.
 const ONE_255TH = Math.fround(1 / 255);
+const LITTLE_ENDIAN = new Uint8Array(new Uint32Array([1]).buffer)[0] === 1;
 function straightAlpha(pixels) {
+  // Most frames are opaque everywhere, and then there is nothing to undo: one pass over whole
+  // pixels (alpha is each 32-bit pixel's high byte) finds that out in a third of the time.
+  if (LITTLE_ENDIAN && pixels.byteOffset % 4 === 0) {
+    const whole = new Uint32Array(pixels.buffer, pixels.byteOffset, pixels.byteLength >>> 2);
+    let pixel = 0;
+    while (pixel < whole.length && whole[pixel] >= 0xff000000) pixel += 1;
+    if (pixel === whole.length) return pixels;
+  }
   for (let index = 0; index < pixels.length; index += 4) {
     const alpha = pixels[index + 3];
     if (alpha === 0 || alpha === 255) continue;
@@ -1939,8 +1948,8 @@ function frameMotionSamples(scene, time, options, dimensions, fonts) {
 // One output frame with motion blur (options.motionSamples moments of the open shutter, averaged)
 // and dither. The blur comes from the layers' movement: every sample shows the footage picture of
 // the frame's own time (mediaTime), so a clip never mixes two of its pictures.
-// `context.pixels` (Chromium only) answers straight RGBA pixels, {pixels, width, height}, instead
-// of a PNG file: exportScene sends a movie's frames to FFmpeg that way.
+// `context.pixels` answers straight RGBA pixels, {pixels, width, height}, instead of a PNG file:
+// exportScene sends a movie's frames to FFmpeg that way.
 async function renderQualityFrame(scene, time, media, fonts, dimensions, options, context) {
   // Real motion blur replaces the preview's.
   if (options.motionBlur && context.previewBlur) context = { ...context, previewBlur: false };
@@ -1960,19 +1969,20 @@ async function renderQualityFrame(scene, time, media, fonts, dimensions, options
   if (svgs.every(svg => svg === svgs[0])) svgs.length = 1;
   if (!context.rasterizer) {
     const rendererOptions = makeRendererOptions(scene, fonts, dimensions);
-    const key = renderFrameCache.key(JSON.stringify(svgs), { rendererOptions, quality: options, renderer: "resvg-quality", ...(context.draft ? { draft: true } : {}) });
+    const key = renderFrameCache.key(JSON.stringify(svgs), { rendererOptions, quality: options, renderer: "resvg-quality", ...(context.draft ? { draft: true } : {}), ...(context.pixels ? { pixels: true } : {}) });
     const cached = renderFrameCache.get(key);
     if (cached) return cached;
     let result;
     if (svgs.reduce((bytes, svg) => bytes + Buffer.byteLength(svg, "utf8"), 0) <= MAX_SVG_BYTES) {
       result = await defaultRenderPool.render(svgs[0], rendererOptions, {
-        samples: svgs.slice(1), dither: options.dither, signal: context.signal, draft: Boolean(context.draft),
+        samples: svgs.slice(1), dither: options.dither, signal: context.signal, draft: Boolean(context.draft), pixels: Boolean(context.pixels),
       });
     } else {
       // Too much SVG text for one worker request (large footage pictures in many samples).
       const blend = createSampleBlend(dimensions.width, dimensions.height);
       for (const svg of svgs) blend.add({ ...await defaultRenderPool.render(svg, rendererOptions, { raw: true, signal: context.signal, draft: Boolean(context.draft) }), premultiplied: true });
-      result = await blendedPng(blend.finish(options), dimensions);
+      const blended = blend.finish(options);
+      result = context.pixels ? { ...blended, reference: frameReference(blended.pixels, dimensions.width, dimensions.height) } : await blendedPng(blended, dimensions);
     }
     renderFrameCache.set(key, result);
     return result;
@@ -3773,10 +3783,12 @@ async function exportSceneNow(
     const references = [];
     const useFiles = Boolean(sequenceDirectory) || format === "png-sequence" ||
       (format === "gif" && !options.transparent && options.gifEncoder !== "ffmpeg");
-    // A scene Chromium draws goes to FFmpeg as raw RGBA pixels, not PNG files: compressing each
-    // PNG took most of a 1080p fog or light-leaks frame's time. PNG files stay where a PNG is the
-    // output (stills, PNG sequences, GIFs made by gifski).
-    const rawFrames = Boolean(rasterizer) && !useFiles;
+    // A movie's frames go to FFmpeg as raw RGBA pixels, not PNG files: compressing each PNG took
+    // most of a 1080p frame's time (about 30 ms of Resvg's 36, and most of a Chromium fog or
+    // light-leaks frame). PNG files stay where a PNG is the output (stills, PNG sequences, GIFs
+    // made by gifski). Resvg's frames go raw over an opaque background only: there every pixel is
+    // opaque, so its pixels are the ones its PNG held (see straightAlpha for the others).
+    const rawFrames = !useFiles && (Boolean(rasterizer) || backgroundIsOpaque(scene));
     let renderedBytes = 0;
     const frames = producerSignal => orderedFrames(frameTimes, async (time, index) => {
       // A windowed export draws each frame with its window's video pictures, and says when it is
@@ -3787,7 +3799,7 @@ async function exportSceneNow(
           { rasterizer, signal: producerSignal, pixels: rawFrames, label: `frame ${index + 1} of ${frameCount} at ${time.toFixed(3)} s`, previewBlur, draft });
       } finally { pictureWindows?.done(index); }
     // With video windows, never more frames at once than a window holds (at most two on disk).
-    }, producerSignal, Math.min(1 + (rasterizer?.workers ?? 1), pictureWindows ? Math.max(2, limits.windowFrames) : Infinity));
+    }, producerSignal, Math.min(rasterizer ? 1 + rasterizer.workers : RENDER_POOL_SIZE, pictureWindows ? Math.max(2, limits.windowFrames) : Infinity));
     if (useFiles) for await (const result of frames(signal)) {
       if (result.width !== dimensions.width || result.height !== dimensions.height)
         throw new Error("Renderer produced a frame with unexpected dimensions.");

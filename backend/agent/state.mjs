@@ -16,6 +16,8 @@ const MAX_NOTES = 500;
 const MAX_STOPS = 100;
 const MAX_BOARDS = 20;
 const MAX_EVENTS_KEPT_IN_MEMORY = 500;
+// An event log longer than this is cut to its newest half when it is first read.
+const MAX_EVENT_LINES = 4000;
 
 export function emptyAgentState() {
   return {
@@ -151,8 +153,17 @@ export function createAgentStateStore(dataRoot) {
       const removed = removals.get(projectId) ?? 0;
       let list;
       try {
-        const lines = (await readFile(path.join(directory, `${encodeURIComponent(projectId)}.events.jsonl`), "utf8")).trim().split("\n");
-        list = lines.filter(Boolean).slice(-MAX_EVENTS_KEPT_IN_MEMORY).map((line) => JSON.parse(line));
+        const file = path.join(directory, `${encodeURIComponent(projectId)}.events.jsonl`);
+        const lines = (await readFile(file, "utf8")).trim().split("\n").filter(Boolean);
+        // The log keeps its newest lines (AGENTS.md, Efficiency rules: nothing grows on disk
+        // without a limit). Only the newest MAX_EVENTS_KEPT_IN_MEMORY are ever read back; this
+        // runs before the process appends its first event to the file.
+        if (lines.length > MAX_EVENT_LINES) {
+          const temporary = `${file}.${randomUUID()}.tmp`;
+          await writeFile(temporary, `${lines.slice(-MAX_EVENT_LINES / 2).join("\n")}\n`, { mode: 0o600 });
+          await rename(temporary, file);
+        }
+        list = lines.slice(-MAX_EVENTS_KEPT_IN_MEMORY).map((line) => JSON.parse(line));
       } catch (error) {
         if (error.code !== "ENOENT") throw error;
         list = [];

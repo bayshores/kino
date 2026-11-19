@@ -2284,6 +2284,12 @@ sessions and optional display names; sharing uses revocable view, comment and ed
   their files are unchanged. With 30 projects, median ms before and after on one busy Mac: status
   333 to 15, inspect 88 to 5, check 353 to 43, edit 658 to 118. `backend/perf-budget.test.mjs` holds
   the operation counts (the same with 1 and 20 projects).
+- **Export cost** (`npm run perf`): a movie's Resvg frames go to FFmpeg as raw pixels, not PNG files
+  (opaque backgrounds; the decoded frames are the same). 4 s of 1080p: 59.8 to 104 frames a second
+  as a draft, 54.9 to 89.7 final. The Resvg pool runs 2 to 4 workers by cores and memory, kept 30 s.
+- **Disk limits**: answered look pictures keep to 512 MB, oldest deleted first
+  (`backend/render-look-cache.test.mjs`); an event log over 4,000 lines is cut to its newest 2,000
+  (`backend/agent-events.test.mjs`). `npm run desktop` builds only when a build input changed.
 - **Build order**: `skills/kino/SKILL.md` asks for a rough scene, then at most 3 sections
   (`backend/skill.test.mjs`). Not verified with a real agent.
 - **Golden frames**: 79 committed PNGs; a frame fails when over 0.1% of pixels change by more than 8

@@ -440,14 +440,15 @@ test("a final render whose encode shows every frame one frame late fails its aud
   await mkdir(mediaRoot);
   runFfmpeg(["-y", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", `testsrc2=size=${width}x${height}:rate=30:duration=${duration}`,
     "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", join(mediaRoot, "busy.mp4")]);
-  // A stand-in for FFmpeg: kino's encode (PNG frames on stdin, read as image2pipe) shows the
-  // first frame twice and so every frame one frame late; every other call, the audit's decode
-  // (which writes image2pipe) among them, runs the real FFmpeg unchanged.
+  // A stand-in for FFmpeg: kino's encode (raw frames on stdin, read as rawvideo; PNG frames, read
+  // as image2pipe, before that) shows the first frame twice and so every frame one frame late;
+  // every other call, the audit's decode (which writes image2pipe) among them, runs the real
+  // FFmpeg unchanged.
   const lateFfmpeg = join(directory, "late-ffmpeg.mjs");
   await writeFile(lateFfmpeg, `#!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 const args = process.argv.slice(2);
-if (args.slice(0, args.indexOf("-i")).includes("image2pipe")) args.splice(args.length - 1, 0, "-vf", "tpad=start_mode=clone:start=1");
+if (args.slice(0, args.indexOf("-i")).some((arg) => arg === "rawvideo" || arg === "image2pipe")) args.splice(args.length - 1, 0, "-vf", "tpad=start_mode=clone:start=1");
 const result = spawnSync(${JSON.stringify(FFMPEG)}, args, { stdio: "inherit" });
 process.exit(result.status ?? 1);
 `);

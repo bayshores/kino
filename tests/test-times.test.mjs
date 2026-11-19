@@ -8,6 +8,7 @@ import path from "node:path";
 import test from "node:test";
 import { ROOT, listTestFiles, parseShard, readTimes, splitFiles, writeTimes } from "../scripts/test-times.mjs";
 import { relatedTests } from "../scripts/related-tests.mjs";
+import { buildStamp } from "../scripts/build-if-changed.mjs";
 
 // Node marks the processes it runs tests in; a run started from inside one must not inherit that.
 function withoutTestContext() {
@@ -102,4 +103,19 @@ test("--changed picks the tests that are changed, named after or directly import
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("npm run desktop builds again only when a file the dashboard is built from changed", async () => {
+  const base = await mkdtemp(path.join(tmpdir(), "kino-build-stamp-"));
+  try {
+    await mkdir(path.join(base, "frontend", "dashboard"), { recursive: true });
+    await mkdir(path.join(base, "backend"));
+    await writeFile(path.join(base, "frontend", "dashboard", "panes.jsx"), "one");
+    await writeFile(path.join(base, "backend", "store.mjs"), "one");
+    const first = await buildStamp(base);
+    await writeFile(path.join(base, "backend", "store.mjs"), "changed: the server is not part of the build");
+    assert.equal(await buildStamp(base), first);
+    await writeFile(path.join(base, "frontend", "dashboard", "panes.jsx"), "changed");
+    assert.notEqual(await buildStamp(base), first);
+  } finally { await rm(base, { recursive: true, force: true }); }
 });

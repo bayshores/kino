@@ -1,5 +1,6 @@
 import { fork } from "node:child_process";
 import { EventEmitter } from "node:events";
+import { availableParallelism, totalmem } from "node:os";
 import { fileURLToPath } from "node:url";
 import { serialize } from "node:v8";
 import { MAX_MOTION_SAMPLES } from "./render-quality.mjs";
@@ -7,7 +8,9 @@ import { MAX_MOTION_SAMPLES } from "./render-quality.mjs";
 const DEFAULT_SIZE = 2;
 const DEFAULT_MAX_QUEUE = 16;
 const DEFAULT_MAX_BYTES = 128 * 1024 * 1024;
-const DEFAULT_IDLE_MS = 1000;
+// An idle worker stays this long: an agent's looks come seconds apart, and a worker started again
+// costs each of them 60 to 100 ms. Idle workers never keep the process open (unref).
+const DEFAULT_IDLE_MS = 30_000;
 const MAX_POOL_SIZE = 8;
 // The SVG text of one request, its shutter samples included (export.mjs draws larger frames one
 // sample at a time).
@@ -255,6 +258,7 @@ export function createRenderPool({
         options: task.options,
         raw: task.raw,
         dither: task.dither,
+        ...(task.blended ? { blended: true } : {}),
         ...(task.draft ? { draft: true } : {}),
       });
     } catch (error) {
@@ -296,14 +300,14 @@ export function createRenderPool({
       completeSlot(slot, task, new Error(message.error.slice(0, 500)));
       return;
     }
-    const pixels = task.raw ? message.pixels : message.buffer;
+    const pixels = task.raw || task.blended ? message.pixels : message.buffer;
     if (!Number.isSafeInteger(message.width) || message.width < 1 ||
         !Number.isSafeInteger(message.height) || message.height < 1 ||
         !(pixels instanceof ArrayBuffer)) {
       void retireSlot(slot, poolError("Resvg worker returned invalid image data.", "RENDER_WORKER_PROTOCOL"));
       return;
     }
-    const image = task.raw
+    const image = task.raw || task.blended
       ? { pixels: Buffer.from(pixels), width: message.width, height: message.height }
       : { buffer: Buffer.from(pixels), width: message.width, height: message.height };
     if (task.reference) {
@@ -389,7 +393,9 @@ export function createRenderPool({
 
   // Every frame draws each tilted layer's flat drawing once (flatten-tilts.mjs); `draft` (check,
   // look and draft render frames) caps that bitmap by the frame's size.
-  async function render(svg, resvgOptions = {}, { signal, raw = false, samples = [], dither = false, draft = false } = {}) {
+  // `raw` answers one drawing's premultiplied RGBA pixels. `pixels` (with samples or dither) answers
+  // the blended picture's straight RGBA pixels and its reference instead of a PNG file.
+  async function render(svg, resvgOptions = {}, { signal, raw = false, samples = [], dither = false, draft = false, pixels = false } = {}) {
     if (closed) throw poolError("Resvg render pool is closed.", "RENDER_POOL_CLOSED");
     validateSignal(signal);
     if (signal?.aborted) throw abortError(signal.reason);
@@ -411,6 +417,7 @@ export function createRenderPool({
         raw,
         dither,
         draft: draft === true,
+        blended: pixels === true && !raw && (input.samples.length > 0 || dither),
         reference: !raw && (input.samples.length > 0 || dither),
         bytes: input.bytes,
         signal,
@@ -489,4 +496,15 @@ export function waitingPool(pool, retryMs = 50) {
 }
 
 /** Shared lazy pool: no worker process starts until the first render request. */
-export const defaultRenderPool = waitingPool(createRenderPool());
+/**
+ * How many Resvg workers the shared pool may run: half the cores, one per 4 GB of memory, 2 to 4.
+ * Measured on 120 1080p frames: a frame with a large still costs a worker about 100 ms, and 4
+ * workers export it 1.5 times faster than 2; plain shapes and text gain nothing past 2, and
+ * nothing gained past 4 either way.
+ */
+export function renderPoolSize({ cpus = availableParallelism(), totalBytes = totalmem() } = {}) {
+  return Math.max(DEFAULT_SIZE, Math.min(4, Math.floor(cpus / 2), Math.floor(totalBytes / (4 * 1024 ** 3))));
+}
+
+export const RENDER_POOL_SIZE = renderPoolSize();
+export const defaultRenderPool = waitingPool(createRenderPool({ size: RENDER_POOL_SIZE }));

@@ -9,7 +9,7 @@ import test from "node:test";
 import { serialize } from "node:v8";
 import { Resvg } from "@resvg/resvg-js";
 import { createCanvas, loadImage } from "@napi-rs/canvas";
-import { createRenderPool, processWorkerFactory, waitingPool } from "./render-pool.mjs";
+import { createRenderPool, processWorkerFactory, renderPoolSize, waitingPool } from "./render-pool.mjs";
 import { frameReference } from "./render-output-audit.mjs";
 import { blendRenderSamples } from "./render-quality.mjs";
 import { encodeRenderPng } from "./render-png.mjs";
@@ -275,6 +275,14 @@ test("blends two raw samples and returns the matching canvas PNG and 32 by 18 re
   assert.ok(blended.pixels.some((value, offset) => offset % 4 === 3 && value === 0), "transparent pixels are retained");
   assert.ok(blended.pixels.some((value, offset) => offset % 4 === 3 && value > 0 && value < 255), "partial alpha is retained");
   assert.deepEqual(actual.reference, Buffer.from(frameReference(asUint8(blended.pixels), blended.width, blended.height)));
+  // `pixels` (a movie's frames) answers the same blended picture as it is, with no PNG made.
+  const direct = await pool.render(ALPHA_SVG, OPTIONS, { samples: [ALPHA_SECOND_SVG], pixels: true });
+  assert.equal(direct.buffer, undefined);
+  assert.deepEqual(direct.pixels, Buffer.from(asUint8(blended.pixels)));
+  assert.deepEqual(direct.reference, actual.reference);
+  // The shared pool's size: half the cores and one worker per 4 GB of memory, 2 to 4.
+  const GB = 1024 ** 3;
+  assert.deepEqual([[2, 8], [8, 8], [8, 16], [18, 48], [6, 32]].map(([cpus, gigabytes]) => renderPoolSize({ cpus, totalBytes: gigabytes * GB })), [2, 2, 4, 4, 3]);
 });
 
 test("blends many shutter samples one at a time in the worker, the same as blending them all at once", async (t) => {

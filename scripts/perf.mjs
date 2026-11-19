@@ -8,7 +8,8 @@
 // Calls: a real server on a temporary data folder holding 1, 10 and 30 projects of 60 animated
 // layers each; the median of 7 status, inspect, check and edit calls on one of them. A call's
 // time should not grow with the number of projects.
-// Export: a 4 s 1080p MP4 of 12 moving bars and a title, drawn by Resvg, in frames a second.
+// Export: a 4 s 1080p MP4 of 12 moving bars and a title, drawn by Resvg, in frames a second: the
+// median of 3 exports, each of a scene no export before it drew, after one untimed warm-up.
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { cpus, tmpdir } from "node:os";
 import path from "node:path";
@@ -73,30 +74,36 @@ async function measureCalls() {
   return results;
 }
 
-function exportScene4s() {
+// `title` differs per run, so no run is served frames another one drew (the render frame cache).
+function exportScene4s(title, duration = 4) {
   const layers = Array.from({ length: 12 }, (_, index) => createLayer("rectangle", {
     id: `bar-${index}`, name: `Moving bar ${index + 1}`, x: 120 + index * 137, y: 310, width: 86, height: 420, radius: 22,
     fill: index % 2 ? "#3CC8B4" : "#FF6B4A",
     animations: [{ id: `move-${index}`, name: "move", kind: "custom", start: 0, duration: 4, easing: "smooth",
       from: { y: 310 }, to: { y: 150 + (index % 4) * 90 } }],
   }));
-  layers.push(createLayer("text", { id: "title", name: "Title", text: "kino / render study", x: 120, y: 75, width: 1650, height: 120,
+  layers.push(createLayer("text", { id: "title", name: "Title", text: `kino / ${title}`, x: 120, y: 75, width: 1650, height: 120,
     fontFamily: "Inter", fontWeight: 600, fontSize: 86, fill: "#F0F0F0" }));
-  return createScene({ id: "perf-export", name: "perf export", width: 1920, height: 1080, duration: 4, background: "#101114", layers });
+  return createScene({ id: "perf-export", name: "perf export", width: 1920, height: 1080, duration, background: "#101114", layers });
 }
 
 async function measureExport() {
   const { exportScene } = await import("../backend/export.mjs");
   const { loadBundledFonts } = await import("../backend/fonts.mjs");
   const fonts = await loadBundledFonts();
-  const scene = exportScene4s();
   const directory = await mkdtemp(path.join(tmpdir(), "kino-perf-"));
   try {
+    // Not timed: the first export starts the drawing workers and asks FFmpeg which encoders it has.
+    await exportScene(exportScene4s("warm up", 0.5), { format: "mp4", fps: 30, width: 1920 }, { fonts, outputPath: path.join(directory, "warm.mp4") });
     const results = {};
     for (const [name, options] of [["draft", {}], ["final", { renderQuality: "final" }]]) {
-      const started = performance.now();
-      await exportScene(scene, { format: "mp4", fps: 30, width: 1920, ...options }, { fonts, outputPath: path.join(directory, `${name}.mp4`) });
-      const elapsed = performance.now() - started;
+      const times = [];
+      for (let run = 0; run < 3; run++) {
+        const started = performance.now();
+        await exportScene(exportScene4s(`${name} ${run}`), { format: "mp4", fps: 30, width: 1920, ...options }, { fonts, outputPath: path.join(directory, `${name}.mp4`) });
+        times.push(performance.now() - started);
+      }
+      const elapsed = median(times);
       results[name] = { seconds: round(elapsed / 1000), framesPerSecond: round(120 * 1000 / elapsed) };
     }
     return results;

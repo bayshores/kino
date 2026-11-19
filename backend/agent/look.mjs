@@ -81,6 +81,8 @@ export const reviewColumns = (width) => Math.max(1, Math.floor((REVIEW_PAGE_WIDT
 const REVIEW_NOTE_LINES = 3;
 const MEMORY_FRAMES = 160;
 const DISK_FRAMES = 4000;
+// The most bytes of answered look pictures kept on disk (trimOutPictures).
+const OUT_PICTURE_BYTES = 512 * 1024 * 1024;
 // A pixel counts as changed when a color channel moves more than 20% (the plan's 0.2 threshold);
 // a frame counts as changed when at least this many pixels do.
 const PIXEL_THRESHOLD = Math.round(0.2 * 255);
@@ -517,7 +519,40 @@ export function layerBounds(prepared, layer, time) {
   return { at, xs, ys, left: Math.max(0, box.left), top: Math.max(0, box.top), right: Math.min(scene.width, box.right), bottom: Math.min(scene.height, box.bottom) };
 }
 
+/**
+ * Keeps the pictures kino answered looks with (<agent>/out/<project>/*.png) within `maxBytes`
+ * (AGENTS.md, Efficiency rules: nothing grows on disk without a limit): the oldest go first, over
+ * all projects, and never one written in the last `keepMs` (an agent may still be reading it).
+ * A picture that went can be drawn again by the same look. Returns how many were deleted.
+ */
+export async function trimOutPictures(outDirectory, { maxBytes = OUT_PICTURE_BYTES, keepMs = 10 * 60 * 1000, now = Date.now() } = {}) {
+  let folders;
+  try { folders = await readdir(outDirectory); }
+  catch (error) { if (error.code === "ENOENT") return 0; throw error; }
+  const files = [];
+  for (const folder of folders) {
+    const names = await readdir(path.join(outDirectory, folder)).catch(() => []);
+    for (const name of names.filter((entry) => entry.endsWith(".png"))) {
+      const file = path.join(outDirectory, folder, name);
+      const info = await stat(file).catch(() => null);
+      if (info) files.push({ file, time: info.mtimeMs, size: info.size });
+    }
+  }
+  files.sort((a, b) => a.time - b.time);
+  let bytes = files.reduce((sum, entry) => sum + entry.size, 0);
+  let deleted = 0;
+  for (const entry of files) {
+    if (bytes <= maxBytes || now - entry.time < keepMs) break;
+    await rm(entry.file, { force: true });
+    bytes -= entry.size;
+    deleted += 1;
+  }
+  return deleted;
+}
+
 export function createLook({ cache, outDirectory, mediaRoot, renderSettings }) {
+  let saved = 0;
+  let trimming = null;
   // One frame at `width` pixels wide, from cache when possible. Returns { key, png }.
   // `height` too lets a frame be drawn larger than the scene (zoom draws small layers at 2×);
   // with only a width, export keeps the scene's own height as the limit.
@@ -592,6 +627,8 @@ export function createLook({ cache, outDirectory, mediaRoot, renderSettings }) {
     await mkdir(directory, { recursive: true, mode: 0o700 });
     const file = path.join(directory, `${mode}-${hash(buffer).slice(0, 12)}.png`);
     await writeFile(file, buffer, { mode: 0o600 });
+    // Every 50th picture (and the first), the oldest ones go, in the background.
+    if (saved++ % 50 === 0) trimming ??= trimOutPictures(outDirectory).catch(() => {}).finally(() => { trimming = null; });
     return file;
   }
 
