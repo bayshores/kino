@@ -2382,6 +2382,8 @@ test("covered_layer: stays quiet on a cut, a partial cover, a clear cover, a ble
   // Under footage at 80%, under a blended layer, and under an image with edges to spare.
   await silent("covered_layer", scene({ layers: [flash(), footage("a", { opacity: 0.8 })] }));
   await silent("covered_layer", scene({ layers: [flash(), footage("a", { blendMode: "screen" })] }));
+  // Under footage whose backdrop color is keyed out: the plate shows around the subject.
+  await silent("covered_layer", scene({ layers: [flash(), footage("a", { animations: [{ id: "key", kind: "effect", effect: "color-remover", start: 0, duration: 4, to: { targetColor: "#E00000", range: 0.28 } }] })] }));
   await silent("covered_layer", scene({ layers: [flash(), { type: "image", id: "pic", name: "pic", src: "/api/media/pic.png", x: 100, y: 100, width: 800, height: 600 }] }));
   // A full-frame png or alpha video over a logo or a card (grain, a frame, dust) may be clear: it hides nothing.
   const overlayPng = { type: "image", id: "grain", name: "grain", src: "/api/media/grain.png", ...FULL };

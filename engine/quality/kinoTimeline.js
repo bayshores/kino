@@ -326,6 +326,9 @@ export function kinoTimeline(document, sceneId, { fonts, fps, reuse = true } = {
     if (maskOf.has(layer.id)) clipIds.push(maskOf.get(layer.id));
     const fill = isFillEnabled(layer) ? layer.fill : null;
     const media = layer.type === "image" || layer.type === "video";
+    // A picture whose color is keyed out (color-remover) is clear where that color was: what is
+    // under it shows, so it covers nothing (a silhouette keyed off its backdrop over a plate).
+    const keyed = media && flattenAnimations(layer.animations, { enabledOnly: true }).some((animation) => animation.kind === "effect" && animation.effect === "color-remover");
     return {
       id: layer.id, name: layer.name ?? layer.id, kind: layer.type === "component" ? "group" : layer.type,
       role: layer.role ?? (layer.componentBackground ? "background" : null),
@@ -347,7 +350,8 @@ export function kinoTimeline(document, sceneId, { fonts, fps, reuse = true } = {
       letterSpacing: isTextLayer ? finite(layer.letterSpacing) : null, textCase: isTextLayer ? layer.textCase ?? "normal" : null,
       sceneBackground: layer.sceneBackground === true,
       fill, painted: media || (fill != null && fillAlpha(fill) > 0.05) || (layer.strokeWidth > 0 && layer.type !== "text"),
-      opaque: media || (fill != null && fillAlpha(fill, true) >= 0.5),
+      opaque: (media && !keyed) || (fill != null && fillAlpha(fill, true) >= 0.5),
+      ...(keyed ? { keyed: true } : {}),
       // The paint's clearest alpha: a scrim's fill alpha hides what is under it no more than its opacity would.
       ...(!media && fill != null ? { paintAlpha: fillAlpha(fill, true) } : {}),
       // An outline's paint and width (accent_budget counts an accent stroke).

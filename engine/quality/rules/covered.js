@@ -21,7 +21,8 @@ const OPAQUE_IMAGE = /\.(jpe?g|bmp)(\?|#|$)/i;
 // The shapes and footage that can hide what is under them: a solid rectangle, an opaque-format
 // video, or an opaque-format picture that fills the frame (a smaller one has edges to spare).
 function canCover(model, item) {
-  if (!item.painted || item.isMask || item.allowOverlap || (item.blendMode ?? "normal") !== "normal") return false;
+  // A clip with a color keyed out (color-remover) is clear where that color was: it hides nothing.
+  if (!item.painted || item.isMask || item.keyed || item.allowOverlap || (item.blendMode ?? "normal") !== "normal") return false;
   if (item.kind === "video") return OPAQUE_VIDEO.test(item.src ?? "");
   if (item.kind === "image") return OPAQUE_IMAGE.test(item.src ?? "") && coversFrame(model, item);
   return item.kind === "rectangle" && item.fill != null && (item.paintAlpha ?? 1) >= SOLID;
