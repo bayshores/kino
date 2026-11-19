@@ -19,7 +19,7 @@ import { documentFontReferences } from "../../engine/fontDocuments.js";
 import { fontGlyphReferences } from "../../engine/fontGlyphReferences.js";
 import { desktopServiceLine, openStream } from "./stream.js";
 import { tickWhileShown } from "./visibleClock.js";
-import { applyEvent, openTryOf, attention, backgroundCheckInput, briefRows, fromSnapshot, keyTarget, movedNeedWords, needKey, needsShift, needsYouRows, noteRows, otherStops, pendingApprovals, pointRange, quietToTell, recommendedOption, seenImages, stopAnswer, stopAnswered, stopChanges, stopRows, timelineRows, turnChips, turnRows, variantChoices, videoLayers, waitingStopOf, withRecord } from "./state.js";
+import { applyEvent, withBuffered, openTryOf, attention, backgroundCheckInput, briefRows, fromSnapshot, keyTarget, movedNeedWords, needKey, needsShift, needsYouRows, noteRows, otherStops, pendingApprovals, pointRange, quietToTell, recommendedOption, seenImages, stopAnswer, stopAnswered, stopChanges, stopRows, timelineRows, turnChips, turnRows, variantChoices, videoLayers, waitingStopOf, withRecord } from "./state.js";
 import { isTyping, keyAction } from "./keys.js";
 import { otherTheme, showTheme, startTheme, switchTheme } from "./theme.js";
 import { PageFoot, ToolIcon, Voice } from "./voice.jsx";
@@ -163,12 +163,8 @@ function useDashboardData() {
       if (loading.current !== ticket) return;
       position.current = { seq: value.seq, boot: value.boot };
       projectRef.current = value.projectId;
-      setData((previous) => {
-        // Events that arrived while the snapshot was on its way still count.
-        let next = fromSnapshot(value, previous);
-        for (const event of buffer.current) next = applyEvent(next, event);
-        return next;
-      });
+      // Events that arrived while the snapshot was on its way still count.
+      setData((previous) => withBuffered(fromSnapshot(value, previous), buffer.current));
       setError("");
     } catch (cause) {
       if (loading.current === ticket) setError(cause.message);

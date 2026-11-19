@@ -16,7 +16,7 @@ import {
   directedShots, directionChips, directionWords, footageBox, steppedLength, styleFrameView, withoutDirection,
 } from "./dashboard/boardRows.js";
 import { KEY_HELP, keyAction, parseCommand } from "./dashboard/keys.js";
-import { fromSnapshot, stopAnswer, stopRows } from "./dashboard/state.js";
+import { fromSnapshot, stopAnswer, stopRows, withBuffered } from "./dashboard/state.js";
 
 const press = (key, extra = {}) => ({ key, shiftKey: false, ctrlKey: false, metaKey: false, altKey: false, ...extra });
 const PARK = "/api/media/park.mp4";
@@ -259,6 +259,10 @@ test("an answered storyboard's stop line names the notes on shots", () => {
         answer: { via: "dashboard", read_as: "redo", words: "warmer", at, client: "dashboard", shots: [{ id: "S2", n: 2, words: "tighter" }, { id: "S4", n: 4, words: "later" }] } },
     ] } },
   });
+  // The agent's project: a read in "p2" that is already inside the snapshot's seq still names it.
+  const read = { seq: 1, type: "call", projectId: "p2", event: { by: "agent", verb: "status" } };
+  assert.equal(withBuffered({ ...data, projects: [{ id: "p1" }, { id: "p2" }] }, [read]).current, "p2");
+  assert.equal(withBuffered(data, [read]).current, "p1", "a project that is gone is not followed");
   const [row] = stopRows(data);
   assert.equal(row.kind, "board");
   assert.equal(row.text, 'C1 storyboard · redo on the dashboard: "warmer" · notes on shots 2 and 4 · 14:05');

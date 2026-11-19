@@ -140,6 +140,20 @@ function upsert(list, item, key = "id") {
   return next;
 }
 
+/**
+ * A fresh snapshot with the events that arrived while it was on its way. `current` is the project
+ * of the agent's last call. A snapshot only knows the last project an agent wrote in, and a call
+ * already inside the snapshot's seq is skipped by applyEvent, so a read in another project that
+ * landed before the snapshot was made would be lost: the last agent call of the events names it.
+ */
+export function withBuffered(state, events) {
+  let next = state;
+  for (const event of events) next = applyEvent(next, event);
+  const last = events.findLast((event) => event.type === "call" && event.projectId && event.event && event.event.by !== "you");
+  const known = last && next.projects.some((entry) => entry.id === last.projectId);
+  return known && last.projectId !== next.current ? { ...next, current: last.projectId } : next;
+}
+
 /** Applies one stream event. Returns the same state object when nothing changed. */
 export function applyEvent(state, event) {
   if (!state || !event || typeof event !== "object") return state;
