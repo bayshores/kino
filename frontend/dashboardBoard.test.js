@@ -336,12 +336,13 @@ test("try options: the round shown, the rounds and planned topics on the left, t
   const rows = needsYouRows({ projectId: "p1", agent: { tries }, approvals: [] });
   assert.deepEqual(rows.map((row) => [row.type, needKey(row)]), [["try", "try/p1/T2"]]);
   // A waiting round opens the sketch screen from the stage while follow is on, once; the stage comes back when it is answered.
-  const { followTry } = await import("./dashboard/tryRows.js");
+  const { followOpen } = await import("./dashboard/follow.js");
   const memory = { seen: null, opened: null };
-  const moves = (steps) => steps.map(([waiting, screen, follow = true]) => followTry(memory, { waiting, follow, screen }));
+  const moves = (steps) => steps.map(([waiting, screen, follow = true]) => followOpen(memory, { waiting, follow, screen }, "try"));
   assert.deepEqual(moves([["p1:T1", "main"], ["p1:T1", "try"], ["p1:T2", "try"], [null, "try"], [null, "main"]]), ["try", null, null, "main", null], "opens, stays for the next round, goes back");
   assert.deepEqual(moves([["p1:T3", "main"], ["p1:T3", "main"], [null, "main"]]), ["try", null, null], "left by hand: not opened again, no move when answered");
   assert.deepEqual(moves([["p1:T4", "main", false], [null, "main"], ["p1:T5", "settings"], [null, "try"]]), [null, null, null, null], "follow off or another screen: left alone");
+  assert.deepEqual([followOpen(memory, { waiting: "yt:1", follow: true, screen: "main" }, "reference"), followOpen(memory, { waiting: null, follow: true, screen: "reference" }, "reference")], ["reference", "main"], "a reference being read, the same way");
 });
 
 test("the library: a group, a kind or a search; what this video uses and on which shots; the note to the agent", () => {

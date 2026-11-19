@@ -500,3 +500,33 @@
 .screening.seen-open .filmstrip { min-width: 0; }
 .dash .screening.seen-open .seen-strip { display: flex; flex: 1 1 auto; min-width: 0; gap: 8px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
 .screening.seen-open .seen-strip > li { flex: none; width: 112px; animation: none; }
+
+/* ---- a reference in front (Dashboard.jsx, follow.js): the reference the agent reads has the
+   frame; the video is a small frame left of it, standing on the same line, and a click on it
+   brings it back. The same room is kept free right of the reference, so it stays in the middle.
+   The middle column is as wide as the reference's picture (--ref-w: the width left, or the
+   height left times 16:9), so the agent's line, the controls and the strip keep its two edges.
+   --ref-foot: the cut line and the caption under the picture. --chrome: everything above and
+   under the picture (the top line, the caption, the agent's line, the controls, the strip). ---- */
+.panes.screening.ref-front {
+  --back: clamp(150px, 12vw, 248px); --ref-foot: 70px; --chrome: 350px;
+  --ref-w: max(320px, min(100vw - 2 * var(--back) - 80px, (100vh - var(--chrome)) * 16 / 9));
+  grid-template-columns: [full-start] minmax(24px, 1fr) [back-start] var(--back) [back-end] 16px [center-start] var(--ref-w) [center-end] 16px var(--back) minmax(24px, 1fr) [full-end];
+}
+.panes.screening.ref-front.strip-open { --chrome: calc(256px + clamp(170px, 25vh, 320px)); }
+.ref-frame { grid-row: frame-start / frame-end; grid-column: center; min-width: 0; min-height: 0; container-type: size; display: flex; justify-content: center; align-items: flex-end; }
+.ref-fit { width: min(100cqw, (100cqh - var(--ref-foot)) * 16 / 9); animation: fade-in var(--panel) var(--ease-in) both; }
+.ref-caption { display: flex; align-items: center; gap: 14px; height: 52px; margin: 0; min-width: 0; }
+.ref-title { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 18px; font-weight: 700; letter-spacing: -0.01em; color: var(--fg0); }
+.ref-length { flex: none; font-family: var(--mono-ui); font-size: 12px; color: var(--fg1); font-variant-numeric: tabular-nums; }
+.ref-caption .insp-btn { flex: none; margin-left: auto; }
+.ref-front .stage-well { grid-column: back; align-self: end; height: calc(var(--back) / var(--stage-aspect, 1.7778)); margin-bottom: var(--ref-foot); }
+.ref-front .stage-toolbar, .ref-front .rendering { display: none; }
+.ref-back {
+  all: unset; box-sizing: border-box; grid-row: frame-start / frame-end; grid-column: back; align-self: end; z-index: 2;
+  display: flex; align-items: flex-end; height: calc(var(--back) / var(--stage-aspect, 1.7778) + var(--ref-foot)); cursor: pointer;
+}
+.ref-back span { height: 52px; line-height: 52px; font-size: 14px; color: var(--fg0); }
+.ref-back:hover span { text-decoration: underline; text-underline-offset: 4px; }
+.ref-back:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .ref-fit { animation: none; } }

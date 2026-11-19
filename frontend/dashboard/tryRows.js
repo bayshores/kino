@@ -20,23 +20,3 @@ export function roundList(tries, current) {
   }));
   return [...rounds, ...(tries?.later ?? []).map((topic, index) => ({ key: `later-${index}`, current: false, text: topic, mark: "○" }))];
 }
-
-/**
- * The screen a waiting round moves the app to, or null to stay. A round that starts waiting for a
- * pick opens the sketch screen ("try") from the stage ("main") while follow is on; the stage
- * comes back when the round that opened it is answered. A screen the person opened or left by
- * hand is left alone, and a round is acted on once. `memory` is {seen, opened}, kept by the
- * caller and changed here; `waiting` is the waiting round's key, or null.
- */
-export function followTry(memory, { waiting, follow, screen }) {
-  if (waiting === memory.seen) return null;
-  memory.seen = waiting;
-  if (waiting) {
-    if (follow && screen === "main") { memory.opened = waiting; return "try"; }
-    memory.opened = memory.opened && screen === "try" ? waiting : null;
-    return null;
-  }
-  const back = memory.opened && screen === "try" ? "main" : null;
-  memory.opened = null;
-  return back;
-}

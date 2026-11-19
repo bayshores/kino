@@ -138,6 +138,56 @@ function Head({ agent, title, sub, still, mood }) {
   );
 }
 
+/** Seconds of a reference being read: from its cuts so far, the live frame, else what its page says. */
+const readSeconds = (ref, live) => ref.partial?.seconds || live?.seconds || ref.duration || 0;
+
+/** The frame kino measures now with its arrows and the time, else the reference's small picture. */
+function ReadPicture({ ref_: ref, live }) {
+  return (
+    <div className="iv-stage">
+      {live?.image ? <img className="iv-picture" src={live.image} alt={`The frame kino is measuring, at ${clockWords(live.t)}`} />
+        : ref.thumb ? <img className="iv-picture dim" src={thumbUrl(ref.id, ref)} alt="" /> : <span className="iv-picture empty"><Shades seed={ref.id} /></span>}
+      {live ? <LiveMarks live={live} /> : null}
+      {live ? <span className="iv-time" aria-hidden="true">{clockWords(live.t)}</span> : null}
+    </div>
+  );
+}
+
+/** A reference's length as a line: how far the reading is, and a tick for every cut found so far. */
+function ReadLine({ ref_: ref, live }) {
+  const partial = ref.partial ?? null;
+  const seconds = readSeconds(ref, live);
+  const read = ref.phase === "reading motion and text" && live ? live.t / Math.max(1, seconds) : ref.phase === "keeping frame strips" ? 1 : 0;
+  return (
+    <div className="iv-line" aria-label={partial ? `${partial.cuts.length} cuts found in ${clockWords(seconds)}` : "cuts not found yet"} role="img">
+      <span className="iv-read" style={{ width: `${Math.min(1, read) * 100}%` }} />
+      {(partial?.cuts ?? []).map((time, index) => <span key={index} className={`iv-cut${partial.onBeat?.[index] ? " beat" : ""}`} style={{ left: `${(time / Math.max(1, seconds)) * 100}%` }} />)}
+      {read > 0 && read < 1 ? <span className="iv-head-line" style={{ left: `${read * 100}%` }} /> : null}
+    </div>
+  );
+}
+
+/**
+ * The reference being read, as the stage's frame (Dashboard.jsx, while the screen follows the
+ * agent): the frame kino measures now, its cuts so far under it, then its name, its length and
+ * "All found" for the Inspire page.
+ */
+export function ReferenceFrame({ reference: ref, live, onAll }) {
+  return (
+    <section className="ref-frame" aria-label={`The reference being studied: ${ref.title}`}>
+      <div className="ref-fit">
+        <ReadPicture ref_={ref} live={live} />
+        <ReadLine ref_={ref} live={live} />
+        <p className="ref-caption">
+          <span className="ref-title" title={ref.title}>{ref.title}</span>
+          <span className="ref-length">{clockWords(readSeconds(ref, live))}</span>
+          <button type="button" className="insp-btn" onClick={onAll}>All found</button>
+        </p>
+      </div>
+    </section>
+  );
+}
+
 /** A reference being read: the frame kino measures now, with its arrows, one sentence, and its cuts so far. */
 function WatchView({ data, ref_: ref, live, onBack, onFull, still }) {
   const sectionRef = useRef(null);
@@ -146,8 +196,7 @@ function WatchView({ data, ref_: ref, live, onBack, onFull, still }) {
   const agent = looking ? agentOf(data, looking) : { name: "kino", color: null };
   const steps = stepStates(ref.phase);
   const partial = ref.partial ?? null;
-  const seconds = partial?.seconds || live?.seconds || ref.duration || 0;
-  const read = ref.phase === "reading motion and text" && live ? live.t / Math.max(1, seconds) : ref.phase === "keeping frame strips" ? 1 : 0;
+  const seconds = readSeconds(ref, live);
   const onKeyDown = (event) => {
     if (event.ctrlKey || event.metaKey || event.altKey) return;
     if (event.key === "Escape") { event.preventDefault(); onBack(); }
@@ -164,18 +213,9 @@ function WatchView({ data, ref_: ref, live, onBack, onFull, still }) {
             </li>
           ))}
         </ol>
-        <div className="iv-stage">
-          {live?.image ? <img className="iv-picture" src={live.image} alt={`The frame kino is measuring, at ${clockWords(live.t)}`} />
-            : ref.thumb ? <img className="iv-picture dim" src={thumbUrl(ref.id, ref)} alt="" /> : <span className="iv-picture empty"><Shades seed={ref.id} /></span>}
-          {live ? <LiveMarks live={live} /> : null}
-          {live ? <span className="iv-time" aria-hidden="true">{clockWords(live.t)}</span> : null}
-        </div>
+        <ReadPicture ref_={ref} live={live} />
         <p className="iv-sentence"><span className="iv-arrow-mark" aria-hidden="true">→</span> {watchSentence(ref.phase, live)}</p>
-        <div className="iv-line" aria-label={partial ? `${partial.cuts.length} cuts found in ${clockWords(seconds)}` : "cuts not found yet"} role="img">
-          <span className="iv-read" style={{ width: `${Math.min(1, read) * 100}%` }} />
-          {(partial?.cuts ?? []).map((time, index) => <span key={index} className={`iv-cut${partial.onBeat?.[index] ? " beat" : ""}`} style={{ left: `${(time / Math.max(1, seconds)) * 100}%` }} />)}
-          {read > 0 && read < 1 ? <span className="iv-head-line" style={{ left: `${read * 100}%` }} /> : null}
-        </div>
+        <ReadLine ref_={ref} live={live} />
         <p className="iv-line-words"><span>0:00</span><span>each tick is a cut{partial?.onBeat ? ", orange ones land on the beat" : ""}</span><span>{clockWords(seconds)}</span></p>
         {soFarWords(partial).length ? (
           <p className="iv-sofar"><span className="faint">so far</span>{soFarWords(partial).map((line) => <span key={line} className="iv-chip">{line}</span>)}</p>

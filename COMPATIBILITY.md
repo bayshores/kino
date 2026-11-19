@@ -2222,8 +2222,11 @@ edit by hand. Dark and light, no purple. Main tests: `backend/dashboard.test.mjs
   `backend/agent-brief.test.mjs`, `engine/qualityRules.test.js`, `backend/footage-finder.test.mjs`, `backend/agent-stops.test.mjs`.
 - **Inspire live view and ideas**: Verified in the desktop app. F3 shows the frame being measured;
   agents propose ideas that the person allows or holds. Evidence: `backend/inspire-live.test.mjs`,
-  `backend/agent-inspire.test.mjs`, `frontend/dashboardInspire.test.js`. Gap: agents add allowed ideas to
-  the brief themselves.
+  `backend/agent-inspire.test.mjs`, `frontend/dashboardInspire.test.js`. While follow is on, a reference
+  being read takes the stage's frame by itself and the video steps back to a small frame beside it; a click on
+  "Your video", or the end of the reading, brings the video back (`follow.js`, `frontend/dashboardBoard.test.js`
+  for the rule; seen in the desktop app at 1100x700, 1440x900 and 1728x800 with the read's events handed to the
+  window, both themes). Gaps: agents add allowed ideas to the brief themselves; no browser test of the reference in front.
 - **Accessibility**: Partly verified. Keyboard and mouse, named regions, live regions, reduced motion,
   4.5:1 contrast. Evidence: browser tests (accessibility tree). Not verified: VoiceOver.
 - **Phone layout (390 px)**: Verified in browser tests. Evidence: `tests/dashboard-browser.test.mjs`.

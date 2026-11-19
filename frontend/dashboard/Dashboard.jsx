@@ -4,6 +4,7 @@
 //
 // Data flow: api.snapshot() → state.fromSnapshot → stream events → state.applyEvent → panes.
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { flushSync } from "react-dom";
 import "./dashboard.css";
 import "./stage.css";
 import "./page.css";
@@ -57,10 +58,10 @@ import { StopCard, StopDone, StopElsewhere, StopScreen, StopsCard, StopSettings 
 import { BoardScreen } from "./board.jsx";
 import { directionWords } from "./boardRows.js";
 import { TryScreen } from "./tries.jsx";
-import { followTry } from "./tryRows.js";
 import { LibraryScreen } from "./library.jsx";
 import { CrewScreen } from "./crew.jsx";
-import { InspireScreen } from "./inspire.jsx";
+import { followOpen } from "./follow.js";
+import { InspireScreen, ReferenceFrame } from "./inspire.jsx";
 import { JudgeBox } from "./judge.jsx";
 import { PickBox } from "./picks.jsx";
 import { STOP_WORDS } from "./words.js";
@@ -728,14 +729,32 @@ export function Dashboard() {
   }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // A round that starts waiting for a pick opens by itself, while follow is on and the person is
-  // on the stage; the stage comes back when that round is answered (tryRows.js followTry).
+  // on the stage; the stage comes back when that round is answered (follow.js followOpen).
   const autoTry = useRef({ seen: null, opened: null });
   useEffect(() => {
     if (!data) return;
     const round = openTryOf(data);
-    const name = followTry(autoTry.current, { waiting: round?.status === "waiting" ? `${data.projectId}:${round.id}` : null, follow, screen: screen.name });
+    const name = followOpen(autoTry.current, { waiting: round?.status === "waiting" ? `${data.projectId}:${round.id}` : null, follow, screen: screen.name }, "try");
     if (name) setScreen({ name });
   }, [data, follow, screen.name]);
+  // A reference the agent starts to read comes forward on the stage the same way: it takes the
+  // frame and the video steps back to a small frame beside it, until the reading is over or the
+  // person brings the video back. `front` is what the stage's frame shows: "main" (the video) or "reference".
+  const [front, setFront] = useState("main");
+  const readingId = data?.inspire?.queue?.running ?? null;
+  const reading = readingId ? data.inspire.refs?.[readingId] ?? null : null;
+  const autoRef = useRef({ seen: null, opened: null });
+  useEffect(() => {
+    if (!data) return;
+    const to = followOpen(autoRef.current, { waiting: reading?.id ?? null, follow, screen: screen.name === "main" ? front : screen.name }, "reference");
+    if (to) swapFront(to);
+    else if (!reading && front === "reference") setFront("main");
+  }, [data, follow, screen.name, front, reading?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The two frames change places in one move, where the app can (and motion is wanted).
+  const swapFront = (to) => {
+    if (still || !window.document.startViewTransition) { setFront(to); return; }
+    window.document.startViewTransition(() => flushSync(() => setFront(to)));
+  };
 
   // ---- actions -------------------------------------------------------------------------------------
   const focusPane = useCallback((number) => {
@@ -1843,14 +1862,18 @@ export function Dashboard() {
       </main>
     );
   } else if (screen.name === "main") {
+    const refFront = front === "reference" && Boolean(reading) && !phone && !zoomed;
     body = (
-      <main className={`panes screening${listOpen && !(zoomed && pane !== 2) ? (wide ? " side" : " list-open") : ""}${stripOpen ? " strip-open" : ""}${zoomed ? " zoomed" : ""}${listOpen && agentView === "seen" && enlarged && seenFiles.includes(enlarged) ? " seen-open" : ""}`} aria-label="Dashboard" inert={waiting}
+      <main className={`panes screening${refFront ? " ref-front" : listOpen && !(zoomed && pane !== 2) ? (wide ? " side" : " list-open") : ""}${stripOpen ? " strip-open" : ""}${zoomed ? " zoomed" : ""}${listOpen && agentView === "seen" && enlarged && seenFiles.includes(enlarged) ? " seen-open" : ""}`} aria-label="Dashboard" inert={waiting}
         style={{ "--stage-aspect": scene?.width && scene?.height ? scene.width / scene.height : 16 / 9 }}>
         {stage}
+        {/* A reference being read has the frame; the video is the small frame beside it, and a click on it brings it back. */}
+        {refFront ? <ReferenceFrame reference={reading} live={data.inspire.live?.id === reading.id ? data.inspire.live : null} onAll={() => setScreen({ name: "inspire" })} /> : null}
+        {refFront ? <button type="button" className="ref-back" onClick={() => swapFront("main")} aria-label="Your video: bring it back to the front"><span>Your video</span></button> : null}
         {/* The earlier lines, checks, looks and notes: right of the frame on a wide window, under
             the frame (once it has stepped back) on a narrower one. Another pane filling the window
             (+) takes the history's room too. */}
-        {listOpen ? (
+        {listOpen && !refFront ? (
           <AgentPane {...paneProps(2)} data={data} agent={askingAgent ?? agentShown} still={still} now={now} view={agentView} onView={setAgentView} needs={needs.length} follow={follow} checks={checks} onRun={run} onAnswer={answer} onMaterial={answerMaterial}
             onClose={() => { setListOpen(false); focusPane(1); }} closeTitle={wide ? "Hide the history" : "Close (Esc)"} noteLine={noteLine} views={{
               session, log, checks: log, notes: log,
