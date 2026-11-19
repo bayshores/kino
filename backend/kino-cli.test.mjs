@@ -609,8 +609,9 @@ describe("commands against a running kino", () => {
 
 describe("a render that fails", { skip: skipWithoutMediaTools }, () => {
   test("render start wait=true and render wait print the error and exit 1; a render that works exits 0", async () => {
-    // A stand-in FFmpeg that refuses kino's video encode (frames arrive on stdin as image2pipe)
-    // while a file named "broken" exists; every other call runs the real FFmpeg.
+    // A stand-in FFmpeg that refuses kino's video encode (frames arrive on stdin as rawvideo, or
+    // as image2pipe where a PNG is kept) while a file named "broken" exists; every other call
+    // runs the real FFmpeg.
     const folder = await tempFolder("kino-cli-render-");
     const switchFile = path.join(folder, "broken");
     const brokenFfmpeg = path.join(folder, "ffmpeg.mjs");
@@ -618,7 +619,7 @@ describe("a render that fails", { skip: skipWithoutMediaTools }, () => {
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 const args = process.argv.slice(2);
-if (args.includes("image2pipe") && existsSync(${JSON.stringify(switchFile)})) { console.error("stand-in encoder failure"); process.exit(1); }
+if (args.slice(0, args.indexOf("-i")).some((arg) => arg === "rawvideo" || arg === "image2pipe") && existsSync(${JSON.stringify(switchFile)})) { console.error("stand-in encoder failure"); process.exit(1); }
 process.exit(spawnSync(${JSON.stringify(ffmpeg)}, args, { stdio: "inherit" }).status ?? 1);
 `);
     await chmod(brokenFfmpeg, 0o700);
