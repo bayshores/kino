@@ -297,11 +297,11 @@ export const button = (text, scope = "body") =>
   `[...document.querySelectorAll(${JSON.stringify(`${scope} button, ${scope} a, ${scope} [role=tab]`)})].find((element) => element.textContent.replace(/\\s+/g, " ").trim().includes(${JSON.stringify(text)}) && element.getClientRects().length)`;
 export const layerButton = (name) => `[...document.querySelectorAll(".p-timeline .row-button")].find((element) => element.innerText.trim() === ${JSON.stringify(name)})`;
 /**
- * The timeline shows the shot strip until "Show every lane and layer" is pressed (the layer rows,
- * the agent's lane and the zoom buttons come with it). Opens them, or does nothing if already open.
+ * The timeline shows every lane and layer (the layer rows, the agent's lane, the zoom buttons)
+ * unless "Timeline" on the top line folded it to the shot strip. Opens it, or does nothing if open.
  */
 export async function showLanes(browser) {
-  const toggle = q('.p-timeline button[aria-label="Show every lane and layer"]');
+  const toggle = q('.top-right .timeline-toggle[aria-pressed="false"]');
   if (await browser.evaluate(`!!${toggle}`)) await browser.click(toggle);
   await browser.waitFor(`!!${q(".p-timeline .row-button")}`, { what: "the layer rows" });
 }

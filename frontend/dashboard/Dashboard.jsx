@@ -86,6 +86,17 @@ const HISTORY_KEY = "kino.dashboard.history";
 function historyKeptOpen() {
   try { return localStorage.getItem(HISTORY_KEY) !== "closed"; } catch { return true; }
 }
+// Whether the timeline shows every lane ("open") or is folded to the shot strip ("closed"); kept
+// in this browser. Before the person has chosen, it is open on a window wide and tall enough to
+// keep the frame large above it (the history beside the frame, not under it), else the strip.
+const TIMELINE_KEY = "kino.dashboard.timeline";
+const TALL_QUERY = "(min-width: 1160px) and (min-height: 760px)";
+function timelineKeptOpen() {
+  let kept = null;
+  try { kept = localStorage.getItem(TIMELINE_KEY); } catch { /* no storage: the window's height decides */ }
+  if (kept === "open" || kept === "closed") return kept === "open";
+  return typeof window === "undefined" || !window.matchMedia || window.matchMedia(TALL_QUERY).matches;
+}
 
 function useMedia(query) {
   const [matches, setMatches] = useState(() => typeof matchMedia === "function" && matchMedia(query).matches);
@@ -302,7 +313,12 @@ export function Dashboard() {
   const [listOpen, setListOpenOnly] = useState(() => wide && historyKeptOpen());
   const wideNow = useRef(wide);
   wideNow.current = wide;
-  const [stripOpen, setStripOpen] = useState(false);
+  // The timeline under the frame shows every lane and layer unless the person folded it to the shot strip.
+  const [stripOpen, setStripOpenOnly] = useState(timelineKeptOpen);
+  const setStripOpen = useCallback((open) => {
+    setStripOpenOnly(open);
+    try { localStorage.setItem(TIMELINE_KEY, open ? "open" : "closed"); } catch { /* kept for this page only */ }
+  }, []);
   // The frame glides to its new place and size when the list opens or closes: where it was is
   // noted before the change, and once the stage has its new size it starts from there.
   const frameWas = useRef(null);
@@ -1750,8 +1766,16 @@ export function Dashboard() {
         {message ? <span className={`message ${message.error ? "err" : "dim"}`} title={message.text}>{message.text}</span> : null}
       </div>
       <span className="top-right">
-        {/* History: the one button that shows and hides the earlier lines, checks and notes, in the
-            same place open or closed. First in the row, so the others stay put on a screen without it. */}
+        {/* Timeline and History: one button each shows and hides the lanes under the frame and the
+            earlier lines beside it, in the same place open or closed. First in the row, so the
+            others stay put on a screen without them. */}
+        {screen.name === "main" && !phone ? (
+          <button type="button" className={`tb top-button timeline-toggle${stripOpen ? " on" : ""}`} aria-pressed={stripOpen}
+            aria-label={stripOpen ? "Timeline. Fold it to the shot strip" : "Timeline. Show every lane and layer"}
+            title={stripOpen ? "Fold the timeline to the shot strip" : "Show the timeline: every lane and layer"}
+            onClick={() => setStripOpen(!stripOpen)}>
+            <ToolIcon name="lanes" /><span className="tab-word">Timeline</span></button>
+        ) : null}
         {screen.name === "main" && !phone ? (
           <button type="button" className={`tb top-button history-toggle${historyShown ? " on" : ""}`} aria-pressed={historyShown} aria-keyshortcuts="2" disabled={refFront}
             aria-label={historyShown ? "History. Hide it" : "History. Show it"}
@@ -1888,7 +1912,7 @@ export function Dashboard() {
           onSeek={(value) => { stopPlaying(); setView((current) => ({ ...current, time: value })); }} onSelectLayer={selectLayer} onTurn={selectTurn} viewTurn={checkpoint?.turn ?? null}
           playing={playing} timeStore={timeStore} point={pointedRange ? point : null} onPoint={pointAt} still={still} now={now}
           needAgent={need?.watch && need.key === "allow" ? need.agentId ?? null : undefined} previewList={previewList} rev={stageRev}
-          strip={!stripOpen} onStrip={(strip) => setStripOpen(!strip)} />
+          strip={!stripOpen} />
       </main>
     );
   } else {

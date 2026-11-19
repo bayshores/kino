@@ -63,6 +63,7 @@
    pointer is on the stage or one of them has the focus. */
 .screening .stage-toolbar {
   grid-row: frame-start / frame-end; grid-column: center; align-self: start; z-index: 4; height: auto; margin: 0; padding: 10px;
+  width: fit-content; min-width: min(100%, var(--frame-w, 100%)); max-width: 100%; justify-self: center;
   gap: 6px; opacity: 0; transition: opacity var(--quick) var(--ease-in); pointer-events: none;
 }
 .screening .p-stage:hover .stage-toolbar, .screening .stage-toolbar:focus-within, .screening.zoomed .stage-toolbar { opacity: 1; }
@@ -114,6 +115,7 @@
 /* Safe area, grid and boxes: over the frame's lower right corner, shown like the toolbar. */
 .screening .transport-view {
   grid-row: frame-start / frame-end; grid-column: center; align-self: end; justify-self: end; z-index: 4; margin: 10px;
+  margin-right: calc(10px + (100% - min(100%, var(--frame-w, 100%))) / 2);
   display: flex; gap: 0; padding: 0; border: 0; background: var(--bg0); opacity: 0; transition: opacity var(--quick) var(--ease-in);
 }
 .screening .p-stage:hover .transport-view, .screening .transport-view:focus-within { opacity: 1; }
@@ -213,15 +215,9 @@
 .screening .p-timeline.strip .tl-lines .playhead { width: 2px; background: var(--fg0); top: -10px; bottom: -2px; }
 .screening .p-timeline.strip .tl-range { background: color-mix(in srgb, var(--yellow) 22%, transparent); }
 .screening .p-timeline.strip .tl-foot { position: absolute; left: 0; right: 0; top: 100%; font-size: 11px; color: var(--fg1); }
-/* The small button that opens the whole timeline (every lane and layer), left of the strip. */
-.screening .p-timeline .strip-toggle {
-  position: absolute; right: calc(100% + 12px); bottom: 0; width: 24px; height: 20px; color: var(--fg2); z-index: 3;
-  opacity: 0; transition: opacity var(--quick) var(--ease-in);
-}
-.screening .p-timeline:hover .strip-toggle, .screening .p-timeline .strip-toggle:focus-visible, .screening .p-timeline .strip-toggle[aria-pressed="true"] { opacity: 1; }
-.screening .p-timeline .strip-toggle:hover { color: var(--fg0); }
-/* The whole timeline is open: it takes a quarter of the window and scrolls, as before. */
-.screening.strip-open > .p-timeline { height: clamp(170px, 25vh, 320px); display: grid; grid-template-rows: minmax(0, 1fr); margin-top: 22px; }
+/* The whole timeline is open: it takes a quarter of the window (never so little that no layer
+   row shows under the lanes) and scrolls. */
+.screening.strip-open > .p-timeline { height: clamp(220px, 25vh, 320px); display: grid; grid-template-rows: minmax(0, 1fr); margin-top: 22px; }
 .screening.strip-open > .p-timeline > .pane-body { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, max-content) auto; overflow: hidden; }
 .screening.strip-open > .p-timeline > .pane-facts { display: flex; position: absolute; right: 0; bottom: 100%; margin: 0; height: 22px; background: none; }
 .screening.strip-open .scrub { display: none; }

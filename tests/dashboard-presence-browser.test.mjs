@@ -50,10 +50,10 @@ const describedBy = (name) => `(() => {
   return (row?.getAttribute("aria-describedby") ?? "").split(" ").filter(Boolean).map((id) => document.getElementById(id)?.textContent ?? "").join(" ");
 })()`;
 
-/** The shot strip is the default timeline; the layers' rows and the agents' lanes show after "Show every lane and layer". */
+/** The layers' rows and the agents' lanes show unless "Timeline" on the top line folded them to the shot strip. */
 async function fullTimeline() {
-  const toggle = q('.p-timeline .strip-toggle[aria-label="Show every lane and layer"]');
-  if (await browser.evaluate(`!!${toggle}`)) await browser.click(toggle, "Show every lane and layer");
+  const toggle = q('.top-right .timeline-toggle[aria-pressed="false"]');
+  if (await browser.evaluate(`!!${toggle}`)) await browser.click(toggle, "Timeline");
   await browser.waitFor(`!!document.querySelector(".p-timeline .row-button")`, { what: "the layers' rows" });
 }
 

@@ -247,8 +247,8 @@
 .top-right .follow.on .follow-box { border-color: var(--yellow); background: var(--yellow); color: var(--on-yellow); }
 .top-right .follow .follow-box .ui-icon { width: 11px; height: 11px; stroke-width: 2; }
 /* History: shows and hides the earlier lines beside (or under) the frame; full ink while they show. */
-.top-right .history-toggle.on { color: var(--fg0); background: none; }
-.top-right .history-toggle.on:hover { background: var(--bg1); }
+.top-right :is(.history-toggle, .timeline-toggle).on { color: var(--fg0); background: none; }
+.top-right :is(.history-toggle, .timeline-toggle).on:hover { background: var(--bg1); }
 .top-right .history-toggle:disabled { opacity: 0.45; cursor: default; }
 /* Your video: on any screen but the stage, right after the project's name; it goes back to the stage. */
 .topline .back-stage { display: inline-flex; align-items: center; gap: 8px; flex: none; height: 34px; padding: 0 10px; color: var(--fg-mid); font-weight: 500;
@@ -644,16 +644,16 @@
 .zoom-group .tb:disabled { color: var(--fg2); }
 .zoom-group .zoom-menu { margin-left: 0.5ch; min-width: 7ch; justify-content: space-between; }
 /* The lanes box ends at a lane's lower edge: the ruler and the agent row (58 px), then as many
-   whole lanes (14.6 px each) as fit above the pane body's 6 px (and the 8 px scroll bar when
+   whole lanes (--tl-row, 18 px each) as fit above the pane body's 6 px (and the 8 px scroll bar when
    zoomed in). When all the lanes fit, its row is as tall as the lanes themselves, so 100% is
    their own height: rounding it down keeps the last lane (the 0.5 px covers the browser's
-   rounding of 14.6 px). More lanes than fit scroll, and the scroll bar shows (a styled one is
+   rounding). More lanes than fit scroll, and the scroll bar shows (a styled one is
    always drawn: the scrollbar-color the pane body passes down is reset here, as Chromium ignores
    the ::-webkit-scrollbar styles of a box with a scrollbar-color and draws a hidden overlay bar). */
 .tl-scroll {
-  --tl-label: 14.5ch; --tl-pad: var(--inset); --tl-bar: 0px; --tl-head: 58px;
+  --tl-label: 14.5ch; --tl-pad: var(--inset); --tl-bar: 0px; --tl-head: 58px; --tl-row: 18px;
   position: relative; overflow: auto; min-height: 0;
-  max-height: calc(var(--tl-head) + round(down, 100% - var(--tl-head) - var(--tl-bar) + 0.5px, 14.6px) + var(--tl-bar));
+  max-height: calc(var(--tl-head) + round(down, 100% - var(--tl-head) - var(--tl-bar) + 0.5px, var(--tl-row)) + var(--tl-bar));
 }
 /* The story row (18 px) sits between the ruler and the agent row. */
 .tl-scroll.has-story { --tl-head: 76px; }
@@ -673,13 +673,13 @@
 .tl-content {
   position: relative; display: grid;
   grid-template-columns: var(--tl-label) var(--tl-track, minmax(0, 1fr));
-  grid-template-rows: 36px 22px; grid-auto-rows: 14.6px; min-width: 100%; width: max-content;
+  grid-template-rows: 36px 22px; grid-auto-rows: var(--tl-row); min-width: 100%; width: max-content;
   padding: 0 var(--inset) 0 0;
 }
 /* The name column stays at the left when the tracks scroll. */
 .tl-label {
   position: sticky; left: 0; z-index: 2; background: var(--bg0);
-  display: flex; align-items: center; padding: 0 1ch 0 var(--tl-pad); line-height: 14.6px;
+  display: flex; align-items: center; padding: 0 1ch 0 var(--tl-pad); line-height: var(--tl-row);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--fg-mid);
 }
 .tl-label.agent { color: var(--agent); }
@@ -688,7 +688,7 @@
 .tl-content .row-button:hover { background: var(--bg2); }
 .tl-content .row-button.on { background: var(--bg2); color: var(--fg0); }
 .tl-content .row-button.selected { color: var(--accent); }
-.tl-content .bar { position: absolute; top: 3px; height: 7px; background: var(--bar); pointer-events: none; }
+.tl-content .bar { position: absolute; top: 5px; height: 7px; background: var(--bar); pointer-events: none; }
 /* A layer's lane: a quiet bar while it is on screen, its animations brighter over it. */
 .tl-content .bar.idle { background: color-mix(in srgb, var(--bar) 55%, var(--lane)); }
 .tl-content .bar:not(.idle) { background: #8d96a3; }

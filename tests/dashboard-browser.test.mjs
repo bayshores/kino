@@ -121,9 +121,16 @@ async function showScene(scene) {
   await browser.waitFor(sceneShown(scene.name), { what: `the scene ${scene.name} on the stage` });
 }
 
+/** Folds the timeline to the shot strip with "Timeline" on the top line, if every lane is showing. */
+async function showStrip() {
+  const toggle = '.top-right .timeline-toggle[aria-pressed="true"]';
+  if (await browser.evaluate(`!!${q(toggle)}`)) await browser.click(q(toggle));
+  await browser.waitFor(`!!${q(".p-timeline.strip")}`, { what: "the shot strip" });
+}
+
 /** Opens the whole timeline (every lane and layer, the zoom buttons) from the shot strip, if the strip is showing. */
 async function showEveryLane() {
-  const toggle = 'button[aria-label="Show every lane and layer"]';
+  const toggle = '.top-right .timeline-toggle[aria-pressed="false"]';
   if (await browser.evaluate(`!!${q(toggle)}`)) await browser.click(q(toggle));
   await browser.waitFor(`!${q(toggle)} && !!${q(".p-timeline .tl-scroll")}`, { what: "the whole timeline" });
 }
@@ -158,9 +165,9 @@ async function clickUntil(target, done, what) {
   }
 }
 
-/** The timeline shows the shot strip until "Show every lane and layer" opens every lane and layer. */
+/** The timeline shows every lane and layer unless "Timeline" on the top line folded it to the shot strip. */
 async function openEveryLane() {
-  if (await browser.evaluate(`${q('.p-timeline .strip-toggle[aria-label="Show every lane and layer"]')} !== null`)) await browser.click(q(".p-timeline .strip-toggle"));
+  if (await browser.evaluate(`${q('.top-right .timeline-toggle[aria-pressed="false"]')} !== null`)) await browser.click(q(".top-right .timeline-toggle"));
   await browser.waitFor(`!!${q(".p-timeline .row-button")} && !${q(".p-timeline.strip")}`, { what: "every lane and layer on the timeline" });
 }
 
@@ -300,6 +307,8 @@ test("approvals by keyboard: Tab adds a note, a allows once, A always allows, d 
   assert.ok((await snapshot()).projects.some((project) => project.id === "orbit"), "nothing was archived");
   await inboxSays(new RegExp(`${archive.data.id} denied by the person`));
 
+  // As above: the denied row must be gone, or the next request takes its place under the key.
+  await browser.waitFor(`!document.querySelector("#tab-session .tab-count")`, { what: "needs you empty" });
   id = await share();
   await browser.key("D");
   await until(async () => (await approval(id))?.status === "denied", "always deny");
@@ -452,7 +461,6 @@ test("a note by mouse: drag on the stage marks a box, a click points at what is 
 
 test("pointing at a layer, by mouse and by keyboard, shows its values and tells the agent", async () => {
   await open();
-  // The shot strip is the default; the layers show after "Show every lane and layer".
   await showLanes(browser);
   await browser.click(layerButton("card"));
   await browser.waitFor(`${layerButton("card")}?.getAttribute("aria-pressed") === "true"`);
@@ -528,6 +536,8 @@ test("play and scrub by mouse: transport buttons, the playhead track, the scene 
   await browser.waitFor(`${isPlaying} && !!${transport("Pause")}`);
   await browser.click(transport("Pause"));
   await browser.waitFor(`${isPaused} && !!${transport("Play")}`);
+  // The scrub bar is over the shot strip (the open timeline has its own ruler).
+  await showStrip();
   const track = await browser.box(q('[role="slider"]'));
   await browser.clickAt(track.left + track.width * 0.5, track.y);
   const value = await browser.waitFor(`(() => { const slider = ${q('[role="slider"]')}; const now = Number(slider.getAttribute("aria-valuenow")); return Math.abs(now - Number(slider.getAttribute("aria-valuemax")) / 2) < 0.06 ? now : 0; })()`, { what: "the playhead at the middle" });
@@ -1447,6 +1457,7 @@ test("a closed needs you opens again for a new request; with it closed, a answer
 
 test("in [3] ← and k pick the older picture, → and j the newer; the focus moves with them; a picture reached by Tab is in view; the key line's [ and ]", async () => {
   // The strip must hold more pictures than fit; run on its own, this test looks at enough scenes first.
+  // (With the timeline folded, the history column ends at the shot strip, so fewer rows fit.)
   for (let t = 1; t <= 8 && (await snapshot()).events.filter((call) => call.by !== "you").flatMap((call) => call.images ?? []).length < 12; t += 1) {
     assert.equal((await agent("look", { mode: "frame", t, scene: outroScene.id })).isError, undefined);
   }
@@ -1456,6 +1467,7 @@ test("in [3] ← and k pick the older picture, → and j the newer; the focus mo
   assert.equal(edited.isError, undefined, edited.text);
   assert.equal((await agent("look", { mode: "frame", t: 0.4, scene: firstScene.id })).isError, undefined);
   await open();
+  await showStrip();
   const thumbs = `[...document.querySelectorAll(".seen-strip .thumb")]`;
   const current = `${thumbs}.findIndex((thumb) => thumb.getAttribute("aria-current") === "true")`;
   await showView("seen");
@@ -1580,8 +1592,21 @@ test("a long project name gives way to the nav; the zoomed lanes follow the play
     return { height: pane.height, margin: pane.right - ruler.right };
   })()`);
   await showScene(firstScene);
+  // A wide, tall window that has not chosen starts with the timeline open (every lane and layer).
+  // "Timeline" on the top line folds it to the shot strip, a fixed band (74 px), stays in its
+  // place, and the choice is kept.
+  await browser.evaluate(`localStorage.removeItem("kino.dashboard.timeline")`);
+  await open();
+  await showScene(firstScene);
+  const timelineButton = q(".top-right .timeline-toggle");
+  await browser.waitFor(`!!${q(".p-timeline .row-button")}`, { what: "the timeline open at the start" });
+  const buttonLeft = await browser.evaluate(`${timelineButton}.getBoundingClientRect().left`);
+  assert.equal(await browser.evaluate(`${timelineButton}.getAttribute("aria-pressed")`), "true");
+  await browser.click(timelineButton);
+  await browser.waitFor(`!!${q(".p-timeline.strip")}`, { what: "the shot strip" });
+  assert.equal(await browser.evaluate(`${timelineButton}.getAttribute("aria-pressed") + " " + localStorage.getItem("kino.dashboard.timeline")`), "false closed");
+  assert.equal(await browser.evaluate(`${timelineButton}.getBoundingClientRect().left`), buttonLeft, "the button stays in its place");
   const layered = await measure();
-  // The shot strip is a fixed band now (74 px), no longer a quarter of the window.
   assert.ok(Math.abs(layered.height - 74) < 2, `the strip's band: ${layered.height} px`);
   await showScene(outroScene);
   assert.ok(Math.abs((await measure()).height - layered.height) < 1, "a scene with no layers keeps the height");
@@ -2488,6 +2513,8 @@ test("at 1100×760 and 1280×800 the log ends on a whole row, shows its scroll b
     for (const [width, height] of [[1100, 760], [1280, 800]]) {
       await browser.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 2, mobile: false });
       await open();
+      // With the timeline folded to the shot strip the log ends at the strip, so 30 rows do not fit.
+      await showStrip();
       await showView("log", { focus: false });
       // The stage has the focus (as after a load), so the log is not the list j and k move in.
       await browser.key("1");
@@ -3153,14 +3180,14 @@ test("more lanes than fit: the timeline ends on a whole lane and shows its scrol
     await openEveryLane();
 
     // The lanes box ends on a lane's lower edge (below the head rows, --tl-head: the ruler, story,
-    // shots, voice, audio and agent lanes; a layer lane is 14.6 px), so no lane is cut in half,
+    // shots, voice, audio and agent lanes; a layer lane is 18 px), so no lane is cut in half,
     // and the scroll bar is drawn, so it is plain there are more.
     const lanes = `(() => {
       const box = ${q(".p-timeline .tl-scroll")};
       const bottom = box.getBoundingClientRect().top + box.clientHeight;
       const head = parseFloat(getComputedStyle(box).getPropertyValue("--tl-head")) || 0;
       const cut = [...box.querySelectorAll(".tl-content .track")].map((track) => track.getBoundingClientRect()).filter((lane) => lane.top < bottom - 0.5 && lane.bottom > bottom + 0.5).length;
-      return { client: box.clientHeight, scroll: box.scrollHeight, barRight: box.offsetWidth - box.clientWidth, barBottom: box.offsetHeight - box.clientHeight, cut, head, lanes: (box.clientHeight - head) / 14.6 };
+      return { client: box.clientHeight, scroll: box.scrollHeight, barRight: box.offsetWidth - box.clientWidth, barBottom: box.offsetHeight - box.clientHeight, cut, head, lanes: (box.clientHeight - head) / 18 };
     })()`;
     const fit = await browser.evaluate(lanes);
     assert.ok(fit.scroll > fit.client + 14, `more lanes than fit: ${JSON.stringify(fit)}`);

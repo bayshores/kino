@@ -952,8 +952,11 @@ export function StagePane({ data, scene, time, rev, checkpoint, full, playing, f
     event.currentTarget.scrollBy({ left: step[0] * PAN_STEP, top: step[1] * PAN_STEP });
   };
   // The row over the frame: the scene menu and its facts on the left, the zoom and full screen on the right.
+  // The frame's width as drawn, for the rows laid over it: a frame narrower than its column (a
+  // short window) keeps them on the picture. A zoomed frame fills the column.
+  const overFrame = scene && zoom === "fit" && displayWidth > 0 ? { "--frame-w": `${displayWidth}px` } : undefined;
   const toolbar = scene ? (
-    <div className="stage-toolbar">
+    <div className="stage-toolbar" style={overFrame}>
       {hasMenu ? <Menu id="scene-menu" label={sceneName} ariaLabel={`Scene: ${sceneName}`} listLabel="Scenes" title="Show another scene ({ and })"
         value={scene.id} options={scenes.map((entry) => ({ value: entry.id, label: cut(entry.name || entry.id, 24) }))} onPick={onScene} className="scene-menu" />
         : <span className="scene-name">{sceneName}</span>}
@@ -1124,7 +1127,7 @@ export function StagePane({ data, scene, time, rev, checkpoint, full, playing, f
             <button type="button" className="tb icon-button mark-chip note" onClick={() => onKey("note")} aria-label="Leave a note here" aria-keyshortcuts="n" title="Leave a note at this time (n)"><Icon name="note" /></button>
             {marks.length ? <button type="button" className="tb icon-button mark-clear" onClick={() => onClearMarks?.()} aria-label="Clear my marks and viewing" title="Clear my marks and viewing"><Icon name="close" /></button> : null}
           </span>
-          <span className="transport-view" role="group" aria-label="On the frame">
+          <span className="transport-view" role="group" aria-label="On the frame" style={overFrame}>
             <button type="button" className="tb" aria-pressed={Boolean(overlays.safe)} onClick={() => onKey("safe")} aria-keyshortcuts="s" title="The safe area (s)"><Icon name="safe" />safe</button>
             <button type="button" className="tb" aria-pressed={Boolean(overlays.grid)} onClick={() => onKey("grid")} aria-keyshortcuts="g" title="The grid (g)"><Icon name="grid" />grid</button>
             {/* One switch for every box drawn on the frame: the check's findings and the agents' marks. */}
@@ -1772,7 +1775,7 @@ function Playhead({ timeStore, playing, time, duration, marker }) {
 }
 
 // The timeline's fixed rows, in px: the ruler, the story row and the "layers" heading. The lanes
-// between them are lanes.jsx's (LANE_PX); the layer rows under them are 14.6 px each.
+// between them are lanes.jsx's (LANE_PX); the layer rows under them are 18 px each (--tl-row in dashboard.css).
 const RULER_PX = 30;
 const STORY_PX = 18;
 const LAYERS_HEAD_PX = 16;
@@ -1784,7 +1787,7 @@ const STRIP_RULER_PX = 16;
  * per layer. `needAgent` is the agent a "needs you" row waits for (null: none named), or
  * undefined when nothing waits: then the range that wait is about is outlined.
  */
-export function TimelinePane({ data, scene, time, cursor, selectedLayer, onSeek, onSelectLayer, onTurn, viewTurn, playing, timeStore, point = null, onPoint, still, now, needAgent, previewList = null, rev = null, strip = false, onStrip = null, ...pane }) {
+export function TimelinePane({ data, scene, time, cursor, selectedLayer, onSeek, onSelectLayer, onTurn, viewTurn, playing, timeStore, point = null, onPoint, still, now, needAgent, previewList = null, rev = null, strip = false, ...pane }) {
   const rows = timelineRows(scene);
   const duration = Math.max(0.01, Number(scene?.duration) || 0.01);
   const scrollRef = useRef(null);
@@ -1959,11 +1962,6 @@ export function TimelinePane({ data, scene, time, cursor, selectedLayer, onSeek,
   </>) : null;
   return (
     <Pane {...pane} number={3} name="timeline" className={`p-timeline${strip ? " strip" : ""}`} labelId="pane-3-title" facts={facts}>
-      {/* The strip opens to the whole timeline (every lane and layer) and closes again. */}
-      {onStrip && scene ? (
-        <button type="button" className="tb icon-button strip-toggle" aria-pressed={!strip} onClick={() => onStrip(!strip)}
-          aria-label={strip ? "Show every lane and layer" : "Back to the shot strip"} title={strip ? "Show every lane and layer" : "Back to the shot strip"}><Icon name={strip ? "up" : "down"} /></button>
-      ) : null}
       {!scene ? <p className="tl-none"><span className="sr-only">No video yet.</span></p> : (
         <div className={`tl-scroll${zoom > 1 ? " wide" : ""}${story ? " has-story" : ""}`} ref={scrollRef} style={{ "--tl-head": `${headPx}px` }}>
           <div className="tl-content" style={{ ...(trackWidth ? { "--tl-track": `${trackWidth}px` } : {}), gridTemplateRows: headRows.map((value) => `${value}px`).join(" ") }}>

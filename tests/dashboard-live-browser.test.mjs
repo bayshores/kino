@@ -164,8 +164,7 @@ test("two agents at work: the top line names both, each in its color; one keeps 
 test("pointing: a layer, then a time range by dragging the ruler and by Shift+→; the agent reads the same line, and Esc lets the range go first", async () => {
   await dashboard.open();
   await browser.waitFor(`(document.querySelector(".dash")?.dataset.project === "live")`, { what: "the live project on the stage" });
-  // The shot strip is the default; the layers' rows show after "Show every lane and layer".
-  if (await browser.evaluate(`!!document.querySelector('.p-timeline .strip-toggle[aria-label="Show every lane and layer"]')`)) await browser.click(q('.p-timeline .strip-toggle[aria-label="Show every lane and layer"]'));
+  await browser.waitFor(`!!${layerButton("card")}`, { what: "the layers' rows (the timeline starts open)" });
   await browser.click(layerButton("card"));
   const layerLine = 'the agent sees "pointing card (you selected it in the dashboard)"';
   await browser.waitFor(`${pointingText} === ${JSON.stringify(layerLine)}`, { what: "the layer's pointing line" });
