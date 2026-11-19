@@ -13,6 +13,7 @@ npm test -- backend/crew.test.mjs  # named test files
 npm test                           # everything, about 8 minutes (CI runs it on every push)
 npm run build                      # production build of the dashboard
 npm run mcp:budget                 # size of the tool list an agent loads
+npm run perf                       # how long agent calls and a movie export take (hand-run)
 npm run desktop                    # the Mac app; check UI changes here
 ```
 
@@ -36,6 +37,21 @@ npm run desktop                    # the Mac app; check UI changes here
 - No simulated success, seeded fake projects, inert controls or placeholders. Test fixtures stay
   out of the default workspace.
 - Include accessibility, recovery and reduced motion.
+
+## Efficiency rules
+
+- A call's cost grows with the project it touches, never with the number of projects, fonts or
+  revisions.
+- A call parses a file at most once. A read-only call never writes the project; any call writes
+  its own bookkeeping (agent state) at most twice. `backend/perf-budget.test.mjs` counts these
+  against `tests/perf-budget.json`; raising a budget is an edit to that file, with the reason.
+- Work that gives the same answer for the same revision or the same file is kept, keyed by the
+  revision or by the file's size and modified time. Every cache has an entry or byte limit.
+- Nothing grows on disk without a size limit and oldest-first deletion.
+- Per-frame work is only what changes in that frame. No encode-then-decode between kino's own
+  steps.
+- A change to the store, the call path or the render path reports `npm run perf` before and
+  after (`--baseline <json>` prints both).
 
 ## Engineering rules
 

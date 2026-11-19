@@ -7,6 +7,7 @@ import {
   rename,
   chmod,
   lstat,
+  stat,
   unlink,
 } from "node:fs/promises";
 import path from "node:path";
@@ -61,6 +62,9 @@ export class ConflictError extends StoreError {
     this.currentEntry = this.current;
   }
 }
+
+/** How often this process parsed and wrote a store file (backend/perf-budget.test.mjs). */
+export const storeCounters = { parses: 0, writes: 0, bytesWritten: 0 };
 
 function cloneJson(value) {
   try {
@@ -397,7 +401,10 @@ async function writeState(storePath, state, directory) {
       fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_WRONLY,
       0o600,
     );
-    await file.writeFile(`${JSON.stringify(state)}\n`, "utf8");
+    const text = `${JSON.stringify(state)}\n`;
+    storeCounters.writes += 1;
+    storeCounters.bytesWritten += text.length;
+    await file.writeFile(text, "utf8");
     await file.sync();
     await file.close();
     file = null;
@@ -510,21 +517,42 @@ export async function openStore(root) {
     return { ...cloneJson(receipt.result), document };
   }
 
+  // The parsed and checked store, kept while store.json is the same file (AGENTS.md, Efficiency
+  // rules): one agent call reads the store several times, and each read used to parse and check
+  // every project again. A save replaces the file (writeState renames a new one over it), so its
+  // inode, size and modified time say whether this copy is still the file, also when another
+  // process saved. Nothing changes this copy: reads answer with copies, a save works on its own.
+  let loaded = null;
+  async function storeStamp() {
+    try {
+      const info = await stat(storePath, { bigint: true });
+      return `${info.ino}:${info.size}:${info.mtimeNs}`;
+    } catch { return null; }
+  }
+  async function currentState() {
+    const stamp = await storeStamp();
+    if (loaded && stamp !== null && loaded.stamp === stamp) return { state: loaded.state, migrated: false };
+    storeCounters.parses += 1;
+    const state = await readState(storePath);
+    // Projects of an older document version are brought to the current one as they are loaded.
+    const migrated = migrateProjects(state);
+    loaded = stamp === null ? null : { stamp, state };
+    return { state, migrated };
+  }
+
   async function read(operation) {
     return enqueue(directory, async () => {
-      const state = await readState(storePath);
-      // Projects of an older document version are saved back in the current one, once. If that
-      // save fails (a read-only disk), reading still works and the next save tries again.
-      if (migrateProjects(state))
-        await writeState(storePath, state, directory).catch(() => {});
+      const { state, migrated } = await currentState();
+      // Migrated projects are saved back, once. If that save fails (a read-only disk), reading
+      // still works and the next save tries again.
+      if (migrated) await writeState(storePath, state, directory).catch(() => {});
       return operation(state);
     });
   }
 
   async function mutate(operation) {
     return enqueue(directory, async () => {
-      const state = await readState(storePath);
-      migrateProjects(state);
+      const { state } = await currentState();
       const next = cloneJson(state);
       const result = await operation(next);
       const previous = new Map(state.projects.map((project) => [project.document.id, project]));

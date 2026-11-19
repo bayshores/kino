@@ -140,7 +140,7 @@ export function madeTime(model) {
     }
   };
   let guessed = false;
-  const sum = (grid) => grid.reduce((total, value) => total + value, 0) / grid.length;
+  const sum = (grid) => { let total = 0; for (let cell = 0; cell < grid.length; cell += 1) total += grid[cell]; return total / grid.length; };
   const counts = Object.fromEntries(MADE_KINDS.map((kind) => [kind, 0]));
   let madeFrames = 0, madeArea = 0, captionFrames = 0, captionArea = 0;
   for (let index = 0; index < frames; index += 1) {

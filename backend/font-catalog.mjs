@@ -547,7 +547,8 @@ export async function createFontCatalog({
     return promise;
   }
 
-  async function verifyCachedRecord(record) {
+  const verifiedFaces = new Map();
+  async function verifyCachedRecord(record, { bytes = true } = {}) {
     if (!plain(record) || !ID.test(record.catalogId) || !VERSION.test(record.version) || !Number.isInteger(record.weight) ||
         !["normal", "italic"].includes(record.style) || !SUBSET.test(record.subset) || !SUBSET.test(record.defaultSubset) ||
         typeof record.family !== "string" || !safeText(record.family) || !Number.isFinite(record.weight) || record.weight < 1 || record.weight > 1000 ||
@@ -560,10 +561,16 @@ export async function createFontCatalog({
     try {
       const info = await stat(filePath);
       if (!info.isFile() || info.size <= 0 || info.size > MAX_FONT) return null;
-      const bytes = await readFile(filePath);
-      if (hashBytes(bytes) !== record.hash) return null;
-      verifyFont(bytes, record);
-      return { record: { ...record, url: `/api/fonts/fs-cache-${record.hash}.ttf`, src: normalizedSource(record) }, bytes, filePath };
+      const result = { record: { ...record, url: `/api/fonts/fs-cache-${record.hash}.ttf`, src: normalizedSource(record) }, filePath };
+      // A file checked before and unchanged since (same size and modified time) is not read,
+      // hashed and parsed again: every agent call lists these faces.
+      const stamp = `${record.id}:${info.size}:${info.mtimeMs}`;
+      if (!bytes && verifiedFaces.get(filePath) === stamp) return result;
+      const data = await readFile(filePath);
+      if (hashBytes(data) !== record.hash) return null;
+      verifyFont(data, record);
+      verifiedFaces.set(filePath, stamp);
+      return { ...result, bytes: data };
     } catch { return null; }
   }
 
@@ -574,7 +581,7 @@ export async function createFontCatalog({
     const entries = [];
     for (const name of names.filter((file) => /^[a-f0-9]{64}\.json$/.test(file)).sort()) {
       const metadata = await readJson(path.join(facesRoot, name));
-      const verified = await verifyCachedRecord(metadata);
+      const verified = await verifyCachedRecord(metadata, { bytes: false });
       if (verified) entries.push(verified.record);
     }
     return entries.sort((a, b) => a.family.localeCompare(b.family) || a.weight - b.weight || a.style.localeCompare(b.style) || a.subset.localeCompare(b.subset));
@@ -683,6 +690,9 @@ export async function createFontCatalog({
   async function loadInto(registry) {
     if (!registry || typeof registry.register !== "function") throw new TypeError("A FontRegistry is required.");
     for (const entry of await cachedEntries()) {
+      // A face this registry already holds stays as it is: registering it again would start the
+      // registry's text layouts over (they are kept per registry version).
+      if (registry.faces?.some((face) => face.id === entry.id && face.url === entry.url)) continue;
       const verified = await verifyCachedRecord(entry);
       if (!verified) continue;
       registry.register(verified.bytes, {
@@ -721,7 +731,7 @@ export async function createFontCatalog({
     const entries = await cachedEntries();
     const entry = entries.find((item) => item.catalogId === parsed.id && item.version === parsed.version && item.weight === parsed.weight && item.style === parsed.style && item.subset === item.defaultSubset);
     if (!entry) return null;
-    const verified = await verifyCachedRecord(entry);
+    const verified = await verifyCachedRecord(entry, { bytes: false });
     return verified ? { path: verified.filePath, mime: "font/ttf" } : null;
   }
 

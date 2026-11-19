@@ -111,10 +111,26 @@ export async function loadBundledFonts() {
   return addErrors(registry, []);
 }
 
+// Registries already built, kept while the font files they came from are unchanged (AGENTS.md,
+// Efficiency rules). Every agent call asks for the project's fonts: parsing the 24 bundled faces
+// again took about a third of a call, and a new registry starts with no saved text layouts
+// (engine/textLayout.js keeps them per registry). One entry per set of uploaded fonts a caller
+// may use, so a share's registry never holds another file's fonts.
+const loadedRegistries = new Map();
+const REGISTRY_LIMIT = 4;
+/** How many registries were built from font files (tests/perf-budget.json counts them). */
+export const fontCounters = { registriesBuilt: 0 };
+
+const stamp = async (filePath) => {
+  try { const info = await stat(filePath); return `${info.size}:${info.mtimeMs}`; }
+  catch { return "missing"; }
+};
+
 /**
- * Build an isolated registry for a project. Shared projects pass their allowed
+ * The registry for a project's fonts. Shared projects pass their allowed
  * media IDs here so foreign uploaded fonts are never opened or registered.
  * Upload parse/read failures are returned in `registry.errors` for the API/UI.
+ * The same registry is returned again while no bundled or uploaded font file changed.
  */
 export async function loadProjectFonts({
   mediaRoot,
@@ -123,15 +139,37 @@ export async function loadProjectFonts({
   catalog = null,
 } = {}) {
   if (!mediaRoot) throw new TypeError("mediaRoot is required to load project fonts.");
+  const metadataFiles = (await readdir(mediaRoot)).filter((name) => {
+    if (!name.endsWith(".json")) return false;
+    const id = name.slice(0, -".json".length);
+    return fontExtensions.has(path.extname(id).toLowerCase()) && uploadedFontId.test(id) && allowed(id, allowedIds);
+  }).sort();
+  const bundledFiles = bundled ? (await readdir(bundledFontsRoot)).sort() : [];
+  const signature = JSON.stringify([
+    await Promise.all(bundledFiles.map(async (name) => [name, await stamp(path.join(bundledFontsRoot, name))])),
+    await Promise.all(metadataFiles.map(async (name) => [await stamp(path.join(mediaRoot, name)), await stamp(path.join(mediaRoot, name.slice(0, -".json".length)))])),
+  ]);
+  const key = JSON.stringify([path.resolve(mediaRoot), bundled, Boolean(catalog), metadataFiles]);
+  let entry = loadedRegistries.get(key);
+  if (entry?.signature !== signature) {
+    entry = { signature, registry: await buildProjectFonts({ mediaRoot, metadataFiles, bundled }) };
+    fontCounters.registriesBuilt += 1;
+  }
+  loadedRegistries.delete(key);
+  loadedRegistries.set(key, entry);
+  if (loadedRegistries.size > REGISTRY_LIMIT) loadedRegistries.delete(loadedRegistries.keys().next().value);
+  // Catalog faces downloaded since are added; the ones it holds are left alone (font-catalog.mjs).
+  if (catalog) await catalog.loadInto(entry.registry);
+  return entry.registry;
+}
+
+async function buildProjectFonts({ mediaRoot, metadataFiles, bundled }) {
   const registry = bundled ? await loadBundledFonts() : new FontRegistry();
   const errors = [];
-  const names = (await readdir(mediaRoot)).filter((name) => name.endsWith(".json")).sort();
 
-  for (const metadataFile of names) {
+  for (const metadataFile of metadataFiles) {
     const idFromFile = metadataFile.slice(0, -".json".length);
     const extension = path.extname(idFromFile).toLowerCase();
-    if (!fontExtensions.has(extension) || !uploadedFontId.test(idFromFile)) continue;
-    if (!allowed(idFromFile, allowedIds)) continue;
 
     let metadata;
     try {
@@ -175,6 +213,5 @@ export async function loadProjectFonts({
     }
   }
 
-  if (catalog) await catalog.loadInto(registry);
   return addErrors(registry, errors);
 }

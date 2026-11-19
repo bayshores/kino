@@ -15,6 +15,7 @@
     "preview": "vite preview",
     "mcp": "node backend/mcp.mjs",
     "mcp:budget": "node scripts/mcp-budget.mjs",
+    "perf": "node scripts/perf.mjs",
     "skill:fields": "node scripts/field-sheet.mjs",
     "eval": "node evals/run.mjs",
     "desktop": "npm run build && node scripts/dev-app-name.mjs && electron .",

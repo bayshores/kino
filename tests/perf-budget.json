@@ -1,0 +1,8 @@
+{
+  "calls": {
+    "status": { "storeParses": 0, "storeWrites": 0, "stateWrites": 1, "fontRegistriesBuilt": 0 },
+    "inspect": { "storeParses": 0, "storeWrites": 0, "stateWrites": 1, "fontRegistriesBuilt": 0 },
+    "check": { "storeParses": 0, "storeWrites": 0, "stateWrites": 1, "fontRegistriesBuilt": 0 },
+    "edit": { "storeParses": 1, "storeWrites": 1, "stateWrites": 2, "fontRegistriesBuilt": 0 }
+  }
+}

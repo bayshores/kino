@@ -2280,6 +2280,10 @@ sessions and optional display names; sharing uses revocable view, comment and ed
   used `add_sequence`.
 - **board-01 and direction evals**: stub agents only (`tests/board-eval.test.mjs`,
   `tests/direction-eval.test.mjs`); no real model run.
+- **Call cost** (`npm run perf`, hand-run): fonts and the parsed store are kept between calls while
+  their files are unchanged. With 30 projects, median ms before and after on one busy Mac: status
+  333 to 15, inspect 88 to 5, check 353 to 43, edit 658 to 118. `backend/perf-budget.test.mjs` holds
+  the operation counts (the same with 1 and 20 projects).
 - **Build order**: `skills/kino/SKILL.md` asks for a rough scene, then at most 3 sections
   (`backend/skill.test.mjs`). Not verified with a real agent.
 - **Golden frames**: 79 committed PNGs; a frame fails when over 0.1% of pixels change by more than 8

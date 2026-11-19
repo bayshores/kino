@@ -55,6 +55,9 @@ export function emptyAgentState() {
   };
 }
 
+/** How often this process wrote an agent state file (backend/perf-budget.test.mjs). */
+export const stateCounters = { writes: 0 };
+
 const fileName = (projectId) => `${encodeURIComponent(projectId)}.json`;
 
 export function createAgentStateStore(dataRoot) {
@@ -83,11 +86,12 @@ export function createAgentStateStore(dataRoot) {
     return state;
   }
 
-  async function save(projectId, state) {
+  async function save(projectId, text) {
+    stateCounters.writes += 1;
     await mkdir(directory, { recursive: true, mode: 0o700 });
     const target = path.join(directory, fileName(projectId));
     const temporary = `${target}.${randomUUID()}.tmp`;
-    await writeFile(temporary, JSON.stringify(state), { mode: 0o600 });
+    await writeFile(temporary, text, { mode: 0o600 });
     await rename(temporary, target);
   }
 
@@ -103,7 +107,9 @@ export function createAgentStateStore(dataRoot) {
       draft.stopped = (draft.stopped ?? []).slice(-MAX_STOPS);
       draft.stops = (draft.stops ?? []).slice(-MAX_STOPS);
       draft.boards = (draft.boards ?? []).slice(-MAX_BOARDS);
-      await save(projectId, draft);
+      // A call that changed nothing (most reads) writes nothing (AGENTS.md, Efficiency rules).
+      const text = JSON.stringify(draft);
+      if (text !== JSON.stringify(state)) await save(projectId, text);
       cache.set(projectId, draft);
       return result;
     });
