@@ -1,12 +1,11 @@
 // The live panels: they appear while something happens and go when it ends (plan: ui-polish).
-//   SeenDrawer    under the video while an agent looks (or just did): the frames it looked at
 //   RenderDock    one chip on the frame while a render runs: "Open when done"
 // Each shows only real state (the facts are plain functions in agentView.js). Under reduced
 // motion (`still`) they appear without sliding.
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Bot } from "./bot.jsx";
-import { needWords, renderDock, seenNow, specWords } from "./agentView.js";
-import { boardShotUrl, frameUrl, renderFileUrl, seenUrl } from "./api.js";
+import { needWords, renderDock, specWords } from "./agentView.js";
+import { boardShotUrl, frameUrl, renderFileUrl } from "./api.js";
 import { ago } from "./format.js";
 import { tickWhileShown } from "./visibleClock.js";
 import { keyTarget, needsYouRows, optionLabel, recommendedOption } from "./state.js";
@@ -50,60 +49,6 @@ function useShown(open, still, ms = 180) {
     return () => clearTimeout(timer);
   }, [open, still, ms]);
   return shown;
-}
-
-// ---- the seen drawer --------------------------------------------------------------------------
-
-/** "44.0 s" from a frame file's name when it says its time ("…-t44.0…", "@44.0s"), else "". */
-function fileTime(file) {
-  const match = /(?:@|[-_]t)(\d+(?:\.\d+)?)s?/.exec(String(file).split(/[\\/]/).pop());
-  return match ? `${Number(match[1]).toFixed(1)} s` : "";
-}
-
-/**
- * The frames an agent is looking at, under the video; it closes a few seconds after the look.
- * While the stage plays it neither opens nor closes: that would resize the playing video.
- */
-export function SeenDrawer({ data, still, playing = false }) {
-  const now = useNow();
-  const [pinned, setPinned] = useState(false);
-  const [kept, setKept] = useState(null);
-  const fresh = seenNow(data, now);
-  const held = useRef(fresh);
-  if (!playing || Boolean(fresh) === Boolean(held.current)) held.current = fresh;
-  const look = held.current;
-  // Pinned: the last look stays up after it ends.
-  useEffect(() => { if (look?.files?.length) setKept(look); }, [look?.at, look?.files?.length]); // eslint-disable-line react-hooks/exhaustive-deps
-  const showing = look ?? (pinned ? kept : null);
-  const shown = useShown(Boolean(showing), still);
-  if (!shown || !data.projectId) return null;
-  const view = showing ?? kept;
-  if (!view) return null;
-  const files = (view.files ?? []).slice(-8);
-  const color = view.agent?.color ?? "var(--agent)";
-  return (
-    <section className={`live-seen${showing ? " in" : " out"}${still ? " still" : ""}`} style={{ "--who": color }} aria-label={`${view.agent?.name ?? "The agent"} is looking`}>
-      <header className="live-head">
-        <span className="live-dot" aria-hidden="true" />
-        <span className="who">{view.agent?.name ?? "agent"}</span>
-        <span className="dim">{view.running ? "is looking" : "looked"}{view.label ? `, ${String(view.label).replace(/^look\s+/, "")}` : ""}</span>
-        <span className="grow" />
-        {files.length ? <span className="faint">{files.length} frame{files.length === 1 ? "" : "s"}</span> : null}
-        <button type="button" className={`tb icon-button live-pin${pinned ? " on" : ""}`} aria-pressed={pinned} onClick={() => setPinned((value) => !value)}
-          title={pinned ? "Unpin: close when the look ends" : "Pin: keep it open"} aria-label="Pin the frames the agent looked at"><Glyph name="pin" /></button>
-      </header>
-      {files.length ? (
-        <ol className="live-frames">
-          {files.map((file, index) => (
-            <li key={`${file}/${index}`} className={index === files.length - 1 ? "current" : ""}>
-              <img src={seenUrl(data.projectId, file)} alt={`Frame ${index + 1} of ${files.length}`} loading="lazy" />
-              <span className="faint">{index === files.length - 1 && view.running ? "now " : ""}{fileTime(file)}</span>
-            </li>
-          ))}
-        </ol>
-      ) : <p className="faint live-wait">waiting for the frames</p>}
-    </section>
-  );
 }
 
 // ---- the render dock --------------------------------------------------------------------------

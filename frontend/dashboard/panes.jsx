@@ -31,7 +31,7 @@ import { hoverLines, newMarks, onScreenRanges, storyParts } from "./timeline.js"
 import { BriefLines } from "./brief.jsx";
 import { StopLines } from "./stops.jsx";
 import { APPROVAL_WORDS, STOP_WORDS } from "./words.js";
-import { MaterialChoices, RenderDock, SeenDrawer } from "./live.jsx";
+import { MaterialChoices, RenderDock } from "./live.jsx";
 
 const capital = (text) => String(text ?? "").replace(/^./, (letter) => letter.toUpperCase());
 
@@ -1078,7 +1078,6 @@ export function StagePane({ data, scene, time, rev, checkpoint, full, playing, f
       </div>
       {scene && !phone ? <RenderDock data={data} still={still} /> : null}
       </div>
-      {scene && !phone ? <SeenDrawer data={data} still={still} playing={playing} /> : null}
       {/* The playback controls stay while something waits for you: its answers are in the agent pane. */}
       {scene ? (
         <div className="stage-transport" role="group" aria-label="Playback and view">

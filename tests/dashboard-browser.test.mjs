@@ -2742,9 +2742,7 @@ test("light rays play at a lower resolution on a large 2× stage; no older or un
     // This test reads the scene's own pixels in pictures of the window. While the agent's edit
     // shows, its stage bot rides beside its cursor over the frame (presence.jsx) and crossed the
     // marker on the measured row, so the agents' layer is hidden here (the next page load drops it).
-    // The seen drawer opens under the video after each look and closes a few seconds later, which
-    // resizes the stage measured below, so it is hidden too.
-    await browser.evaluate(`document.head.insertAdjacentHTML("beforeend", "<style>.presence-stage { visibility: hidden !important; } .live-seen { display: none !important; }</style>")`);
+    await browser.evaluate(`document.head.insertAdjacentHTML("beforeend", "<style>.presence-stage { visibility: hidden !important; }</style>")`);
     await browser.key("1");
     await browser.key("+");
     await browser.waitFor(`!!document.querySelector('.pane.is-zoomed[data-pane="1"]')`, { what: "the stage zoomed" });

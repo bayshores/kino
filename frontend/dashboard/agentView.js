@@ -242,8 +242,6 @@ export function needWords(row, nameOf = () => null) {
 
 // An agent that called kino this recently is in the crew view, and the pane stays open.
 export const CREW_MS = 120_000;
-// The seen drawer stays open this long after a look ends (unless pinned).
-export const SEEN_MS = 6_000;
 
 const msAgo = (iso, now) => now - Date.parse(iso ?? "");
 
@@ -324,20 +322,6 @@ export function crewFeed(data, only = null, limit = 30) {
       text: callLine(call).replace(new RegExp(`^${call.verb}\\s+`), ""), mark: call.isError ? "✕" : call.approval ? "waits" : "✓" });
   }
   return rows;
-}
-
-/**
- * The look the seen drawer shows: a look running now, or the newest look with pictures that
- * ended less than SEEN_MS ago ({agent, running, at, files}), else null.
- */
-export function seenNow(data, now = Date.now()) {
-  const running = Object.values(data?.live?.latest ?? {}).find((presence) => presence?.phase === "start" && presence.verb === "look") ?? null;
-  const call = [...(data?.calls ?? [])].reverse().find((entry) => entry.by !== "you" && entry.verb === "look" && (entry.images ?? []).length);
-  const fresh = call && msAgo(call.at, now) < SEEN_MS;
-  if (!running && !fresh) return null;
-  // While a look runs, the pictures of that agent's previous look stay up until the new ones come.
-  const files = call && (fresh || callAgent(call).id === running?.agent?.id) ? call.images : [];
-  return { agent: running?.agent ?? callAgent(call), running: Boolean(running), at: running?.at ?? call.at, files, label: running?.label ?? callLine(call) };
 }
 
 const RENDER_ENDED = new Set(["done", "canceled", "gone", "error", "failed"]);

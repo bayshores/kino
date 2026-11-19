@@ -4,7 +4,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { agentLabels, withAgentLabels } from "./dashboard/agentLabels.js";
-import { agentGoal, canWake, wakeFor, agentLog, asAsk, asSentence, agentOfCalls, agentSaid, agentTask, CREW_MS, crewAgents, crewFeed, currentCall, DETAIL_CHARS, leftWords, paneIdle, railAgents, renderDock, SEEN_MS, seenNow, minutes, needWords, planStep, shownAgent, specWords, stepWords, turnWords, usefulDetails, verbKind, voiceLine } from "./dashboard/agentView.js";
+import { agentGoal, canWake, wakeFor, agentLog, asAsk, asSentence, agentOfCalls, agentSaid, agentTask, CREW_MS, crewAgents, crewFeed, currentCall, DETAIL_CHARS, leftWords, paneIdle, railAgents, renderDock, minutes, needWords, planStep, shownAgent, specWords, stepWords, turnWords, usefulDetails, verbKind, voiceLine } from "./dashboard/agentView.js";
 
 const NOW = Date.parse("2026-10-26T10:00:30Z");
 const nova = { id: "a1", name: "Nova", kind: "claude-code", color: "#42c0b6", lastAt: "2026-10-26T10:00:20Z" };
@@ -175,13 +175,7 @@ test("crew view: who works now, the idle rail, each card's goal and call, one me
   assert.equal(crewFeed(data(), "a2").length, 1);
 });
 
-test("live panels: the seen drawer while a look runs or just ended, the render dock while a render runs", () => {
-  const looked = data();
-  looked.calls.push({ verb: "look", label: "frame 44 s", images: ["f1.png", "f2.png"], at: "2026-10-26T10:00:27Z", ...by(nova) });
-  assert.deepEqual(seenNow(looked, NOW).files, ["f1.png", "f2.png"]);
-  assert.equal(seenNow(looked, NOW + SEEN_MS + 4000), null, "closes a few seconds after the look");
-  const live = { latest: { a2: { agent: { id: "a2", name: "Juno" }, at: "2026-10-26T10:01:00Z", phase: "start", verb: "look", label: "look frame" } } };
-  assert.equal(seenNow({ ...looked, live }, NOW + 60_000).running, true);
+test("live panels: the render dock while a render runs", () => {
   const job = { id: "R3", projectId: "walk", status: "running", progress: 0.5, duration: 10, fps: 30, startedAt: "2026-10-26T10:00:10Z", by: "agent" };
   const renders = data({ renders: [job] });
   renders.calls.push({ verb: "render", label: "draft", at: "2026-10-26T10:00:09Z", ...by(nova) });
