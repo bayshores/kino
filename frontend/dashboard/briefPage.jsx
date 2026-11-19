@@ -1,7 +1,9 @@
 // The brief page: what this video is for, in the agent's saved words, as one big sentence; its
-// length, shape and shots; the plan and the stops at the left; the media and the renders at the
-// right. Read only, as the session view's brief is: you change the brief by telling your agent.
-// The rows come from the same functions as the session view (state.js).
+// length, shape and shots, with "Add files" and "Note to the agent" on the same line; then the
+// brief's lines, the plan and the stops at the left and the renders at the right. A part with
+// nothing in it is not drawn (no heading over "none yet"). Read only, as the session view's
+// brief is: you change the brief by telling your agent. The rows come from the same functions as
+// the session view (state.js).
 import React, { useRef } from "react";
 import { renderFileUrl } from "./api.js";
 import { Btn, Icon } from "./controls.jsx";
@@ -27,9 +29,9 @@ function shapeWords(width, height) {
 /**
  * `brief` is briefRows (state.js); `document` the open project's document. `onNote()` starts a
  * note to the agent, `onAddFiles(files)` adds media, `onReopen(row)` and `onKeepAsking()` are the
- * stop lines' buttons, `onExport()` opens the render box and `onCancelRender(id)` stops a render.
+ * stop lines' buttons and `onCancelRender(id)` stops a render (Render itself is on the top line).
  */
-export function BriefScreen({ data, brief, document, onNote, onAddFiles, onReopen, onKeepAsking, onExport, onCancelRender }) {
+export function BriefScreen({ data, brief, document, onNote, onAddFiles, onReopen, onKeepAsking, onCancelRender }) {
   const fileRef = useRef(null);
   const scenes = document?.scenes ?? [];
   const first = scenes[0] ?? null;
@@ -45,20 +47,33 @@ export function BriefScreen({ data, brief, document, onNote, onAddFiles, onReope
   const plan = planRows(data.agent?.plan, 99);
   const stops = stopRows(data);
   const renders = (data.renders ?? []).filter((job) => job.projectId === data.projectId);
+  // Without a brief the page says so in two parts: "No brief" as its headline, the reason under it
+  // (state.js writes them as one line, "no brief: this video was started without one").
+  const [none, why = ""] = String(brief.empty ?? "no brief yet").split(/:\s*/);
+  const left = rest.length > 0 || plan.length > 0 || stops.length > 0;
+  // Two columns only when both sides have something; else one column, and the buttons end at its
+  // edge. With nothing under the facts ("bare") the buttons follow the facts instead.
+  const two = left && renders.length > 0;
   return (
-    <section className="screen brief-page" tabIndex={-1} aria-labelledby="screen-title">
+    <section className={`screen brief-page${two ? "" : " narrow"}${left || renders.length > 0 ? "" : " bare"}`} tabIndex={-1} aria-labelledby="screen-title">
       <h2 id="screen-title" className={headline ? "brief-headline" : "brief-headline none"} aria-label={headline ? `Brief: ${headline.text}` : "Brief"}>
-        {headline ? headline.text : brief.empty ?? "No brief yet."}
+        {headline ? headline.text : capital(none)}
       </h2>
+      {!headline && why ? <p className="brief-why">{capital(why)}.</p> : null}
       <div className="brief-bar">
         <ul className="brief-facts" aria-label="This video">
           {facts.map(([icon, words]) => <li key={icon}><Icon name={icon} />{words}</li>)}
           {brief.replies ? <li className={brief.confirmed ? "ok" : undefined}><Icon name={brief.confirmed ? "check" : "comment"} />{brief.confirmed ? "Confirmed in chat" : brief.noPlayback ? "Not played back" : "Not confirmed yet"}</li> : null}
         </ul>
-        <Btn icon="comment" onClick={onNote} disabled={!first} title="Tell the agent what to change in the brief">Note to the agent</Btn>
+        <span className="brief-actions">
+          <Btn icon="plus" onClick={() => fileRef.current?.click()} disabled={!data.projectId} title="Add media files to this video (or drop them on the window)">Add files</Btn>
+          <input ref={fileRef} type="file" multiple hidden aria-label="Add media files"
+            onChange={(event) => { const files = [...event.target.files]; event.target.value = ""; if (files.length) onAddFiles(files); }} />
+          <Btn icon="comment" onClick={onNote} disabled={!first} title="Tell the agent what to change in the brief">Note to the agent</Btn>
+        </span>
       </div>
-      <div className="brief-cols">
-        <div className="brief-col">
+      {left || renders.length > 0 ? <div className="brief-cols">
+        {left ? <div className="brief-col">
           {rest.length ? <>
             <h3>Brief</h3>
             <ul className="brief-list" aria-label={brief.listLabel}>
@@ -76,8 +91,8 @@ export function BriefScreen({ data, brief, document, onNote, onAddFiles, onReope
             {brief.missing ? <p className="brief-small">{capital(brief.missing)}</p> : null}
             <p className="brief-small">{capital(brief.footnote)}</p>
           </> : null}
-          <h3>Plan</h3>
-          {plan.length === 0 ? <p className="brief-small">No plan yet.</p> : (
+          {plan.length > 0 ? <>
+            <h3>Plan</h3>
             <ol className="brief-plan" aria-label="Plan">
               {plan.map((step, index) => (
                 <li key={index} className={step.state}>
@@ -86,20 +101,14 @@ export function BriefScreen({ data, brief, document, onNote, onAddFiles, onReope
                 </li>
               ))}
             </ol>
-          )}
-          <h3>Stops</h3>
-          <StopLines rows={stops} onReopen={onReopen} onKeepAsking={onKeepAsking} />
-        </div>
-        <div className="brief-col">
-          <h3>Media</h3>
-          <button type="button" className="brief-add" onClick={() => fileRef.current?.click()} disabled={!data.projectId}>
-            <Icon name="plus" /><span>Add files</span>
-          </button>
-          <input ref={fileRef} type="file" multiple hidden aria-label="Add media files"
-            onChange={(event) => { const files = [...event.target.files]; event.target.value = ""; if (files.length) onAddFiles(files); }} />
-          <p className="brief-small">Or drop files on the window.</p>
+          </> : null}
+          {stops.length > 0 ? <>
+            <h3>Stops</h3>
+            <StopLines rows={stops} onReopen={onReopen} onKeepAsking={onKeepAsking} />
+          </> : null}
+        </div> : null}
+        {renders.length > 0 ? <div className="brief-col">
           <h3>Renders</h3>
-          {renders.length === 0 ? <p className="brief-small">None yet.</p> : (
             <ul className="brief-renders" aria-label="Renders">
               {renders.map((job) => (
                 <li key={job.id}>
@@ -113,10 +122,8 @@ export function BriefScreen({ data, brief, document, onNote, onAddFiles, onReope
                 </li>
               ))}
             </ul>
-          )}
-          <Btn icon="film" onClick={onExport} disabled={!data.projectId}>Render</Btn>
-        </div>
-      </div>
+        </div> : null}
+      </div> : null}
     </section>
   );
 }

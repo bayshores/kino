@@ -1949,7 +1949,7 @@ export function Dashboard() {
         onSend={async (text) => { try { await sendNote(text); say("Sent to the agent."); } catch (cause) { fail(cause); throw cause; } }} />,
       inspire: () => <InspireScreen data={data} projectId={projectId} now={now} onBack={back} say={say} keysRef={inspireKeys} still={still} />,
       brief: () => <BriefScreen data={data} brief={brief} document={doc} onNote={() => startNote()} onAddFiles={dropFiles} onReopen={reopenStop} onKeepAsking={keepAsking}
-        onExport={() => exportScene()} onCancelRender={cancelRender} />,
+        onCancelRender={cancelRender} />,
       help: () => <HelpScreen />,
       transcript: () => <TranscriptScreen data={data} />,
     };

@@ -1,13 +1,19 @@
-/* The brief page (briefPage.jsx): one big sentence, a row of facts, then two columns. */
+/* The brief page (briefPage.jsx): one big sentence, a row of facts with the page's two buttons,
+   then the parts that have something in them (two columns when both sides do). */
 .screen.brief-page { display: block; }
 .dash .screen.brief-page .brief-headline { margin: 16px 0 0; max-width: 28ch; font-size: clamp(26px, 2.6vw, 38px); line-height: 1.22; font-weight: 700; letter-spacing: -0.02em; text-wrap: balance; animation: rise-in var(--panel) var(--ease-big) both; }
 .dash .screen.brief-page .brief-headline:not(.none) { max-width: none; }
-.dash .screen.brief-page .brief-headline.none { color: var(--fg1); font-weight: 500; font-size: 22px; }
+.dash .screen.brief-page .brief-headline.none { font-size: 26px; }
+.dash .screen.brief-page .brief-why { margin: 8px 0 0; color: var(--fg1); font-size: 15px; line-height: 22px; }
 .brief-bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin: 28px 0 8px; }
 .brief-facts { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px 26px; color: var(--fg1); font-size: 14px; }
 .brief-facts li { display: inline-flex; align-items: center; gap: 8px; }
 .brief-facts li.ok { color: var(--ok); }
+.brief-actions { display: inline-flex; flex-wrap: wrap; gap: 8px; }
 .brief-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 40px; }
+.brief-page.narrow .brief-cols { grid-template-columns: minmax(0, 720px); }
+.brief-page.narrow .brief-bar { max-width: 720px; }
+.brief-page.bare .brief-bar { justify-content: flex-start; gap: 16px 32px; }
 .brief-col { min-width: 0; }
 .brief-list { list-style: none; margin: 0; padding: 0; }
 .brief-list li { border-bottom: 1px solid var(--line-soft); }
@@ -30,14 +36,8 @@
 .brief-page .stop-lines .actions { margin-top: 8px; gap: 8px; }
 .brief-page .stop-lines .actions .tb { margin: 0; height: 28px; padding: 0 10px; color: var(--fg0); font-weight: 600; font-size: 13px; box-shadow: inset 0 0 0 1px var(--line); }
 .brief-page .stop-lines .actions .tb:hover { background: var(--bg1); box-shadow: inset 0 0 0 1px var(--fg1); }
-.brief-page .stop-footnote, .brief-page .faint.indent { margin: 10px 0 0; padding: 0; color: var(--fg1); font-size: 13px; }
-.brief-add {
-  all: unset; box-sizing: border-box; display: grid; place-content: center; justify-items: center; gap: 8px; width: min(100%, 240px); aspect-ratio: 16 / 9; cursor: pointer;
-  color: var(--fg0); font-size: 14px; box-shadow: inset 0 0 0 1px var(--line); transition: background-color var(--quick) var(--ease-in), box-shadow var(--quick) var(--ease-in);
-}
-.brief-add:hover { background: var(--bg1); box-shadow: inset 0 0 0 1px var(--fg1); }
-.brief-add:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
-.brief-add:disabled { color: var(--fg2); cursor: default; }
+.brief-page .stop-footnote, .brief-page .faint.indent { margin: 10px 0 0; padding: 0; color: var(--fg1); font-size: 13px; text-align: left; }
+.brief-page .stop-footnote::first-letter { text-transform: uppercase; }
 .brief-renders { list-style: none; margin: 0 0 14px; padding: 0; }
 .brief-renders li { display: flex; align-items: center; gap: 14px; min-height: 46px; border-bottom: 1px solid var(--line-soft); }
 .brief-render-name { flex: 1; min-width: 0; color: var(--fg0); }

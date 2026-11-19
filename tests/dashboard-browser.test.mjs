@@ -1769,6 +1769,20 @@ test("the brief shows read only: you said with the agent's quote, guessed, missi
     await browser.waitFor(pageHas("no brief: this video was started without one", "#section-brief"), { what: "orbit's brief: none, and none to come" });
     assert.equal(await browser.evaluate(pageHas("asks", "#section-brief")), false, "no promise of questions the agent is told not to ask");
 
+    // The brief page (the project's name on the top line) says the same as a headline and its
+    // reason, then only what exists: no heading over "none yet", one Add files, no second Render.
+    await browser.click(q("#project-name"));
+    await browser.waitFor(`${textOf(".brief-page .brief-headline")} === "No brief"`, { what: "the brief page of a video with no brief" });
+    const page = await browser.evaluate(`(() => { const page = document.querySelector(".brief-page"); return {
+      why: page.querySelector(".brief-why")?.innerText, buttons: [...page.querySelectorAll("button")].map((each) => each.innerText.trim()),
+      empty: [...page.querySelectorAll("h3")].filter((each) => /^(no .* yet\.?|none yet\.?)$/i.test(each.nextElementSibling?.innerText.trim() ?? "")).map((each) => each.innerText),
+      over: document.documentElement.scrollWidth > innerWidth }; })()`);
+    assert.equal(page.why, "This video was started without one.", "the reason, as a sentence under the headline");
+    assert.deepEqual(page.buttons.filter((words) => ["Add files", "Note to the agent", "Render"].includes(words)), ["Add files", "Note to the agent"], "one Add files and the note; Render is on the top line only");
+    assert.deepEqual([page.empty, page.over], [[], false], "no heading over an empty part, nothing wider than the window");
+    await browser.click(q(".topline .back-stage"));
+    await browser.waitFor(`!document.querySelector(".brief-page")`, { what: "Your video back from the brief page" });
+
     // The agent saves the brief from its chat with the person (notes brief); the dashboard only shows it.
     const made = await agent("project", { action: "create", id: "brief-panel", name: "Brief panel", width: 360, height: 640, duration: 2 });
     assert.equal(made.isError, undefined, made.text);
