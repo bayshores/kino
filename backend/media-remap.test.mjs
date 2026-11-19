@@ -2,12 +2,12 @@
 // on generated footage of a white square moving across black.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createLayer } from "../engine/model.js";
 import { atempoChain } from "./sound-remap.mjs";
-import { extractRemappedFrames, flowFactor, framePosition } from "./media-remap.mjs";
+import { extractRemappedFrames, flowFactor, framePosition, trimFlowCache } from "./media-remap.mjs";
 import { ffmpeg, readImage, run, skipWithoutMediaTools } from "./media.test.support.mjs";
 
 const SIZE = 96;
@@ -83,9 +83,20 @@ test("flow draws the square halfway between two file frames, where blend shows t
   const onFrame = await row(flow.frameFor(4 / 30));
   assert.deepEqual([onFrame.first, onFrame.last], [squareAt(4), squareAt(4) + SQUARE - 1], "on a file frame, flow shows that frame");
 
+  // The flow folder has a size limit: the proxy used longest ago goes first, and using one
+  // counts as new. Two hours ago the proxy was last used, and an older one of 100 bytes is there.
+  const cache = join(root, "flow-cache");
+  const proxy = join(cache, (await readdir(cache)).find((name) => name.endsWith(".mkv")));
+  const older = join(cache, "older.mkv");
+  await writeFile(older, Buffer.alloc(100));
+  const hoursAgo = (hours) => new Date(Date.now() - hours * 3600 * 1000);
+  await utimes(proxy, hoursAgo(2), hoursAgo(2));
+  await utimes(older, hoursAgo(3), hoursAgo(3));
   const again = await extractRemappedFrames(layer("flow"), video, needed, options("flow-again"));
   assert.equal(again.flow.built, false, "the second time, the proxy comes from the cache");
-  assert.equal((await readdir(join(root, "flow-cache"))).filter((name) => name.endsWith(".mkv")).length, 1);
+  assert.ok(Date.now() - (await stat(proxy)).mtimeMs < 60_000, "a used proxy counts as new");
+  assert.equal(await trimFlowCache(cache, { maxBytes: 50 }), 1, "over the limit, the one used longest ago goes; one used in the last hour stays");
+  assert.deepEqual((await readdir(cache)).filter((name) => name.endsWith(".mkv")), [proxy.split("/").at(-1)]);
   // Shown twice as big, the clip uses the same proxy (made at the file's own size, never larger)
   // and its pictures are scaled up afterwards.
   const larger = await extractRemappedFrames(layer("flow"), video, needed, { ...options("flow-larger"), width: 2 * SIZE, height: 2 * SIZE });

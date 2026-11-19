@@ -16,7 +16,7 @@
 // keeps only those frames), already sized for the layer. Blends are mixed here, pixel by pixel.
 import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { lstat, mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readdir, rename, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createCanvas, loadImage } from "@napi-rs/canvas";
 import { encodeRenderPng } from "./render-png.mjs";
@@ -165,6 +165,39 @@ export function defaultFlowCacheDir() {
   return join(process.env.MOTION_DATA_DIR || join(root, ".local", "data"), "cache", "flow");
 }
 
+// The flow folder holds at most this much (a proxy of 5 s of 1080p at 4 frames a file frame is
+// about 250 MB).
+const FLOW_CACHE_BYTES = 4 * 1024 ** 3;
+
+/**
+ * Keeps the flow proxies in `cacheDir` within `maxBytes` (AGENTS.md, Efficiency rules: nothing
+ * grows on disk without a limit): the ones used longest ago go first, half-written ones of a
+ * stopped kino too, and never one made or used in the last `keepMs` (an export may still read
+ * it). A proxy that went is made again by the next export that needs it. Returns how many were
+ * deleted.
+ */
+export async function trimFlowCache(cacheDir, { maxBytes = FLOW_CACHE_BYTES, keepMs = 60 * 60 * 1000, now = Date.now() } = {}) {
+  let names;
+  try { names = await readdir(cacheDir); }
+  catch (error) { if (error.code === "ENOENT") return 0; throw error; }
+  const files = [];
+  for (const name of names.filter((entry) => entry.endsWith(".mkv"))) {
+    const file = join(cacheDir, name);
+    const info = await stat(file).catch(() => null);
+    if (info) files.push({ file, time: info.mtimeMs, size: info.size });
+  }
+  files.sort((a, b) => a.time - b.time);
+  let bytes = files.reduce((sum, entry) => sum + entry.size, 0);
+  let deleted = 0;
+  for (const entry of files) {
+    if (bytes <= maxBytes || now - entry.time < keepMs) break;
+    await rm(entry.file, { force: true });
+    bytes -= entry.size;
+    deleted += 1;
+  }
+  return deleted;
+}
+
 /**
  * How many frames per file frame flow makes: enough that the slowest playing stretch gets a new
  * picture for every export frame (two times a second apart by 1/(4 × fps) need 4), at most 8.
@@ -192,6 +225,9 @@ export async function flowProxy(videoPath, { first, last, fileFps, factor, width
   const path = join(cacheDir, `${key}.mkv`);
   try {
     await lstat(path);
+    // A proxy that is used counts as new, so the ones no export asks for go first (trimFlowCache).
+    const now = new Date();
+    await utimes(path, now, now).catch(() => {});
     return { path, built: false, seconds: 0 };
   } catch {}
   await mkdir(cacheDir, { recursive: true, mode: 0o700 });
@@ -227,6 +263,7 @@ export async function flowProxy(videoPath, { first, last, fileFps, factor, width
     await rm(partial, { force: true });
     throw error;
   }
+  await trimFlowCache(cacheDir).catch(() => {});
   return { path, built: true, seconds: (performance.now() - started) / 1000 };
 }
 
