@@ -172,7 +172,7 @@
 .topline .brand:focus-visible { outline: 1px solid var(--accent); outline-offset: 3px; }
 /* The project's name opens its brief page. */
 .topline .project-name {
-  all: unset; box-sizing: border-box; height: 30px; padding: 0 4px; display: inline-flex; align-items: center; color: var(--fg1); min-width: 0;
+  all: unset; box-sizing: border-box; height: 30px; padding: 0 4px; display: block; line-height: 30px; color: var(--fg1); min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; -webkit-app-region: no-drag; transition: color var(--quick) var(--ease-in);
 }
 .topline .project-name:hover, .topline .project-name.current { color: var(--fg0); }
@@ -246,6 +246,10 @@
 .top-right .follow.on:hover { background: var(--bg1); }
 .top-right .follow.on .follow-box { border-color: var(--yellow); background: var(--yellow); color: var(--on-yellow); }
 .top-right .follow .follow-box .ui-icon { width: 11px; height: 11px; stroke-width: 2; }
+/* History: shows and hides the earlier lines beside (or under) the frame; full ink while they show. */
+.top-right .history-toggle.on { color: var(--fg0); background: none; }
+.top-right .history-toggle.on:hover { background: var(--bg1); }
+.top-right .history-toggle:disabled { opacity: 0.45; cursor: default; }
 /* Your video: on any screen but the stage, right after the project's name; it goes back to the stage. */
 .topline .back-stage { display: inline-flex; align-items: center; gap: 8px; flex: none; height: 34px; padding: 0 10px; color: var(--fg-mid); font-weight: 500;
   transition: color var(--quick) var(--ease-in), background-color var(--quick) var(--ease-in); }

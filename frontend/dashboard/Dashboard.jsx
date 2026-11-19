@@ -1523,7 +1523,7 @@ export function Dashboard() {
         if (point) { pointAt(null); return; }
         if (checkpoint) { setCheckpoint(null); say("Showing now."); return; }
         if (selectedLayer) { selectLayer(null); return; }
-        // Under the frame the history closes; beside the frame it stays (its own button hides it).
+        // Under the frame the history closes; beside the frame it stays (History on the top line hides it).
         if (listOpen && !phone && !wide) { setListOpen(false); focusPane(1); return; }
         if (zoomed) setZoomed(false);
         return;
@@ -1717,6 +1717,10 @@ export function Dashboard() {
       ))}
     </span>
   );
+  // A reference being read has the frame (the stage only, never on a phone or under a pane that
+  // fills the window), and the history waits until the video is back.
+  const refFront = screen.name === "main" && !phone && front === "reference" && Boolean(reading) && !zoomed;
+  const historyShown = listOpen && !refFront && !(zoomed && pane !== 2);
   const topline = (
     <header className="topline" inert={waiting}>
       <span className="title" title={projectName ? `kino: ${projectName}` : undefined}>
@@ -1746,6 +1750,15 @@ export function Dashboard() {
         {message ? <span className={`message ${message.error ? "err" : "dim"}`} title={message.text}>{message.text}</span> : null}
       </div>
       <span className="top-right">
+        {/* History: the one button that shows and hides the earlier lines, checks and notes, in the
+            same place open or closed. First in the row, so the others stay put on a screen without it. */}
+        {screen.name === "main" && !phone ? (
+          <button type="button" className={`tb top-button history-toggle${historyShown ? " on" : ""}`} aria-pressed={historyShown} aria-keyshortcuts="2" disabled={refFront}
+            aria-label={historyShown ? "History. Hide it" : "History. Show it"}
+            title={refFront ? "The history is back when the reference has been read" : historyShown ? "Hide the history" : "Show the history: earlier lines, checks and notes (2)"}
+            onClick={() => { if (listOpen) { setListOpen(false); focusPane(1); } else { setAgentViewOnly("agent"); focusPane(2); } }}>
+            <ToolIcon name="history" /><span className="tab-word">History</span></button>
+        ) : null}
         {/* Follow agent (f): the stage goes where the agent works; a check while on, an empty box while off. */}
         <button type="button" className={`tb top-button follow${follow ? " on" : ""}`} aria-pressed={follow} aria-keyshortcuts="f" title="Follow the agent (f)" onClick={() => run("follow")}>
           <span className="follow-box" aria-hidden="true">{follow ? <LineIcon name="check" /> : null}</span>Follow agent</button>
@@ -1852,7 +1865,6 @@ export function Dashboard() {
       </main>
     );
   } else if (screen.name === "main") {
-    const refFront = front === "reference" && Boolean(reading) && !phone && !zoomed;
     body = (
       <main className={`panes screening${refFront ? " ref-front" : listOpen && !(zoomed && pane !== 2) ? (wide ? " side" : " list-open") : ""}${stripOpen ? " strip-open" : ""}${zoomed ? " zoomed" : ""}${listOpen && agentView === "seen" && enlarged && seenFiles.includes(enlarged) ? " seen-open" : ""}`} aria-label="Dashboard" inert={waiting}
         style={{ "--stage-aspect": scene?.width && scene?.height ? scene.width / scene.height : 16 / 9 }}>
@@ -1865,14 +1877,13 @@ export function Dashboard() {
             (+) takes the history's room too. */}
         {listOpen && !refFront ? (
           <AgentPane {...paneProps(2)} data={data} agent={askingAgent ?? agentShown} still={still} now={now} view={agentView} onView={setAgentView} needs={needs.length} follow={follow} checks={checks} onRun={run} onAnswer={answer} onMaterial={answerMaterial}
-            onClose={() => { setListOpen(false); focusPane(1); }} closeTitle={wide ? "Hide the history" : "Close (Esc)"} noteLine={noteLine} views={{
+            underStage noteLine={noteLine} views={{
               session, log, checks: log, notes: log,
               seen: <SeenPane data={data} cursor={cursors[3]} enlarged={enlarged} onEnlarge={setEnlarged} still={still} onSelect={pickSeen} bare />,
             }} />
         ) : null}
-        {noteField ?? <Voice data={data} agent={askingAgent ?? agentShown} now={now} scene={scene} time={time} still={still} listOpen={listOpen}
-          onRun={run} onAnswer={answer} onMaterial={answerMaterial} onCancelRender={() => cancelRender()} onStopRecording={stopRecording} ask={inlineAsk} onShare={() => setShareOpen(true)}
-          onHistory={() => { setAgentViewOnly("agent"); focusPane(2); }} />}
+        {noteField ?? <Voice data={data} agent={askingAgent ?? agentShown} now={now} scene={scene} time={time} still={still}
+          onRun={run} onAnswer={answer} onMaterial={answerMaterial} onCancelRender={() => cancelRender()} onStopRecording={stopRecording} ask={inlineAsk} onShare={() => setShareOpen(true)} />}
         <TimelinePane {...paneProps(3)} data={data} scene={scene} time={time} cursor={list === 5 ? cursors[5] : -1} selectedLayer={selectedLayer}
           onSeek={(value) => { stopPlaying(); setView((current) => ({ ...current, time: value })); }} onSelectLayer={selectLayer} onTurn={selectTurn} viewTurn={checkpoint?.turn ?? null}
           playing={playing} timeStore={timeStore} point={pointedRange ? point : null} onPoint={pointAt} still={still} now={now}

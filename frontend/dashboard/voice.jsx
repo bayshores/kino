@@ -57,9 +57,9 @@ function BeforeAfter({ data, scene, time, before, after }) {
  * dashboard's commands ("allow", "deny", "undo", "hold"), `onAnswer(id, decision, always)` answers
  * an approval, `onMaterial(need, answer)` a material question, `onCancelRender()` stops the
  * render, `onStopRecording()` a screen recording, `onShare()` opens the share box (a finished
- * render offers it), and `onHistory()` opens the earlier lines.
+ * render offers it).
  */
-export function Voice({ data, agent, now, scene, time, still, listOpen = false, ask = null, onRun, onAnswer, onMaterial, onCancelRender, onStopRecording, onHistory, onShare }) {
+export function Voice({ data, agent, now, scene, time, still, ask = null, onRun, onAnswer, onMaterial, onCancelRender, onStopRecording, onShare }) {
   const nameOf = (id) => data.agents?.find((entry) => entry.id === id)?.name;
   const live = voiceLine(data, agent, now, nameOf);
   // The line a person pastes into their agent's chat to bring it back to this project.
@@ -141,12 +141,6 @@ export function Voice({ data, agent, now, scene, time, still, listOpen = false, 
         <span className="voice-tools">
           {line.before?.rev != null && line.state !== "need" && line.state !== "ask" ? (
             <button type="button" className="voice-icon" onClick={() => onRun("undo")} aria-label="Undo the last turn" title="Undo the last turn (u)" aria-keyshortcuts="u"><ToolIcon name="undo" />Undo</button>
-          ) : null}
-          {/* Shown while the history is closed (also before any agent has called: the note box is
-              in there); open, the history's own button closes it. */}
-          {!listOpen ? (
-            <button type="button" className="voice-icon" onClick={onHistory} aria-expanded={false} aria-label="Earlier lines" title="Earlier lines, checks and notes">
-              <ToolIcon name="history" />History</button>
           ) : null}
         </span>
       </div>

@@ -11,7 +11,6 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { layerButton, q, sleep, startDashboard, textOf, until } from "./dashboard-browser.support.mjs";
-import { createDocument, createScene, parseDocument } from "../engine/model.js";
 
 let dashboard;
 let server;
@@ -342,20 +341,4 @@ test("quiet on: 31 s after the agent's last call, with the window in the backgro
     await browser.send("Page.removeScriptToEvaluateOnNewDocument", { identifier });
     await asDashboard("settings", { notify: { quiet: false } }, "PUT");
   }
-});
-
-test("before any agent has called in a project, History beside the waiting line opens the closed history again", async () => {
-  // Made through the projects route: no agent call is in it, so the line says "Waiting for an agent."
-  const document = parseDocument(createDocument({ id: "unvisited", name: "Unvisited", scenes: [createScene({ id: "main", name: "Main", width: 640, height: 360, duration: 2 })] }));
-  assert.equal((await server.api("/api/projects", { method: "POST", body: { document } })).status, 201);
-  await dashboard.open();
-  await browser.key(":");
-  await browser.waitFor(`document.activeElement?.id === "command-input"`, { what: "the command list" });
-  await browser.type("open unvisited");
-  await browser.key("Enter");
-  await browser.waitFor(`document.querySelector(".dash")?.dataset.project === "unvisited" && !!document.querySelector(".voice.is-empty")`, { what: "the project without an agent on the stage" });
-  if (await browser.evaluate(`!!document.querySelector(".p-agent .view-close")`)) await browser.click(q(".p-agent .view-close"));
-  await browser.waitFor(`!document.querySelector("#tab-agent") && !!${q('button[aria-label="Earlier lines"]')}`, { what: "the history closed, with History on the waiting line" });
-  await browser.click(q('button[aria-label="Earlier lines"]'));
-  await browser.waitFor(`!!document.querySelector("#tab-agent")`, { what: "the history open again" });
 });

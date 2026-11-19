@@ -211,15 +211,20 @@ test("the dashboard is the default view at /, with real frames from the export r
   const [frameAt, historyAt, stripAt] = [await browser.evaluate(box(".screening .stage")), await browser.evaluate(box(".p-agent")), await browser.evaluate(box(".p-timeline"))];
   assert.ok(historyAt.left > frameAt.right, `the history is right of the frame: ${JSON.stringify({ frameAt, historyAt })}`);
   assert.ok(Math.abs(historyAt.top - frameAt.top) < 1.5 && Math.abs(historyAt.bottom - stripAt.bottom) < 1.5, `the history keeps the frame's top and the strip's bottom: ${JSON.stringify({ frameAt, historyAt, stripAt })}`);
-  // Its close button is the one control that closes it; closed, "History" beside the agent's line opens it.
-  assert.equal(await browser.evaluate(`!!${q('button[aria-label="Earlier lines"]')}`), false, "no second button while the history is open");
-  await browser.click(q(".p-agent .view-close"));
-  await browser.waitFor(`!document.querySelector("#tab-agent") && !!${q('button[aria-label="Earlier lines"]')}`, { what: "the history closed" });
+  // History on the top line is the one control that hides and shows it, in the same place both ways.
+  const historyButton = q(".top-right .history-toggle");
+  const historyAtX = `Math.round(${historyButton}.getBoundingClientRect().left)`;
+  assert.equal(await browser.evaluate(`document.querySelectorAll(".p-agent .view-close, .voice-tools .voice-icon[aria-label='Earlier lines']").length`), 0, "no second button for it");
+  assert.equal(await browser.evaluate(`${historyButton}.getAttribute("aria-pressed")`), "true");
+  const shownAtX = await browser.evaluate(historyAtX);
+  await browser.click(historyButton);
+  await browser.waitFor(`!document.querySelector("#tab-agent") && ${historyButton}.getAttribute("aria-pressed") === "false"`, { what: "the history hidden" });
+  assert.equal(await browser.evaluate(historyAtX), shownAtX, "History stays where it was");
   titles = await browser.evaluate(paneTitles);
   assert.equal(titles.length, 2, JSON.stringify(titles));
   // Closed stays closed after a reload (kept in this browser).
   await open();
-  await browser.waitFor(`!!${q('button[aria-label="Earlier lines"]')}`, { what: "the history still closed" });
+  await browser.waitFor(`${historyButton}?.getAttribute("aria-pressed") === "false"`, { what: "the history still hidden" });
   assert.equal(await browser.evaluate(`!!document.querySelector("#tab-agent")`), false, "the list is closed");
   // Under the frame: the agent's line, in a sentence.
   assert.ok(await browser.evaluate(textOf(".voice-line")).then((text) => text.trim().length > 0), "the agent's line says something");
@@ -231,8 +236,8 @@ test("the dashboard is the default view at /, with real frames from the export r
   // The stage's header says the frame's size, rate, quality and revision; its tooltip says it all.
   assert.match(await browser.evaluate(textOf(".stage-label")), /^\d+×\d+\s+30fps\s+draft\s+rev \d+$/);
   assert.match(await browser.evaluate(`${q(".stage-label")}.title`), /^preview \d+×\d+ · 30fps · draft · rev \d+ · exact frame$/);
-  // The list of calls opens from the clock icon beside the agent's line (or a command, or a key).
-  await browser.click(q('button[aria-label="Earlier lines"]'));
+  // The list of calls opens from History on the top line (or a command, or the key 2).
+  await browser.click(historyButton);
   await browser.waitFor(`${q("#tab-agent")}?.getAttribute("aria-selected") === "true" && !!document.querySelector("#panel-agent")`, { what: "the list open on the agent view" });
   // The agent view: the agent's call that made the headline, and its plan step as its task.
   await browser.waitFor(pageHas("Added rectangle card", "#panel-agent"), { what: "the edit in the agent's log" });

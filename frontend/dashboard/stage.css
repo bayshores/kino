@@ -250,8 +250,6 @@
 .screening > .p-agent.live-pane .view-tabs .view-tab:hover { color: var(--fg0); background: var(--bg1); }
 .screening > .p-agent.live-pane .view-tabs .view-tab[aria-selected="true"] { background: var(--solid); color: var(--on-solid); font-weight: 700; box-shadow: none; }
 .screening .view-tab .tab-count { min-width: 16px; height: 16px; padding: 0 4px; display: inline-grid; place-items: center; background: var(--yellow); color: var(--on-yellow); font-family: var(--mono-ui); font-size: 10px; }
-.screening .view-close { flex: none; margin-left: auto; width: 28px; height: 28px; color: var(--fg1); }
-.screening .view-close:hover { color: var(--fg0); background: var(--bg1); }
 .screening .view-body { min-height: 0; overflow: auto; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
 /* A call: the time (mono), the tool, the words; the row under the pointer is filled. */
 .screening .agent-view { padding: 0; grid-template-rows: auto minmax(0, 1fr) auto; height: 100%; }
