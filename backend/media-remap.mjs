@@ -102,7 +102,7 @@ async function readFrames(input, indices, fps, { folder, prefix, width, height, 
       // trim ends it after the run's last frame; select keeps the ones used, in order.
       filters: [`trim=end_frame=${run.at(-1).to - base + 1}`, `select='${terms.join("+")}'`, pictureScale(width, height, size)],
       // Quick PNG compression (lossless either way): these pictures live only as long as the export.
-      outputArgs: ["-an", "-sn", "-dn", "-compression_level", "1", "-start_number", "0"],
+      outputArgs: ["-an", "-sn", "-dn", "-compression_level", "0", "-pred", "none", "-start_number", "0"],
     }), signal);
     const pattern = new RegExp(`^${name}\\d{6}\\.png$`);
     const written = (await readdir(folder)).filter((file) => pattern.test(file)).length;

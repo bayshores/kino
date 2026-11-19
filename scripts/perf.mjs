@@ -10,6 +10,8 @@
 // time should not grow with the number of projects.
 // Export: a 4 s 1080p MP4 of 12 moving bars and a title, drawn by Resvg, in frames a second: the
 // median of 3 exports, each of a scene no export before it drew, after one untimed warm-up.
+// Footage: the same for 2 s of a 1080p clip that pushes in. FFmpeg makes the clip: fixed grain over
+// a moving pattern, about 16 Mbit a second and 3 MB a PNG picture, close to camera footage.
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { cpus, tmpdir } from "node:os";
 import path from "node:path";
@@ -87,12 +89,23 @@ function exportScene4s(title, duration = 4) {
   return createScene({ id: "perf-export", name: "perf export", width: 1920, height: 1080, duration, background: "#101114", layers });
 }
 
+const FOOTAGE = "00000000-0000-4000-8000-0000000000aa.mp4";
+function footageScene2s(title) {
+  return createScene({ id: "perf-footage", name: "perf footage", width: 1920, height: 1080, duration: 2, background: "#101114", layers: [
+    createLayer("video", { id: "clip", name: "clip", src: `/api/media/${FOOTAGE}`, mediaDuration: 2, x: 0, y: 0, width: 1920, height: 1080,
+      animations: [{ id: "push", name: "push", kind: "custom", start: 0, duration: 2, easing: "linear", from: { scaleX: 1, scaleY: 1 }, to: { scaleX: 1.08, scaleY: 1.08 } }] }),
+    createLayer("text", { id: "title", name: "Title", text: `kino / ${title}`, x: 120, y: 75, width: 1650, height: 120,
+      fontFamily: "Inter", fontWeight: 600, fontSize: 86, fill: "#F0F0F0" })] });
+}
+
 async function measureExport() {
   const { exportScene } = await import("../backend/export.mjs");
   const { loadBundledFonts } = await import("../backend/fonts.mjs");
   const fonts = await loadBundledFonts();
   const directory = await mkdtemp(path.join(tmpdir(), "kino-perf-"));
   try {
+    execFileSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "mandelbrot=size=1920x1080:rate=30", "-vf", "noise=alls=8:allf=u",
+      "-t", "2", "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p", path.join(directory, FOOTAGE)]);
     // Not timed: the first export starts the drawing workers and asks FFmpeg which encoders it has.
     await exportScene(exportScene4s("warm up", 0.5), { format: "mp4", fps: 30, width: 1920 }, { fonts, outputPath: path.join(directory, "warm.mp4") });
     const results = {};
@@ -106,6 +119,13 @@ async function measureExport() {
       const elapsed = median(times);
       results[name] = { seconds: round(elapsed / 1000), framesPerSecond: round(120 * 1000 / elapsed) };
     }
+    const times = [];
+    for (let run = 0; run < 3; run++) {
+      const started = performance.now();
+      await exportScene(footageScene2s(`footage ${run}`), { format: "mp4", fps: 30, width: 1920 }, { fonts, mediaRoot: directory, outputPath: path.join(directory, "footage-out.mp4") });
+      times.push(performance.now() - started);
+    }
+    results.footage = { seconds: round(median(times) / 1000), framesPerSecond: round(60 * 1000 / median(times)) };
     return results;
   } finally { await rm(directory, { recursive: true, force: true }); }
 }
@@ -129,7 +149,7 @@ if (report.calls) {
   }
 }
 if (report.export) {
-  console.log("4 s 1080p MP4 export:");
+  console.log("1080p MP4 export (draft and final: 4 s of shapes; footage: 2 s of a clip pushing in):");
   for (const [name, row] of Object.entries(report.export))
     console.log(`  ${name}: ${row.seconds} s, ${row.framesPerSecond} frames a second${was(baseline?.export?.[name]?.framesPerSecond)}`);
 }

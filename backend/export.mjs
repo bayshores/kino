@@ -584,7 +584,7 @@ async function extractVideoFrames(layer, videoPath, { folder, fps, sceneTimes, d
       count: keep ? keep.length : count,
       decoderArgs,
       filters: keep ? [selectSamples(keep), ...filters] : filters,
-      outputArgs: ["-an", "-sn", "-dn", "-start_number", "0"],
+      outputArgs: ["-an", "-sn", "-dn", "-compression_level", "0", "-pred", "none", "-start_number", "0"],
     }), signal);
     const pattern = new RegExp(`^${prefix}\\d{6}\\.png$`);
     const written = (await readdir(folder)).filter((name) => pattern.test(name)).length;
