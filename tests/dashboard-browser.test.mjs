@@ -86,6 +86,9 @@ async function approval(id) {
 }
 
 const inboxText = (reply) => (reply.data?.inbox ?? []).map((entry) => (typeof entry === "string" ? entry : entry.text)).join("\n") || reply.text;
+// What the page did reaches the agent's inbox a moment after the page shows it (an allowed call
+// runs first, dashboard.mjs answer), and a status call takes a few ms: ask until the line is there.
+const inboxSays = (pattern) => until(async () => pattern.test(inboxText(await agent("status"))), `the inbox to say ${pattern}`);
 
 // The same call asked twice while it waits is one request (the second gets the first's id), so
 // two requests at once need two roles.
@@ -269,7 +272,7 @@ test("approvals by keyboard: Tab adds a note, a allows once, A always allows, d 
   await browser.key("a");
   await until(async () => (await approval(id))?.status === "allowed", "allow once");
   assert.equal((await approval(id)).note, "ok for the client");
-  assert.match(inboxText(await agent("status")), new RegExp(`${id} allowed · your note: "ok for the client": Created sharing link \\(secret omitted\\)`));
+  await inboxSays(new RegExp(`${id} allowed · your note: "ok for the client": Created sharing link \\(secret omitted\\)`));
   await browser.waitFor(pageHas("Allowed", ".screen"));
   assert.equal(await browser.evaluate(`document.querySelector(".screen")?.textContent.includes("#share=")`), false, "the card never shows the URL");
   await browser.key("Escape");
@@ -290,7 +293,7 @@ test("approvals by keyboard: Tab adds a note, a allows once, A always allows, d 
   await browser.key("d");
   await until(async () => (await approval(archive.data.id))?.status === "denied", "deny");
   assert.ok((await snapshot()).projects.some((project) => project.id === "orbit"), "nothing was archived");
-  assert.match(inboxText(await agent("status")), new RegExp(`${archive.data.id} denied by the person`));
+  await inboxSays(new RegExp(`${archive.data.id} denied by the person`));
 
   id = await share();
   await browser.key("D");
@@ -378,7 +381,7 @@ test("a note goes queued, working, fixed; Looks good folds it into done with the
   const item = `(${card})?.innerText ?? ""`;
   await browser.waitFor(`(${item}).includes("queued")`, { what: "queued" });
   await browser.waitFor(`document.querySelector('[aria-live="polite"][aria-atomic="true"]')?.textContent.includes(${JSON.stringify(`${note.id} queued`)})`, { what: "the polite announcement" });
-  assert.match(inboxText(await agent("status")), new RegExp(`${note.id} note.*"Make the card bigger"`));
+  await inboxSays(new RegExp(`${note.id} note.*"Make the card bigger"`));
   await browser.waitFor(`(${item}).includes("working")`, { what: "working" });
   // Any open note can be closed by you, before the agent answers.
   await browser.waitFor(`!!(${card}).querySelector('[aria-label="${note.id} done"]')`, { what: "the done button" });
@@ -606,7 +609,7 @@ test("undo by keyboard: u asks first (n keeps it), y reverts, and the agent is t
   await browser.key("y");
   await until(async () => (await snapshot()).record.revision === rev + 1, "the revert");
   assert.equal(await cardWidth(), before);
-  assert.match(inboxText(await agent("status")), new RegExp(`you reverted ${turn}`));
+  await inboxSays(new RegExp(`you reverted ${turn}`));
   const rowOf = (id) => `[...document.querySelectorAll(".log-row")].find((element) => element.innerText.startsWith(${JSON.stringify(id)}))`;
   // The undone turn keeps a tick, dimmed, and says "reverted at rev N"; a screen reader says "undone".
   await browser.waitFor(`!!${rowOf(turn)}?.querySelector(".mark.s-undone.m-done svg")`, { what: "the undone mark" });
@@ -653,7 +656,7 @@ test("undo by mouse: a log row opens the turn review, its revert button asks, th
   await browser.click(button("Revert", '[role="alertdialog"]'));
   await until(async () => (await snapshot()).record.revision === rev + 1, "the revert");
   assert.equal(await cardWidth(), before);
-  assert.match(inboxText(await agent("status")), new RegExp(`you reverted ${turn}`));
+  await inboxSays(new RegExp(`you reverted ${turn}`));
 });
 
 test("hold by keyboard and by mouse pauses agent writes, and the agent is told", async () => {
@@ -666,7 +669,7 @@ test("hold by keyboard and by mouse pauses agent writes, and the agent is told",
   assert.equal((await snapshot()).record.revision, rev);
   await browser.key("h");
   await browser.waitFor(holdOff, { what: "h releases it" });
-  assert.match(inboxText(await agent("status")), /hold released: agent writes work again/);
+  await inboxSays(/hold released: agent writes work again/);
 
   await browser.click(holdButton);
   await browser.waitFor(holdOn, { what: "the hold by mouse" });
@@ -1695,7 +1698,8 @@ test("the phone layout puts approvals first and an approval is answered with a t
     await browser.shot("phone-approval");
     await browser.tap(button("Allow", ".phone-stack .approval-card"));
     await until(async () => (await approval(id))?.status === "allowed", "the tap");
-    assert.match(inboxText(await agent("status")), new RegExp(`${id} allowed: Created sharing link \\(secret omitted\\)`), "the inbox line never holds the URL");
+    // The inbox line never holds the URL.
+    await inboxSays(new RegExp(`${id} allowed: Created sharing link \\(secret omitted\\)`));
     await browser.waitFor(`!${q(".phone-stack")}.firstElementChild?.matches("article.approval-card")`, { what: "the card to leave" });
   } finally {
     await browser.send("Emulation.setTouchEmulationEnabled", { enabled: false });
