@@ -39,6 +39,7 @@ import { listenForEditCommands } from "../desktopEdit.js";
 import { askForNotifications, notify, showCount } from "./notify.js";
 import { clock, cut } from "./format.js";
 import { Icon, LogPane, lookMoment, Menu, SeenPane, SessionPane, StagePane, StatusLine, TimelinePane, useSections } from "./panes.jsx";
+import { Icon as LineIcon } from "./controls.jsx";
 import { agentChips, idleLine, renderAgent, runningRender } from "./topbar.js";
 import { usePreviewList } from "./previewCache.jsx";
 import { AgentPane } from "./agentPane.jsx";
@@ -1701,14 +1702,10 @@ export function Dashboard() {
     else if (value === "final" || value === "draft") exportScene({ quality: value });
     else exportScene({ quality: "final", format: value });
   };
-  const tab = (name, icon, word, onClick, key, extra = null) => (
-    <button type="button" className="tab" data-view={name} aria-current={screen.name === name ? "page" : undefined} aria-keyshortcuts={key} title={`${word} (${key})`} onClick={onClick}>
-      <Icon name={icon} /><span className="tab-word">{word}</span>{extra}
-    </button>
-  );
-  // The top line: kino (all projects), the project, then at the right the views, hold, share,
-  // settings, the theme and render. What the agent does and what waits for you are under the
-  // frame, not here.
+  // The top line: kino (all projects), the project and, on any other screen, "Your video" (back to
+  // the stage); at the right follow agent, hold, share, settings, the theme and render. The other
+  // screens open from the settings screen, their keys (F2 to F4) and the command list. What the
+  // agent does and what waits for you are under the frame, not here.
   // One chip per agent at work: its color, its name and what it does in a few words.
   const chipsAtWork = (
     <span className="agent-chips" aria-label="Agents at work">
@@ -1727,6 +1724,10 @@ export function Dashboard() {
         {projectName ? <><span className="sr-only">, </span>
           <button type="button" id="project-name" className={`project-name${screen.name === "brief" ? " current" : ""}`} aria-current={screen.name === "brief" ? "page" : undefined}
             onClick={() => setScreen({ name: "brief" })} title="The brief, plan and media of this video" aria-label={`Project: ${projectName}. Its brief.`}>{cut(projectName, 28)}</button></> : null}
+        {screen.name !== "main" ? (
+          <button type="button" className="tb top-button back-stage" data-view="main" aria-keyshortcuts="F1" title="Back to your video (F1)" onClick={() => run("stage")}>
+            <LineIcon name="back" />Your video</button>
+        ) : null}
       </span>
       <div className={`topbar${asking ? " asking" : ""}`}>
         {!phone ? (
@@ -1742,19 +1743,12 @@ export function Dashboard() {
             {phone && asking.keys[1] ? <button type="button" className="tb chip-answer" onClick={() => run("deny")} aria-keyshortcuts="d" title={`${asking.keys[1][1]} (d)`}>{asking.keys[1][1]}</button> : null}
           </span>
         ) : workChips.length ? chipsAtWork : idleLine(data, now) ? <span className="idle-line">{idleLine(data, now)}</span> : <span className="idle-line">no agent yet</span>}
-        {/* Follow is on unless you turn it off (f); only "off" is shown, as a reminder. */}
-        {!follow || phone ? <button type="button" className={`tb follow${follow ? " on" : ""}`} aria-pressed={follow} aria-keyshortcuts="f" title="Follow the agent (f)" onClick={() => run("follow")}><span className="dot" aria-hidden="true" /><span className="tab-word"> follow {follow ? "on" : "off"}</span></button> : null}
         {message ? <span className={`message ${message.error ? "err" : "dim"}`} title={message.text}>{message.text}</span> : null}
       </div>
-      {/* The views: the stage (F1), the crew (F2; it counts what waits for you), inspire (F3) and the library (F4). */}
-      <nav className="tabs" aria-label="Views">
-        {tab("main", "monitor", "Stage", () => run("stage"), "F1")}
-        {tab("crew", "users", "Crew", () => setScreen({ name: "crew" }), "F2",
-          needs.length ? <span className="tab-count" aria-label={`, ${needs.length} waiting for you`}>{needs.length}</span> : null)}
-        {tab("inspire", "compass", "Inspire", () => setScreen({ name: "inspire" }), "F3")}
-        {tab("library", "library", "Library", () => setScreen({ name: "library" }), "F4")}
-      </nav>
       <span className="top-right">
+        {/* Follow agent (f): the stage goes where the agent works; a check while on, an empty box while off. */}
+        <button type="button" className={`tb top-button follow${follow ? " on" : ""}`} aria-pressed={follow} aria-keyshortcuts="f" title="Follow the agent (f)" onClick={() => run("follow")}>
+          <span className="follow-box" aria-hidden="true">{follow ? <LineIcon name="check" /> : null}</span>Follow agent</button>
         {data.recording ? (
           <button type="button" className="tb top-button recording" onClick={stopRecording}
             title="An agent is recording the screen. Stop it (the recording so far is kept)" aria-label={`Recording the screen, ${recClock(now - data.recording.startedAt)}. Stop recording`}>
@@ -1891,7 +1885,7 @@ export function Dashboard() {
     const screens = {
       projects: () => <ProjectsScreen data={data} cursor={cursors.projects} onCursor={(index) => setCursors((value) => ({ ...value, projects: index }))} onOpen={openProject}
         onDuplicate={(id) => projectAction("duplicate", id)} onArchive={archive} onRestore={restore} onBack={back} />,
-      settings: () => <SettingsScreen data={data} now={now} notificationState={notificationState}
+      settings: () => <SettingsScreen data={data} now={now} notificationState={notificationState} phone={phone} onScreen={(name) => setScreen({ name })}
         onAskNotifications={async () => setNotificationState(await askForNotifications())}
         onSave={saveSettings} stops={<StopSettings settings={data.settings} onSave={saveSettings} />}
         onClearCache={async () => { try { const value = await server.clearCache(); say("Frame cache cleared."); return value; } catch (cause) { fail(cause); return null; } }}

@@ -5,7 +5,7 @@
 // It comes before the approvals: its stops hold a final render, so they must not be missed.
 //
 // Keys on this screen: ↑ ↓ (and j k) move between rows, ← → change a choice, typing the start of
-// an option picks it, 1 to 7 jump to a section, c copies "kino setup", y the MCP config, d detects
+// an option picks it, 1 to 8 jump to a section, c copies "kino setup", y the MCP config, d detects
 // this computer's graphics cards and encoders again. Esc goes back (Dashboard.jsx).
 import React, { useEffect, useRef, useState } from "react";
 import "./settings.css";
@@ -26,8 +26,11 @@ const LIMITED_FIRST = ["final-render", "large-import", ...APPROVAL_KINDS.filter(
 // The colors of a chosen ask, allow or deny (the dot in its chip).
 export const POLICY_COLORS = { ask: "var(--accent)", allow: "var(--ok)", deny: "var(--urgent)" };
 
-// The sections, in page order: the nav at the left lists them, and 1 to 7 jump to them.
-const SECTIONS = [["1", "Agents"], ["2", "Stops"], ["3", "Approvals"], ["4", "Export"], ["5", "Render"], ["6", "Notify"], ["7", "Storage"]];
+// The sections, in page order: the nav at the left lists them, and 1 to 8 jump to them.
+const SECTIONS = [["1", "Agents"], ["2", "Stops"], ["3", "Approvals"], ["4", "Export"], ["5", "Render"], ["6", "Notify"], ["7", "Storage"], ["8", "Screens"]];
+
+// The screens the top line has no word for: each opens from here (and by its key or the command list).
+const SCREENS = [["inspire", "References"], ["library", "Library"], ["crew", "Agents"]];
 
 // "rough cut" → "Rough cut": the words the page shows start with a capital.
 const sentence = (text) => (typeof text === "string" && text ? text[0].toUpperCase() + text.slice(1) : text);
@@ -282,8 +285,9 @@ function AgentName({ name, called }) {
   );
 }
 
-// `stops` is the stops pane (StopSettings in stops.jsx), pane 2.
-export function SettingsScreen({ data, onSave: saveTo, onClearCache, onClearRenderCache, notificationState, onAskNotifications, now, stops = null }) {
+// `stops` is the stops pane (StopSettings in stops.jsx), pane 2. `onScreen(name)` opens another
+// screen (pane 8); a phone has no library screen button, as it had no library tab.
+export function SettingsScreen({ data, onSave: saveTo, onClearCache, onClearRenderCache, notificationState, onAskNotifications, now, stops = null, onScreen = null, phone = false }) {
   const settings = data.settings;
   // "saved" shows under the panes for a few seconds after each change made here.
   const [savedAt, setSaved] = useState(0);
@@ -619,6 +623,18 @@ export function SettingsScreen({ data, onSave: saveTo, onClearCache, onClearRend
             <Btn id="set-data-copy" className="set-clear" icon={copied === "data" ? "check" : "copy"} aria-describedby="set-data-copy-hint" disabled={!dataFolder}
               onClick={() => copy("data", dataFolder)}>{copied === "data" ? "Copied" : "Copy"}<span className="sr-only"> the data folder's path</span></Btn>
           </SettingRow>
+        </SettingsPane>
+
+        <SettingsPane number="8" name="screens">
+          <div className="set-item">
+            <div className="set-row">
+              <span className="set-control set-screens">
+                {SCREENS.filter(([name]) => !(phone && name === "library")).map(([name, word]) => (
+                  <Btn key={name} className="set-clear" data-screen={name} disabled={!onScreen} onClick={() => onScreen?.(name)}>{word}</Btn>
+                ))}
+              </span>
+            </div>
+          </div>
         </SettingsPane>
       </div>
     </Screen>

@@ -58,6 +58,8 @@
 
 /* ---- controls in a row ---- */
 .dash .screen.settings .set-control .ui-btn { min-height: 30px; padding: 0 12px; font-size: 13px; }
+/* The screens pane: its buttons from the left, as the row has no label. */
+.set-control.set-screens { margin-left: 0; justify-content: flex-start; }
 .set-key, .set-clear { color: var(--fg1); }
 .set-key:hover, .set-clear:hover { color: var(--fg0); }
 

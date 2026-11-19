@@ -2062,7 +2062,8 @@ edit by hand. Dark and light, no purple. Main tests: `backend/dashboard.test.mjs
 - **Hold and turn undo**: Verified. `h` holds agent writes; `u` undoes a turn and the agent is told.
   Evidence: `backend/dashboard.test.mjs`.
 - **F1 layout**: Verified. Top line, stage with transport, agent pane, timeline with story, media and
-  agent lanes. Evidence: `frontend/dashboardAgentView.test.js`, `frontend/dashboardLanes.test.js`,
+  agent lanes. The top line has no page words: Follow agent is always shown, Your video goes back to
+  the stage, and Settings lists the other screens. Evidence: `frontend/dashboardAgentView.test.js`, `frontend/dashboardLanes.test.js`,
   `frontend/dashboardTimeline.test.js`, `frontend/dashboardLook.test.js`, browser tests. Gaps: voice and music
   lanes recognized by layer name; cramped around 760 px; 390 px checked in browser tests only.
 - **Agent labels**: Verified. The dashboard shows "Agent" (or "Agent 1", "Agent 2" in the order they joined) in

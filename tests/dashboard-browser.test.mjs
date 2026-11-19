@@ -319,14 +319,14 @@ test("approvals by mouse: deny in the session pane; note, always allow, allow on
   assert.equal((await approval(id)).note, "from the mouse");
   assert.equal((await settings()).approvals["share-link"], "allow");
   await asDashboard("settings", { approvals: { "share-link": "ask" } }, "PUT");
-  // The top line's Stage tab goes back from the approval screen.
-  await browser.click(q('.topline .tab[data-view="main"]'));
+  // The top line's "Your video" goes back from the approval screen.
+  await browser.click(q('.topline .back-stage[data-view="main"]'));
 
   id = await share();
   await browser.click(`document.querySelector('[aria-label^="Approval ${id}:"]')`);
   await browser.click(q('.screen button[aria-label="Allow once"]'));
   await until(async () => (await approval(id))?.status === "allowed", "allow once by click");
-  await browser.click(q('.topline .tab[data-view="main"]'));
+  await browser.click(q('.topline .back-stage[data-view="main"]'));
 
   id = await share();
   await browser.click(`document.querySelector('[aria-label^="Approval ${id}:"]')`);
@@ -890,6 +890,11 @@ test("settings by keyboard and by mouse save at once", async () => {
     await until(async () => (await settings()).channels === false, "channels off by click");
     await browser.click(button("Clear the frame cache", ".screen"));
     await browser.waitFor(`document.querySelector('[aria-live="polite"][aria-atomic="true"]')?.textContent === "Frame cache cleared."`);
+    // The screens pane opens the pages the top line has no word for; "Your video" comes back.
+    await browser.click(button("References", '.set-pane[data-pane="8"]'));
+    await browser.waitFor(`!!document.querySelector(".screen-wrap.is-inspire") && !!document.querySelector(".topline .back-stage")`, { what: "References opens the inspire screen" });
+    await browser.click(q('.topline .back-stage[data-view="main"]'));
+    await browser.waitFor(`!!document.querySelector(".panes.screening") && !document.querySelector(".topline .back-stage")`, { what: "Your video back to the stage" });
   } finally {
     // Put them back even if a step failed: the share rule "deny" would refuse later tests' links.
     await asDashboard("settings", { approvals: { "share-link": "ask" }, limits: { finalRenderFrames: 600 }, channels: false }, "PUT");
@@ -1057,12 +1062,12 @@ test("panes, zoom, filter, help, transcript, full frames, follow and the command
   await browser.waitFor(`(${q(".stage-label")}?.title ?? "").includes("· full ·")`);
   await browser.key("o");
   await browser.waitFor(`(${q(".stage-label")}?.title ?? "").includes("· draft ·")`);
-  // Follow is on by default and says nothing; turned off, the top line says so.
-  assert.equal(await browser.evaluate(`!!document.querySelector(".topline .follow")`), false);
+  // Follow agent is always in the top line, pressed while on (the default); f turns it off and on.
+  assert.equal(await browser.evaluate(`${q(".topline .follow")}?.getAttribute("aria-pressed")`), "true");
   await browser.key("f");
   await browser.waitFor(`${q(".topline .follow")}?.getAttribute("aria-pressed") === "false"`);
   await browser.key("f");
-  await browser.waitFor(`!document.querySelector(".topline .follow")`);
+  await browser.waitFor(`${q(".topline .follow")}?.getAttribute("aria-pressed") === "true"`);
   await browser.key(":");
   await browser.waitFor(`document.activeElement?.id === "command-input"`);
   await browser.key("Escape");
@@ -1075,17 +1080,17 @@ test("panes, zoom, filter, help, transcript, full frames, follow and the command
   await browser.click(q("#tab-checks"));
   await browser.waitFor(`${q("#tab-checks")}.getAttribute("aria-selected") === "true" && !!document.querySelector("#panel-checks") && ${q('section[data-pane="2"]')}.dataset.focused === "true"`);
   // The key line has no keys button now (each key is in its button's tooltip): the command
-  // list (⌘K or ":") opens the keys screen, and the top line's Stage tab closes it by mouse.
+  // list (⌘K or ":") opens the keys screen, and the top line's "Your video" closes it by mouse.
   await browser.key(":");
   await browser.waitFor(`document.activeElement?.id === "command-input"`);
   await browser.type("help");
   await browser.key("Enter");
   await browser.waitFor(`${textOf("#screen-title")} === "Keys"`);
-  await browser.click(q('.topline .tab[data-view="main"]'));
-  await browser.waitFor(`!document.querySelector(".help-screen")`, { what: "keys screen closed by the Stage tab" });
+  await browser.click(q('.topline .back-stage[data-view="main"]'));
+  await browser.waitFor(`!document.querySelector(".help-screen") && !document.querySelector(".topline .back-stage")`, { what: "keys screen closed by Your video" });
   await browser.key("f");
-  await browser.click(button("follow off", ".topline"));
-  await browser.waitFor(`!document.querySelector(".topline .follow")`, { what: "follow on by mouse" });
+  await browser.click(button("Follow agent", ".topline"));
+  await browser.waitFor(`${q(".topline .follow")}?.getAttribute("aria-pressed") === "true"`, { what: "follow on by mouse" });
 });
 
 test("stage zoom: the zoom menu draws the frame at 200% in a box that scrolls, and the full-window button fills the window and restores", async () => {
@@ -1653,7 +1658,10 @@ test("the accessibility tree: landmarks, named panes and controls, a log, live r
   const live = (node) => node.properties?.find((property) => property.name === "live")?.value?.value;
   assert.ok(shown.some((node) => role(node) === "main" && name(node) === "Dashboard"), "a main landmark");
   assert.ok(shown.some((node) => role(node) === "contentinfo" && name(node) === "Status"), "the status line");
-  assert.ok(shown.some((node) => role(node) === "navigation" && name(node) === "Views"), "the views nav (the key line is gone)");
+  // The top line has no page words: no views nav, and the Follow agent button is in the banner.
+  assert.ok(!shown.some((node) => role(node) === "navigation" && name(node) === "Views"), "no views nav");
+  assert.ok(await browser.evaluate(`${q("header.topline .follow")}?.textContent.trim() === "Follow agent"`), "the banner has the Follow agent button");
+  assert.ok(shown.some((node) => role(node) === "banner") && shown.some((node) => role(node) === "button" && name(node) === "Follow agent"), "Follow agent in the tree");
   const regions = shown.filter((node) => role(node) === "region").map(name);
   // The panes are regions named by their titles, with no number: "stage · 00:00.00"...
   for (const start of ["stage", "timeline"])
@@ -3407,14 +3415,13 @@ test("a waiting stop: needs you lists it first, the status line and the title sa
   })()`, { what: "C1 first in needs you" });
   assert.deepEqual(row, { button: "Rough cut C1", label: "Stop C1: the rough cut waits for you. Open its sheet.", dim: asked.ask.split("\n")[0],
     actions: [["Approve", true], ["Redo", false]] }, JSON.stringify(row));
-  // On a wide window the line under the frame names what to do and holds the answers, and the
-  // Crew tab counts the stop (the status line and the orange top line are no longer drawn there).
+  // On a wide window the line under the frame names what to do and holds the answers (the status
+  // line and the orange top line are no longer drawn there).
   const said = await browser.waitFor(`(() => {
     const line = ${q(".voice .voice-line")}, answers = [...document.querySelectorAll(".voice .voice-answers .voice-button")];
     return line && answers.length ? { line: line.innerText.trim(), answers: answers.map((button) => button.textContent.trim()) } : null;
   })()`, { what: "the stop on the line under the frame" });
   assert.deepEqual(said, { line: "Look at the rough cut, then approve it or ask for a redo.", answers: ["Approve rough cut", "Redo"] });
-  await browser.waitFor(`${q('.tabs [aria-label=", 1 waiting for you"]')} !== null`, { what: "the Crew tab counts the stop" });
   // The agents section marks the agent that asked as needing you.
   await browser.waitFor(`[...document.querySelectorAll("#section-agents .row")].some((element) => element.innerText.includes("test-agent") && element.innerText.toLowerCase().includes("needs you"))`, { what: "test-agent needs you" });
   // A closed "needs you" counts the stop.
@@ -3989,8 +3996,8 @@ test("a stop waiting in a project that is not open shows in needs you, the statu
   const asked = await askStop("stops-x", "rough");
   assert.equal(asked.id, "C1", asked.reply.text);
   const row = `document.querySelector('#section-needs-you [aria-label^="Stop C1 in stops-x:"]')`;
-  // On a wide window the status line no longer names the stop: the Crew tab counts it.
-  await browser.waitFor(`!!${row} && ${q('.tabs [aria-label=", 1 waiting for you"]')} !== null && document.title.startsWith("1 awaiting")`, { what: "C1 of stops-x in needs you, the Crew tab and the title" });
+  // On a wide window the status line no longer names the stop: needs you and the title do.
+  await browser.waitFor(`!!${row} && document.title.startsWith("1 awaiting")`, { what: "C1 of stops-x in needs you and the title" });
   assert.ok(await browser.evaluate(`${onProject("stops-r")}`), "stops-r stays open");
   assert.match(await browser.evaluate(assertiveText), /^C1 needs you in stops-x: the rough cut is ready\./);
   // a does not answer it unseen: it says how to open it.

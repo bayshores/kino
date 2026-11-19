@@ -157,8 +157,9 @@
 .menu-item[aria-checked="true"]::before { content: "● " / ""; }
 .menu-item[aria-checked="false"]::before { content: "  " / ""; white-space: pre; }
 
-/* ---- top line (52 px): kino and the project at the left; the views, hold, share, settings,
-   the theme and render at the right. No boxes, no rules: words and icons on the page. ---- */
+/* ---- top line (52 px): kino, the project and (off the stage) "Your video" at the left; follow
+   agent, hold, share, settings, the theme and render at the right. No boxes, no rules: words and
+   icons on the page. ---- */
 .topline {
   position: relative; display: flex; align-items: center; height: 52px; gap: 10px; padding: 0 24px;
   white-space: nowrap; overflow: hidden; background: var(--bg0);
@@ -237,11 +238,20 @@
 .render-split.is-rendering .tb:hover { background: var(--bg2); }
 .render-line { position: absolute; left: 0; bottom: 0; height: 3px; background: var(--yellow); transition: width 400ms linear; }
 @media (prefers-reduced-motion: reduce) { .render-line { transition: none; } }
-.topbar .follow { display: inline-flex; align-items: center; height: 30px; padding: 0 8px; color: var(--fg-mid); z-index: 1; }
+/* Follow agent: a check in the yellow box while on, an empty box while off. */
+.top-right .follow .follow-box {
+  display: inline-grid; place-items: center; flex: none; box-sizing: border-box; width: 14px; height: 14px; border: 1.3px solid currentColor;
+}
+.top-right .follow.on { background: none; }
+.top-right .follow.on:hover { background: var(--bg1); }
+.top-right .follow.on .follow-box { border-color: var(--yellow); background: var(--yellow); color: var(--on-yellow); }
+.top-right .follow .follow-box .ui-icon { width: 11px; height: 11px; stroke-width: 2; }
+/* Your video: on any screen but the stage, right after the project's name; it goes back to the stage. */
+.topline .back-stage { display: inline-flex; align-items: center; gap: 8px; flex: none; height: 34px; padding: 0 10px; color: var(--fg-mid); font-weight: 500;
+  transition: color var(--quick) var(--ease-in), background-color var(--quick) var(--ease-in); }
+.topline .back-stage:hover { color: var(--fg0); background: var(--bg1); }
+.topline .back-stage .ui-icon { width: 16px; height: 16px; }
 .dash .dot { display: inline-block; flex: none; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
-.topbar .follow .dot { color: var(--fg2); margin-right: 8px; }
-.topbar .follow.on { background: none; }
-.topbar .follow.on .dot { color: var(--ok); }
 .topbar .message { flex: 1 1 auto; white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; padding: 0; z-index: 1; animation: rise-in var(--panel) var(--ease-in) both; }
 @keyframes rise-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 /* ---- the three panes (F1): the stage left, the agent pane right, the timeline under both ---- */
@@ -1114,10 +1124,11 @@
 .phone .topline::before { content: none; }
 .phone .top-right { order: 4; flex: 1 0 100%; margin-left: 0; }
 .phone .top-right .tb { flex: 1 1 0; justify-content: center; }
+/* Follow agent keeps its words whole in its share of the row: on two lines when one is too narrow. */
+.phone .top-right .follow { white-space: normal; line-height: 1.1; text-align: left; }
 .phone .top-command { margin-right: 0; }
 /* The bar's own box goes: its pill, message and nav take places in the top line itself. */
 .phone .topbar { display: contents; }
-.phone .topbar .follow { order: 1; height: auto; align-self: stretch; }
 .phone .hold-banner { order: 2; flex-basis: 100%; }
 /* On a phone the bar has no box of its own: what waits gets its own orange row (it wraps),
    and the follow pill and the nav keep their usual colors. */
@@ -1125,13 +1136,6 @@
 .phone .needs-chip { order: 2; flex: 1 0 100%; flex-wrap: wrap; gap: 0 1.5ch; overflow: visible; padding: 4px 1ch; border-radius: 4px; background: var(--accent); }
 .phone .needs-chip > .asking-what { white-space: normal; overflow: visible; }
 .phone .topbar .message { order: 3; flex: 1 0 100%; width: auto; white-space: normal; padding: 0 1ch; }
-/* A phone has no F keys: the tabs and the follow pill drop their key hints and share the
-   title's row, so the screens nav keeps a whole row of its own. */
-.phone .topline .tab-key { display: none; }
-/* Three tabs (F3 inspire too) still fit beside the title and the follow pill at 390 px; the
-   library (F4) is in the command list there. */
-.phone .topline .tab[data-view="library"] { display: none; }
-.phone .topline .tabs { gap: 1.2ch; padding: 0 0.6ch; min-height: 44px; }
 /* The status line wraps to more rows on a phone; a bar before an item would start a row, so
    there the items are kept apart by a wider gap alone. */
 .phone .statusline { flex-wrap: wrap; height: auto; column-gap: 3ch; }
@@ -1167,31 +1171,14 @@
 @keyframes log-rise { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 @keyframes log-edge { from { box-shadow: inset 2px 0 var(--agent); } to { box-shadow: inset 2px 0 transparent; } }
 
-/* ---- the views (Stage, Crew, Inspire, Library): words; the current one is the page's text
-   color, the others quiet. A narrow window shows their icons instead. ---- */
-.topline .tabs { display: flex; align-items: center; gap: 2px; margin: 0 8px 0 0; padding: 0; border: 0; flex: none; }
-.topline .tab {
-  all: unset; position: relative; display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 12px; cursor: pointer;
-  color: var(--fg2); font-weight: 500; transition: color var(--quick) var(--ease-in);
-}
-.topline .tab .icon { display: none; width: 16px; height: 16px; }
-.topline .tab:hover { color: var(--fg0); }
-/* A narrow window (the app's smallest is 760 px) keeps the views and hold as icons, so render
-   stays on the line; the words stay for screen readers and in the tooltips. */
+/* A narrow window (the app's smallest is 760 px) keeps hold as an icon, so render stays on the
+   line; its word stays for screen readers and in the tooltip. */
 @media (max-width: 1099px) {
   .topline { padding: 0 16px; gap: 6px; }
   .topline .tab-word { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-  .topline .tab { padding: 0 10px; }
-  .topline .tab .icon { display: block; }
   .top-right .top-button:has(.tab-word) { width: 38px; padding: 0; justify-content: center; }
   .topbar .agent-chips, .topbar .idle-line { display: none; }
   .phone .topline .tab-word { position: static; width: auto; height: auto; overflow: visible; clip-path: none; }
-}
-.topline .tab:focus-visible { outline: 1px solid var(--accent); outline-offset: -2px; }
-.topline .tab[aria-current="page"] { color: var(--fg0); font-weight: 700; }
-.topline .tab-count {
-  display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px;
-  background: var(--yellow); color: var(--on-yellow); font-family: var(--mono-ui); font-weight: 500; font-size: 11px;
 }
 
 /* ---- the theme switch (theme.js): the new theme opens as a circle from the button over 0.6 s.
