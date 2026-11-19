@@ -142,8 +142,9 @@ export function Voice({ data, agent, now, scene, time, still, listOpen = false, 
           {line.before?.rev != null && line.state !== "need" && line.state !== "ask" ? (
             <button type="button" className="voice-icon" onClick={() => onRun("undo")} aria-label="Undo the last turn" title="Undo the last turn (u)" aria-keyshortcuts="u"><ToolIcon name="undo" />Undo</button>
           ) : null}
-          {/* Shown while the history is closed; open, the history's own button closes it. */}
-          {line.state !== "empty" && !listOpen ? (
+          {/* Shown while the history is closed (also before any agent has called: the note box is
+              in there); open, the history's own button closes it. */}
+          {!listOpen ? (
             <button type="button" className="voice-icon" onClick={onHistory} aria-expanded={false} aria-label="Earlier lines" title="Earlier lines, checks and notes">
               <ToolIcon name="history" />History</button>
           ) : null}
