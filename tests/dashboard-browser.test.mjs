@@ -1614,6 +1614,10 @@ test("a long project name gives way to the nav; the zoomed lanes follow the play
   // Zoomed in, the lanes scroll to keep the playhead in view.
   await showEveryLane();
   assert.ok((await measure()).margin >= 12, `the tracks end ${(await measure()).margin} px from the border (the shot strip fills its column, the whole timeline keeps a margin)`);
+  // The open timeline has an edge: a hairline around it, and its tracks' surface reaches its bottom.
+  const edge = await browser.evaluate(`(() => { const pane = document.querySelector(".p-timeline"); const body = pane.querySelector(".pane-body"); const style = getComputedStyle(pane);
+    return { border: style.borderTopWidth + " " + style.borderLeftStyle, fill: getComputedStyle(body).backgroundImage !== "none", gap: pane.getBoundingClientRect().bottom - body.getBoundingClientRect().bottom }; })()`);
+  assert.deepEqual([edge.border, edge.fill, edge.gap <= 1], ["1px solid", true, true], `the open timeline's edge: ${JSON.stringify(edge)}`);
   const scroller = q(".p-timeline .tl-scroll");
   const slider = q('.p-timeline [role="slider"]');
   await browser.click(q("#timeline-zoom"));
@@ -1780,6 +1784,9 @@ test("the brief shows read only: you said with the agent's quote, guessed, missi
     assert.equal(page.why, "This video was started without one.", "the reason, as a sentence under the headline");
     assert.deepEqual(page.buttons.filter((words) => ["Add files", "Note to the agent", "Render"].includes(words)), ["Add files", "Note to the agent"], "one Add files and the note; Render is on the top line only");
     assert.deepEqual([page.empty, page.over], [[], false], "no heading over an empty part, nothing wider than the window");
+    // A page keeps the stage's side margins (at most 48 px), not a narrow column in the middle.
+    const side = await browser.evaluate(`parseFloat(getComputedStyle(document.querySelector(".brief-page")).paddingLeft)`);
+    assert.ok(side >= 24 && side <= 48, `the page's side margin: ${side} px`);
     await browser.click(q(".topline .back-stage"));
     await browser.waitFor(`!document.querySelector(".brief-page")`, { what: "Your video back from the brief page" });
 

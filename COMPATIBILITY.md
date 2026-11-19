@@ -2043,7 +2043,7 @@ edit by hand. Dark and light, no purple. Main tests: `backend/dashboard.test.mjs
 - **Brief page**: Verified in the desktop app, dark and light (`tests/dashboard-browser.test.mjs`). The project's name on the top line opens it: the brief as a headline ("No brief" and the reason when there is none), the video's facts with Add files and Note to the agent, then only the parts that have something (brief lines, plan, stops, renders).
 - **Screening look and theme**: Verified in the desktop app, dark and light. The stage is the frame, one
   sentence for what the agent does now (question, hold, recording, render, ready, not connected), the
-  note box and the timeline (every lane and layer; Timeline on the top line folds it to the shot
+  note box and the timeline (every lane and layer, inside one hairline with the names divided from the tracks; Timeline on the top line folds it to the shot
   strip and keeps the choice; a window under 1160 by 760 px starts with the strip); the history (earlier lines, looks, checks, notes, session) is a column
   right of the frame on a wide window, open unless closed, and opens under the frame on a narrower one;
   History on the top line shows and hides it, in the same place both ways.

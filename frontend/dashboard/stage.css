@@ -218,7 +218,19 @@
 /* The whole timeline is open: it takes a quarter of the window (never so little that no layer
    row shows under the lanes) and scrolls. */
 .screening.strip-open > .p-timeline { height: clamp(220px, 25vh, 320px); display: grid; grid-template-rows: minmax(0, 1fr); margin-top: 22px; }
-.screening.strip-open > .p-timeline > .pane-body { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, max-content) auto; overflow: hidden; }
+.screening.strip-open > .p-timeline > .pane-body { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; overflow: hidden; }
+/* The open timeline has an edge: one hairline around it, one between the names and the tracks,
+   and the tracks are one surface from under the ruler to the bottom edge (it ends where the
+   tracks end, the pane's inset before the right edge). The room kept for more
+   layers then reads as empty tracks inside the timeline, not as empty page under it. */
+.screening.strip-open > .p-timeline { border: 1px solid var(--line); box-sizing: border-box; }
+.screening.strip-open > .p-timeline > .pane-body {
+  --tl-names: 14.5ch; position: relative;
+  background: linear-gradient(var(--lane), var(--lane)) no-repeat var(--tl-names) 36px / calc(100% - var(--tl-names) - var(--inset)) calc(100% - 36px);
+}
+.screening.strip-open > .p-timeline > .pane-body::after {
+  content: ""; position: absolute; top: 0; bottom: 0; left: calc(var(--tl-names) - 1px); width: 1px; background: var(--line); pointer-events: none; z-index: 3;
+}
 .screening.strip-open > .p-timeline > .pane-facts { display: flex; position: absolute; right: 0; bottom: 100%; margin: 0; height: 22px; background: none; }
 .screening.strip-open .scrub { display: none; }
 

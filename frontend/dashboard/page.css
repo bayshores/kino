@@ -1,9 +1,9 @@
-/* The pages beside the stage (brief, crew, inspire, library, settings, projects): one column as
-   wide as the stage's frame, no boxes around panes, and a foot line with the cut and the agent's
-   line. Also the shared controls (controls.jsx) in the same look: square, one hairline, the
+/* The pages beside the stage (brief, crew, inspire, library, settings, projects): one column with
+   the same two edges as the stage on a wide window (the frame's left edge, the history's right
+   edge), no boxes around panes, and a foot line with the cut and the agent's line. Also the shared controls (controls.jsx) in the same look: square, one hairline, the
    chosen option solid. Loaded after dashboard.css and screens.css; colors come from .dash. */
 
-.dash { --gutter: clamp(24px, 12.7vw, 183px); }
+.dash { --gutter: clamp(24px, 3vw, 48px); }
 
 /* ---- the page column ---- */
 /* A screen scrolls inside its own box. The box is the containing block of everything in it, so a

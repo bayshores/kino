@@ -5,7 +5,7 @@
 
 .dash .screen-wrap.is-settings { border: 0; margin-top: 0; }
 .dash .screen-wrap > .screen.settings {
-  display: grid; grid-template-columns: 240px minmax(0, 1fr); align-items: start;
+  display: grid; grid-template-columns: 240px minmax(0, 960px); align-items: start;
   min-height: 100%; padding-top: 28px; overflow: visible;
 }
 /* The section with the focus shows it; the page itself needs no outline. */
