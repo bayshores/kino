@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { ConflictError, openStore } from "./store.mjs";
+import { ConflictError, openStore, storeCounters } from "./store.mjs";
 
 function makeDocument(id, name = `Project ${id}`) {
   return {
@@ -210,4 +210,23 @@ test("rejects duplicate project IDs and out-of-bounds comment input without over
   );
   assert.equal((await store.getProject("safe")).document.name, "Project safe");
   assert.deepEqual((await store.getProject("safe")).comments, []);
+});
+
+test("a save turns only the changed project into text, and the file is still plain JSON.stringify of the state", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "kino-store-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const store = await openStore(root);
+  for (const id of ["one", "two", "three"]) await store.createProject(makeDocument(id, `Projekt ${id} \u00e9\u{1F3AC} "quoted"`));
+  const before = { ...storeCounters };
+  const renamed = await store.renameProject("two", "Renamed");
+  await store.updateProject("two", { ...renamed.document, scenes: [] }, renamed.revision);
+  assert.equal(storeCounters.parses - before.parses, 0, "a save answers the next call from memory");
+  assert.equal(storeCounters.documentTexts - before.documentTexts, 2, "one document per save, not three");
+  const text = await readFile(path.join(root, "store.json"), "utf8");
+  assert.equal(text, `${JSON.stringify(JSON.parse(text))}\n`);
+  // Another handle (another process) reads the file itself and finds the same projects.
+  const again = await openStore(root);
+  assert.deepEqual(await again.getProject("two"), await store.getProject("two"));
+  assert.equal((await again.getProject("two")).document.name, "Renamed");
+  assert.deepEqual((await again.getProject("one")).document.name, 'Projekt one \u00e9\u{1F3AC} "quoted"');
 });

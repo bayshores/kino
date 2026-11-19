@@ -2281,9 +2281,11 @@ sessions and optional display names; sharing uses revocable view, comment and ed
 - **board-01 and direction evals**: stub agents only (`tests/board-eval.test.mjs`,
   `tests/direction-eval.test.mjs`); no real model run.
 - **Call cost** (`npm run perf`, hand-run): fonts and the parsed store are kept between calls while
-  their files are unchanged. With 30 projects, median ms before and after on one busy Mac: status
-  333 to 15, inspect 88 to 5, check 353 to 43, edit 658 to 118. `backend/perf-budget.test.mjs` holds
-  the operation counts (the same with 1 and 20 projects).
+  their files are unchanged, and a save copies, checks and turns into text only the project it
+  changed. With 30 projects, median ms before and after on one busy Mac: status 333 to 15, inspect
+  88 to 5, check 353 to 43, edit 658 to 90 (the same as with 1 project). `backend/perf-budget.test.mjs`
+  holds the operation counts (the same with 1 and 20 projects). `store.json` is still one file: an
+  atomic save costs about 8 ms at any size and writing all 3.3 MB adds 2 ms.
 - **Export cost** (`npm run perf`): a movie's Resvg frames go to FFmpeg as raw pixels, not PNG files
   (opaque backgrounds; the decoded frames are the same). 4 s of 1080p: 59.8 to 104 frames a second
   as a draft, 54.9 to 89.7 final. The Resvg pool runs 2 to 4 workers by cores and memory, kept 30 s.

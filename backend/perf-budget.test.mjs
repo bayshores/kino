@@ -1,7 +1,8 @@
 // The Efficiency rules' guard (AGENTS.md): what one agent call may cost, counted in operations
-// (store parses and writes, agent state writes, font registries built), not in milliseconds, so
-// a busy machine cannot fail it. The counts must be the same with 1 project and with 20, and
-// within tests/perf-budget.json. Raising a budget is an edit to that file.
+// (store parses and writes, documents turned into text, agent state writes, font registries
+// built), not in milliseconds, so a busy machine cannot fail it. The counts must be the same with
+// 1 project and with 20, and within tests/perf-budget.json. Raising a budget is an edit to that
+// file.
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -16,7 +17,7 @@ import { openStore, storeCounters } from "./store.mjs";
 
 const budgets = JSON.parse(await readFile(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "tests", "perf-budget.json"), "utf8"));
 
-const counts = () => ({ storeParses: storeCounters.parses, storeWrites: storeCounters.writes, stateWrites: stateCounters.writes, fontRegistriesBuilt: fontCounters.registriesBuilt });
+const counts = () => ({ storeParses: storeCounters.parses, storeWrites: storeCounters.writes, storeDocumentTexts: storeCounters.documentTexts, stateWrites: stateCounters.writes, fontRegistriesBuilt: fontCounters.registriesBuilt });
 
 async function callCosts(projects) {
   const dataRoot = await mkdtemp(path.join(tmpdir(), "kino-perf-budget-"));

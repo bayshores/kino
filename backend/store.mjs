@@ -64,7 +64,53 @@ export class ConflictError extends StoreError {
 }
 
 /** How often this process parsed and wrote a store file (backend/perf-budget.test.mjs). */
-export const storeCounters = { parses: 0, writes: 0, bytesWritten: 0 };
+export const storeCounters = { parses: 0, writes: 0, bytesWritten: 0, documentTexts: 0 };
+
+// The store's own copy of its state is frozen all the way down: a read or a save that changed it
+// in place would change what the next call reads, so that throws instead.
+function freezeDeep(value) {
+  if (value === null || typeof value !== "object" || Object.isFrozen(value)) return value;
+  Object.freeze(value);
+  for (const child of Object.values(value)) freezeDeep(child);
+  return value;
+}
+
+// A save's own working copy of the state. The documents (over 99% of the bytes) are not copied:
+// they are frozen and shared, and a save replaces a project's document, it never changes one. So
+// a save copies and checks the project it touches, not every project (AGENTS.md, Efficiency rules).
+function draftState(state) {
+  const draft = {};
+  for (const [key, value] of Object.entries(state)) {
+    draft[key] = key === "projects"
+      ? value.map((project) => Object.fromEntries(Object.entries(project).map(([field, held]) => [field, field === "document" ? held : cloneJson(held)])))
+      : cloneJson(value);
+  }
+  return draft;
+}
+
+// Each frozen document's JSON text, made once: the text of the whole store is put together from
+// these, so a save turns only the changed document into text. An entry goes when its document does.
+const documentText = new WeakMap();
+function textOfDocument(document) {
+  if (!Object.isFrozen(document)) return JSON.stringify(document);
+  let text = documentText.get(document);
+  if (text === undefined) {
+    storeCounters.documentTexts += 1;
+    text = JSON.stringify(document);
+    documentText.set(document, text);
+  }
+  return text;
+}
+
+/** The store file's text: character for character what JSON.stringify(state) gives. */
+export function stateText(state) {
+  const fields = (value, special) => `{${Object.entries(value).flatMap(([key, held]) => {
+    const text = special(key, held);
+    return text === undefined ? [] : [`${JSON.stringify(key)}:${text}`];
+  }).join(",")}}`;
+  const projectText = (project) => fields(project, (key, held) => (key === "document" && held && typeof held === "object" ? textOfDocument(held) : JSON.stringify(held)));
+  return fields(state, (key, held) => (key === "projects" && Array.isArray(held) ? `[${held.map(projectText).join(",")}]` : JSON.stringify(held)));
+}
 
 function cloneJson(value) {
   try {
@@ -389,23 +435,30 @@ async function readState(storePath) {
   }
 }
 
+// What says a store file is still the same file: a save renames a new file over the old one.
+const stampOf = (info) => `${info.ino}:${info.size}:${info.mtimeNs}`;
+
+/** Writes the state as the store file and answers that file's stamp. */
 async function writeState(storePath, state, directory) {
   const temporaryPath = path.join(
     directory,
     `.${STORE_FILE}.${process.pid}.${randomUUID()}.tmp`,
   );
   let file;
+  let stamp = null;
   try {
     file = await open(
       temporaryPath,
       fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_WRONLY,
       0o600,
     );
-    const text = `${JSON.stringify(state)}\n`;
+    const text = `${stateText(state)}\n`;
     storeCounters.writes += 1;
     storeCounters.bytesWritten += text.length;
     await file.writeFile(text, "utf8");
     await file.sync();
+    // The new file's identity, read before any other process can replace it (stampOf).
+    stamp = stampOf(await file.stat({ bigint: true }));
     await file.close();
     file = null;
     await rename(temporaryPath, storePath);
@@ -424,6 +477,7 @@ async function writeState(storePath, state, directory) {
       "ERR_STORE_IO",
     );
   }
+  return stamp;
 }
 
 function enqueue(root, operation) {
@@ -521,13 +575,12 @@ export async function openStore(root) {
   // rules): one agent call reads the store several times, and each read used to parse and check
   // every project again. A save replaces the file (writeState renames a new one over it), so its
   // inode, size and modified time say whether this copy is still the file, also when another
-  // process saved. Nothing changes this copy: reads answer with copies, a save works on its own.
+  // process saved. Nothing changes this copy (it is frozen): reads answer with copies, and a save
+  // works on its own draft (draftState), which becomes this copy once it is on disk.
   let loaded = null;
   async function storeStamp() {
-    try {
-      const info = await stat(storePath, { bigint: true });
-      return `${info.ino}:${info.size}:${info.mtimeNs}`;
-    } catch { return null; }
+    try { return stampOf(await stat(storePath, { bigint: true })); }
+    catch { return null; }
   }
   async function currentState() {
     const stamp = await storeStamp();
@@ -536,6 +589,7 @@ export async function openStore(root) {
     const state = await readState(storePath);
     // Projects of an older document version are brought to the current one as they are loaded.
     const migrated = migrateProjects(state);
+    freezeDeep(state);
     loaded = stamp === null ? null : { stamp, state };
     return { state, migrated };
   }
@@ -545,7 +599,10 @@ export async function openStore(root) {
       const { state, migrated } = await currentState();
       // Migrated projects are saved back, once. If that save fails (a read-only disk), reading
       // still works and the next save tries again.
-      if (migrated) await writeState(storePath, state, directory).catch(() => {});
+      if (migrated) {
+        const stamp = await writeState(storePath, state, directory).catch(() => null);
+        if (stamp) loaded = { stamp, state };
+      }
       return operation(state);
     });
   }
@@ -553,7 +610,7 @@ export async function openStore(root) {
   async function mutate(operation) {
     return enqueue(directory, async () => {
       const { state } = await currentState();
-      const next = cloneJson(state);
+      const next = draftState(state);
       const result = await operation(next);
       const previous = new Map(state.projects.map((project) => [project.document.id, project]));
       const changed = [];
@@ -572,7 +629,11 @@ export async function openStore(root) {
         catch { throw new StoreError("The previous revision could not be saved.", "ERR_STORE_IO"); }
         changed.push(project);
       }
-      await writeState(storePath, next, directory);
+      // The saved draft is the store's copy from here on: the next call does not read, parse and
+      // check the file this call wrote.
+      freezeDeep(next);
+      const stamp = await writeState(storePath, next, directory);
+      loaded = stamp === null ? null : { stamp, state: next };
       for (const project of changed) {
         const keep = new Set([...project.historyRevisions, ...(project.operationReceipts || []).map((receipt) => receipt.revision)]);
         keep.delete(project.revision);
@@ -851,7 +912,7 @@ export async function openStore(root) {
       const validatedName = validateName(name, "Project name", MAX_PROJECT_NAME);
       return mutate((state) => {
         const project = commentProject(state, id);
-        project.document.name = validatedName;
+        project.document = { ...project.document, name: validatedName };
         project.revision += 1;
         project.updatedAt = new Date().toISOString();
         return projectEntry(project);
