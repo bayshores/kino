@@ -75,25 +75,22 @@
 .screening .stage-toolbar .icon-button { width: 28px; padding: 0; }
 .screening .stage-toolbar .menu-button:hover, .screening .stage-toolbar .icon-button:hover { background: var(--bg2); }
 
-/* Playback and your marks: one row between the agent's line and the strip. Play and the time start
-   at the frame's left edge, your marks end at its right edge. The two frame-step buttons show on
-   hover in the room left of the frame, before play. */
+/* Playback and your marks: one row between the agent's line and the strip. Play, the time and
+   then the two frame-step buttons (shown on hover or focus) start at the frame's left edge; your
+   marks end at its right edge. Nothing stands in the room left of the frame. */
 .screening .stage-transport { display: contents; }
 .screening .transport-buttons {
   grid-row: controls-start / controls-end; grid-column: center; align-self: center; justify-self: start;
-  display: flex; align-items: center; gap: 0; margin: 0 0 0 -50px; position: relative;
+  display: flex; align-items: center; gap: 0; margin: 0 0 0 -6px; position: relative;
 }
-.screening .transport-buttons .play-button { order: 1; }
+.screening .transport-buttons .play-button { order: -2; }
 .screening .transport-buttons .icon-button { width: 22px; height: 30px; color: var(--fg2); opacity: 0; transition: opacity var(--quick) var(--ease-in); }
 .screening .transport-buttons:hover .icon-button, .screening .transport-buttons:focus-within .icon-button { opacity: 1; }
 .screening .transport-buttons .play-button { width: 34px; height: 34px; opacity: 1; color: var(--fg0); background: none; border-radius: 0; transition: transform var(--quick) var(--ease-in); }
 .screening .transport-buttons .play-button .icon { width: 22px; height: 22px; }
 .screening .transport-buttons .play-button:hover { background: var(--bg1); }
 .screening .transport-buttons .play-button:active { transform: scale(0.92); }
-.screening .transport-time {
-  grid-row: controls-start / controls-end; grid-column: center; align-self: center; justify-self: start;
-  margin: 0 0 0 38px; width: auto; pointer-events: none;
-}
+.screening .transport-time { order: -1; margin: 0 8px 0 10px; width: auto; }
 .screening .play-time { display: block; font-family: var(--mono-ui); font-size: 14px; line-height: 18px; color: var(--fg0); font-variant-numeric: tabular-nums; }
 .screening .play-time .play-total { display: inline; margin-left: 4px; font-size: 12px; color: var(--fg2); }
 /* The scrub bar lies over the strip's top row: it draws your notes and marks there. A press goes

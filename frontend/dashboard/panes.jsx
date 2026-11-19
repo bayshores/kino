@@ -1087,6 +1087,10 @@ export function StagePane({ data, scene, time, rev, checkpoint, full, playing, f
             <button type="button" className="tb icon-button play-button" onClick={() => onKey("play")} aria-label={playing ? "Pause" : "Play"} aria-keyshortcuts="Space"
               title={playing ? "Pause (space)" : "Play (space)"}><Icon name={playing ? "pause" : "play"} /></button>
             <button type="button" className="tb icon-button" onClick={() => onKey("frame-forward")} aria-label="One frame forward" aria-keyshortcuts="." title="One frame forward (.)"><Icon name="frame-forward" /></button>
+            {/* The time under the frame (the status line has it on a phone): it says "playing" or
+                "paused" to a screen reader, and its data-state says the same. It stands between
+                play and the two frame-step buttons (stage.css). */}
+            <span className="transport-time"><PlayTime timeStore={timeStore} playing={playing} time={time} duration={scene.duration} /></span>
           </span>
           <span className="scrub" role="slider" tabIndex={0} aria-label="Scrub" aria-valuemin={0} aria-valuemax={scene.duration} aria-valuenow={Math.round(shownTime * 100) / 100}
             aria-valuetext={`${clock(shownTime)} of ${clock(scene.duration)}`}
@@ -1121,9 +1125,6 @@ export function StagePane({ data, scene, time, rev, checkpoint, full, playing, f
             <button type="button" className="tb icon-button mark-chip note" onClick={() => onKey("note")} aria-label="Leave a note here" aria-keyshortcuts="n" title="Leave a note at this time (n)"><Icon name="note" /></button>
             {marks.length ? <button type="button" className="tb icon-button mark-clear" onClick={() => onClearMarks?.()} aria-label="Clear my marks and viewing" title="Clear my marks and viewing"><Icon name="close" /></button> : null}
           </span>
-          {/* The time under the frame (the status line has it on a phone): it says "playing" or
-              "paused" to a screen reader, and its data-state says the same. */}
-          <span className="transport-time"><PlayTime timeStore={timeStore} playing={playing} time={time} duration={scene.duration} /></span>
           <span className="transport-view" role="group" aria-label="On the frame">
             <button type="button" className="tb" aria-pressed={Boolean(overlays.safe)} onClick={() => onKey("safe")} aria-keyshortcuts="s" title="The safe area (s)"><Icon name="safe" />safe</button>
             <button type="button" className="tb" aria-pressed={Boolean(overlays.grid)} onClick={() => onKey("grid")} aria-keyshortcuts="g" title="The grid (g)"><Icon name="grid" />grid</button>

@@ -457,7 +457,7 @@
 .transport-time { color: var(--fg0); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* The scene's length is in the stage's facts (the timecode); the transport keeps the time. */
 .transport-time .play-total { display: none; }
-.transport-buttons { display: flex; gap: 8px; }
+.transport-buttons { display: flex; align-items: center; gap: 8px; }
 .transport-buttons .icon-button { width: 26px; height: 26px; color: var(--fg-mid); }
 .transport-buttons .icon { width: 12px; height: 12px; }
 .transport-buttons .play-button .icon { width: 14px; height: 14px; }
