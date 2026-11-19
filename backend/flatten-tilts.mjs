@@ -13,8 +13,8 @@
 // The bitmap is drawn from the frame's own SVG with the whole frame kept as definitions, so every
 // clip, gradient, mask and filter the drawing uses resolves as it does in the frame. Inner tilts
 // are flattened first, so an outer drawing holds their pictures. A drawing that links a picture
-// (anything but a data: URL) keeps the triangles, as in Chromium; so does a pattern that is not in
-// render.js's form.
+// by a URL (kino-frame://, as Chromium's frames do) keeps the triangles; a data: URL or a file's
+// path, which Resvg loads itself, does not. A pattern that is not in render.js's form keeps them too.
 import { Resvg } from "@resvg/resvg-js";
 import { encodeRenderPng } from "./render-png.mjs";
 
@@ -81,7 +81,7 @@ export async function flattenTilts(svg, options = {}, { draft = false } = {}) {
     const [x, y, width, height] = boxText.split(" ").map(Number);
     if (!(reach > 0) || ![x, y, width, height].every(Number.isFinite) || !(width > 0) || !(height > 0)) continue;
     const content = svg.slice(start + open.length, end);
-    if ([...content.matchAll(/<(?:image|feImage)\b[^>]*?\shref="([^"]*)"/g)].some(([, href]) => !href.startsWith("data:") && !href.startsWith("#"))) continue;
+    if ([...content.matchAll(/<(?:image|feImage)\b[^>]*?\shref="([^"]*)"/g)].some(([, href]) => /^(?!data:)[a-z][a-z0-9+.-]*:\/\//i.test(href))) continue;
     let scale = Math.ceil(reach * OVERSAMPLE * 4) / 4;
     if (width * height * scale * scale > limit) scale = Math.sqrt(limit / (width * height));
     if (scale < reach && !draft) continue;

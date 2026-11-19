@@ -107,6 +107,23 @@ test("drafts and finals draw a tilted layer's flat drawing once (flatten-tilts.m
     for (let index = 0; index < triangles.length; index += 1) sum += Math.abs(triangles[index] - flattened.pixels[index]);
     assert.ok(sum / triangles.length < (draft ? 1 : 0.5), `${draft ? "draft" : "final"} mean difference ${sum / triangles.length} of 255`);
   }
+  // A tilted picture: embedded, or named by its file's path (as an export's footage pictures are,
+  // export.mjs resvgSvg), it is flattened to the same pixels; a kino-frame:// link, which Resvg
+  // cannot load, keeps the triangles.
+  const picture = new Resvg('<svg xmlns="http://www.w3.org/2000/svg" width="40" height="24"><rect width="40" height="24" fill="#3769d1"/><circle cx="12" cy="12" r="8" fill="#ffd166"/></svg>').render().asPng();
+  const folder = await mkdtemp(join(tmpdir(), "kino-flatten-"));
+  t.after(() => rm(folder, { recursive: true, force: true }));
+  const file = join(folder, "picture.png");
+  await writeFile(file, picture);
+  const data = `data:image/png;base64,${picture.toString("base64")}`;
+  const tilted = createScene({ id: "p", width: 320, height: 180, background: "#202431", layers: [
+    createLayer("image", { id: "i", x: 60, y: 30, width: 200, height: 120, rotateY: -25, src: "/api/media/i.png" })] });
+  const embedded = renderSceneSvg(tilted, 0, { raster: true, embedMedia: new Map([["i", data]]) });
+  const byPath = embedded.replaceAll(data, file);
+  assert.ok(embedded.includes("data-kino-flatten=") && byPath.includes(`href="${file}"`));
+  assert.ok(!/<pattern [^>]*><use /.test(await flattenTilts(byPath, OPTIONS)), "a picture named by its path is flattened");
+  assert.deepEqual((await pool.render(byPath, OPTIONS, { raw: true })).pixels, (await pool.render(embedded, OPTIONS, { raw: true })).pixels);
+  assert.ok(/<pattern [^>]*><use /.test(await flattenTilts(embedded.replaceAll(data, "kino-frame://media/picture.png"), OPTIONS)), "a link Resvg cannot load keeps the triangles");
   // No seams along the triangles' edges: inside a partly transparent solid card every pixel is the
   // card's color (overlapping triangles painted it twice there, a bright line).
   const card = createScene({ id: "c", width: 320, height: 180, background: "#101010", layers: [

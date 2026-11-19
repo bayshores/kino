@@ -11,7 +11,8 @@ import { basename, dirname, join } from "node:path";
 import test from "node:test";
 import { createCanvas } from "@napi-rs/canvas";
 import { createChromiumRasterizer } from "./chromium-raster.mjs";
-import { chromiumFrameMaps, exportScene, linkEmbeddedPictures, linkedFilesKey, renderSceneFrames } from "./export.mjs";
+import { Resvg } from "@resvg/resvg-js";
+import { chromiumFrameMaps, exportScene, linkEmbeddedPictures, linkedFilesKey, renderSceneFrames, resvgReadsFiles, resvgSvg } from "./export.mjs";
 import { escapeXml, renderSceneSvg } from "../engine/render.js";
 import { effectDefaults } from "../engine/effects/catalog.js";
 import { createDocument, createLayer, createScene, parseDocument } from "../engine/model.js";
@@ -270,10 +271,21 @@ test("Chromium frame SVGs carry video, GIF and still pictures as links", async (
   // The same still gets the same file on every frame.
   const again = renderSceneSvg(scene, 0.5, { raster: false, embedMedia: media.images, ...chromiumFrameMaps(media, rasterizer) });
   assert.ok(again.includes(stillLink));
-  // Without Chromium (resvg draws the frame) the pictures stay embedded bytes.
+  // Without Chromium (Resvg draws the frame) the pictures are embedded bytes, until Resvg has
+  // shown that it loads a picture from a file (resvgReadsFiles): then the video picture is a link,
+  // a Resvg worker gets the file's path (resvgSvg) and draws the same pixels.
   const plain = renderSceneSvg(scene, 0, { raster: false, embedMedia: media.images, ...chromiumFrameMaps(media, undefined) });
   assert.ok(!plain.includes("kino-frame://"));
   assert.equal(plain.split("data:image/png;base64,").length - 1, 3);
+  assert.equal(await resvgReadsFiles(), true);
+  const linked = renderSceneSvg(scene, 0, { raster: false, embedMedia: media.images, ...chromiumFrameMaps(media, undefined) });
+  assert.equal(linked.split("data:image/png;base64,").length - 1, 2, "the still and the GIF frame stay embedded");
+  assert.ok(resvgSvg(linked).includes(`href="${videoFile}"`) && !resvgSvg(linked).includes("kino-frame://"));
+  const draw = svg => Buffer.from(new Resvg(svg, { font: { loadSystemFonts: false } }).render().pixels);
+  assert.ok(draw(resvgSvg(linked)).equals(draw(plain)), "the linked picture draws as the embedded one");
+  assert.notEqual(linkedFilesKey(linked), "missing");
+  await rm(videoFile);
+  assert.throws(() => resvgSvg(linked), /missing from the export's folder: frame-1\.png/);
 });
 
 // An effect's own picture (a noise tile, a displacement map) as engine/effects writes it: a PNG data URL.

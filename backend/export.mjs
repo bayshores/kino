@@ -29,8 +29,8 @@ import { createCanvas, loadImage } from "@napi-rs/canvas";
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { copyFile, lstat, mkdir, mkdtemp, open, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, dirname, extname, join, resolve, sep } from "node:path";
-import { fileURLToPath } from "node:url";
+import { basename, dirname, extname, isAbsolute, join, resolve, sep } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { Resvg } from "@resvg/resvg-js";
 import { gzipSync } from "node:zlib";
 import { createHash, randomUUID } from "node:crypto";
@@ -1679,7 +1679,7 @@ function videoFramesForMedia(media, rasterizer) {
         const file = inMorph
           ? morph.files[Math.max(0, Math.min(morph.files.length - 1, Math.floor((time - morph.start) / (morph.end - morph.start) * morph.files.length)))]
           : source.frameFor(sourceTime);
-        return chromiumLink(rasterizer, file) ?? { buffer: readFileSync(file), mimeType: "image/png" };
+        return chromiumLink(rasterizer, file) ?? (rasterizer ? null : resvgLink(file)) ?? { buffer: readFileSync(file), mimeType: "image/png" };
       });
   }
   return videos;
@@ -1698,6 +1698,58 @@ function videoFramesForMedia(media, rasterizer) {
 function chromiumLink(rasterizer, file) {
   const link = rasterizer?.mediaUrl?.(file);
   return link && EXPORT_FRAME_URL.test(link) ? link : null;
+}
+
+// Resvg draws a footage picture from a link to its file too. It loads a picture file named by its
+// absolute path in an <image> href as it loads a data: URL (the same pixels), without the picture
+// going into every frame's SVG as base64 text: 6 to 8 MB a 1080p frame that the main process
+// built and hashed, the worker received and Resvg decoded from text (a 1080p frame drew in 48 ms
+// embedded and 24 ms linked). The frame's SVG carries the link in Chromium's form
+// (kino-frame://media/<path>): the engine accepts only that form from the export's frame maps, and
+// the frame cache key names the files by it (linkedFilesKey). resvgSvg turns the links into paths
+// as the SVG goes to a Resvg worker.
+// Resvg leaves out a picture it cannot load, without an error, so whether this computer's Resvg
+// loads a file by its path is tried once (resvgReadsFiles); until then, and if it does not,
+// pictures are embedded as before.
+let resvgLinks = false;
+let resvgLinksTried;
+
+function resvgLink(file) {
+  if (!resvgLinks || typeof file !== "string" || !isAbsolute(file)) return null;
+  const link = `kino-frame://media${pathToFileURL(file).pathname}`;
+  return EXPORT_FRAME_URL.test(link) ? link : null;
+}
+
+const FRAME_LINK = /href="(kino-frame:\/\/media\/[^"]+)"/g;
+const linkedFile = link => fileURLToPath(`file://${unescapeXml(link).slice("kino-frame://media".length)}`);
+
+// The SVG a Resvg worker draws: each linked picture named by its file's path. A picture whose file
+// is gone is an error here, where Resvg would draw the frame without it. Exported for tests.
+export function resvgSvg(svg) {
+  if (!svg.includes("kino-frame://media/")) return svg;
+  return svg.replace(FRAME_LINK, (whole, link) => {
+    const file = linkedFile(link);
+    if (!statSync(file, { throwIfNoEntry: false })?.isFile()) throw new Error(`A picture of this frame is missing from the export's folder: ${basename(file)}.`);
+    return `href="${escapeXml(file)}"`;
+  });
+}
+
+// Draws a 2 by 2 red picture from a link, once a process. Exported for tests.
+export function resvgReadsFiles() {
+  resvgLinksTried ??= (async () => {
+    const folder = mkdtempSync(join(tmpdir(), "kino-link-try-"));
+    try {
+      const file = join(folder, "red.png");
+      writeFileSync(file, await encodeRenderPng(new Uint8Array(16).map((_, index) => (index % 4 === 0 || index % 4 === 3 ? 255 : 0)), 2, 2), { mode: 0o600 });
+      const link = `kino-frame://media${pathToFileURL(file).pathname}`;
+      if (!EXPORT_FRAME_URL.test(link)) return false;
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"><image width="2" height="2" href="${escapeXml(link)}"/></svg>`;
+      const drawn = await defaultRenderPool.render(resvgSvg(svg), { fitTo: { mode: "width", value: 2 }, font: { loadSystemFonts: false }, imageRendering: 0 }, { raw: true });
+      return drawn.pixels?.length === 16 && [0, 4, 8, 12].every(at => drawn.pixels[at] === 255 && drawn.pixels[at + 1] === 0 && drawn.pixels[at + 2] === 0 && drawn.pixels[at + 3] === 255);
+    } catch { return false; }
+    finally { rmSync(folder, { recursive: true, force: true }); }
+  })().then(works => (resvgLinks = works));
+  return resvgLinksTried;
 }
 
 // Links for one rasterizer: still images (written once to a file in the export's folder, by their
@@ -1865,13 +1917,14 @@ async function renderPng(scene, time, media, fonts, dimensions, { design = false
     const failed = await media.scripts.prepare([time], signal);
     scriptProblems?.push(...failed);
   }
+  if (!rasterizer) await resvgReadsFiles();
   svg ??= frameSvg(scene, time, media, fonts, dimensions, { design, rasterizer, mediaTime, draft, previewBlur });
   const rendererOptions = makeRendererOptions(scene, fonts, dimensions);
   // Chromium's pixels depend on the card it draws with (rasterizer.graphicsKey), so a frame drawn on
   // the processor is not reused for an export that asks for the card, or the other way round.
   const key = renderFrameCache.key(svg, { rendererOptions, raw, renderer: rasterizer ? "chromium" : "resvg", ...(draft ? { draft } : {}),
     ...(rasterizer?.graphicsKey ? { graphics: rasterizer.graphicsKey } : {}),
-    ...(rasterizer && svg.includes("kino-frame://") ? { linkedFiles: linkedFilesKey(svg) } : {}) });
+    ...(svg.includes("kino-frame://") ? { linkedFiles: linkedFilesKey(svg) } : {}) });
   const cached = renderFrameCache.get(key);
   if (cached) return cached;
   let result;
@@ -1880,7 +1933,7 @@ async function renderPng(scene, time, media, fonts, dimensions, { design = false
     const request = { label: label ?? `the frame at ${Number(time).toFixed(3)} s`, draft };
     result = raw ? await rasterizer.renderPixels(svg, dimensions.width, dimensions.height, request)
       : await rasterizer.render(svg, dimensions.width, dimensions.height, request);
-  } else result = await defaultRenderPool.render(svg, rendererOptions, { signal, raw, draft });
+  } else result = await defaultRenderPool.render(resvgSvg(svg), rendererOptions, { signal, raw, draft });
   aborted(signal);
   renderFrameCache.set(key, result);
   return result;
@@ -1964,23 +2017,25 @@ async function renderQualityFrame(scene, time, media, fonts, dimensions, options
     const failed = await media.scripts.prepare(times, context.signal);
     context.scriptProblems?.push(...failed);
   }
+  if (!context.rasterizer) await resvgReadsFiles();
   const svgs = times.map(sampleTime => frameSvg(scene, sampleTime, media, fonts, dimensions, { ...context, mediaTime: time }));
   // Nothing moves while the shutter is open: every sample is the same picture, so draw it once.
   if (svgs.every(svg => svg === svgs[0])) svgs.length = 1;
   if (!context.rasterizer) {
     const rendererOptions = makeRendererOptions(scene, fonts, dimensions);
-    const key = renderFrameCache.key(JSON.stringify(svgs), { rendererOptions, quality: options, renderer: "resvg-quality", ...(context.draft ? { draft: true } : {}), ...(context.pixels ? { pixels: true } : {}) });
+    const key = renderFrameCache.key(JSON.stringify(svgs), { rendererOptions, quality: options, renderer: "resvg-quality", ...(context.draft ? { draft: true } : {}), ...(context.pixels ? { pixels: true } : {}),
+      ...(svgs.some(svg => svg.includes("kino-frame://")) ? { linkedFiles: linkedFilesKey(svgs.join("")) } : {}) });
     const cached = renderFrameCache.get(key);
     if (cached) return cached;
     let result;
     if (svgs.reduce((bytes, svg) => bytes + Buffer.byteLength(svg, "utf8"), 0) <= MAX_SVG_BYTES) {
-      result = await defaultRenderPool.render(svgs[0], rendererOptions, {
-        samples: svgs.slice(1), dither: options.dither, signal: context.signal, draft: Boolean(context.draft), pixels: Boolean(context.pixels),
+      result = await defaultRenderPool.render(resvgSvg(svgs[0]), rendererOptions, {
+        samples: svgs.slice(1).map(resvgSvg), dither: options.dither, signal: context.signal, draft: Boolean(context.draft), pixels: Boolean(context.pixels),
       });
     } else {
       // Too much SVG text for one worker request (large footage pictures in many samples).
       const blend = createSampleBlend(dimensions.width, dimensions.height);
-      for (const svg of svgs) blend.add({ ...await defaultRenderPool.render(svg, rendererOptions, { raw: true, signal: context.signal, draft: Boolean(context.draft) }), premultiplied: true });
+      for (const svg of svgs) blend.add({ ...await defaultRenderPool.render(resvgSvg(svg), rendererOptions, { raw: true, signal: context.signal, draft: Boolean(context.draft) }), premultiplied: true });
       const blended = blend.finish(options);
       result = context.pixels ? { ...blended, reference: frameReference(blended.pixels, dimensions.width, dimensions.height) } : await blendedPng(blended, dimensions);
     }

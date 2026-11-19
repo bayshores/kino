@@ -2289,6 +2289,10 @@ sessions and optional display names; sharing uses revocable view, comment and ed
 - **Export cost** (`npm run perf`): a movie's Resvg frames go to FFmpeg as raw pixels, not PNG files
   (opaque backgrounds; the decoded frames are the same). 4 s of 1080p: 59.8 to 104 frames a second
   as a draft, 54.9 to 89.7 final. The Resvg pool runs 2 to 4 workers by cores and memory, kept 30 s.
+- **Footage export cost** (`npm run perf`, footage row): footage pictures are written as
+  uncompressed PNG and Resvg loads each from its file, not from base64 inside the frame's SVG
+  (`backend/chromium-media-links.test.mjs`, `backend/render-pool.test.mjs`); the decoded frames
+  are the same. 2 s of a 1080p clip pushing in: 15.6 to 30 frames a second.
 - **Disk limits**: answered look pictures keep to 512 MB, oldest deleted first
   (`backend/render-look-cache.test.mjs`); an event log over 4,000 lines is cut to its newest 2,000
   (`backend/agent-events.test.mjs`). `npm run desktop` builds only when a build input changed.
